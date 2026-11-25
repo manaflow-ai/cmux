@@ -260,6 +260,8 @@ on:
       - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
+      - tests/test_dev_build_stop.py
+      - scripts/dev-build.py
       - scripts/cmux-next/dev-cas-holder.sh
       - scripts/cmux-next/dev_cas_seed.py
       - tests/test_cmux_next_dev_cas_seed.py
@@ -641,6 +643,8 @@ on:
       - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
+      - tests/test_dev_build_stop.py
+      - scripts/dev-build.py
       - scripts/cmux-next/dev-cas-holder.sh
       - scripts/cmux-next/dev_cas_seed.py
       - tests/test_cmux_next_dev_cas_seed.py
@@ -1553,6 +1557,7 @@ jobs:
             python3 tests/test_xcode_build_timeline.py
             python3 tests/test_cmux_next_dev_landing_workflow.py
             python3 tests/test_dev_landing_place.py
+            python3 tests/test_dev_build_stop.py
             python3 tests/test_cmux_next_dev_cas_seed.py
             python3 tests/test_cmux_next_dev_daily_tree_wait.py
             [script-tests]
