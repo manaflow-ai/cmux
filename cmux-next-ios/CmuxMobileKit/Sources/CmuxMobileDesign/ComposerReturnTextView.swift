@@ -395,6 +395,14 @@ open class ComposerReturnTextView: UITextView {
         if contentOffset.y != top { contentOffset.y = top }
     }
 
+    /// Key-to-glyph stamps (`ComposerKeyStamp`): signposts in every build, samples under `InputLatencyTrace`.
+    private lazy var keyStamp = ComposerKeyStamp { [weak self] in self?.accessibilityIdentifier ?? "composer" }
+
+    override open func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let event, presses.contains(where: { $0.key != nil }) { keyStamp.pressed(at: event.timestamp) }
+        super.pressesBegan(presses, with: event)
+    }
+
     #if DEBUG
     /// UTF-16 units every composer has laid out to measure its height, so a
     /// test can see what one keystroke costs in text layout
@@ -419,7 +427,7 @@ open class ComposerReturnTextView: UITextView {
         #if DEBUG
         if let trace = InputLatencyTrace.shared { return tracedInsert(text, trace: trace) }
         #endif
-        super.insertText(text)
+        keyStamp.insert { super.insertText(text) }
     }
 
     #if DEBUG
@@ -435,7 +443,7 @@ open class ComposerReturnTextView: UITextView {
         let calls = Self.measureCalls
         let seconds = Self.measureSeconds
         let counters = trace.counters
-        super.insertText(text)
+        keyStamp.insert { super.insertText(text) }
         trace.sampleAtNextFrame("\(id)_key_frame", since: start)
         trace.sampleAfterCommit("\(id)_key_commit", since: start)
         // The main thread's CPU from the key to its frame committed.
