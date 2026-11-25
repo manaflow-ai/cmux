@@ -287,6 +287,11 @@
   ],
   "exempt": [
     {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/QuietUpdatingGallery.swift",
+      "text": "ConnectionChip(.init(.macOffline, sentence: \"Mac Studio is offline.\"), downSince: nil)",
+      "reason": "design gallery: the quiet-updating variants drawn for review, not in a flow"
+    },
+    {
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
       "text": "TerminalConnectingView(topInset: 60)",
       "reason": "design gallery: draws the state for review, not in a flow"
