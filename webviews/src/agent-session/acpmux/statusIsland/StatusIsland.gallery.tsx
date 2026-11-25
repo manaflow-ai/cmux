@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample chats, asks and errors), not shipped UI.
 // Agent status island (StatusIsland.tsx, experiment `agent-status-island`, off by default): the
 // floating pill at the top of the chat, compact with nothing running, compact with three agents
-// running, and morphed into its card for a pending approval (Allow and Deny, through Needs you's
+// running (the dot and 3, no word), and morphed into its card for a pending approval (Allow and Deny, through Needs you's
 // answer) and for an agent that stopped on an error. Every variant builds the island's state from
 // the real derivations (needsYouItems, islandState) over sample sessions and asks. Press the pill
 // or the card's chevron to watch the morph; light and dark come from the gallery's appearance control.
@@ -145,11 +145,11 @@ export default componentEntry<Props>({
       props: { sessions: [] },
     },
     "compact-running": {
-      note: "Three agents running: the accent dot and Running · 3. Nothing to show, so it stays a pill.",
+      note: 'Three agents running: the accent dot and 3, no word (Leo, 2026-11-23: "running" doesn\'t need text); the hover and VoiceOver say Running · 3. Nothing to show, so it stays a pill.',
       props: { sessions: running },
     },
     "expanded-approval": {
-      note: "An agent asks to run a command: the pill morphs into its card with Allow and Deny (Needs you's answer). The chevron folds it back into the pill.",
+      note: "An agent asks to run a command: the pill morphs into its card with Allow and Deny (Needs you's answer); the head counts the three that run as a small accent dot and 3, no word. The chevron folds it back into the pill.",
       props: { sessions: [...running, asking], asks: [ask] },
     },
     "expanded-long-choices": {

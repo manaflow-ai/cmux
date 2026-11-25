@@ -227,6 +227,27 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         let before = look(sub);
         sub.hidden = !visible;
         sub.idle = visible && !attending;
+        // Shown again after its stream was left out (`SubOpts::quiet_hidden`): one lag notice,
+        // queued under this lock so it goes before any record the show lets through. It names the
+        // cursor before the first record left out (`afterSeq`): the turn ends and status that
+        // still went out moved the client's own cursor past it, and a read from there would skip
+        // every chunk left out (direct.ts `lagCursor` reads from the older of the two).
+        // Other chats' rows left out while every chat here was hidden (`Conn::leaves_out_row`) are
+        // in the same notice, as `watch: true`: the page reads the list and its asks again.
+        let rows = if visible { conn.rows_left_out.swap(0, Ordering::SeqCst) } else { 0 };
+        if visible && (sub.left_out > 0 || rows > 0) {
+            let stream = std::mem::take(&mut sub.left_out);
+            let after_seq = std::mem::take(&mut sub.left_from);
+            let mut notice = json!({"dropped": stream + rows, "reason": "hidden",
+                "sessionIds": if stream > 0 { json!([s.id]) } else { json!([]) }});
+            if stream > 0 {
+                notice.set("afterSeq", json!(after_seq));
+            }
+            if rows > 0 {
+                notice.set("watch", Value::Bool(true));
+            }
+            conn.send(&Message::notification("_acpmux/lagged", notice));
+        }
         // Under the lock, so a detach racing this one counts the same look.
         back = hub.look_changed(&s, before, look(sub), seen_through);
     }

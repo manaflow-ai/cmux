@@ -100,6 +100,18 @@ map each one to its owner, so the same v2 envelope works on every host:
 | `bookmarks` | `bookmarks.tree` (the bookmark tree of each browser profile in the home session, `bookmarks-v1`; `server/bookmarks_routed.rs`) | `bookmarks.list`, `bookmarks.search`, `bookmarks.rank`, `bookmarks.export` | `bookmarks.apply` (page `bookmarks`: `gesture`); `bookmarks.import_html`, `bookmarks.import_source` (the app only) |
 | `tasks` | `tasks.local` (the local Tasks owner, `cmux-tasks serve`, over its Unix socket; the daemon relays and keeps no copy) | `tasks.snapshot` | `tasks.create`, `tasks.update`, `tasks.move`, `tasks.archive`, `tasks.delegate` (page `tasks`: `gesture`) |
 | `feed` | `feed` (the daemon's feed client, `feed-client-v1`; plans/cmux-next/feed-page.md section 2) | `feed.view.read`, `feed.item.get`, `feed.items.list`, `feed.github.find_work`, `feed.reports.read` | `feed.intent`, `feed.github.refresh`, `feed.reports.reply` (page `feed`: `gesture`); `feed.post`, `feed.withdraw`, `feed.github.configure`, `feed.presence.set` (the verified app connection only, no page) |
+| `forum` | `forum.hosted` (the team's hosted forum, `/v1/forum` on cmux-platform, through the `cmux-forum-hosted` client; `server/forum_routed.rs`; set up from `CMUX_FORUM_URL`, `CMUX_FORUM_TEAM`, `CMUX_FORUM_KEY`; the app's own process only) | `forum.snapshot`, `forum.thread.get` | `forum.thread.post`, `forum.thread.reply` (page `forum`: `gesture`) |
+
+The Forum page (`experiments.forum`) reads `forum.snapshot {space?}`: `{status, team, feed, spaces,
+threads, comments}` in the page's shape (`webviews/src/pages/forum/types.ts`): a thread's kind is its
+first `question`/`finding`/`article`/`page` label, times are Unix milliseconds. With no forum set up it
+answers `{status: "signed-out", ...}` so the page shows its gate. `forum.thread.get {number}` answers
+`{thread, comments}` (oldest first). `forum.thread.post {space, title, body, kind?}` answers `{thread}`
+and `forum.thread.reply {number, body}` `{comment, thread}`, on the person's gesture. Each op waits on
+the network on its own reply thread, at most 15 s. A hosted refusal is `operation.failed` with
+`extra.code` `forum.<class>` (`not_set_up`, `unauthorized`, `forbidden`, `not_found`, `invalid`,
+`unavailable`, `unreachable`, `timeout`, ...); no answer carries the key. The credential is the
+daemon's agent key for now; the app's sign-in is not wired yet.
 
 The Tasks page (plans/cmux-next/tasks.md): `tasks.snapshot {}` answers the owner's subscribe
 snapshot as the local person sees it (`{seq, me, settings, statuses, labels, projects, tasks,

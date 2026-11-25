@@ -354,8 +354,12 @@ def main():
            "build-linux builds the shipped (fat) profile")
     early = all_jobs["point-machine-channel-early"]
     # MACHINE_CHANNEL_THIN: it waits for the channel's own thin Linux legs, not for build-linux's fat ones.
-    _check(needs(early) == ["tree-preflight", "tree-owner-wait", "build-machine-channel"],
-           f"point-machine-channel-early waits for the thin channel legs only ({needs(early)})")
+    # LINUX_X86_64_FIRST: and for the x86_64 leg alone, not the aarch64 one.
+    _check(needs(early) == ["tree-preflight", "tree-owner-wait", "build-machine-channel-x86_64"],
+           f"point-machine-channel-early waits for the thin x86_64 channel leg only ({needs(early)})")
+    early_linux = all_jobs["point-machine-channel-early-linux"]
+    _check(needs(early_linux) == ["tree-preflight", "tree-owner-wait", "build-machine-channel-x86_64", "build-machine-channel"],
+           f"point-machine-channel-early-linux waits for both thin channel legs ({needs(early_linux)})")
     for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
         values = dict(base, **{"needs.build-linux.result": build_linux, "needs.build.result": "success"})
         _check(evaluate(publish["if"], values) == expected,

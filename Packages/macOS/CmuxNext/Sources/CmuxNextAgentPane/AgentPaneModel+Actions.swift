@@ -43,6 +43,11 @@ extension AgentPaneModel {
     /// just now (``AgentPaneUserGestures/consumeFreshGesture()``), never the generic half-minute credit.
     static let setupActions: Set<String> = [AgentPaneComputerUseState.setupAction]
 
+    /// The chat header's place controls (cloud/auto/evacuate): Local, Cloud and Auto (`chatPlace.set` with a `mode`), Cancel and Retry of the
+    /// move the chat shows (`chatMove.cancel`, `chatMove.retry`) and Evacuate to Cloud. The app's Rust decides each; they move chats, so
+    /// they need the person's gesture.
+    static let placeActions: Set<String> = ["chatPlace.set", "chatMove.cancel", "chatMove.retry", "cloudEvacuate", "cloudEvacuate.cancel", "cloudBringBackAll"]
+
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
     /// path (``UpgradeToPro``) as the model router's paywall, with its fixed `source`. webviews
@@ -66,11 +71,12 @@ extension AgentPaneModel {
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
-                   repo: String? = nil, returnTo: String? = nil) -> [String: Any] {
+                   repo: String? = nil, returnTo: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.setupActions.contains(id)
-            || screenShare || Self.githubActions.contains(id)
+            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id)
+            || Self.setupActions.contains(id) || screenShare || Self.githubActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -82,10 +88,15 @@ extension AgentPaneModel {
             return Self.transportFailure(.gestureRequired)
         }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
-        if screenShare, let session { arguments["session"] = session }
+        if screenShare || Self.placeActions.contains(id), let session { arguments["session"] = session }
+        if let mode { arguments["mode"] = mode }
+        if let queued { arguments["queued"] = String(queued) }
+        if let hasDraft { arguments["hasDraft"] = String(hasDraft) }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
         if let app, Self.editorActions.contains(id) { arguments["app"] = app }
+        // The named chats (a chat-list row, Evacuate's selection), comma-joined as the app's handlers read them.
+        if let sessions, Self.placeActions.contains(id) { arguments["sessions"] = sessions.joined(separator: ",") }
         if Self.githubActions.contains(id) {
             if let repo { arguments["repo"] = repo }
             // Only a link this build opens, carrying nothing it would ignore: GitHub's return comes
