@@ -24,7 +24,8 @@ export const HOLD_SECONDS = 60;
 const SESSION_HOST_PID = "pgrep -f 'cmux-tui server [s]tart' | head -1";
 const REMOTE_SESSIONS = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions`;
 /** cmux-tui's refusal of a fenced session without `auth/` (remote_runtime.rs) and any like it. */
-const LEGACY_ERROR = "grep -iE 'legacy|migration' | grep -iE 'error|requires|refus|fail|cannot'";
+const LEGACY_ERROR = "grep -iE 'legacy|migration'";
+const LEGACY_ERROR_FILTER = "grep -iE 'error|requires|refus|fail|cannot'";
 
 /** One hold: prints `key=value` lines for daemonUptimeProblems. */
 export function daemonHoldCommand(holdSeconds = HOLD_SECONDS): string {
@@ -39,7 +40,7 @@ export function daemonHoldCommand(holdSeconds = HOLD_SECONDS): string {
     `echo "pid-after=$(${SESSION_HOST_PID})"`,
     `for d in ${REMOTE_SESSIONS}/*/; do [ -e "$d/lifecycle-fence.json" ] && [ ! -d "$d/auth" ] && echo "fence-without-auth=$d"; done`,
     `journalctl -u ${HOST_UNIT} --since "@$t0" --no-pager -o cat 2>/dev/null > /root/cmux-uptime.log`,
-    `${LEGACY_ERROR} < /root/cmux-uptime.log | head -3 | cut -c1-200 | sed 's/^/legacy-error=/'`,
+    `${LEGACY_ERROR} < /root/cmux-uptime.log | ${LEGACY_ERROR_FILTER} | head -3 | cut -c1-200 | sed 's/^/legacy-error=/'`,
     "grep -E 'session host [0-9]+ exited' /root/cmux-uptime.log | head -3 | cut -c1-200 | sed 's/^/host-exit=/'",
     "rm -f /root/cmux-uptime.log",
     "true",

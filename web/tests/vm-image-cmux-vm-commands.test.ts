@@ -53,6 +53,23 @@ describe("cmux VM image guest commands", () => {
     expect(imageLeftoversCommand()).not.toMatch(/\b(cat|head -c|grep [^|]*credentials)\b/);
   });
 
+  // Image roll runs since 11-24 failed on "auto-session machine: refused vm.unbound": the redirect hit only the last grep of the filter.
+  test("daemon uptime legacy filter reads the journal through both greps", () => {
+    const cmd = daemonHoldCommand(0).split("; ").find((c) => c.includes("legacy-error="))!;
+    const run = (log: string) => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "uptime-"));
+      try {
+        writeFileSync(path.join(dir, "j.log"), log);
+        const out = Bun.spawnSync(["bash", "-c", cmd.replaceAll("/root/cmux-uptime.log", path.join(dir, "j.log"))], { stdin: "ignore" });
+        return out.stdout.toString();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    expect(run("cmux-host: cloud: auto-session machine: refused vm.unbound\n")).toBe("");
+    expect(run("cmux-tui: previous remote daemon authorization state requires explicit migration\n")).toContain("legacy-error=");
+  });
+
   // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
   test("daemon uptime parsing: a crash loop, a fence without auth/ and the migration error fail", () => {
     const up = "pid=812\nalive=1\npid-after=812";
