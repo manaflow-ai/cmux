@@ -29,6 +29,9 @@ final class FieldTextView: NSTextView {
     /// cmux: a draft attachment's file, named like it: Copy of a selection holding attachments
     /// writes the files (ComposeSelectionCopy.swift). Nil: none here.
     var draftAttachmentFile: (ID) -> URL? = { _ in nil }
+    /// cmux: a click on a picture in the field opens it large (issue 51939): its id, its box in the field and its
+    /// thumbnail; true when it opened. With no host nothing opens.
+    var onOpenDraftPicture: (ID, CGRect, CGImage?) -> Bool = { _, _, _ in false }
     /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
     /// intake takes: the pane's drop highlight follows it.
     var onDropTargetChange: (Bool) -> Void = { _ in }
@@ -44,7 +47,10 @@ final class FieldTextView: NSTextView {
         pickerAnchor = nil  // cmux
         onPress(event)
         super.mouseDown(with: event)
-        if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
+        if let up = NSApp.currentEvent, up.type == .leftMouseUp {
+            onRelease(up)
+            openPictureClicked(down: event, up: up)  // cmux: issue 51939 (FieldTextView+PictureClick.swift)
+        }
     }
 
     /// The inset above the first line (UITextView's 6.24 pt). `textContainerInset.height` is half of
