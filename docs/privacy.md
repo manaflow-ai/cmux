@@ -98,6 +98,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
+| `index.crates.io` | connects | the crates.io sparse index, fetched through the machine git cache for a cargo build in a cloud VM |
+| `static.crates.io` | connects | crate downloads, fetched through the machine git cache for a cargo build in a cloud VM |
+| `turn.cloudflare.com` | connects | the default TURN relay of the iPhone link when the link names none |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
@@ -378,6 +381,14 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
+| `aka.ms` | identifier | an install script URL written into a migrated cloud VM setup line; the app does not fetch it |
+| `dot.net` | identifier | an install script URL written into a migrated cloud VM setup line; the app does not fetch it |
+| `get.docker.com` | identifier | an install script URL written into a migrated cloud VM setup line; the app does not fetch it |
+| `mise.run` | identifier | an install script URL written into a migrated cloud VM setup line; the app does not fetch it |
+| `install.determinate.systems` | identifier | an install script URL written into a migrated cloud VM setup line; the app does not fetch it |
+| `get.jetify.com` | identifier | an install script URL written into a migrated cloud VM setup line; the app does not fetch it |
+| `git-lfs.github.com` | identifier | the Git LFS pointer version string the link seed compares; never fetched |
+| `www.bbc.co.uk` | example | a sample site in the site-monogram gallery |
 
 ### Text that looks like a host name
 
@@ -390,10 +401,12 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
 | `replaced.app` | not-a-host | the app bundle `cmux app try` sets aside when it replaces a copy |
 | `undone.app` | not-a-host | the app bundle `cmux app try undo` sets aside |
-| `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
 | `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
 | `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
 | `task.ai` | not-a-host | a symbol or icon name |
+| `red.sh` | not-a-host | a script file name in a repro capsule |
+| `green.sh` | not-a-host | a script file name in a repro capsule |
+| `run.sh` | not-a-host | a script file name in a repro capsule |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
 | `projection.io` | not-a-host | an error code of projected folders |

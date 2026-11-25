@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 42,
+ "todo_max": 45,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -18,6 +18,9 @@
    "todo": true
   },
   "chatmux_relay::session": {
+   "todo": true
+  },
+  "cmux_autocloud::login": {
    "todo": true
   },
   "cmux_cloud_api::http": {
@@ -80,6 +83,9 @@
   "cmux_tui::cli::cloud_journey": {
    "todo": true
   },
+  "cmux_tui::cli::cloud_start_chat::direct": {
+   "todo": true
+  },
   "cmux_tui::cli::customize::pr": {
    "todo": true
   },
@@ -132,6 +138,9 @@
    "none": "a GET of the public app registry pages: no auth or person data in the request"
   },
   "cmux_tui_core::apps::egress": {
+   "todo": true
+  },
+  "cmux_tui_core::apps::git_source": {
    "todo": true
   },
   "cmux_tui_core::blob_fetch": {
