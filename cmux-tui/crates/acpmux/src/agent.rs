@@ -2260,6 +2260,19 @@ impl ChildAgent {
         self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
     }
 
+    /// A person's own turn runs (`on`) or ended: a `background` harness leaves background class
+    /// for the turn and goes back after it (`cpu_class.rs`, item 6), so the tools it starts while
+    /// a person waits run at the agent tier, still below the app, not at background class. Only a
+    /// harness this daemon put in background class moves. True when its class changed.
+    pub async fn person_turn(&self, on: bool) -> bool {
+        let background =
+            self.run_class.get().copied() == Some(crate::cpu_class::CpuClass::Background);
+        if !background || !self.run_class_entered.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.with_live_harness(|pid| crate::cpu_class::person_turn(pid, on)).await.unwrap_or(false)
+    }
+
     /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.
     pub async fn harness_seen(&self) -> crate::cpu_class::HarnessSeen {
         use crate::cpu_class::HarnessSeen;
