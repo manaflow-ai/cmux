@@ -149,6 +149,10 @@ export const ROW_LEVELS: {
     "sidebar.workspaceRow.working": "more",
     "sidebar.workspaceRow.log": "more",
     "sidebar.workspaceRow.secondLineOrder": "hidden",
+    // The Row Layout editor (editors/RowLayoutEditor.tsx) draws all three layout keys on the `lines`
+    // row, a tab each; a search result or link for one of these two opens it on that tab.
+    "sidebar.workspaceRow.linesByKind": "hidden",
+    "sidebar.workspaceRow.linesByAgent": "hidden",
     "sidebar.spacesPosition": "more",
     "sidebar.showProfileControl": "more",
     "sidebar.showSearchButton": "more",
@@ -205,7 +209,7 @@ export const ROW_LEVELS: {
     "focusRing.style": "more",
     "focusRing.contrast": "more",
     "focusRing.showWhenSinglePane": "more",
-    "focusRing.color": "hidden",
+    "focusRing.color": "more",
     "focusRing.width": "hidden",
     "sidebar.showChats": "more",
     "tabs.newTabNowPlaying": "more",
