@@ -47,6 +47,45 @@ The person-mirroring iPhone stays as it was: set `IOS_LIVE_HOST=air-blue` and le
 `IOS_LIVE_HOSTS` unset, and every command behaves exactly as before slots (one device,
 `cmux-ios-live`, one lease).
 
+## Person slots
+
+Leo, 2026-11-25: "the bigger win possible for aziz is a persistent one that him and his agents can
+work against". A person slot is one simulator for one person and their agents. It never lapses, is
+never reset on release and is never handed to anyone else:
+
+```bash
+scripts/ios-live/ios-live person create aziz          # on the least-loaded of IOS_LIVE_HOSTS (or name a HOST)
+IOS_LIVE_PERSON=aziz scripts/ios-live/ios-live swift  # or: ios-live --person aziz swift
+scripts/ios-live/ios-live people                      # every person slot: host, base, state, RSS, restarts
+```
+
+- It lives at `~/ios-live/people/NAME` on its host, with the same layout as a slot, and its device
+  is `cmux-ios-live-NAME`. The client remembers the host in `~/.cache/ios-live/person-NAME`.
+- Owners `NAME` and `NAME/*` drive it (the client makes the owner `NAME/HOST/session` for you);
+  any other owner is refused. There is no lease: commands that change it (`swift`, `swap`, `up`,
+  `erase`, `relaunch`, `undo`, `tap`, `type`) wait in turn on a per-slot lock
+  (`lease/drive.lock`), so two agents' swaps run one after the other, never into each other.
+- `lease release` does nothing to it. `erase` is the only thing that wipes its device state.
+
+## Supervision
+
+`host.sh supervise` runs every 15 s from a per-user launchd agent
+(`~/Library/LaunchAgents/com.cmux.ios-live.supervise.plist`, installed by `person create` or
+`host.sh supervise-install`; the agent runs its own copy, `~/ios-live/bin/supervise-host.sh`). It
+looks after every person slot and every held shared slot, skipping any slot whose drive lock is
+held (a swap in progress):
+
+- **Device not Booted**: boot it; if CoreSimulator wedges, shut it down and boot it; as a last
+  resort, kill that device's own `launchd_sim` process tree and boot. It never touches another
+  device and never quits Simulator.
+- **App not running**: relaunch it with the slot's launch environment, then re-apply the newest
+  live code patch (`swift` patches are cumulative, kept in `live-patches/`), so a crash does not
+  lose your edits. `swap`, `up` and `undo --all` clear that stack.
+- It never erases a device.
+- Each restart is recorded in `state.json` `restarts` (time, cause, what it did, ms to back);
+  `ios-live status` shows the last few and the device's RSS (its `launchd_sim` tree). Memory per
+  device is bounded by the slimmed device.
+
 ## Which command
 
 | Change | Command | Edit to visible |
