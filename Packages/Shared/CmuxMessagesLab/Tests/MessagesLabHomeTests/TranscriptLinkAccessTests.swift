@@ -100,6 +100,22 @@ import Testing
         withExtendedLifetime(window) {}
     }
 
+    /// AXActionNames lists AXPress, and performing it opens the link: an AX client (CuaDriver) indexes the
+    /// link only when that list is not empty, and the custom action alone left it empty on a Nightly walk.
+    @Test func eachLinkListsPressInItsActionNames() throws {
+        let (window, controller) = controller()
+        var app: [String] = []
+        controller.onAppLink = { app.append($0.absoluteString) }
+        let element = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(element).first)
+        // Through the Objective-C selector AppKit's AX server calls, not a Swift call, so it reads what a client gets.
+        let names = link.perform(NSSelectorFromString("accessibilityActionNames"))?.takeUnretainedValue() as? [String]
+        #expect(names?.contains(NSAccessibility.Action.press.rawValue) == true)
+        _ = link.perform(NSSelectorFromString("accessibilityPerformAction:"), with: NSAccessibility.Action.press.rawValue)
+        #expect(app == [Self.anyApp])
+        withExtendedLifetime(window) {}
+    }
+
     @Test func theLinkElementsAreReusedAcrossReads() throws {
         let (window, controller) = controller()
         let first = links(try #require(controller.accessibilityElements(parent: controller.host).first))
