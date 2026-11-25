@@ -88,6 +88,21 @@ nonisolated extension AcpmuxPaneMethods {
             // Fork placement (`cloud.autoCloud`): the parent machine to fork and the key, or why not.
             "fork": .object(["at": .string, "machine": .string, "clientKey": .string, "why": .string]),
         ]),
+        // A chat's drafts, for their unsent images only (RFD 0138; composer/carriedDraftImages.ts):
+        // which surface kept them and each image's id and type. The drafts' text, the chat's turn
+        // and its queue stay out; an image's bytes come through `_acpmux/attachment`.
+        "_acpmux/composers": .object([
+            "composers": .list(.object([
+                "surfaceId": .string, "name": .string, "kind": .string, "updatedAt": .number,
+                "images": .list(.object([
+                    "id": .string, "mimeType": .string, "name": .string, "width": .number, "height": .number,
+                ])),
+            ])),
+        ]),
+        // The write's answer: each kept image's id, in order, so the next write names it by id.
+        "_acpmux/composer_set": .object([
+            "images": .list(.object(["id": .string, "mimeType": .string])),
+        ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
         // relay derives transport from `url` and drops the endpoint and all other metadata.
         "_acpmux/peer_reconnect": .object([

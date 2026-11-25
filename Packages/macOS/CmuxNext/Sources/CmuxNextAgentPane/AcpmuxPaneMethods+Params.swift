@@ -147,6 +147,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/place_chat": (["where", "targets", "parent", "key"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        // `surface` ({id, name, kind}): the page's own, which acpmux keeps its draft under.
+        // `images`: ACP image blocks, or `{id}` of one the chat's drafts hold.
+        "_acpmux/composer_set": (["sessionId", "surface", "text", "images"], []),
+        "_acpmux/composers": (["sessionId"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),

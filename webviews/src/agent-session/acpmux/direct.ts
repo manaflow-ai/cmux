@@ -212,7 +212,8 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { toolMentionContext, toolMentionsIn } from "./toolMentions";
 import { sentWords } from "./computerUse/computerUseState";
 import { promptContext } from "./composer/videoTranscript";
-import { promptSurfaceMeta } from "./surfaces/promptSurface";
+import { pageSurface, promptSurfaceMeta } from "./surfaces/promptSurface";
+import { readCarriedImages, writeCarriedImages } from "./composer/carriedDraftImages";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
 import { harnessModeName, highestMode } from "./harnessModes";
@@ -5936,6 +5937,17 @@ export class AcpmuxDirectClient {
     // A draft read before this write is older than it.
     if (this.earlyDraft?.sessionId === sessionId) this.earlyDraft = undefined;
     return this.request("_acpmux/draft_set", { sessionId, text });
+  }
+
+  /// Keeps the chat's unsent composer images in acpmux under this page's surface, so they travel
+  /// with the chat when it moves (RFD 0138; composer/carriedDraftImages.ts).
+  writeDraftImages(sessionId: string, attachments: ComposerAttachment[]): Promise<void> {
+    return writeCarriedImages((method, params) => this.request(method, params), sessionId, pageSurface(), attachments);
+  }
+
+  /// The chips of the unsent images the chat's app drafts hold in acpmux (a moved chat's).
+  readDraftImages(sessionId: string): Promise<ComposerAttachment[]> {
+    return readCarriedImages((method, params) => this.request(method, params), sessionId);
   }
 
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).

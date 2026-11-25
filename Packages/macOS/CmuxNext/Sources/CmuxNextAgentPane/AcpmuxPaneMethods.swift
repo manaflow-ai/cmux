@@ -61,6 +61,12 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/request_state",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // A draft's unsent images, kept in acpmux under this page's surface so they move with the chat
+        // (RFD 0138; composer/carriedDraftImages.ts, acpmux hub/composers.rs). The page writes its own
+        // surface's images (text always empty: the draft's text stays `draft_set`'s) and reads the
+        // chat's drafts' images back; the read's reply is cut to ``replyShapes`` (no text, turn or
+        // queue), and an image's bytes come only through `_acpmux/attachment`, as a prompt's do.
+        "_acpmux/composer_set", "_acpmux/composers",
         // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this
         // machine's budget and answers here or a place from the targets the page passed; it starts,
         // moves and writes nothing. Its reply is cut to ``replyShapes``; acpmux answers this Mac's
@@ -370,7 +376,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/composer_set", "_acpmux/composers", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/seen", "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/subagents", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
