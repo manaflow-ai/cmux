@@ -147,6 +147,8 @@ def line_labels(line: str) -> tuple[str | None, list[str], str]:
 
     Shapes seen: `12 button Description: 1, ID: One` (index, role, pairs), `- [12] AXButton "1"
     (id=One)` (bracketed index, quoted title)."""
+    # A diff line's old values (`~ [3] text "7" (was: "0")`) are not the state.
+    line = line.split(" (was: ", 1)[0]
     m = LINE_INDEX.search(line)
     if not m:
         return None, [], ""
@@ -316,16 +318,19 @@ class Mcp:
         return result, size
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
+        # review F1). The group keeps the leader's pid as its id while any member lives.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                self.proc.terminate()
+                os.killpg(self.proc.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
             try:
-                self.proc.wait(timeout=10)
+                self.proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                pass
         for stream in (self.proc.stdin, self.proc.stdout, self.stderr):
             try:
                 if stream:
@@ -396,6 +401,10 @@ class Adapter:
         tool = dict(PROFILES)[self.profile]
         args = dict(self.target or {})
         p = props(self.tools[tool])
+        # cmux shows only the changes after a first look: a bench reads the
+        # whole state every time.
+        if "full" in p:
+            args["full"] = True
         if "screenshot" in p:
             args["screenshot"] = screenshot
         elif "include_screenshot" in p:
@@ -459,6 +468,43 @@ class Adapter:
 
 # ---------------------------------------------------------------- the target app
 
+# On-screen normal windows (layer 0) of a pid, from the window server (CGWindowListCopyWindowInfo through JXA:
+# no Accessibility grant needed); None when the list cannot be read.
+WINDOWS_JXA = (
+    "ObjC.import('CoreGraphics'); function run(argv) { var pid = parseInt(argv[0]);"
+    " var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));"
+    " return String(list.filter(function (w) { return w.kCGWindowOwnerPID === pid && w.kCGWindowLayer === 0; }).length); }")
+
+
+def window_count(pid: int) -> int | None:
+    try:
+        out = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOWS_JXA, str(pid)],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        return int(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def front_pid() -> int | None:
+    """The frontmost app's pid (lsappinfo), None when unreadable."""
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True,
+                              timeout=5).stdout
+        found = re.search(r"=\s*(\d+)", info)
+        return int(found.group(1)) if found else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def wait_until(predicate, timeout: float, what: str, interval: float = 0.1) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"{what} within {timeout:g} s")
+        time.sleep(interval)
+
+
 class TargetApp:
     """The app under test, started as this bench's own child so the bench stops exactly it."""
 
@@ -483,9 +529,19 @@ class TargetApp:
             return None
         self.proc = subprocess.Popen([str(self.executable)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
-        time.sleep(self.settle_s)
+        proc, launched = self.proc, time.monotonic()
+
+        def shown() -> bool:
+            count = window_count(proc.pid)
+            # An unreadable window list (no osascript) falls back to the --settle time.
+            return proc.poll() is not None or (count > 0 if count is not None
+                                               else time.monotonic() - launched >= self.settle_s)
+        # Until the new app shows a window, then until it is the frontmost app after `open -a`.
+        wait_until(shown, max(10.0, 3 * self.settle_s), f"{self.name} (pid {proc.pid}) showed no window")
+        if proc.poll() is not None:
+            raise RuntimeError(f"{self.name} exited ({proc.returncode}) right after its launch")
         subprocess.run(["/usr/bin/open", "-a", self.path], capture_output=True, timeout=10)  # bring it forward
-        time.sleep(0.3)
+        wait_until(lambda: front_pid() in (proc.pid, None), 5.0, f"{self.name} (pid {proc.pid}) did not come to the front")
         return self.proc.pid
 
     def stop(self) -> None:
@@ -805,7 +861,7 @@ def main(argv=None) -> int:
     r.add_argument("--rounds", type=int, default=15)
     r.add_argument("--samples", type=int, default=2, help="samples of each op per engine per round")
     r.add_argument("--e2e-samples", type=int, default=1, help="end-to-end loops per engine per round")
-    r.add_argument("--settle", type=float, default=1.5, help="seconds the app gets after a launch")
+    r.add_argument("--settle", type=float, default=1.5, help="seconds a launch is expected to take; its window is waited for, at most max(10, 3x) s")
     r.add_argument("--timeout", type=float, default=30, help="seconds one call may take")
     r.add_argument("--budget", type=float, default=0, help="stop starting rounds after this many seconds")
     s = sub.add_parser("summary")

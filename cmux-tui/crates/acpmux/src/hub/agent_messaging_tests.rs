@@ -62,6 +62,91 @@ fn turns(hub: &Hub, s: &Session) -> Vec<Value> {
     turns.map(|r| r.msg["promptId"].clone()).collect()
 }
 
+/// [`send`] with `extra` set on its provenance, as the receiver's daemon stamped it.
+fn send_with(
+    hub: &Arc<Hub>,
+    to: &Arc<Session>,
+    from: &str,
+    prompt_id: &str,
+    extra: Value,
+) -> (tokio::task::JoinHandle<Result<Value, RpcError>>, tokio::sync::oneshot::Receiver<Value>) {
+    let mut provenance = json!({"kind": "session_message", "from": format!("acp:{from}"),
+                            "fromName": from, "to": format!("acp:{}", to.id), "verified": true});
+    for (k, v) in extra.as_object().into_iter().flatten() {
+        provenance[k] = v.clone();
+    }
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let opts = PromptOptions {
+        prompt_id: Some(prompt_id.to_owned()),
+        provenance: Some(provenance),
+        agent: Some(from.to_owned()),
+        class: Some(PromptClass::Result),
+        inbox: true,
+        on_accepted: Some(Box::new(move |v| {
+            let _ = tx.send(v);
+        })),
+        ..PromptOptions::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": "status: done"})];
+    let (hub, to) = (hub.clone(), to.clone());
+    (tokio::spawn(async move { hub.prompt_with(&to, blocks, "test", false, opts).await }), accepted)
+}
+
+/// cmuxterm-hq#17784: a message to a parked machine waited in its sender's outbox; once the
+/// machine came back the outbox's ssh carry (or its link, sending it again) brought it in, and
+/// the idle chat held it (a result from neither its parent nor its delegator) for the 15 min
+/// flush. The scaler parked the machine again in about 4 min, so no turn ever ran. A message that
+/// waited for the machine wakes the chat at once, by either road; one that did not wait is held
+/// as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
+    let wait_for_turn = |hub: Arc<Hub>, s: Arc<Session>| async move {
+        while hub.work_coming(&s.id) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    // Before: the same result sent once, at once, is held and brings no turn.
+    let (hub, s) = delegated().await;
+    let (held, accepted) = send_with(&hub, &s, "s-other", "p-fresh", json!({}));
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(accepted[crate::cli::output::HELD_IN_INBOX], true, "{accepted}");
+    assert!(!hub.work_coming(&s.id), "a held message brings no turn");
+
+    // After, by the link: a peer's outbox sent it again once the machine was back
+    // (`_meta.acpmux.resend` on a peer link, which `requests.rs` stamps): it wakes the chat, and
+    // the held one goes in with it.
+    let resent = json!({crate::prompt_provenance::WAITED: true});
+    let (again, accepted) = send_with(&hub, &s, "s-other", "p-resent", resent);
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
+    let done = tokio::time::timeout(WAIT, again).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
+    let done = tokio::time::timeout(WAIT, held).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "the held one went in with it: {done}");
+    tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
+
+    // After, by the ssh carry: the far daemon's relay record names the carry
+    // (`prompt_provenance::SSH_CARRY_RELAY`), and the message wakes the chat as it comes in.
+    let carried = json!({crate::prompt_provenance::FROM_RELAY: {
+        "by": crate::prompt_provenance::SSH_CARRY_RELAY, "machine": "vm-1", "session": "s-other"}});
+    let (sent, accepted) = send_with(&hub, &s, "s-other", "p-carried", carried);
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
+    let done = tokio::time::timeout(WAIT, sent).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
+    tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
+
+    // Another relay's message (the lane-gh broker's) did not wait: held as before.
+    let broker = json!({crate::prompt_provenance::FROM_RELAY: {
+        "by": "lane-gh", "machine": "vm-1", "session": "s-other"}});
+    let (held, accepted) = send_with(&hub, &s, "s-other", "p-broker", broker);
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(accepted[crate::cli::output::HELD_IN_INBOX], true, "{accepted}");
+    held.abort();
+}
+
 /// The chat ran its first work from `s-coord` and is idle again.
 async fn delegated() -> (Arc<Hub>, Arc<Session>) {
     let (hub, s) = chat().await;
@@ -85,7 +170,24 @@ async fn the_delegators_next_send_runs_as_its_own_turn_and_answers_with_it() {
     let done = tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap();
     assert_eq!(done["stopReason"], "end_turn", "{done}");
     assert_eq!(turns(&hub, &s), [json!("p-1"), json!("p-2")], "its own turn, its own prompt");
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing waits in the inbox");
+    assert!(s.inbox().items.is_empty(), "nothing waits in the inbox");
+}
+
+/// A config reload must not hold an inbox delivery before its queued acceptance. The page rule
+/// fails open for this one delivery while the writer owns the config lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbox_delivery_is_accepted_while_config_reload_holds_its_lock() {
+    let (hub, s) = delegated().await;
+    let config = hub.config.write().await;
+    let (delivery, accepted) =
+        send(&hub, &s, "s-other", "p-config-held", "status", PromptClass::Result, false);
+    let ack = tokio::time::timeout(Duration::from_secs(2), accepted)
+        .await
+        .expect("inbox acceptance is bounded by a config reload")
+        .unwrap();
+    assert_eq!(ack["inbox"], true, "{ack}");
+    drop(config);
+    delivery.abort();
 }
 
 /// The eval's A5: an agent's `send --wait --timeout 300` to an idle chat it did not start hung all
@@ -102,7 +204,7 @@ async fn a_waiting_send_that_cannot_wake_an_idle_chat_is_refused_at_once() {
         .expect_err("a held message is no answer");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
     assert!(refused.message.contains("--class question"), "names the fix: {}", refused.message);
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+    assert!(s.inbox().items.is_empty(), "nothing was delivered");
     assert!(!hub.work_coming(&s.id), "no turn comes for it");
 
     // The same message that does not wait (`send --no-wait`) is held, and says so.
@@ -143,7 +245,7 @@ async fn a_waiting_fyi_is_refused_while_a_continuation_may_fire() {
         .unwrap()
         .expect_err("a held FYI is no answer");
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "send.not_woken", "{refused:?}");
-    assert!(s.inbox.lock().unwrap().items.is_empty(), "nothing was delivered");
+    assert!(s.inbox().items.is_empty(), "nothing was delivered");
 
     // A result from someone else is held for the continuation, never refused, as before.
     let (held, accepted) = send(&hub, &s, "s-other", "p-r", "done", PromptClass::Result, true);
@@ -169,12 +271,22 @@ async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
         tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", false, opts).await })
     };
     let first = run("p-a", "until-cancel");
+    // The agent's own "running", not the turn showing: a turn shows while its agent still starts,
+    // and a Stop before its prompt reached the agent ends it short of `finish_turn` (its seam
+    // below), so the seam then held the queued prompt's own end, with nothing left queued.
     let running = async {
-        while s.turn().is_none() {
+        loop {
+            let records = hub.events(&s.id, 0, 100_000).unwrap();
+            if records.iter().any(|r| {
+                r.kind == "agent_message_chunk"
+                    && r.msg.pointer("/params/update/content/text") == Some(&json!("running"))
+            }) {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
-    tokio::time::timeout(WAIT, running).await.expect("the first turn started");
+    tokio::time::timeout(WAIT, running).await.expect("the first turn reached its agent");
     let second = run("p-b", "hello");
     // In the queue, as its `queued` acceptance says: the `queued` count goes up first (under
     // `admit`), and the prompt joins the queue only after it, so the count alone does not mean

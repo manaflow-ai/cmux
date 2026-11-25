@@ -12,7 +12,7 @@ fn production_caps_fit_separate_checkpoint_budgets_and_roundtrip() -> TestResult
     let mut blobs = Blobs::open(home.path())?;
     let mut state = Checkpoint::new(5);
     state.last_row = 64;
-    state.translator = vec![0; 32 * 1024];
+    state.translator = vec![0; crate::translate::MAX_TRANSLATOR_BYTES];
     state.cursors.push(Cursor { file: source, place: 100, stamp: 7 });
     state.summary = vec![b'x'; 2048];
     state.prompts = vec![[42; 32]; 1024];
@@ -165,7 +165,7 @@ fn checkpoint_rejects_inconsistent_editions_and_missing_open_ids() -> TestResult
 fn group_and_steers_fit_beside_the_bulk_row_cap() -> TestResult {
     let mut state = Checkpoint::new(5);
     state.last_row = MAX_OPEN_BODIES as u64;
-    state.translator = vec![0; 32 * 1024];
+    state.translator = vec![0; crate::translate::MAX_TRANSLATOR_BYTES];
     state.prompts = vec![[0; 32]; MAX_PROMPTS];
     for row in 1..=state.last_row {
         let mut body = Body::new(row)?;

@@ -25,9 +25,21 @@ extension TaskLocal {
     public func withValueInTask<R>(_ value: Value, operation body: () -> R) -> R {
         // The only sanctioned synchronous bindings (check-concurrency: task-local bindings).
         if withUnsafeCurrentTask(body: { $0 != nil }) { return withValue(value, operation: body) }
+        #if !canImport(Darwin)
+        // Linux runs only the action exporter, which has no Objective-C unwinds to guard.
+        return withValue(value, operation: body)
+        #else
         guard #available(macOS 15.4, *) else { return withValue(value, operation: body) }
         return withoutActuallyEscaping(body) { body in
-            let run = ImmediateRun { self.withValue(value, operation: body) }
+            // An Objective-C exception that unwound this task's frame to an older system catch would
+            // leave the runtime's executor record dead, and a later isolation check segfaults on it
+            // far from here (#44060): the guard puts back the slots read here and logs the throw.
+            let outer = SwiftExecutorFrames.Slots.current()
+            let run = ImmediateRun {
+                SwiftExecutorFrames.guardingUnwind("TaskLocal.withValueInTask", restoring: outer) {
+                    self.withValue(value, operation: body)
+                }
+            }
             if #available(macOS 26, *) {
                 // task-owner: runs to its end before `finish` returns; `body` never suspends
                 _ = Task.immediate { @MainActor in run.start() }
@@ -37,6 +49,7 @@ extension TaskLocal {
             }
             return run.finish()
         }
+        #endif
     }
 }
 

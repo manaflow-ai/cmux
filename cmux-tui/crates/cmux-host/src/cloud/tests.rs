@@ -155,7 +155,7 @@ fn bind_posts_the_vector_fields_writes_bound_then_removes_bind() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
     let seen = fake.0.borrow().seen[0].clone();
     assert_eq!(seen.url, format!("{DEV}/v1/cloud/bind"));
     assert_eq!(seen.bearer, None, "the one-time token is the credential");
@@ -200,7 +200,7 @@ fn a_carrier_bind_sends_the_noise_key_and_keeps_carrier_json() {
     let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
     let noise = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), Some(noise), T0);
-    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
     let seen = fake.0.borrow().seen[0].clone();
     assert_eq!(seen.body["daemon_noise_key"], noise);
     assert!(seen.body.get("carrier").is_none(), "the route is not sent back");
@@ -234,7 +234,7 @@ fn a_bind_without_carrier_changes_nothing() {
         store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
         let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
         let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-        assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+        assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
         assert_eq!(store.read(CARRIER_FILE).as_deref(), existing);
         assert!(fake.0.borrow().seen[0].body.get("daemon_noise_key").is_none());
     }
@@ -415,9 +415,9 @@ fn vm_receiver_client_existing_bind_auth_report_and_refresh_keep_working() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
     let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(bound, BindResult::Bound(_)), "original bind failed");
+    assert!(matches!(bound, BindResult::Bound(..)), "original bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
-    if let BindResult::Bound(bound) = bound {
+    if let BindResult::Bound(bound, _) = bound {
         assert_eq!(*bound, saved);
     }
     let mut client = CloudClient::new(fake.clone(), saved, key);
@@ -447,7 +447,7 @@ fn carrier_ticket_request_uses_an_empty_body() {
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
     let key = ensure_install_key(&mut store, "i-original", &rng).unwrap().key;
     let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
-    assert!(matches!(result, BindResult::Bound(_)), "original bind failed");
+    assert!(matches!(result, BindResult::Bound(..)), "original bind failed");
     let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
 
     let mut client = CloudClient::new(fake.clone(), saved, key);
@@ -512,7 +512,7 @@ fn a_retry_after_a_lost_answer_that_binds_clears_the_record() {
     assert!(matches!(bind(T0), BindResult::Retry(_)));
     assert!(matches!(bind(T0 + 1_000), BindResult::Retry(_)));
     let result = bind(T0 + 5_000);
-    assert!(matches!(result, BindResult::Bound(_)), "{result:?}");
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
     assert_eq!(store.mode_of(BIND_UNANSWERED_FILE), None);
     assert_eq!(store.read(BIND_FILE), None);
 }
@@ -543,6 +543,7 @@ fn a_refusal_with_no_lost_answer_of_this_token_is_final() {
 /// call `bind_now` makes) takes the updater's connect hold, so the bound
 /// machine's first link is held from any update's restart. Driven through
 /// the real path to `BindResult::Bound`, under a temporary root.
+#[cfg(unix)]
 #[test]
 fn a_bind_that_lands_holds_the_updaters_flip() {
     use crate::updater::gate::{CONNECT_HOLD, Gate, Honor};
@@ -563,10 +564,9 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
         None,
         T0,
     );
-    assert!(matches!(result, Some(BindResult::Bound(_))), "{result:?}");
-    assert_eq!(
-        Gate::new(&paths).held_left(T0),
-        Some(CONNECT_HOLD),
+    assert!(matches!(result, Some(BindResult::Bound(..))), "{result:?}");
+    assert!(
+        Gate::new(&paths).held_left(T0).unwrap().is_some_and(|left| left >= CONNECT_HOLD),
         "the bind did not hold the updater's flip"
     );
     let mut flipped = false;
@@ -576,6 +576,7 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
 
 /// With a restart of the service pending (queued by any process), the bind
 /// does not go out: no request, and bind.json stays for the restarted service.
+#[cfg(unix)]
 #[test]
 fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
     use crate::updater::gate::{Gate, Honor};
@@ -600,4 +601,274 @@ fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
     assert!(result.is_none(), "{result:?}");
     assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
     assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the restarted service");
+}
+
+/// A transport that runs `during` as the bind request goes out, then answers
+/// as [`Fake`].
+#[cfg(unix)]
+struct DuringBind<F: Fn()> {
+    fake: Fake,
+    during: F,
+}
+
+#[cfg(unix)]
+impl<F: Fn()> Http for DuringBind<F> {
+    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        if url.ends_with("/v1/cloud/bind") {
+            (self.during)();
+        }
+        self.fake.post(url, body, bearer)
+    }
+}
+
+#[cfg(unix)]
+fn hold_then_bind_with(
+    paths: &crate::config::Paths,
+    http: &dyn Http,
+    now: u64,
+) -> (Option<BindResult>, MemoryStore) {
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let result =
+        super::client::hold_then_bind(paths, &mut store, http, &key, "AAAA=", &daemon(), None, now);
+    (result, store)
+}
+
+/// Review F1 of #38483: a rollback does not honor the connect hold, and the
+/// bind's request goes out after the bind leaves the gate. A rollback that
+/// reaches its flip and restart while the request is in flight would cut the
+/// machine's first link, so the gate refuses it until the bind is done.
+#[cfg(unix)]
+#[test]
+fn a_rollback_waits_for_a_bind_in_flight() {
+    use std::cell::Cell;
+
+    use crate::updater::gate::{Gate, Honor};
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let rolled_back = Cell::new(false);
+    let refused = Cell::new(false);
+    let http = DuringBind {
+        fake: Fake::new(),
+        during: || {
+            let rollback =
+                Gate::new(&paths).run(T0 + 500, Honor::Nothing, |_| rolled_back.set(true));
+            refused.set(rollback.is_err());
+        },
+    };
+    let (result, _store) = hold_then_bind_with(&paths, &http, T0);
+    assert!(matches!(result, Some(BindResult::Bound(..))), "{result:?}");
+    assert!(
+        refused.get() && !rolled_back.get(),
+        "a rollback flipped and restarted while the bind was in flight"
+    );
+    // The bind is done: a rollback goes, connect hold or not.
+    let mut ran = false;
+    assert!(Gate::new(&paths).run(T0 + 1_000, Honor::Nothing, |_| ran = true).is_ok());
+    assert!(ran, "a rollback after the bind was refused");
+}
+
+/// Review F2 of #38483: a gate whose lock can't be taken fails closed. The
+/// bind doesn't go out (it retries, bind.json kept) and no update flips.
+#[cfg(unix)]
+#[test]
+fn a_gate_lock_that_cannot_be_taken_fails_closed() {
+    use crate::updater::gate::{GATE_LOCK, Gate, Honor};
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    // A directory where the lock file goes: open fails.
+    std::fs::create_dir_all(paths.at(GATE_LOCK)).unwrap();
+    let fake = Fake::new();
+    let (result, store) = hold_then_bind_with(&paths, &fake, T0);
+    assert!(result.is_none(), "a bind went out without the gate: {result:?}");
+    assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
+    assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the retry");
+    let mut flipped = false;
+    assert!(Gate::new(&paths).run(T0, Honor::All, |_| flipped = true).is_err());
+    assert!(!flipped, "an update flipped without the gate");
+}
+
+/// Review F2 of #38483: a hold that can't be written fails closed: the flip
+/// in another process would never see it, so the bind retries.
+#[cfg(unix)]
+#[test]
+fn a_hold_that_cannot_be_written_fails_closed() {
+    use crate::updater::gate::GATE_FILE;
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    // A directory where the state's temporary file goes: the write fails.
+    let file = paths.at(GATE_FILE);
+    std::fs::create_dir_all(file.with_extension("json.tmp")).unwrap();
+    let fake = Fake::new();
+    let (result, store) = hold_then_bind_with(&paths, &fake, T0);
+    assert!(result.is_none(), "a bind went out with no hold written: {result:?}");
+    assert!(fake.0.borrow().seen.is_empty(), "the bind went out");
+    assert!(store.read(BIND_FILE).is_some(), "bind.json is kept for the retry");
+}
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable. Fix it so the flip clears ready, and ready comes back only when the restarted
+/// daemon reconnects." A fake spare flips after ready: the restarted service's reports say
+/// `degraded` (the Cloud does not hand it out) until its session host answers `identify`, and
+/// `running` after. Before, its first report took the bake's daemon block and said `running` at
+/// once (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s later, and its
+/// chat never connected).
+#[test]
+fn a_spare_that_flips_after_ready_reports_degraded_until_its_daemon_identifies() {
+    use super::client::CloudClient;
+    use super::session::Session;
+    use crate::updater::gate::{Gate, Honor};
+
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(bound, BindResult::Bound(..)), "bind failed");
+    let saved: Bound = serde_json::from_str(&store.read(BOUND_FILE).unwrap()).unwrap();
+    let mut client = CloudClient::new(fake.clone(), saved, key);
+    let send = |client: &mut CloudClient<Fake>, s: &mut Session, reqs: Vec<_>, now| {
+        let mut states = Vec::new();
+        let mut queue: Vec<super::sender::OpRequest> = reqs;
+        while let Some(req) = queue.pop() {
+            states.push(req.params["state"].as_str().unwrap_or("").to_owned());
+            let answer = client.op(&req, T0);
+            queue.extend(s.answered(&req, &answer, now, 0.5).0);
+        }
+        states
+    };
+
+    // Ready: the spare's service runs and reports running.
+    let mut ready = Session::new(MACHINE, daemon(), 60_000).after_restart(false);
+    let reqs = ready.start(0);
+    assert_eq!(send(&mut client, &mut ready, reqs, 0), ["running"], "the spare before its flip");
+
+    // The flip queues the restart of the service (the own-flip mark with it).
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let gate = Gate::new(&paths);
+    assert!(gate.run(T0, Honor::All, |inside| inside.flip_restart_queued(T0, 0)).is_ok());
+
+    // The restarted service: the queued restart, then the updater's own-flip mark still there.
+    let restarted = gate.service_started_at(T0 + 3_000).unwrap();
+    assert!(restarted, "the start after the flip is not the queued restart");
+    assert!(gate.take_own_flip(T0 + 3_000, 0), "the Cloud role's read took the updater's mark");
+    assert!(!gate.service_started_at(T0 + 4_000).unwrap(), "a second start is no queued restart");
+
+    let mut s = Session::new(MACHINE, daemon(), 60_000).after_restart(restarted);
+    let reqs = s.start(0);
+    assert_eq!(send(&mut client, &mut s, reqs, 0), ["degraded"], "claimable during the restart");
+    // A heartbeat while the session host is still down: still not claimable.
+    let reqs = s.fire(60_000);
+    assert_eq!(send(&mut client, &mut s, reqs, 60_000), ["degraded"], "a heartbeat said running");
+
+    // The restarted session host answers identify (the new build): running, at once.
+    let new_build = DaemonInfo { version: "0.41.0".to_owned(), ..daemon() };
+    let reqs = s.daemon_identified(&new_build, 75_000);
+    assert_eq!(send(&mut client, &mut s, reqs, 75_000), ["running"], "not claimable after");
+    let ops = fake.0.borrow().seen.iter().filter(|r| r.url.ends_with("/v1/ops")).count();
+    assert_eq!(ops, 4, "one report per step");
+
+    // The same build answering (no new block) is the daemon back too.
+    let mut same = Session::new(MACHINE, daemon(), 60_000).after_restart(true);
+    let reqs = same.start(0);
+    assert_eq!(send(&mut client, &mut same, reqs, 0), ["degraded"]);
+    let reqs = same.daemon_identified(&daemon(), 20_000);
+    assert_eq!(send(&mut client, &mut same, reqs, 20_000), ["running"]);
+    assert!(same.daemon_identified(&daemon(), 40_000).is_empty(), "reported once");
+}
+
+/// The flip's `stopping` report (`role::report_stopping`): from `bound.json`, the install key
+/// and the block the Cloud role last reported, one `cloud.vm.status.report` that says stopping.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_flips_stopping_report_says_stopping_with_the_last_reported_block() {
+    use super::role::FileStore;
+
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::config::Paths::new(root.path());
+    let fake = Fake::new();
+    assert_eq!(
+        super::role::report_stopping_with(&paths, fake.clone()),
+        Err("not bound (no bound.json)".to_owned()),
+        "an unbound machine sends nothing"
+    );
+    let mut store = FileStore::new(paths.clone());
+    store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &SystemRandom::new()).unwrap().key;
+    let bound = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    assert!(matches!(bound, BindResult::Bound(..)), "bind failed");
+    let reported = DaemonInfo { version: "0.40.1".to_owned(), ..daemon() };
+    let state = json!({ "daemon": reported.to_json() });
+    store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644).unwrap();
+
+    assert_eq!(super::role::report_stopping_with(&paths, fake.clone()), Ok(()));
+    let seen = fake.0.borrow();
+    let op = seen.seen.iter().rfind(|r| r.url.ends_with("/v1/ops")).expect("no report went out");
+    assert_eq!(op.bearer.as_deref(), Some("tok-1"));
+    assert_eq!(op.body["op"], STATUS_REPORT_OP);
+    assert_eq!(op.body["params"]["machine"], MACHINE);
+    assert_eq!(op.body["params"]["state"], "stopping");
+    assert_eq!(op.body["params"]["daemon"], reported.to_json());
+}
+
+fn bind_with_sccache(section: Value) -> String {
+    let mut bind: Value = serde_json::from_str(&bind_text()).unwrap();
+    bind["sccache"] = section;
+    bind.to_string()
+}
+
+fn bind_once(text: &str, kept: Option<&str>) -> (BindResult, MemoryStore) {
+    use crate::sccache_env::KEPT_FILE;
+    let fake = Fake::new();
+    let rng = SystemRandom::new();
+    let mut store = MemoryStore::default();
+    if let Some(kept) = kept {
+        store.write(KEPT_FILE, kept, 0o600).unwrap();
+    }
+    store.write(BIND_FILE, text, 0o600).unwrap();
+    let key = ensure_install_key(&mut store, "i-aaa", &rng).unwrap().key;
+    let result = bind_machine(&mut store, &fake, &key, "AAAA=", &daemon(), None, T0);
+    let body = fake.0.borrow().seen[0].body.clone();
+    assert!(body.get("sccache").is_none(), "the section is not sent back: {body}");
+    (result, store)
+}
+
+/// A bind with a valid `sccache` section keeps it as sccache.json (0600, `sccache_env.rs`).
+#[test]
+fn a_sccache_bind_keeps_its_section() {
+    use crate::sccache_env::{KEPT_FILE, parse_file};
+    let section = json!({"env": {"RUSTC_WRAPPER": "sccache", "SCCACHE_BUCKET": "cmux-sccache"}});
+    let (result, store) = bind_once(&bind_with_sccache(section), None);
+    assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
+    assert_eq!(store.mode_of(KEPT_FILE), Some(0o600));
+    assert_eq!(
+        parse_file(&store.read(KEPT_FILE).unwrap()).unwrap(),
+        [
+            ("RUSTC_WRAPPER".to_owned(), "sccache".to_owned()),
+            ("SCCACHE_BUCKET".to_owned(), "cmux-sccache".to_owned())
+        ]
+    );
+}
+
+/// A bind without the section, or with a refused one, still binds and leaves no sccache.json,
+/// removing one an earlier bind kept: the cache is then off.
+#[test]
+fn a_bind_without_a_valid_sccache_section_binds_with_the_cache_off() {
+    use crate::sccache_env::KEPT_FILE;
+    let earlier = Some("{\"env\":{\"RUSTC_WRAPPER\":\"sccache\"}}\n");
+    let refused = bind_with_sccache(json!({"env": {"LD_PRELOAD": "/x.so"}}));
+    let malformed = bind_with_sccache(json!("on"));
+    for (text, kept) in
+        [(bind_text(), None), (bind_text(), earlier), (refused, earlier), (malformed, None)]
+    {
+        let (result, store) = bind_once(&text, kept);
+        assert!(matches!(result, BindResult::Bound(..)), "{result:?}");
+        assert_eq!(store.read(KEPT_FILE), None);
+    }
 }

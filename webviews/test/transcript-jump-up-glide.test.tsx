@@ -11,6 +11,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { keepIdle, loadIdle } from "../src/agent-session/acpmux/jumpUp";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -96,7 +97,8 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
 }
 
 beforeEach(() => {
-  globalThis.cmuxExperiments = { "jump-up": "on" };
+  // The pair look: `single`, the default, draws no Jump up even with it on.
+  globalThis.cmuxExperiments = { "jump-up": "on", "jump-pair-look": "frosted" };
 });
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;
@@ -126,7 +128,7 @@ async function open(kept: Parameters<typeof keepIdle>[2]) {
     root,
     scroller: doc.querySelector<HTMLElement>(".acpmux-scroll")!,
     up: doc.querySelector<HTMLButtonElement>(".acpmux-jump-up")!,
-    latest: doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!,
+    latest: doc.querySelector<HTMLButtonElement>(JUMP_LATEST)!,
   };
 }
 

@@ -8,7 +8,7 @@ reads this repository's workflows live. So a pull request here that added a runs
 merged green and turned that repository red afterwards: cmux#40221 added vars.CI_NIGHTLY_MINI_SIGNER
 and vars.CI_NIGHTLY_MINI_PUBLISHER to nightly.yml, and only the policy test there caught it, after
 the merge. The declaration now lives here and the build-fleet test reads this file. The pre-push hook
-refuses a push that adds an undeclared name; CI only warns (no new CI gate, Lawrence 2026-10-23).
+refuses a push that adds an undeclared name; CI only warns (no new CI gate, Lawrence 2026-10-23, lifted 2026-11-18).
 This test is not in CI (tests/test-execution.d/ci.toml: manual); run it yourself.
 
 The scan is scripts/cmux-next/check-single-host-fallbacks.py (strict by default; CI passes --advisory, which
@@ -549,6 +549,23 @@ class SingleHostFallbacks(unittest.TestCase):
             with self.subTest(runs_on=value):
                 self.assertEqual(self.runs_on(value), [])
 
+    def test_the_scheduler_granted_label_is_settled_and_nothing_like_it(self) -> None:
+        """CI v2 (cmuxterm-hq docs/design/ci-v2.md): the one label per run and attempt the scheduler grants a
+        one-job JIT runner is settled; any other format() stays a finding."""
+        grant = "format('cmux-{0}-{1}-linux', github.run_id, github.run_attempt)"
+        for value in (f"${{{{ {grant} }}}}",
+                      "${{ format('cmux-{0}-{1}-mac', github.run_id, github.run_attempt) }}",
+                      "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                      "github.event_name == 'pull_request' && (vars.CI_OVERFLOW_LINUX != '' && "
+                      f"vars.CI_OVERFLOW_LINUX || {grant}) || fromJSON(vars.RUNNER_POOLS).linux_4 }}}}"):
+            with self.subTest(runs_on=value):
+                self.assertEqual([f for f in self.runs_on(value) if "cannot settle" in f], [])
+        for value in ("${{ format('cmux-{0}-{1}-linux', github.run_id, needs.a.outputs.x) }}",
+                      "${{ format('glaeda-{0}-{1}-linux', github.run_id, github.run_attempt) }}",
+                      "${{ format('cmux-{0}-{1}-linux-x', github.run_id, github.run_attempt) }}"):
+            with self.subTest(runs_on=value):
+                self.assertTrue([f for f in self.runs_on(value) if "cannot settle" in f], value)
+
 
     def test_review_f3_a_literal_fromjson_runner_array_is_scanned(self) -> None:
         label = "glaeda-runner-cmux22-review"
@@ -917,7 +934,13 @@ class PrepushGateLayer(unittest.TestCase):
         self.commit("head")
         with unittest.mock.patch.object(self.gate, "has_pyyaml", return_value=False), \
                 unittest.mock.patch.object(self.gate, "pyyaml_install_command", return_value="PY -m pip install X"):
-            self.assertEqual(self.layer(), ["PyYAML missing: run PY -m pip install X"])
+            with unittest.mock.patch.dict(os.environ, {"CMUX_HOOK_PYTHON_TRIED": ""}):
+                self.assertEqual(self.layer(), ["PyYAML missing: run PY -m pip install X"])
+            # Under the hook, which tried every candidate on the host (scripts/git-hooks/hook_python.sh): it names them.
+            tried = "/Users/cmux/.local/python-3.13.15/bin/python3.13 (no PyYAML); /usr/local/bin/python3 (missing)"
+            with unittest.mock.patch.dict(os.environ, {"CMUX_HOOK_PYTHON_TRIED": tried}):
+                self.assertEqual(self.layer(), [f"PyYAML missing: run PY -m pip install X (no Python the hook tried "
+                                                f"imports yaml: {tried})"])
         # The probe asks the hook's own interpreter the way the hook runs it (-I, so no user site).
         self.assertTrue(self.gate.has_pyyaml(sys.executable))
         self.assertFalse(self.gate.has_pyyaml(str(Path(self.tmp.name) / "no-such-python")))

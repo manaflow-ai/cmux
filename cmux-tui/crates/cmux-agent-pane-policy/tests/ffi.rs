@@ -168,7 +168,7 @@ fn c_abi_runs_the_check_corpus() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/check.json");
     let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let cases = cases.as_array().unwrap();
-    assert_eq!(cases.len(), 76, "check.json: every case runs here too");
+    assert_eq!(cases.len(), 80, "check.json: every case runs here too");
     for case in cases {
         let pane = new();
         let s = &case["state"];
@@ -220,6 +220,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/plan/build","params":{"sessionId":"s1","permissionId":"p1","target":"compare"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_respond","params":{"sessionId":"s1","permissionId":"p1","optionId":"yes"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s1","groupId":"g1","revision":1,"decisionKey":"k","decision":"allow_once"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/customize_run","params":{"run":{"customize":"keep"}}}"#,
     ];
     for frame in frames {
         let old = check(&pane, frame, false, false, None, None);
@@ -241,6 +242,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
     assert_eq!(
         p["click_only"],
         json!([
+            "_acpmux/customize_run",
             "_acpmux/permission_group_respond",
             "_acpmux/permission_respond",
             "_acpmux/plan/build",
@@ -576,4 +578,20 @@ fn c_abi_a_reply_is_cut_to_its_shape() {
     };
     assert_eq!(code, NO_SHAPE);
     assert!(out.ptr.is_null());
+}
+
+/// The pane's line through the C ABI (`service_wait`, src/service_wait.rs): a daemon that listens
+/// and answers late is busy and never offered a restart; one that neither runs nor listens is down,
+/// with Restart (Leo, 2026-11-18: "i cant connect to agent service?").
+#[test]
+fn service_wait_says_busy_or_down() {
+    let none = std::ptr::null();
+    let busy = call(none, "service_wait", json!({"process_alive": true, "socket_accepts": true}));
+    assert_eq!(busy.unwrap(), json!({"state": "busy", "restart": false}));
+    let starting =
+        call(none, "service_wait", json!({"process_alive": true, "socket_accepts": false}));
+    assert_eq!(starting.unwrap(), json!({"state": "starting", "restart": false}));
+    let down = call(none, "service_wait", json!({"process_alive": false, "socket_accepts": false}));
+    assert_eq!(down.unwrap(), json!({"state": "down", "restart": true}));
+    assert_eq!(call(none, "service_wait", json!({"process_alive": true})), Err(ERR_INVALID));
 }

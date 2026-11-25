@@ -10,11 +10,20 @@ import WebKit
 @MainActor
 public protocol PageHealthFeed: AnyObject {
     /// The page's heartbeat (`cmux.page.heartbeat`), with the key and pointer presses it handled.
-    func pageBeat(_ page: PageWebView, handled: UInt64)
+    /// `resting`: its last beat before a rest; it beats again when something happens in it (input, a
+    /// scroll, an edit, a host call) or it is shown, and its silence until then is no hang.
+    func pageBeat(_ page: PageWebView, handled: UInt64, resting: Bool)
+    /// Whether a page's `rest` beat stops the timing of its silence here (the linked health model
+    /// knows rest beats); false keeps the page beating every 2 s, as before rests.
+    var takesRestBeats: Bool { get }
     /// A real key or mouse event reached the page's view (its first since the last beat matters).
     func pageInput(_ page: PageWebView)
     /// The page's view may have been shown or hidden; read ``PageWebView/isShownForHealth``.
     func pageVisibilityChanged(_ page: PageWebView)
+    /// The page's document started loading: a navigation the host started (a reload for a web source
+    /// change, crash recovery, a repair) or a main-frame load WebKit began. The page loads and is not
+    /// hung until ``pageLoaded(_:)``.
+    func pageNavigationStarted(_ page: PageWebView)
     /// A document finished loading.
     func pageLoaded(_ page: PageWebView)
     /// A main-frame load failed (not a cancelled one).
@@ -41,7 +50,7 @@ extension PageWebView {
     /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
     /// document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
@@ -58,6 +67,29 @@ extension PageWebView {
             reloadAfterCrashes()
             return true
         }
+        await saveState(within: saveWait)
+        // An edit that came while the page saved (a hung page that answers again) is not reloaded away.
+        guard !isClosed, !holdsEdits else { return false }
+        reloadPage()
+        return true
+    }
+
+    /// The person's reload (Cmd-R in an agent chat, "Agent Chat: Reload"; Leo, 2026-11-22: "apparently i cant cmd r
+    /// to refresh an agent page"): the page saves its scroll and draft (at most `saveWait`), then reloads under a
+    /// picture of itself that fades once the new document settled, so the pane never blanks. A page whose document
+    /// never loaded or whose process ended loads again in a new process.
+    public func reloadForPerson(saveWait: Duration = .milliseconds(500)) async {
+        guard !isClosed else { return }
+        guard loaded else { return reloadAfterCrashes() }
+        await saveState(within: saveWait)
+        guard !isClosed, !Task.isCancelled else { return }
+        // The web layer watcher's reloader: one owner of every page's reload cover.
+        WebDevOverrideWatcher.shared.pageReload.reloadUnderCover(self)
+    }
+
+    /// Asks the page to save its scroll and draft (`cmux.page.save_state`) and returns when it answered or after
+    /// `saveWait` (a hung page cannot answer; its last autosave is used). Never blocks: the wait is a suspension.
+    private func saveState(within saveWait: Duration) async {
         let done = PageHealthOnce()
         // task-owner: one save request; ends with the page's reply or its reset (the reload that follows).
         Task { [weak self] in
@@ -69,10 +101,6 @@ extension PageWebView {
         deadline.schedule(after: saveWait) { @MainActor in done.finish() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in done.hold(continuation) }
         deadline.cancel()
-        // An edit that came while the page saved (a hung page that answers again) is not reloaded away.
-        guard !isClosed, !holdsEdits else { return false }
-        reloadPage()
-        return true
     }
 
     /// App health's `restartRenderer`: ends the page's renderer and brings the page back in a new
@@ -84,6 +112,8 @@ extension PageWebView {
         guard loaded else { return reloadAfterCrashes() }
         rendererRestartPending = true
         if let chromiumPage {
+            // At once, not through the bridge's navigate (which waits on the renderer to turn the
+            // Runtime domain on): the new document gets the binding with its commit.
             chromiumPage.restartRenderer()
             return
         }

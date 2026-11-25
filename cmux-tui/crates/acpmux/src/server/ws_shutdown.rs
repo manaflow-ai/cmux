@@ -115,8 +115,10 @@ impl WsShutdown {
 /// let an immediate retry connect to this dying listener. Linux stops a listening socket on
 /// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
+    // A listener handed to the next daemon (`daemon/listener_handover.rs`) is that daemon's too:
+    // a shutdown would stop its queue as well. Its connects wait for the next daemon instead.
     #[cfg(target_os = "linux")]
-    {
+    if !crate::daemon::listener_handover::handed_to_live() {
         use std::os::fd::AsRawFd;
         // SAFETY: shutdown on the listener's own descriptor, open for the whole call.
         unsafe { libc::shutdown(listener.as_raw_fd(), libc::SHUT_RD) };
@@ -150,16 +152,19 @@ impl Drop for Children {
 /// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. Once the
 /// connection ended (`stopped`), what it queued is written for [`LAST_FRAMES_WAIT`] at most, a
 /// frame already waiting on the client included, so a frozen client never holds the socket open. A large line
-/// goes compressed once the client asked for that (`frame_compress.rs`).
-pub(super) async fn write<S>(
+/// goes compressed once the client asked for that (`frame_compress.rs`). A link that may carry
+/// the v2 list stream has a `slot`: v1's lines first, then the frame in it (`link_v2::next_line`).
+pub(super) async fn write_link<S>(
     mut sink: S,
     mut outbound: mpsc::Receiver<String>,
+    slot: Option<std::sync::Arc<crate::link_v2::Slot>>,
     mut stopped: oneshot::Receiver<()>,
     shutdown: WsShutdown,
     wire: std::sync::Arc<crate::frame_compress::Wire>,
 ) where
     S: Sink<Frame> + Unpin,
 {
+    let mut streak = 0;
     tokio::select! {
         biased;
         () = shutdown.normal() => {},
@@ -168,10 +173,11 @@ pub(super) async fn write<S>(
             // Set once the connection ended: what is left must be written by then.
             let mut deadline: Option<tokio::time::Instant> = None;
             loop {
+                let next = crate::link_v2::next_line(&mut outbound, slot.as_deref(), &mut streak);
                 let line = match deadline {
-                    Some(at) => tokio::time::timeout_at(at, outbound.recv()).await.ok().flatten(),
+                    Some(at) => tokio::time::timeout_at(at, next).await.ok().flatten(),
                     None => tokio::select! {
-                        line = outbound.recv() => line,
+                        line = next => line,
                         _ = &mut stopped => {
                             deadline = Some(tokio::time::Instant::now() + LAST_FRAMES_WAIT);
                             continue;

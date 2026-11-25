@@ -41,6 +41,8 @@ export interface Sock {
   frames: Array<any>
   binary: Array<Uint8Array>
   closed: boolean
+  /** The close frame's code, once closed. */
+  closeCode?: number
   until(pred: (s: Sock) => boolean): Promise<void>
   send(f: unknown): void
 }
@@ -51,7 +53,11 @@ export const connect = async (tok: string, teamId: string, deviceId: string, via
   else headers.authorization = `Bearer ${tok}`
   const res = await worker.fetch(`https://api.test/v1/teams/${teamId}/signal?deviceId=${deviceId}`, { headers })
   expect(res.status).toBe(101)
-  const ws = res.webSocket!
+  return sockOf(res.webSocket!)
+}
+
+/** An accepted client socket that records its text frames (JSON) and binary frames, in order. */
+export const sockOf = (ws: WebSocket): Sock => {
   const waiters: Array<() => void> = []
   const s: Sock = {
     ws,
@@ -74,13 +80,17 @@ export const connect = async (tok: string, teamId: string, deviceId: string, via
   let chain = Promise.resolve()
   ws.addEventListener("message", (e) => {
     chain = chain.then(async () => {
-      if (typeof e.data === "string") s.frames.push(JSON.parse(e.data))
+      // "pong" answers the application ping (PROTOCOL.md "Connection setup"); every other text frame is JSON.
+      if (typeof e.data === "string") {
+        if (e.data !== "pong") s.frames.push(JSON.parse(e.data))
+      }
       else s.binary.push(new Uint8Array(e.data instanceof Blob ? await e.data.arrayBuffer() : (e.data as ArrayBuffer)))
       waiters.splice(0).forEach((w) => w())
     })
   })
-  ws.addEventListener("close", () => {
+  ws.addEventListener("close", (e) => {
     s.closed = true
+    s.closeCode = e.code
     waiters.splice(0).forEach((w) => w())
   })
   ws.accept()

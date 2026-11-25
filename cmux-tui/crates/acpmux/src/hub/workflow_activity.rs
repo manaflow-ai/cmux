@@ -82,14 +82,8 @@ impl Hub {
                             "prior workflow task launch is uncertain; resume cannot execute it twice",
                         ));
                     }
-                    let previous = self.bg_list(&session);
-                    let previous =
-                        previous.get("tasks").and_then(Value::as_array).and_then(|rows| {
-                            rows.iter().find(|row| {
-                                row.get("id").and_then(Value::as_str) == Some(previous_id.as_str())
-                            })
-                        });
-                    if previous.is_some_and(|row| {
+                    let previous = self.bg_task_view(&session, &previous_id);
+                    if previous.as_ref().is_some_and(|row| {
                         matches!(
                             row.get("state").and_then(Value::as_str),
                             Some("running" | "exited")
@@ -253,13 +247,13 @@ impl Hub {
                             let pick = |field| {
                                 options.get(field).and_then(Value::as_str).map(str::to_owned)
                             };
-                            let mut env = std::collections::BTreeMap::new();
-                            if let Some(allowed) = &allowed {
-                                env.insert(
-                                    crate::agent_tools::MCP_TOOLS_ENV.into(),
-                                    allowed.join(","),
-                                );
-                            }
+                            // The answer of the Mac that started the workflow's owning chat
+                            // (`cmux_tools_answer.rs`).
+                            let owner_env = self
+                                .resolve(&run.owner_session_id)
+                                .map(|owner| owner.meta().session_env.clone())
+                                .unwrap_or_default();
+                            let env = child_session_env(&owner_env, allowed.as_deref());
                             self.new_session_with_id(
                                 NewRequest {
                                     harness: pick(if restarted {
@@ -361,14 +355,22 @@ impl Hub {
                             // Join its exact prompt outcome without submitting another effect.
                             let mut changes = self.subscribe();
                             while !self.knows_prompt(&session, &waiting_id, true) {
-                                self.workflow_runs
-                                    .store()
-                                    .authorize(&run.id, generation, &run.owner_session_id)
-                                    .map_err(workflow_error)?;
-                                match changes.recv().await {
-                                    Ok(_)
-                                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                                    Err(error) => return Err(workflow_error(error)),
+                                // Asked again on this chat's records only: the admission that
+                                // takes the prompt writes one. Every chat's event read the
+                                // chat's log again (each `knows_prompt` a keyed scan of it).
+                                loop {
+                                    self.workflow_runs
+                                        .store()
+                                        .authorize(&run.id, generation, &run.owner_session_id)
+                                        .map_err(workflow_error)?;
+                                    match changes.recv().await {
+                                        Ok(event) if event.session_id != session.id => {}
+                                        Ok(_)
+                                        | Err(tokio::sync::broadcast::error::RecvError::Lagged(
+                                            _,
+                                        )) => break,
+                                        Err(error) => return Err(workflow_error(error)),
+                                    }
                                 }
                             }
                             let outcome = self.prompt_outcome(&session, &waiting_id);
@@ -836,51 +838,48 @@ impl Hub {
         let mut active = false;
         let mut reply = String::new();
         let mut message_open = false;
-        self.store
-            .scan_strict(&session.id, 0, &mut |record| {
-                if record.dir == "mux" && record.kind == "turn_started" {
-                    if record.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
-                        turn = record.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
-                        active = true;
-                    } else if active {
-                        return false;
-                    }
-                }
-                if !active {
-                    return true;
-                }
-                if record.dir == "mux"
-                    && matches!(record.kind.as_str(), "turn_end" | "turn_error" | "turn_result")
-                    && record.msg.get("turnId").and_then(Value::as_str) == turn.as_deref()
-                {
+        self.scan_strict_off(&session.id, 0, &mut |record| {
+            if record.dir == "mux" && record.kind == "turn_started" {
+                if record.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
+                    turn = record.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    active = true;
+                } else if active {
                     return false;
                 }
-                if record.dir == "in"
-                    && record.msg.pointer("/params/_meta/acpmux/subagent").is_none()
-                {
-                    match record.kind.as_str() {
-                        "agent_message_chunk" => {
-                            if let Some(text) = record
-                                .msg
-                                .pointer("/params/update/content/text")
-                                .and_then(Value::as_str)
-                            {
-                                if !message_open {
-                                    reply.clear();
-                                    message_open = true;
-                                }
-                                reply.push_str(text);
+            }
+            if !active {
+                return true;
+            }
+            if record.dir == "mux"
+                && matches!(record.kind.as_str(), "turn_end" | "turn_error" | "turn_result")
+                && record.msg.get("turnId").and_then(Value::as_str) == turn.as_deref()
+            {
+                return false;
+            }
+            if record.dir == "in" && record.msg.pointer("/params/_meta/acpmux/subagent").is_none() {
+                match record.kind.as_str() {
+                    "agent_message_chunk" => {
+                        if let Some(text) = record
+                            .msg
+                            .pointer("/params/update/content/text")
+                            .and_then(Value::as_str)
+                        {
+                            if !message_open {
+                                reply.clear();
+                                message_open = true;
                             }
+                            reply.push_str(text);
                         }
-                        "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => {
-                            message_open = false
-                        }
-                        _ => {}
                     }
+                    "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => {
+                        message_open = false
+                    }
+                    _ => {}
                 }
-                true
-            })
-            .map_err(workflow_error)?;
+            }
+            true
+        })
+        .map_err(workflow_error)?;
         if !active {
             return Err(RpcError::internal("workflow prompt has no exact persisted turn"));
         }
@@ -986,8 +985,40 @@ fn workflow_next_retry(prompt: &str) -> String {
     format!("{prompt}~resume-1")
 }
 
+/// A workflow child agent's own session env: the answer of the Mac that started the workflow's
+/// owning chat (`cmux_tools_answer::inherited`, from `owner_env`), and the cmux tools the
+/// activity may use (`allowed`, as `MCP_TOOLS_ENV`).
+fn child_session_env(
+    owner_env: &std::collections::BTreeMap<String, String>,
+    allowed: Option<&[String]>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut env = super::cmux_tools_answer::inherited(std::collections::BTreeMap::new(), owner_env);
+    if let Some(allowed) = allowed {
+        env.insert(crate::agent_tools::MCP_TOOLS_ENV.into(), allowed.join(","));
+    }
+    env
+}
+
 #[cfg(test)]
 mod tests {
+    /// A workflow child keeps the answer of the Mac that started its owning chat, beside its
+    /// tool scope; a local owner's child has none.
+    #[test]
+    fn a_workflow_child_keeps_its_owners_answer() {
+        let owner = std::collections::BTreeMap::from([(
+            crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(),
+            "off".to_owned(),
+        )]);
+        let scope = vec!["agents_snapshot".to_owned()];
+        let env = super::child_session_env(&owner, Some(&scope));
+        assert_eq!(env.get(crate::agent_tools::TOOLS_ANSWER_ENV).map(String::as_str), Some("off"));
+        assert_eq!(
+            env.get(crate::agent_tools::MCP_TOOLS_ENV).map(String::as_str),
+            Some("agents_snapshot")
+        );
+        assert!(super::child_session_env(&Default::default(), None).is_empty());
+    }
+
     use super::*;
 
     fn activity_chat() -> (Arc<Hub>, RunRecord, ActivityRecord) {
@@ -1004,6 +1035,8 @@ mod tests {
         store.save(&owner).unwrap();
         let hub = Hub::new(config, store);
         let id = format!("wf-test-{}", uuid::Uuid::now_v7().simple());
+        let cwd = std::env::temp_dir().join(format!("acpmux-workflow-{id}"));
+        std::fs::create_dir_all(&cwd).unwrap();
         let run = hub
             .workflow_runs
             .store()
@@ -1016,7 +1049,7 @@ mod tests {
                 source_hash: String::new(),
                 args: json!([]),
                 allowed_tools: None,
-                cwd: std::env::temp_dir(),
+                cwd: cwd.clone(),
                 generation: 1,
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
@@ -1048,6 +1081,7 @@ mod tests {
         hub.shutdown_all().await;
         // This test created the UUID-named directory; no other run is touched.
         std::fs::remove_dir_all(hub.workflow_runs.store().directory(&run.id).unwrap()).unwrap();
+        std::fs::remove_dir_all(run.cwd).unwrap();
     }
 
     fn turns(hub: &Hub, child: &ActivityRecord) -> usize {
@@ -1486,7 +1520,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workflow_pause_resume_preserves_child_and_restarts_only_cancelled_prompt() {
+    async fn workflow_pause_resume_replaces_harness_and_restores_cancelled_prompt_state() {
         let (hub, run, child) = activity_chat();
         let mut events = hub.subscribe();
         let worker_hub = hub.clone();
@@ -1516,6 +1550,20 @@ mod tests {
         let paused = hub.workflow_pause(&run.id, "owner").await.unwrap();
         assert_eq!(paused.state, crate::workflow_runs::State::Paused);
         assert!(worker.await.unwrap().is_err(), "paused generation cannot save a late outcome");
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        let mut cancelled = false;
+        hub.store
+            .scan_strict(session_id, 0, &mut |event| {
+                cancelled |= event.kind == "turn_result"
+                    && event.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled");
+                true
+            })
+            .unwrap();
+        assert!(cancelled, "the fixture must acknowledge the real cancellation");
+        let restarted = hub
+            .restart_harnesses(None, Some(&std::collections::BTreeSet::from([session_id.clone()])))
+            .await;
+        assert_eq!(restarted.now, 1, "the process replacement must complete before resume");
         let resumed = hub.workflow_runs.store().resume(&run.id, "owner", false).unwrap();
         let saved = hub
             .workflow_runs

@@ -1,31 +1,53 @@
 // Charts and diagrams in replies: a finished ```vega-lite or ```vega fence with a JSON spec, or a
 // finished ```mermaid fence, draws as SVG with the markdown page's renderers
 // (pages/markdown/diagrams.ts) and the markdown viewer's bundled libraries, which the pane's scheme
-// handler serves as same-origin scripts (`__lib/vega.js`, `__lib/ondine.js`, `__lib/mermaid.js`).
+// handler and the page host (AgentPageResources) serve as same-origin scripts (`__lib/vega.js`,
+// `__lib/ondine.js`, `__lib/mermaid.js`).
 // Vega runs with its AST interpreter (no eval); Mermaid draws with Ondine (WebAssembly, no imports),
 // Mermaid 11 as fallback, and the SVG is cleaned before it is shown. The block draws once it nears the
-// viewport; Code shows the source. A source the renderer refuses shows the source and why.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { cancelDiagram, DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
+// viewport; Code shows the source. A source the renderer refuses shows the source and why; a renderer
+// that did not load says so in plain words (never its internal name) above the source. A ```chart
+// fence (small JSON, chartSpec.ts) compiles to a Vega-Lite spec and draws the same way; Code shows what
+// the agent wrote.
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  cancelDiagram,
+  DiagramLibraries,
+  DiagramLoadError,
+  renderMermaid,
+  renderVega,
+} from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
-import { useNearViewport } from "../useNearViewport";
+import { useViewportReach } from "../useNearViewport";
 import { postNative } from "../native";
 import { copyText } from "./clipboard";
+import { chartSpec } from "./chartSpec";
 import { CodeBlock } from "./CodeBlock";
 import { Check, SaveTray } from "./icons";
+import { useUnsettledHeight } from "./unsettledHeights";
 const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, document.baseURI).href);
 
 export function DiagramBlock({ lang, code, actions }: { lang: string; code: string; actions?: ReactNode }) {
   const t = useT();
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
-  const near = useNearViewport(frame);
+  const reach = useViewportReach(frame);
+  const near = reach === "near";
   const chart = useRef<HTMLDivElement>(null);
   const [showCode, setShowCode] = useState(false);
-  const [failure, setFailure] = useState<string>();
+  // Why the chart did not draw: the source's reason, or null when a renderer did not load.
+  const [failure, setFailure] = useState<{ reason: string | null }>();
   const [saved, setSaved] = useState(false);
   const [drawn, setDrawn] = useState(false);
   const language = lang.toLowerCase();
   const mode = language === "mermaid" ? "mermaid" : language === "vega" ? "vega" : "vega-lite";
+  const label = language === "chart" ? "chart" : mode;
+  const spec = useMemo(() => (language === "chart" ? (chartSpec(code) ?? code) : code), [language, code]);
+  const reserve = useMemo(() => (mode === "mermaid" ? undefined : chartBox(spec)), [mode, spec]);
+  // Until it is drawn (or refused) a chart with no reserved box (a Mermaid diagram, a chart whose
+  // size its spec does not give) is not at its height: an opening chat waits for it
+  // (unsettledHeights.ts), while it is near enough to draw. One a screen or more away (or in a hidden
+  // pane) draws only once the reader comes near it, so nothing waits on it.
+  useUnsettledHeight(!reserve && reach !== "far" && !drawn && !failure && !showCode);
 
   useEffect(() => {
     const target = chart.current;
@@ -35,13 +57,16 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     setDrawn(false);
     setSaved(false);
     const drawing =
-      mode === "mermaid" ? renderMermaid(libraries, code, target) : renderVega(libraries, mode, code, target);
+      mode === "mermaid" ? renderMermaid(libraries, spec, target) : renderVega(libraries, mode, spec, target);
     drawing.then(
       () => {
         if (live) setDrawn(true);
       },
       (error: unknown) => {
-        if (live) setFailure(error instanceof Error ? error.message : String(error));
+        if (!live) return;
+        // A renderer that did not load is the app's fault, not the source's: plain words, no library name.
+        if (error instanceof DiagramLoadError) setFailure({ reason: null });
+        else setFailure({ reason: error instanceof Error ? error.message : String(error) });
       },
     );
     return () => {
@@ -50,12 +75,12 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
       // chart a later draw enabled Save for.
       cancelDiagram(target);
     };
-  }, [near, mode, code]);
+  }, [near, mode, spec]);
 
   return (
-    <div className="cv-diagram" data-language={mode} ref={setFrame}>
+    <div className="cv-diagram" data-language={label} ref={setFrame}>
       <div className="cv-diagram__bar">
-        <span className="cv-diagram__lang">{mode}</span>
+        <span className="cv-diagram__lang">{label}</span>
         <span className="cv-diagram__tools">
           {!failure && (
             <button
@@ -90,9 +115,46 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
         </span>
         {actions}
       </div>
-      {failure && <div className="cv-diagram__error">{t("diagram.failed", { reason: failure })}</div>}
-      <div ref={chart} className="cv-diagram__chart" hidden={showCode || Boolean(failure)} />
+      {failure && (
+        <div className="cv-diagram__error">
+          {failure.reason === null ? t("diagram.unavailable") : t("diagram.failed", { reason: failure.reason })}
+        </div>
+      )}
+      <div
+        ref={chart}
+        className="cv-diagram__chart"
+        hidden={showCode || Boolean(failure)}
+        data-reserve={reserve ? "" : undefined}
+        style={
+          reserve
+            ? ({
+                "--cv-diagram-w": `${reserve.width}px`,
+                "--cv-diagram-ratio": `${reserve.width} / ${reserve.height}`,
+              } as CSSProperties)
+            : undefined
+        }
+      />
       {(showCode || failure) && <CodeBlock code={code} lang={mode === "mermaid" ? "mermaid" : "json"} />}
     </div>
   );
+}
+
+/// The axes, labels and padding Vega draws around a spec's plot (px): the box a chart is drawn in is
+/// about its plot plus this, so the frame keeps that box from the first frame and the chart draws
+/// into it (the library loads and draws after the reply is on screen).
+const CHART_FRAME = { width: 56, height: 52 };
+
+/// The box a Vega or Vega-Lite spec with a fixed plot size draws in (its own width and height plus
+/// the axes'), or none for a spec that sizes itself (no numbers, "container", a source that is not JSON).
+export function chartBox(spec: string): { width: number; height: number } | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(spec);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const { width, height } = parsed as { width?: unknown; height?: unknown };
+  if (typeof width !== "number" || typeof height !== "number" || !(width > 0) || !(height > 0)) return undefined;
+  return { width: Math.round(width + CHART_FRAME.width), height: Math.round(height + CHART_FRAME.height) };
 }

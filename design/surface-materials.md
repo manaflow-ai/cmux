@@ -19,7 +19,10 @@ The other specs, and what each one owns:
 - `design/overlay-surfaces.md`: the roles and the never-opaque rule.
 - `design/menus.md`: menu rows and how menus open.
 
-This page decides only which kind a surface is.
+This page decides only which kind a surface is. The glass levels, their numbers and the audit of
+every glass surface are in [glass-system.md](glass-system.md). The shared non-chat material,
+chat adoption and before/after galleries are specified in
+[transient-material.md](transient-material.md).
 
 ## Materials
 
@@ -44,7 +47,7 @@ This page decides only which kind a surface is.
 | sidebar-card | native | card veil | Update Ready, notices, Now Playing |
 | native-overlay | native | real glass | the floating native surfaces that exist today: palette, toasts, find bars, HUDs (which-key, zoom), drag ghosts, browser bubbles and cards, Chief pet, permission request, notifications panel, Home sheets. **A closed set.** |
 | material-source | native | real glass | the shared glass itself and the hosts built on it: `Glass`, `GlassPanelView`, `OverlaySurface`, tooltip, hover card, find pill, shortcut chip |
-| scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names |
+| scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names, and the glass card an app overlay (`presentation.overlay`) draws its scene on |
 | debug | native | real glass | Debug fixtures and playgrounds, never shipped |
 
 What the rule means in practice:
@@ -78,7 +81,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 
 - **Every floating web surface is one material**: menus, context menus, selects, popovers, pickers
   (the model picker included), the combobox, the slash and @ lists, hover cards and the context
-  ring's card are all the menu glass level (`--ds-glass-menu-tint` 78%, `--ds-glass-menu-blur`),
+  ring's card are all the menu glass level (`--ds-glass-menu-tint` 80% light, 72% dark, `--ds-glass-menu-blur`; [glass-system.md](glass-system.md)),
   one radius (`--ui-popup-radius`, the native popovers' 8 pt), one hairline and one drop. On the
   App's glass each lays the same 40% veil of the theme surface (`--host-glass-fill`). No surface
   sets a tint, blur, veil or radius of its own (`webviews/test/glass-levels.test.ts`).
@@ -90,9 +93,44 @@ His reference is the account menu of a desktop chat app: one translucent surface
   host-veil-light, dense.
 - The popover level stays for glass in the page that is not a popup: the composer, Session Info,
   the running tray, side tabs.
-- Native NSMenus stay system-drawn (Lawrence 2026-10-23: "we don't want ANYTHING custom besides the
-  icons"). Host glass puts the web menus on the same App material, so the two meet; the web side
-  matches the native one, never the reverse.
+- **Native: one primitive on the same numbers.** `Glass.makeMenuPanel` (CmuxNextDesign
+  `GlassMenu/GlassMenuMaterial.swift`) is the App's glass at the menu level, the popup radius and the
+  same 40% veil (`GlassMenuVeilView`). Every custom native popover is on it: the account menu, the
+  page menus past the window edge (`WebPopupHost`), declarative popups, Downloads, Host Pressure,
+  the icon picker, the bookmark bubble, the Home agent pill card, Chief Settings, both group
+  editors, the palette's actions menu and the Extensions menu. `GlassMenu` draws an `NSMenu` (its
+  actions, validation, shortcuts, checks, subtitles and submenus) as rows on that surface on the
+  AppKit menu grid (`MenuMetrics`, 28 pt rows).
+- **The key state never changes a floating surface's look.** A menu, submenu or popover keeps the
+  themed glass whichever window is key: its glass takes the app window's active look up the
+  parent chain (`NSWindow.inheritedActiveLook`, `ActiveLookGlassEffectView`), so a submenu has its
+  parent's material and tint, and the parent keeps them while the submenu has the keys (Leo,
+  2026-11-14: the account menu went from themed to grey when its submenu opened). The fallback
+  blur is `.active` already. `MenuActiveLookTests` checks it.
+- **The sidebar's account menu is a `GlassMenu`** (Leo, 2026-11-11: "Well, that's the whole point,
+  right? Like that's what we wanted to do anyways. have better design (systems too)"). Gallery
+  `ui.native-menu-material`: system (before), clear, veil (ships), veil-light, veil-submenu,
+  veil-submenu-light, dense.
+- **Right-click context menus stay `NSMenu`**, system-drawn (Lawrence 2026-10-23: "we don't want
+  ANYTHING custom besides the icons").
+- **One source.** `schemas/design-scale/design-scale.json`'s menu level holds `tint`, `veil` and
+  `blur`; `namedRadii.popup` is the radius and `controls.row` the row. gen-design-scale writes the
+  page's `--ds-glass-menu-*`; `GlassMenuMaterial` carries the same numbers and
+  `webviews/test/floating-material-sync.test.ts` fails when the two drift.
+- Host glass puts the web menus on the same App material, so the two meet; the web side matches
+  the native one, never the reverse.
+
+## One material per surface (2026-11-21)
+
+Each floating web surface draws one material: the App's host glass or the page's `.ui-glass`, never
+both and never neither (`glass-system.md`, "One material per surface", has the rules and the state
+table). In the agent pane's code (`webviews/src/ui`, `webviews/src/agent-session`) every element with
+a floating surface class (`ui-popup`, `ui-tooltip`, `ui-notice`, `ui-dialog`, `acpmux-composer-box`,
+`nt-composer-surface`, `acpmux-minimap__card`) carries `data-host-glass="menu|popover|chip"` and
+`.ui-glass`, or `data-page-glass="<reason>"` saying why it keeps the page's glass. A
+`hostGlass={false}` opt-out needs the same reason. `bun scripts/check-one-material.ts` fails the rest
+(rule `surface`); its backlog is `PENDING` in that script plus `web_floating_pending` here, and only
+shrinks.
 
 ## Inventory (2026-11-09, feat-cmux-next efdf71a9)
 
@@ -109,7 +147,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
 | Terminal pane | (content, native Metal) | clear on the window material | `CmuxNextTerminal` |
-| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView`, app health's footer chip (`AppHealthIndicatorView`) |
+| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView` |
 | Command palette | native-overlay | real glass | `CmuxNextPalette/PaletteContentView.swift` |
 | Tooltips, hover cards | material-source | real glass | `CmuxNextDesign/Tooltip/TooltipPanel.swift`, `HoverCards/HoverCardPanel.swift` |
 | Toasts | native-overlay | real glass (the toast role: Liquid Glass on macOS 26, the blur before it, opaque under Reduce Transparency) | `CmuxNextDesign/Toast/CmuxToastView.swift`, `CmuxToastOverlayHost.swift` |
@@ -142,7 +180,7 @@ His reference is the account menu of a desktop chat app: one translucent surface
 | New Tab page | web-content | clear; its suggestions at 86% page glass | `W/agent-session/acpmux/newtab/*` |
 | Settings | web-content | clear; its menus page glass (no host glass in that page) | `W/pages/settings`, `W/pages/shared/pageBase.css` |
 | Markdown, diff, files | web-content | clear; headers and toolbar menus page glass | `W/pages/markdown`, `W/pages/diff`, `W/styles.css` |
-| Home messages and channels | web-content | page glass headers | `W/pages/home-messages`, `W/pages/home-channels` |
+| Home messages and channels | web-content | page glass headers | `W/pages/home-channels` |
 | Onboarding | web-content | page glass cards | `W/pages/onboarding/styles.css` |
 | In-page dialogs | web-floating | page glass | `W/ui/Dialog.tsx` |
 

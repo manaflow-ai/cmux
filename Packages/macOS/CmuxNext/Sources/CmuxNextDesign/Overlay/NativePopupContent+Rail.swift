@@ -20,7 +20,7 @@ extension NativePopupContent {
         railDivider = divider
         addSubview(divider)
         if placement == .symbols || placement == .top {
-            let strip = NSScrollView()
+            let strip = OverlayScrollView()
             strip.drawsBackground = false
             strip.borderType = .noBorder
             strip.hasVerticalScroller = false
@@ -114,7 +114,7 @@ extension NativePopupContent {
 
     private func rowHeight(_ row: NativePopupRow, view: NSView) -> CGFloat {
         (view as? NativePopupSliderView)?.preferredHeight
-            ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
+            ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.caption != nil ? 44 : PopupStyle.standard.rowHeight)
     }
 }
 

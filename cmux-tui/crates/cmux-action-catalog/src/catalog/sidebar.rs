@@ -18,9 +18,21 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "sidebar.left",
         surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 300)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar toggle-left",
         main_menu: Some("view"),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "sidebar.customize",
+        group: GROUP,
+        title: t("ActionCatalog", "action.sidebar.customize", "Customize Sidebar…"),
+        keywords: &["sidebar", "customize", "rows", "layout", "density", "sections"],
+        category: "sidebar",
+        symbol: "slider.horizontal.3",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
     Action {
@@ -386,7 +398,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.compress.vertical",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 130).folder("options")], mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), mcp_exemption: Some("systemChange"), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar enable-minimal-mode",
         ..Action::DEFAULT
     },
@@ -398,7 +410,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.expand.vertical",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 131).folder("options")], mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), mcp_exemption: Some("systemChange"), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar disable-minimal-mode",
         ..Action::DEFAULT
     },

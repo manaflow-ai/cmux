@@ -1,7 +1,7 @@
 // Compile all first-party pages in one graph: React, the compiler runtime and shared UI ship
 // once. Each page keeps its own document, CSS, origin and bridge; chunks are immutable assets.
 import { build } from "esbuild";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import postcss from "postcss";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import focusRingGate from "../postcss/focusRingGate.mjs";
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
 const srcRoot = fileURLToPath(new URL("../../src", import.meta.url));
+const artifactMetafile = process.env.CMUX_ARTIFACT_RUNTIME_METAFILE;
 const mode = reactCompilerMode();
 const jsonParseSettingsPagePlugin = createJsonParsePlugin({ settingsPageOnly: true });
 const compiled = new Set();
@@ -44,13 +45,21 @@ const result = await build({
       onCompiled: (id) => compiled.add(id),
       onDiagnostic: (item) => bailouts.push(item),
     }),
-    artifactRuntimePlugin(),
+    artifactRuntimePlugin({ metafile: artifactMetafile }),
     tailwindPlugin,
     jsonParseSettingsPagePlugin,
     // Preserve the existing pages' math styling; splitting must not add new styling defaults.
     katexStylePlugin({ split: false }),
   ],
 });
+// The split JS pass also writes a stylesheet per CSS-importing chunk (`__shared/RunSheet-<hash>.css`
+// for a lazy sheet). Nothing loads those: each page's CSS, lazy chunks' rules included, comes from
+// the isolated pass below. Drop them so the app does not ship unreferenced copies.
+for (const file of Object.keys(result.metafile.outputs)) {
+  if (!file.endsWith(".css")) continue;
+  await rm(file, { force: true });
+  delete result.metafile.outputs[file];
+}
 // esbuild's multi-entry CSS graph can reorder rules shared by different entries. Compile
 // each document's CSS with its original isolated import graph; only JavaScript is shared.
 // No React Compiler pass is needed to collect stylesheets, and the unused JS stays in memory.

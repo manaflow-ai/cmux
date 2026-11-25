@@ -6,6 +6,43 @@ use std::borrow::Cow;
 use super::{Terminal, byte_scan, sys};
 
 impl Terminal {
+    /// Everything [`Self::vt_write_with_normalized`] does to `data` before
+    /// the parse: C1 normalization, the empty Kitty probe filter and the
+    /// tracker pass. Returns the bytes to parse and whether mouse modes may
+    /// have changed.
+    ///
+    /// One scan covers the frame's leading neutral run (see
+    /// `byte_scan::neutral_run_end`) for all three steps. With no code point
+    /// in progress and every tracker idle, that run is ASCII, complete valid
+    /// UTF-8 and inert CSIs: the normalizer copies it unchanged and ends it
+    /// with no code point in progress, no empty probe (`ESC _ G ESC \`) can
+    /// start in it, and the trackers only clear the boundary tracker's
+    /// pending bytes. The three steps then run on the rest alone, as before.
+    pub(super) fn prepare_write<'a>(&mut self, data: &'a [u8]) -> (Cow<'a, [u8]>, bool) {
+        let neutral = if self.c1_normalizer.utf8_remaining == 0 && self.trackers_idle() {
+            byte_scan::neutral_run_end(data, 0, !self.prompt_semantic.waits_for_line_end())
+        } else {
+            0
+        };
+        if neutral > 0 {
+            self.vt_boundary.clear_pending();
+        }
+        let (head, rest) = data.split_at(neutral);
+        let rest = self.c1_normalizer.normalize(rest);
+        let rest = self.empty_kitty_probe_filter.write(rest);
+        let mouse_modes_may_have_changed = self.feed_trackers(&rest);
+        let normalized = match rest {
+            Cow::Borrowed(_) => Cow::Borrowed(data),
+            Cow::Owned(rest) => {
+                let mut joined = Vec::with_capacity(head.len() + rest.len());
+                joined.extend_from_slice(head);
+                joined.extend_from_slice(&rest);
+                Cow::Owned(joined)
+            }
+        };
+        (normalized, mouse_modes_may_have_changed)
+    }
+
     /// Feeds the accepted bytes to every tracker in one pass. The trackers
     /// never read one another, so stepping them byte by byte together equals
     /// running them one after another. While all of them are idle, a neutral
@@ -89,3 +126,7 @@ impl Terminal {
         normalized
     }
 }
+
+#[cfg(test)]
+#[path = "fast_write_tests.rs"]
+mod tests;

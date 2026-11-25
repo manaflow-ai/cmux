@@ -11,8 +11,9 @@ const transcript = readFileSync(
 );
 
 test("composer focus rims are modality-aware", () => {
-  expect(acpmux).toContain(".acpmux-composer-box:has(:focus-visible)");
-  expect(location).toContain(".acpmux-composer-box:has(:focus-visible)");
+  // ComposerBox writes `data-focused` from `:focus-visible` within it (focusVisibleMark.ts).
+  expect(acpmux).toContain(".acpmux-composer-box[data-focused]");
+  expect(location).toContain(".acpmux-composer-box[data-focused]");
   expect(acpmux).not.toContain(".acpmux-composer-box:focus-within");
   expect(location).not.toContain(".acpmux-composer-box:focus-within");
 });

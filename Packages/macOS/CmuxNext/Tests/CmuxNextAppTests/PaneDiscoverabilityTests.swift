@@ -77,7 +77,7 @@ import Testing
     @Test func creationButtonsStayOutOfTheTopBarForChatAndTerminal() throws {
         let registry = ActionRegistry.standard()
         let pane = ActionTargetRef(kind: .pane, id: "sample-pane")
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: pane)
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: pane)
         toolbar.update(target: "sample-chat", kind: nil)
         #expect(toolbar.view.items.isEmpty, "the new-terminal and new-browser buttons repeat the + menu")
         #expect(toolbar.view.buttons.isEmpty)
@@ -97,7 +97,7 @@ import Testing
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
         let pins = ["splitRight", "splitDown", "openDiffViewer", "file.open"]
         for action in pins { registry.bind(ActionID(rawValue: action), invoke: { _ in }) }
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: target)
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: pins)
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [], selectedID: nil), reveal: LaunchReveal(deadline: .zero))
         pane.toolbar = toolbar
@@ -110,7 +110,7 @@ import Testing
             let pinned = toolbar.view.buttons
             #expect(pinned.count == pins.count)
             #expect(pinned.allSatisfy { !$0.isHidden })
-            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden }
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX, "controls must never overlap at \(width) points")
             }
@@ -137,7 +137,7 @@ import Testing
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
         let pins = ["splitRight", "splitDown", "toggleSplitZoom"]
         for action in pins { registry.bind(ActionID(rawValue: action), invoke: { _ in }) }
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: target)
         toolbar.update(target: "sample-browser", kind: .browser, pinned: pins)
         tab.pane.toolbar = toolbar
         for width: CGFloat in [200, 600, 200] {
@@ -152,14 +152,13 @@ import Testing
             #expect(tab.pane.isBandActive)
             #expect(toolbar.view.frame.width <= width / 2)
             #expect(tab.pane.stripView.tabAvailableWidth > 0, "the browser band must retain a tab viewport")
-            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden } + [toolbar.view.moreButton]
+            let visible: [NSView] = toolbar.view.buttons.filter { !$0.isHidden }
             for (left, right) in zip(visible, visible.dropFirst()) {
                 #expect(left.frame.maxX <= right.frame.minX)
             }
-            let menu = try #require(toolbar.view.moreMenu?())
-            let menuActions = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
+            // A pin that does not fit hides; its key and the palette still run it (the bar has no ⋮, #53356).
             for (item, button) in zip(toolbar.view.items, toolbar.view.buttons) where button.isHidden && pins.contains(item.id) {
-                #expect(menuActions.contains(ActionID(rawValue: item.id)), "overflowed pins must remain actionable")
+                #expect(registry.descriptor(for: ActionID(rawValue: item.id)) != nil, "overflowed pins must remain actionable")
             }
         }
     }

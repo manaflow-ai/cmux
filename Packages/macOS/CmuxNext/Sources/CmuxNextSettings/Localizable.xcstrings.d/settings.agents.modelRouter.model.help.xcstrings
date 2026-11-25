@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.modelRouter.model.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "النموذج الذي تبدأ به محادثات موجّه نماذج cmux الجديدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Model s kojim počinju novi chatovi na cmux usmjerivaču modela."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den model, nye chats på cmux-modelrouteren starter med."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Modell, mit dem neue Chats über den cmux-Modellrouter starten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The model new cmux model router chats start on."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El modelo con el que empiezan los chats nuevos del enrutador de modelos de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le modèle sur lequel démarrent les nouvelles discussions via le routeur de modèles cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il modello con cui iniziano le nuove chat sul router di modelli cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux モデルルーターで新しいチャットを始めるときのモデルです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ូដែលដែលការជជែកថ្មីនៅលើកម្មវិធីបញ្ជូនម៉ូដែល cmux ចាប់ផ្ដើមប្រើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 모델 라우터의 새 채팅이 시작할 때 쓰는 모델입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modellen nye chatter på cmux-modellruteren starter med."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Model, na którym startują nowe czaty w routerze modeli cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O modelo com que novos chats no roteador de modelos do cmux começam."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Модель, с которой начинаются новые чаты через маршрутизатор моделей cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โมเดลที่แชตใหม่บนตัวกำหนดเส้นทางโมเดล cmux เริ่มใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni cmux model yönlendiricisi sohbetlerinin başladığı model."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Модель, з якою починаються нові чати через маршрутизатор моделей cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mô hình mà các cuộc trò chuyện mới trên bộ định tuyến mô hình cmux bắt đầu dùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 模型路由器上新聊天使用的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 模型路由器上新聊天開始時使用的模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -490,11 +490,19 @@ public final class NativeMarkdownView: UIView {
     }
 
     /// The link under `point` (in `label`'s coordinates): only on the glyph itself, not the blank
-    /// space after a line or between paragraphs.
-    public static func link(in label: UILabel, at point: CGPoint) -> URL? {
+    /// space after a line or between paragraphs. `asDrawn`: lay the text out as UILabel draws it,
+    /// with no font leading between lines and centered in a frame taller than the text (the chat's
+    /// labels); otherwise with TextKit's leading from the frame's top (the Feed's fixed-height lines).
+    public static func link(in label: UILabel, at point: CGPoint, asDrawn: Bool = false) -> URL? {
         guard let text = label.attributedText, text.length > 0 else { return nil }
+        var point = point
         let storage = NSTextStorage(attributedString: text)
         let manager = NSLayoutManager()
+        if asDrawn {
+            manager.usesFontLeading = false
+            let drawn = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 0).height
+            point.y -= max(0, label.bounds.height - drawn) / 2
+        }
         // Unbounded height: the label's height leaves out the last line's leading TextKit adds.
         let container = NSTextContainer(size: CGSize(width: label.bounds.width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
@@ -591,7 +599,7 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .cmuxMobileCodeBackground
+        backgroundColor = CmuxMobileContentSurface.fill(.card)
         layer.cornerRadius = 16
         layer.cornerCurve = .continuous
         clipsToBounds = true
@@ -626,6 +634,12 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     private func updateFade() {
         let more = scroll.contentOffset.x + scroll.bounds.width < scroll.contentSize.width - 1
+        // The mask is a bare layer, whose frame changes animate implicitly (0.25 s): it trailed the
+        // scroll, so the code the finger brought in stayed masked until the mask caught up. It
+        // moves with the content in the same frame (ChatCodeCardView does the same).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         if more {
             fade.frame = scroll.bounds
             let width = max(scroll.bounds.width, 1)
@@ -637,7 +651,8 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
     }
 }
 
-/// A markdown table (markdown.css `table`) in a horizontal scroll area.
+/// A markdown table (markdown.css `table`) in a horizontal scroll area: centered when narrower
+/// than the column, scrolling sideways in its own box when wider (Leo 2026-11-22).
 final class NativeTableView: UIScrollView {
     private var labels: [UILabel] = []
     private var rules: [UIView] = []
@@ -654,7 +669,9 @@ final class NativeTableView: UIScrollView {
     func apply(_ block: NativeMarkdownLayout.TableBlock) {
         frame = block.frame
         contentSize = block.contentSize
+        contentInset = .zero
         contentOffset = .zero
+        centerIfNarrow()
         while labels.count < block.cells.count {
             let label = UILabel()
             label.numberOfLines = 1
@@ -677,6 +694,20 @@ final class NativeTableView: UIScrollView {
             rule.isHidden = index >= block.rules.count
             if index < block.rules.count { rule.frame = block.rules[index] }
         }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        centerIfNarrow()
+    }
+
+    /// A table narrower than the view: an even inset on its leading side centers it (and it does
+    /// not scroll); a wider one keeps no inset and scrolls from its leading edge.
+    private func centerIfNarrow() {
+        let slack = max(0, ((bounds.width - contentSize.width) / 2).rounded(.down))
+        guard contentInset.left != slack else { return }
+        contentInset = UIEdgeInsets(top: 0, left: slack, bottom: 0, right: 0)
+        contentOffset = CGPoint(x: -slack, y: 0)
     }
 }
 

@@ -1,7 +1,9 @@
+import Foundation
 #if os(iOS)
 import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileModel
 import CmuxMobileScreenSharing
 import SwiftUI
@@ -22,14 +24,31 @@ extension TabsKitTheme {
         tabs.colors.overviewTop = TabsKitTheme.Colors.pair(0xF2F2F7, 0x1C1C1E)
         tabs.colors.overviewBottom = TabsKitTheme.Colors.pair(0xE5E5EA, 0x000000)
         tabs.colors.accent = TabsKitTheme.Colors.pair(0x1C1C1E, 0x636366)
+        // The bar under the status bar (Leo 2026-11-23: "we keep the "safari" esque thing. but we
+        // move it to the top"): the bottom is the composer's, and Back stays one tap away with
+        // the keyboard up.
+        tabs.metrics.barEdge = .top
+        #if DEBUG
+        // Gallery variants of the top bar's placement (TopBarGalleryUITests); the shipped one is `grid`.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-cmux-mobile-topbar-variant"), args.indices.contains(i + 1) {
+            switch args[i + 1] {
+            case "edge": tabs.metrics.topBarGap = 0; tabs.metrics.topSideInset = 12
+            case "airy": tabs.metrics.topBarGap = 10; tabs.metrics.topSideInset = 24
+            case "safari": tabs.metrics.topBarGap = 2; tabs.metrics.topSideInset = tabs.metrics.sideInset
+            default: break
+            }
+        }
+        #endif
         return tabs
     }
 }
 
-/// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
-/// last tab used on this device. Pushed full screen from the Workspaces
+/// A workspace: its tabs in the Safari-style TabsKit chrome, opened where
+/// `AppStore.openingTab` says (the tab left on screen when it was open before in this
+/// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
-/// screen surfaces own the bottom edge). Ways back to the list: the
+/// screen surfaces own the bottom edge). Ways back to the list: the top
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
 public struct WorkspaceScreen: View {
@@ -39,10 +58,13 @@ public struct WorkspaceScreen: View {
     @State private var holder = SourceHolder()
     private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
+    /// The tab overview's columns at this page's width.
+    @State private var overviewColumnCount = 2
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
@@ -72,6 +94,16 @@ public struct WorkspaceScreen: View {
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
+            // The overview shows as many columns as the page's width fits (Rust's
+            // `overview_columns`): two on a phone, more on an unfolded screen.
+            .environment(\.tabsKitOverviewColumns, overviewColumnCount)
+            .onGeometryChange(for: Int.self) { proxy in
+                Int(overviewColumns(width: Double(proxy.size.width)))
+            } action: { columns in
+                overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
+            }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
                 if showsGrid, !source.isSelectingTabs {
@@ -91,6 +123,9 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // Its own layer: the Workspaces bar (title, Macs online, Search) never
+            // draws over it through a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -102,14 +137,23 @@ public struct WorkspaceScreen: View {
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }
                 #endif
             }
+            // The grid's view stays "visible" in the background: its refresh stops here.
+            // Inactive (Control Center, the app switcher's first moment) still shows it.
+            .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
+            // The page is one container element that holds its own identifier: on the bare
+            // content the identifier went to every element inside, and the agent tab's
+            // composer field read `workspace.<id>` instead of `chat.composer.field`.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
-                             start: { [source] start in source.startAgentChat(start) })
+                             start: { [source] start in source.startAgentChat(start) },
+                             macID: source.workspace?.macID ?? "")
                     .presentationDetents([.medium, .large])
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
@@ -146,8 +190,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
@@ -343,38 +386,52 @@ struct WorkspaceGridHeader: View {
     private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
-        ZStack {
+        HStack(spacing: 8) {
+            Button {
+                source.exit()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: metrics.toolbarGlyph, weight: .medium))
+                    .foregroundStyle(theme.colors.label.color)
+                    .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.cmuxPressGlass)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Workspaces")
+            // The title takes the room between Back and the filter: centered over the grid it ran
+            // under the filter ("2 of 3 t…" in the simulator's grid shot).
             VStack(spacing: 1) {
                 Text(source.workspace?.title ?? "").font(.headline)
-                Text(macLine).font(.footnote).foregroundStyle(theme.colors.label2.color)
+                // The Mac's name gives way first: the tab count says when panes are hidden.
+                HStack(spacing: 0) {
+                    Text(macName).truncationMode(.tail)
+                    Text(macName.isEmpty ? tabCount : " · \(tabCount)").layoutPriority(1)
+                }
+                .font(.footnote).foregroundStyle(theme.colors.label2.color)
             }
             .lineLimit(1)
-            .frame(maxWidth: 220)
-            HStack {
-                Button {
-                    source.exit()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
-                        .foregroundStyle(theme.colors.label.color)
-                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Workspaces")
-                Spacer()
-            }
+            .frame(maxWidth: .infinity)
+            // The pane filter, beside TabsKit's More (drawn by the grid at the trailing edge).
+            PaneFilterControl(setting: source.paneFilter, result: source.paneFilterResult)
+            Color.clear.frame(width: metrics.overviewTopControl, height: 1)
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
     }
 
-    private var macLine: String {
+    private var macName: String {
         guard let workspace = source.workspace else { return "" }
-        let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
+        return source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
+    }
+
+    private var tabCount: String {
+        guard let workspace = source.workspace else { return "" }
         let count = workspace.tabs.count
-        return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
+        // Filtered: "3 of 7 tabs", so the hidden ones are never a surprise.
+        let shown = source.tabs.count
+        if shown < count { return "\(shown) of \(count) tabs" }
+        return count == 1 ? "1 tab" : "\(count) tabs"
     }
 }
 

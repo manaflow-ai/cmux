@@ -64,13 +64,30 @@ package final class ChildProcess: Sendable {
     }
 
     /// Writes `line` and a newline to the held stdin (``startHoldingInput()``); false when it is closed or did not take it all.
+    /// A line longer than `PIPE_BUF` (512 bytes on Darwin) may go in parts: the rest follows as the child reads,
+    /// for at most `patience` in all, so a line is never cut off with a later one appended to its half (a token
+    /// line is ~1.5 KB).
     @discardableResult
-    package func writeInput(line: String) -> Bool {
+    package func writeInput(line: String, patience: Duration = .milliseconds(500)) -> Bool {
         let bytes = Array((line + "\n").utf8)
+        let deadline = ContinuousClock.now + patience
         return state.withLock { state in
             guard let input = state.input else { return false }
-            // concurrency-allow: the held stdin is O_NONBLOCK (startHoldingInput): a full pipe fails the write, never waits
-            return bytes.withUnsafeBytes { Darwin.write(input.fileDescriptor, $0.baseAddress, $0.count) } == bytes.count
+            let fd = input.fileDescriptor
+            var sent = 0
+            while sent < bytes.count {
+                // concurrency-allow: the held stdin is O_NONBLOCK (startHoldingInput): a full pipe returns EAGAIN, never waits
+                let wrote = bytes[sent...].withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+                if wrote > 0 { sent += wrote; continue }
+                guard wrote < 0, errno == EAGAIN || errno == EINTR else { return false }
+                let left = ContinuousClock.now.duration(to: deadline)
+                guard left > .zero else { return false }
+                var ready = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                let (seconds, attoseconds) = left.components
+                // concurrency-allow: bounded by `patience`; the child reads its stdin as lines arrive
+                _ = Darwin.poll(&ready, 1, Int32(min(seconds * 1000 + attoseconds / 1_000_000_000_000_000, 1000)) + 1)
+            }
+            return true
         }
     }
 
@@ -129,7 +146,7 @@ package final class ChildProcess: Sendable {
             switch handle.readReady() {
             case .bytes(let data): for line in splitter.append(data) { continuation.yield(line) }
             case .retry: return
-            case .end: handle.readabilityHandler = nil; continuation.finish()
+            case .end: handle.readabilityHandler = nil; try? handle.close(); continuation.finish()
             }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -149,12 +166,15 @@ package final class ChildProcess: Sendable {
             case .retry: return
             case .end:
                 handle.readabilityHandler = nil
+                try? handle.close()
                 stderrContinuation.finish()
                 self?.state.withLock { state in try? state.stderrLog?.close(); state.stderrLog = nil }
             }
         }
         let log = stderrLog.flatMap(Self.openLog)
+        let (stdoutReader, stderrReader) = (stdout.fileHandleForReading, stderr.fileHandleForReading)
         process.terminationHandler = { [weak self] finished in
+            finished.terminationHandler = nil  // breaks process -> handler
             let status = finished.terminationStatus
             let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
                 state.exitStatus = status
@@ -164,19 +184,29 @@ package final class ChildProcess: Sendable {
                 return state.exitWaiters
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
+            // A grandchild that inherited stdout or stderr (ssh's ControlPersist master under `remote connect`)
+            // keeps the end of file from coming: the read ends close a drain's grace after the exit instead, and
+            // both line streams end (cmuxterm-hq#8747, the NIGHTLY that held ~2,000 pipes).
+            ChildOutputEnds.closeAfterExit(reading: [stdoutReader, stderrReader]) { [weak self] in
+                continuation.finish()
+                stderrContinuation.finish()
+                self?.state.withLock { state in try? state.stderrLog?.close(); state.stderrLog = nil }
+            }
         }
         state.withLock { state in
             try? state.stderrLog?.close()
             state.process = process; state.stderrLog = log; state.stderrLogged = 0
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             if process.isRunning { process.terminate() }
             // It never ran: no termination handler comes, so record the exit here (status 127, as a shell's
             // "could not run"), end both line streams and resume every exit waiter instead of leaving them forever.
-            stdout.fileHandleForReading.readabilityHandler = nil
-            stderr.fileHandleForReading.readabilityHandler = nil
+            process.terminationHandler = nil
+            // The write ends are still ours (the child never got them): close all four, or no end of file ever comes.
+            ChildOutputEnds.closeNow(pipes: [stdout, stderr])
             continuation.finish()
             stderrContinuation.finish()
             let waiters = state.withLock { state -> [CheckedContinuation<Int32, Never>] in

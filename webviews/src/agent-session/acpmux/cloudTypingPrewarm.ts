@@ -31,6 +31,26 @@ export function cloudIdentityKept(previous: CloudIdentityView, next: CloudIdenti
   );
 }
 
+/**
+ * Whether the pane still shows the same new chat after its session changed: an empty chat whose
+ * agent or model pick opened another session here (`emptyLocalChat`), on the same New Tab page. Its
+ * place (This Mac or Cloud) and the Cloud start it holds stay: a model pick never resets where the
+ * chat runs (cmux#47677). Before, only the first such session with Cloud picked kept them, so a
+ * second model pick, or one with This Mac picked, put the place back to its default.
+ */
+/// `switching`: this page's own agent or model switch is in flight (`snapshot.switching`). The empty
+/// chat's first session is that pick's too; a later one is only while a switch made here is out, so
+/// another empty chat opened in the pane never takes this one's place, Cloud start or held prompt.
+export function sameNewChat(
+  shown: CloudIdentityView,
+  next: CloudIdentityView,
+  emptyLocalChat: boolean,
+  switching: boolean,
+): boolean {
+  if (!emptyLocalChat || next.session === undefined || shown.generation !== next.generation) return false;
+  return shown.session === undefined || switching;
+}
+
 const sameTarget = (left: CloudTypingTarget | undefined, right: CloudTypingTarget) =>
   left?.machineID === right.machineID && left?.sessionID === right.sessionID;
 

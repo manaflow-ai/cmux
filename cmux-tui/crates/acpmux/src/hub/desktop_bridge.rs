@@ -184,12 +184,16 @@ impl Hub {
                 &stores,
                 listing.harness,
                 listing.agent_session_id,
-            )
-            .is_some();
+            );
             let taken = |n: &str| sessions.values().any(|s| s.read_meta(|m| m.name == n));
             (shown, unique_name(listing.base, listing.suffix, taken))
         };
-        if shown {
+        // The listed process runs the conversation: its chat reads disconnected once it exits
+        // (`app_exit.rs`), a new process (a restarted app) included.
+        let pid =
+            listing.tags.get("origin.pid").and_then(Value::as_str).and_then(|p| p.parse().ok());
+        if let Some(shown) = shown {
+            self.follow_app(&shown, pid);
             return Ok(None);
         }
         let req = super::NewRequest {
@@ -212,6 +216,7 @@ impl Hub {
         };
         let session = self.new_session(req).await.map_err(|e| e.message)?;
         self.set_tags(&session, listing.tags.as_object(), &[], None);
+        self.follow_app(&session, pid);
         Ok(Some(session))
     }
 }

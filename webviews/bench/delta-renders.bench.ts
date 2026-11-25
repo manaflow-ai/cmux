@@ -9,6 +9,8 @@
 // length is a light chat (`cmuxAcpmuxDebug.loadSeed(turns, { light: true })`: a prompt, a reply
 // and its worked line per turn, three rows, opened whole) with Session Info shown, then two streams in it, nothing scrolled:
 //   text   one reply streamed in 24-character chunks every 12 ms (`loadRun`, no tool calls)
+//   thought  one thought streamed the same way (`loadRun` `stream_kind: "thought"`)
+//   status   the context count alone changing as often (`stream_kind: "status"`: `usage_update`)
 //   tool   one command whose output grows every 50 ms (`loadTick`, no other chat changes)
 // Counts come from `acpmuxPerf.renders`: the pane root (AcpmuxPane), the transcript
 // (VirtualTranscript), the header (ChatHeaderTools), the composer, Session Info's parts, and every
@@ -19,6 +21,7 @@
 import path from "node:path";
 import { chromium } from "./browsers";
 import type { Page } from "playwright";
+import { installReactWatch, requireProductionReact } from "./support/benchPage";
 import { warmViteServer } from "../test/support/warmDevServer";
 
 const argv = process.argv.slice(2);
@@ -65,8 +68,15 @@ function perDelta(renders: Renders, deltas: number) {
 }
 
 async function openChat(page: Page, port: number, turns: number) {
+  // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+  await installReactWatch(page);
   await page.goto(`http://127.0.0.1:${port}/?mock`);
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  // After the pane is up: react-dom rides a lazy chunk, so a page asked right after `goto` has not
+  // fetched it yet. This bench counts renders, not milliseconds, and a built pane page never
+  // installs these debug hooks, so it keeps the dev server and labels its numbers dev
+  // (bench/support/benchPage.ts, bench/dev-server-benches.json).
+  await requireProductionReact(page, { dev: true });
   const seeded = (await page.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,
@@ -108,12 +118,31 @@ try {
         }),
       SECONDS,
     )) as Record<string, any>;
+    // A thought streaming (`agent_thought_chunk`) and a status change alone (`usage_update`), each as
+    // fast as the reply text above.
+    const streamed = async (kind: "thought" | "status") =>
+      (await page.evaluate(
+        ({ seconds, kind }) =>
+          (window as any).cmuxAcpmuxDebug.loadRun({
+            seconds,
+            chunk_chars: 24,
+            chunk_ms: 12,
+            tool_every: 0,
+            scroll_speed: 0,
+            stream_kind: kind,
+          }),
+        { seconds: SECONDS, kind },
+      )) as Record<string, any>;
+    const thought = await streamed("thought");
+    const status = await streamed("status");
     const tool = (await page.evaluate(
       (seconds) => (window as any).cmuxAcpmuxDebug.loadTick({ seconds, tick_ms: 50, sidebar_ms: 0, scroll_speed: 0 }),
       SECONDS,
     )) as Record<string, any>;
     await page.close();
     table.push({ rows, stream: "text", ...perDelta(text.renders ?? {}, text.deltas ?? 0) });
+    table.push({ rows, stream: "thought", ...perDelta(thought.renders ?? {}, thought.deltas ?? 0) });
+    table.push({ rows, stream: "status", ...perDelta(status.renders ?? {}, status.deltas ?? 0) });
     table.push({ rows, stream: "tool", ...perDelta(tool.renders ?? {}, tool.ticks ?? 0) });
   }
   console.table(table.map(({ busiest: _, ...row }) => row));

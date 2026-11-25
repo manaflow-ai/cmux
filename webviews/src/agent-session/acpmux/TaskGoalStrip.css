@@ -114,7 +114,7 @@
   --acpmux-goal-line: 18px;
   --acpmux-goal-inset: var(--acpmux-tray-inset, var(--acpmux-composer-inset, 8px));
   --acpmux-goal-actions: calc(3 * var(--ds-control-icon) + 2 * var(--ds-space-1));
-  --acpmux-goal-radius: var(--acpmux-composer-radius, 11px);
+  --acpmux-goal-radius: var(--cmux-composer-hat-radius, var(--acpmux-composer-radius, 11px));
   /* The reference, frame-stepped: opens in about 200 ms on an ease-out quad, closes in about 110 ms
      on an ease-out cubic, no overshoot. Both scale with the motion token, so the motion gate's 0 ms
      and the app's animation speed apply. */
@@ -122,10 +122,19 @@
   --acpmux-goal-open-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --acpmux-goal-close: calc(var(--agent-motion-move, 180ms) * 0.6);
   --acpmux-goal-close-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
+  /* The composer's lead box (+'s) and lead gap: the mark centres where the hat's mark and + do, the
+     words start where theirs do (cmux#51039; the person, 2026-11-23: "icons are not matching
+     properly"). test/hat-composer-icon-grid.test.ts measures it. */
+  --acpmux-goal-lead-box: var(--acpmux-composer-control, 28px);
+  --acpmux-goal-lead-gap: var(--acpmux-composer-lead-gap, 8px);
+  /* The mark: the plan's step mark size, 12 of the composer glyph's 16 px. */
+  --acpmux-goal-mark-size: calc(var(--acpmux-composer-glyph, 16px) * 12 / 16);
+  --acpmux-goal-gap: var(--ds-space-2);
   display: grid;
-  grid-template-columns: 16px auto minmax(0, 1fr);
+  /* The mark's column holds +'s box and the rest of the lead gap the grid's own gap leaves. */
+  grid-template-columns: calc(var(--acpmux-goal-lead-box) + var(--acpmux-goal-lead-gap) - var(--acpmux-goal-gap)) auto minmax(0, 1fr);
   align-items: start;
-  column-gap: var(--ds-space-2);
+  column-gap: var(--acpmux-goal-gap);
   flex-wrap: nowrap;
   min-height: var(--acpmux-goal-row);
   padding: calc((var(--acpmux-goal-row) - var(--acpmux-goal-line)) / 2) var(--acpmux-goal-inset);
@@ -166,18 +175,21 @@
 }
 
 .acpmux-goal[data-look] .acpmux-goal-mark {
-  width: 16px;
+  width: var(--acpmux-goal-lead-box);
   height: var(--acpmux-goal-line);
 }
+/* The mark is the header glyph's ink size (12 px at Default) at every density: a ring round a dot,
+   the ring alone while paused (the person, 2026-11-24: the hat's icons the same size on the + axis). */
 .acpmux-goal[data-look] .acpmux-goal-mark > span {
-  width: var(--ds-space-2);
-  height: var(--ds-space-2);
+  box-sizing: border-box;
+  width: var(--acpmux-goal-mark-size);
+  height: var(--acpmux-goal-mark-size);
   border-radius: 50%;
-  background: currentColor;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  background: radial-gradient(circle, currentColor 0 calc(var(--acpmux-composer-glyph, 16px) * 2.5 / 16), transparent calc(var(--acpmux-composer-glyph, 16px) * 2.5 / 16 + 0.5px));
 }
 .acpmux-goal[data-look][data-state="paused"] .acpmux-goal-mark > span {
   background: none;
-  box-shadow: inset 0 0 0 1.5px currentColor;
 }
 .acpmux-goal[data-look]:is([data-state="done"], [data-state="complete"]) .acpmux-goal-mark {
   color: var(--agent-success, var(--agent-accent));
@@ -390,6 +402,29 @@
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
 }
+/* The banner at the top of a joined stack takes the card's light, as the tray does when it heads the
+   stack (bottomStack.css): the soft band into the top corners and the sheen, inside the edge, at the
+   card's glint (composerStates.css .acpmux-stack-material). The card and a tray joined under it give
+   their top light up, so no bright line runs along the seam (user 2026-11-20, "ensure all border colors
+   are the same"; test/composer-one-edge.test.ts). Reduce Transparency, Lens and Spectrum over art keep
+   the edge alone. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-goal:is([data-look="head"], [data-look="foot"]:not(.acpmux-running-tray[data-card] + *)):has(
+      + .acpmux-composer > .acpmux-composer-box.ui-glass-material,
+      + .acpmux-running-tray[data-card] + .acpmux-composer > .acpmux-composer-box.ui-glass-material
+    ) {
+    box-shadow:
+      inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+      inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+      inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+      inset 1px 1.5px 1px -1px var(--glass-material-specular),
+      inset 0 16px 20px -16px var(--glass-material-sheen);
+  }
+}
 :root:not([data-bottom-stack="cards"])
   .acpmux-dock
   > .acpmux-goal[data-look="head"]
@@ -438,55 +473,3 @@
   .acpmux-goal-chevron > svg,
   .acpmux-goal-actions { transition: none; }
 }
-
-/* A Claude Code /loop (cmux#38051): one quiet chip. It says only when the loop checks back; the
-   agent's wake prompt is in its tooltip and, on demand, in the details, which wrap inside the column
-   and scroll past a few lines instead of widening or growing the stack. */
-.acpmux-goal[data-kind="loop"] .acpmux-goal-copy {
-  flex: 0 1 auto;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-.acpmux-goal-loop-mark {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  color: var(--agent-muted);
-}
-.acpmux-goal[data-kind="loop"] .acpmux-goal-state {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--agent-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* The line opens its details itself (no icon button): a bare button that reads as the line, its
-   text brightening on hover as a row's does. */
-.acpmux-goal-loop-toggle {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  cursor: default;
-}
-.acpmux-goal-loop-toggle:hover .acpmux-goal-state,
-.acpmux-goal-loop-toggle[aria-expanded="true"] .acpmux-goal-state {
-  color: var(--agent-soft);
-}
-.acpmux-goal-loop-toggle:focus-visible {
-  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
-}
-.acpmux-goal-loop-details {
-  min-width: 0;
-  max-height: calc(6 * var(--text-caption--line-height, 18px));
-  margin-left: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.acpmux-goal-loop-details p {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.acpmux-goal-loop-prompt { color: var(--agent-soft); }

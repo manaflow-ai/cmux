@@ -209,6 +209,14 @@ class Acpmux:
         return {s.get("sessionId"): s.get("status") for s in reply.get("sessions", [])} if "error" not in reply else {}
 
 
+def _quietly(check):
+    """check(), or False when the app does not answer yet."""
+    try:
+        return check()
+    except (OSError, ValueError):
+        return False
+
+
 def wait(condition, seconds, step=1.0):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -299,6 +307,7 @@ class Soak:
                      os.path.join(support, bundle),
                      os.path.join(support, "cmux-next", bundle),
                      os.path.join(support, "cmux", bundle),
+                     os.path.join(support, "cmux-next", f"managed-status.{bundle}.json"),
                      os.path.join(support, "cmux", f"managed-status.{bundle}.json"),
                      os.path.join(support, "cmux-next", "tags", tag),
                      os.path.join(support, "cmux", "tags", tag),
@@ -716,7 +725,13 @@ class Soak:
         try:
             with open(self.config, "w") as handle:
                 json.dump({"app": {"quitBehavior": "end-everything"}}, handle)
-            time.sleep(2)  # soak script: the app reloads cmux.json from its file watcher
+            # The app reloads cmux.json from its file watcher: wait until it reports the new quit behavior.
+            # Best effort (the quit below asks for End Everything outright too).
+            def reloaded():
+                reply = Client(self.socket, timeout=5).call("settings.get", {"path": "app.quitBehavior"})
+                return ((reply or {}).get("result") or {}).get("value") not in (None, "keep")
+            if not wait(lambda: _quietly(reloaded), 10, step=0.1):
+                say("quit: the app never reported the new app.quitBehavior in 10 s; quitting anyway")
             pids = [pid for pid, kind in self.kinds().items() if kind == "app"]
             # A remembered End Everything no longer deletes workspaces on a
             # scripted quit (it keeps them); the flag asks for it outright.

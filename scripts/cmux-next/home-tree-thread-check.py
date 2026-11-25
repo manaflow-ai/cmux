@@ -24,10 +24,11 @@ DEBUG quit fixture, endAgents and the tag's `acpmux daemon shutdown`.
 
 Usage: home-tree-thread-check.py --tag <tag> [--app APP] [--out DIR]
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, hashlib, json, os, re, signal, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -87,8 +88,13 @@ def poll(predicate, timeout=20):
 
 
 def shot(name):
-    time.sleep(1)  # test harness: the view's motion settles before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, name + ".png")})
+    """The window snapshot once the view's motion settled: two snapshots in a row are the same picture."""
+    path = os.path.join(opts.out, name + ".png")
+
+    def frame():
+        rpc("debug.window_snapshot", {"path": path})
+        return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    wait_stable(frame, f"the window picture for {name}", timeout=15, interval=0.2, reads=2, raise_on_timeout=False)
 
 
 def component(raw):
@@ -182,10 +188,13 @@ try:
            op={"kind": "message.send", "client_msg_id": f"tree-start-{stamp}", "parts": [{"type": "text", "text": first}]})
 
     def opened():
-        if ((rpc("debug.home") or {}).get("page") or {}).get("shown") != conversation:
+        def shown():
+            return ((rpc("debug.home") or {}).get("page") or {}).get("shown") == conversation
+        if not shown():
             rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
-            time.sleep(1)  # test harness: one request per second while Home starts
-            return None
+            # Home shows it; a request while Home starts can be dropped, and the poll asks again.
+            if not wait_until(shown, "Home to show the conversation", timeout=5, raise_on_timeout=False):
+                return None
         return first in (drive("texts").get("texts") or [])
     check("Home shows the conversation", bool(poll(opened, timeout=180)), drive("texts"))
 
@@ -339,7 +348,10 @@ finally:
     exited = poll(lambda: process.poll() is not None, timeout=30)
     safe_print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)  # the app this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,

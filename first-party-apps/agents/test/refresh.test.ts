@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { FakeHost } from "../../../cmux-tui/crates/cmux-app-host/js/test/fake-host.ts"
+import { FakeHost } from "cmux-extension-sdk/testing"
 
 const bundle = await Bun.build({
   entrypoints: [new URL("./fixtures/inventory-runtime.ts", import.meta.url).pathname],

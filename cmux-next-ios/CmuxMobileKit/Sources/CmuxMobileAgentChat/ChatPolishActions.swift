@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import AVFoundation
 import CmuxMobileDesign
 import CmuxSpinner
@@ -153,7 +154,7 @@ struct ChatCopyChoicesSheet: View {
                     Button("Done", systemImage: "checkmark") { dismiss() }
                 }
             }
-            .sensoryFeedback(.success, trigger: copied)
+            .cmuxMobileSensoryFeedback(.success, trigger: copied)
         }
         .presentationDetents([.medium, .large])
     }
@@ -167,7 +168,7 @@ struct ChatCopyChoicesSheet: View {
                 copied = row
                 UIAccessibility.post(notification: .announcement, argument: String(localized: "Copied"))
             } catch {
-                failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                failure = UserFacingError.message(error, fallback: "Couldn't copy that. Try again.")
             }
             copying = nil
         }
@@ -297,7 +298,7 @@ struct ChatDisplaySettingsSheet: View {
                             .disabled(!settings.canZoomIn(system: system))
                             .accessibilityIdentifier("chat.display.zoomIn")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.cmuxPressFillTinted)
                     .font(.title2)
                     Button("Actual Size") { preferences.update(summary) { $0.zoomStep = 0 } }
                         .disabled(settings.zoomStep == 0)
@@ -429,7 +430,7 @@ struct ChatTurnBar: View {
         .font(.body)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .padding(.horizontal, 12)
     }
 

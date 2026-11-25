@@ -1,11 +1,27 @@
 /** The cached one-minute host reading acpmux keeps on each peer. */
 export type MachineResources = {
   ramFreeGB: number;
+  /// The one-minute load, to one decimal (`coresBusy` is it rounded), for the machine card's Load
+  /// row; absent from a reading made by hand (a fixture).
+  load1?: number;
   coresBusy: number;
   cores: number;
   busy: boolean;
   lowMemory: boolean;
+  /// AutoCloud (RFD 0172): present when its owner enrolled it (`_acpmux/autocloud_enroll` there);
+  /// whether it takes work now and its capability words (`macos`, `xcode`, `ios-simulator`).
+  autoCloud?: MachineAutoCloud;
 };
+
+export type MachineAutoCloud = { accepting: boolean; caps: string[] };
+
+/** A peer's enrolled AutoCloud report from its `health.autoCloud`, or nothing. */
+export function machineAutoCloud(health: RecordValue | undefined): MachineAutoCloud | undefined {
+  const report = record(health?.autoCloud);
+  if (report?.enrolled !== true) return undefined;
+  const caps = Array.isArray(report.caps) ? report.caps.filter((cap): cap is string => typeof cap === "string") : [];
+  return { accepting: report.accepting === true, caps };
+}
 
 type RecordValue = Record<string, unknown>;
 
@@ -42,12 +58,15 @@ export function peerResourcesFromStatus(status: unknown): Record<string, Machine
       : [];
     resources[name] = {
       ramFreeGB: Math.round((freeBytes / 1e9) * 10) / 10,
+      load1: Math.round(load * 10) / 10,
       coresBusy: Math.round(load),
       cores: Math.round(cores),
       busy: load >= (finiteNumber(pressure.load_limit) ?? cores),
       // The verdict already applies the machine’s configured RAM threshold (including zero).
       lowMemory: over.some((reason) => reason.startsWith("available RAM ")),
     };
+    const autoCloud = machineAutoCloud(health);
+    if (autoCloud) resources[name].autoCloud = autoCloud;
   }
   return resources;
 }

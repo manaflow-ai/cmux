@@ -9,15 +9,20 @@ public import CmuxNextWakeups
 /// - only after a change of the terminal (``TerminalFrameChanges``: its output, a replay, a resize, shown or hidden),
 ///   never per keystroke: ``idle`` after the change, and at most once per ``interval`` per terminal;
 /// - off the main thread: the main actor only starts the GPU copy of the presented frame (as hover previews do);
-///   the render waits on a detached task and the JPEG encode and write run on the files lane at best effort;
-/// - bounded: one file per visible terminal; a terminal hidden or closed loses its file, and files of terminals this
-///   run does not show are dropped once the launch read has ended (at most ``TerminalLaunchFrames/maximumFiles``); a
-///   pane that still shows its saved frame ahead of its surface shows that terminal (#32274).
+///   the render waits on a detached task, the encode runs on the CPU lane and the write on the files lane, at best
+///   effort (``TerminalLaunchFrameWriter``);
+/// - as deltas: a frame with the pixels already on disk is not encoded again, and a terminal shown again with the
+///   pixels it was hidden with gets its parked file back by a rename (``TerminalLaunchFrameWriter``);
+/// - bounded: one file per visible terminal; a terminal hidden loses its file (parked: no launch reads it) and one
+///   closed loses both, and files of terminals this run does not show are dropped once the launch read has ended (at
+///   most ``TerminalLaunchFrames/maximumFiles``); a pane that still shows its saved frame ahead of its surface shows
+///   that terminal (#32274).
 ///
 /// A resize (a split, a window resize) or a file removed while hidden saves again as soon as the terminal is quiet,
 /// with no ``interval``: the launch refuses a frame of another size, so an old one is as good as none.
-/// Worst-case staleness at a kill: ``interval`` + ``busyWait`` + one encode while a terminal keeps changing (6 s and
-/// the encode); after its last change, at most ``interval`` + ``idle`` (``idle`` when its last save is older). The
+/// Worst-case staleness at a kill: ``interval`` + ``busyWait`` + one encode while a terminal starts changing (6 s and
+/// the encode), backing off to ``busiestInterval`` + ``busyWait`` while it keeps changing
+/// (``interval(afterBusySaves:)``); after its last change, at most the interval it reached + ``idle``. The
 /// quit path still saves every visible frame fresh (and stops the keeper first).
 /// It keeps the app's rendered frame for the window's first frame only; the text itself is the daemon's.
 @MainActor
@@ -28,9 +33,24 @@ final class TerminalLaunchFrameKeeper {
     nonisolated static let interval: Duration = .seconds(5)
     /// How long a due save waits for a still-changing terminal to go quiet before it saves anyway.
     nonisolated static let busyWait: Duration = .seconds(1)
+    /// The longest time between two saves of a terminal that never goes quiet (an agent streaming in it).
+    nonisolated static let busiestInterval: Duration = .seconds(60)
 
-    private let directory: URL
-    private let work: BackgroundWork
+    /// The time between saves after `streak` saves in a row taken while the terminal was still changing: ``interval``,
+    /// doubled per such save up to ``busiestInterval``. A save taken quiet ends the streak.
+    ///
+    /// Leo's NIGHTLY, 2026-11-21 (load 164-228 on 15 cores): the CPU lane encoded a 4642 x 2576 px PNG (46-57 ms) about
+    /// once a second, every visible terminal that kept printing saved again each ``interval`` + ``busyWait``, and its
+    /// pixels had always changed. A terminal that keeps changing has no settled frame to keep: its saves now back off
+    /// (saves 6 s apart, then 11, 21, 41, and every 61 s), and its first quiet check saves the frame that stays.
+    nonisolated static func interval(afterBusySaves streak: Int) -> Duration {
+        guard streak > 0 else { return interval }
+        let doubled = interval * (1 << min(streak, 4))
+        return doubled < busiestInterval ? doubled : busiestInterval
+    }
+
+    /// Encodes and writes the frames as deltas, latest wins per terminal.
+    private let writer: TerminalLaunchFrameWriter
     /// One clock for the timers' sleeps and the interval math: the continuous clock.
     private let started: ContinuousClock.Instant = .now
     private var now: Duration { started.duration(to: .now) }
@@ -39,7 +59,7 @@ final class TerminalLaunchFrameKeeper {
     private var notDrawnChecks: [String: Int] = [:]
     nonisolated static let notDrawnRetries = 4
     /// Set by ``stop()``: a write already posted to the files lane checks it and drops (the quit writes after it).
-    private let stopFlag = TerminalFrameChanges()
+    private let stopFlag: TerminalFrameChanges
     /// Whether the launch read of the files has ended: files of terminals this run does not show are dropped only then.
     private let readEnded: @MainActor () -> Bool
     /// The terminals whose saved frame a pane shows ahead of their surface (#32274): on screen, so never dropped.
@@ -71,13 +91,16 @@ final class TerminalLaunchFrameKeeper {
         /// The size the previous check saw: a size still changing (a drag, a spring) waits for quiet.
         var seenSize: CGSize?
         var onDisk = false
+        /// Saves in a row taken while the terminal was still changing (``interval(afterBusySaves:)``).
+        var busySaves = 0
     }
 
     init(directory: URL, work: BackgroundWork,
          readEnded: @escaping @MainActor () -> Bool,
          shownAhead: @escaping @MainActor () -> Set<String> = { [] }) {
-        self.directory = directory
-        self.work = work
+        let stopped = TerminalFrameChanges()
+        stopFlag = stopped
+        writer = TerminalLaunchFrameWriter(directory: directory, work: work, stillWanted: { stopped.generation == 0 })
         self.readEnded = readEnded
         self.shownAhead = shownAhead
     }
@@ -100,6 +123,11 @@ final class TerminalLaunchFrameKeeper {
 
     /// The size of `key`'s last save (tests).
     func savedSize(_ key: String) -> CGSize? { kept[key]?.savedSize }
+
+    /// What the writer did so far: frames encoded, saves of unchanged pixels, parked files restored (tests, the bench).
+    var writes: TerminalLaunchFrameWriter.Stats { writer.stats }
+    /// The writer's jobs on the files and CPU lanes and their thread CPU time (the keeper bench).
+    var laneCost: (files: LaneCost, cpu: LaneCost) { (writer.filesLane.total, writer.cpuLane.total) }
 
     /// The quit path saves every visible frame itself: no keeper save may land after it.
     func stop() {
@@ -124,9 +152,10 @@ final class TerminalLaunchFrameKeeper {
         // changes: output while hidden only counts (the model), with no hop or timer here; the next visibility change
         // (``TerminalFrameChanges/wake()``: shown, drawn, closed) wakes the keeper again (SWITCH FRAMES SF-5).
         guard let session = entry.session, Self.isOnScreen(session) else {
-            remove(key)
+            let closed = entry.session?.isClosed ?? true
+            remove(key, closed: closed)
             // Closed: nothing visits it again. One only out of a window for now (a move) stays: its next window wakes it.
-            if entry.session?.isClosed ?? true {
+            if closed {
                 entry.timer.cancel()
                 kept[key] = nil
                 notDrawnChecks[key] = nil
@@ -148,9 +177,10 @@ final class TerminalLaunchFrameKeeper {
         if changedSinceCheck { notDrawnChecks[key] = nil } // a few checks per change, not per terminal
         // Nothing usable on disk (removed while hidden, or saved at another size): save as soon as it is quiet.
         let stale = !entry.onDisk || entry.savedSize != session.surfaceView.bounds.size
-        if !stale, let last = entry.lastSave, now - last < Self.interval {
+        let interval = Self.interval(afterBusySaves: entry.busySaves)
+        if !stale, let last = entry.lastSave, now - last < interval {
             kept[key] = entry
-            entry.timer.schedule(after: Self.interval - (now - last)) { @MainActor [weak self] in await self?.check(key) }
+            entry.timer.schedule(after: interval - (now - last)) { @MainActor [weak self] in await self?.check(key) }
             return
         }
         if changedSinceCheck, entry.lastSave != nil {
@@ -166,6 +196,8 @@ final class TerminalLaunchFrameKeeper {
         }
         // From here a new change tells the keeper again.
         let taken = entry.changes.take()
+        // Still changing (its busy wait ran out): the next save waits longer. Quiet, a resize or a first save: the streak ends.
+        entry.busySaves = changedSinceCheck && !stale && entry.lastSave != nil ? entry.busySaves + 1 : 0
         entry.lastSave = now
         entry.waitingSince = nil
         kept[key] = entry
@@ -195,32 +227,22 @@ final class TerminalLaunchFrameKeeper {
         guard let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude), !stopped else { return }
         let scale = max(1, min(3, Int((CGFloat(frame.width) / size.width).rounded())))
         // Kept: the terminals kept here and the panes still showing their saved frame ahead of a surface (#32274).
-        let directory = directory, prune = readEnded() ? Set(kept.keys).union(shownAhead()) : nil
+        let prune = readEnded() ? Set(kept.keys).union(shownAhead()) : nil
         kept[key]?.onDisk = true
         kept[key]?.savedSize = size
         // Posted, not awaited: nothing waits for it, so it stays at best effort (BackgroundWork, priority inversion).
-        let written = onWritten, stopped = stopFlag
-        work.post(.bestEffort, mayBlock: .files) {
-            guard stopped.generation == 0 else { return } // the quit saves every frame itself
-            TerminalLaunchFrames.writeOne(frame, key: key, scale: scale, to: directory, keeping: prune,
-                                          stillWanted: { stopped.generation == 0 })
-            written?(key)
-        }
+        writer.save(key, frame: frame, scale: scale, keeping: prune, written: onWritten)
     }
 
     /// The surface view's own rule, which also tells the keeper when its answer changes (``TerminalSurfaceView/updateOcclusion()``).
     private static func isOnScreen(_ session: TerminalSession) -> Bool { session.surfaceView.showsForLaunchFrame }
 
-    private func remove(_ key: String) {
-        guard kept[key]?.onDisk ?? true else { return }
+    /// Hidden: the key's file is parked (a show with the same pixels restores it). Closed: its files go, parked too.
+    private func remove(_ key: String, closed: Bool) {
+        let onDisk = kept[key]?.onDisk ?? true
+        guard onDisk || closed else { return }
         if kept[key] != nil { kept[key]?.onDisk = false }
-        removals += 1
-        let directory = directory
-        let written = onWritten, stopped = stopFlag
-        work.post(.bestEffort, mayBlock: .files) {
-            guard stopped.generation == 0 else { return }
-            TerminalLaunchFrames.removeAll(of: key, in: directory)
-            written?(key)
-        }
+        if onDisk { removals += 1 }
+        if closed { writer.forget(key, written: onWritten) } else { writer.park(key, written: onWritten) }
     }
 }

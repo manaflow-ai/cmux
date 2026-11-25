@@ -59,7 +59,14 @@ pub enum Mux {
     Echo,
     /// [`EventLog`]: an agent chat's event log, attached with `afterSeq`.
     Events,
+    /// [`EventLog`] whose events are `agent-session-record` pushes, each with
+    /// [`RECORD_PAD`] bytes of text: the carrier takes them on its bulk lane,
+    /// as it takes a Cloud chat's records.
+    Records,
 }
+
+/// The text each [`Mux::Records`] event carries, about a streamed chunk's size.
+pub const RECORD_PAD: usize = 1024;
 
 pub struct HostWorld {
     pub platform: SocketAddr,
@@ -71,6 +78,9 @@ pub struct HostWorld {
     /// Sessions the hosts admitted, in all (counted under [`Restart::Always`]).
     pub sessions: Arc<AtomicUsize>,
     proxy: Arc<Proxy>,
+    /// The machine's own way to the relay (its session host's registration
+    /// and links), which [`HostWorld::black_hole_machine`] stops.
+    machine: Arc<Proxy>,
     host: Arc<tokio::sync::Mutex<Host>>,
     runtime: tokio::runtime::Runtime,
 }
@@ -97,6 +107,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
     let starts = Arc::new(AtomicUsize::new(0));
     let sessions = Arc::new(AtomicUsize::new(0));
     let proxy = Arc::new(Proxy::default());
+    let machine = Arc::new(Proxy::default());
     let (platform_address, host) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay_address = listener.local_addr().unwrap();
@@ -108,6 +119,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
         .unwrap();
         let (listener, router) = relay.server_parts(listener);
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let machine_relay = machine.clone().listen(relay_address).await;
 
         let signer = Arc::new(Signer::generate("mux-control", None));
         std::fs::create_dir_all(&state).unwrap();
@@ -118,7 +130,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
         auth.set_grant_verifier(Arc::new(verifier)).unwrap();
         let host = Arc::new(tokio::sync::Mutex::new(Host {
             auth: auth.clone(),
-            relay: relay_address,
+            relay: machine_relay,
             mux: mux_path.clone(),
             proxy: proxy.clone(),
             sessions: sessions.clone(),
@@ -131,7 +143,8 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
                 restarting_mux(&mux_path, host.clone(), starts.clone(), restart);
             }
             (Mux::Echo, _) => fake_mux(&mux_path).await,
-            (Mux::Events, _) => events.clone().serve(&mux_path),
+            (Mux::Events, _) => events.clone().serve(&mux_path, false),
+            (Mux::Records, _) => events.clone().serve(&mux_path, true),
         }
         start(host.clone(), starts.clone(), restart).await;
         let client_relay = proxy.clone().listen(relay_address).await;
@@ -150,7 +163,17 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
         .await;
         (platform_address, host)
     });
-    HostWorld { platform: platform_address, dir, events, starts, sessions, proxy, host, runtime }
+    HostWorld {
+        platform: platform_address,
+        dir,
+        events,
+        starts,
+        sessions,
+        proxy,
+        machine,
+        host,
+        runtime,
+    }
 }
 
 type Started = (
@@ -365,6 +388,17 @@ impl HostWorld {
         self.proxy.holding.send_replace(false);
     }
 
+    /// The machine's network drops (the staging probe's iptables DROP of its
+    /// 443 traffic): its links to the relay carry nothing either way and
+    /// none closes, until [`HostWorld::light_machine`].
+    pub fn black_hole_machine(&self) {
+        self.machine.dark.send_replace(true);
+    }
+
+    pub fn light_machine(&self) {
+        self.machine.dark.send_replace(false);
+    }
+
     pub fn connect_log(&self) -> String {
         let log = self.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
         std::fs::read_to_string(log).unwrap_or_default()
@@ -385,6 +419,10 @@ struct Proxy {
     /// While set, client bytes wait (until the link is cut) instead of
     /// crossing; the host's bytes still flow.
     frozen: AtomicBool,
+    /// While set, no byte crosses either way and no new link connects, and
+    /// nothing closes: a dropped network (iptables DROP), whose held bytes
+    /// flow again when it clears.
+    dark: watch::Sender<bool>,
 }
 
 impl Default for Proxy {
@@ -394,6 +432,7 @@ impl Default for Proxy {
             holding: watch::channel(false).0,
             links: AtomicUsize::new(0),
             frozen: AtomicBool::new(false),
+            dark: watch::channel(false).0,
         }
     }
 }
@@ -421,11 +460,14 @@ impl Proxy {
                             _ = cuts.changed() => return,
                         }
                     }
+                    // A black hole holds a new connection's SYN as it holds bytes.
+                    let _ = proxy.dark.subscribe().wait_for(|dark| !*dark).await;
                     let Ok(upstream) = TcpStream::connect(relay).await else { return };
                     let (mut client_read, mut client_write) = client.into_split();
                     let (mut upstream_read, mut upstream_write) = upstream.into_split();
                     let upward = async {
                         let mut chunk = [0_u8; 16 * 1024];
+                        let mut dark = proxy.dark.subscribe();
                         loop {
                             let Ok(read) = client_read.read(&mut chunk).await else { return };
                             if read == 0 {
@@ -435,13 +477,28 @@ impl Proxy {
                                 // Held until a cut ends this link.
                                 std::future::pending::<()>().await;
                             }
+                            let _ = dark.wait_for(|dark| !*dark).await;
                             if upstream_write.write_all(&chunk[..read]).await.is_err() {
                                 return;
                             }
                         }
                     };
+                    let downward = async {
+                        let mut chunk = [0_u8; 16 * 1024];
+                        let mut dark = proxy.dark.subscribe();
+                        loop {
+                            let Ok(read) = upstream_read.read(&mut chunk).await else { return };
+                            if read == 0 {
+                                return;
+                            }
+                            let _ = dark.wait_for(|dark| !*dark).await;
+                            if client_write.write_all(&chunk[..read]).await.is_err() {
+                                return;
+                            }
+                        }
+                    };
                     tokio::select! {
-                        _ = tokio::io::copy(&mut upstream_read, &mut client_write) => {}
+                        () = downward => {}
                         () = upward => {}
                         _ = cuts.changed() => {}
                     }
@@ -479,7 +536,12 @@ impl EventLog {
         self.events.lock().unwrap().iter().copied().filter(|event| *event > seq).collect()
     }
 
-    fn serve(self: Arc<Self>, path: &Path) {
+    /// The newest seq appended (0 before any).
+    pub fn last(&self) -> u64 {
+        self.events.lock().unwrap().back().copied().unwrap_or(0)
+    }
+
+    fn serve(self: Arc<Self>, path: &Path, records: bool) {
         let listener = tokio::net::UnixListener::bind(path).unwrap();
         tokio::spawn(async move {
             loop {
@@ -498,7 +560,14 @@ impl EventLog {
                     loop {
                         let appended = log.appended.notified();
                         for seq in log.after(sent) {
-                            let event = format!("{}\n", json!({"event": "chat", "seq": seq}));
+                            let event = if records {
+                                let text = "x".repeat(RECORD_PAD);
+                                json!({"event": "agent-session-record", "surface": 1, "seq": seq,
+                                    "record": {"seq": seq, "text": text}})
+                            } else {
+                                json!({"event": "chat", "seq": seq})
+                            };
+                            let event = format!("{event}\n");
                             if writer.write_all(event.as_bytes()).await.is_err() {
                                 return;
                             }

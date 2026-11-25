@@ -18,27 +18,130 @@
 #      in the checkout for the "Regenerate stale files" step.
 #
 # The base's fresh export needs the base's generator inputs. When this event changed none of them
-# (GENERATOR_INPUTS), they are HEAD's, so HEAD's fresh export is the base's. Otherwise the changed
-# inputs are checked out from HEAD^1 in place, the package is rebuilt and exported, and then HEAD's
-# inputs are put back and rebuilt, so the suites that run with `--skip-build` after this step test
-# HEAD's products. If that rebuild fails, the built products are removed, so those suites fail
-# instead of testing the base's binaries. This mirrors check-settings-exports.sh.
+# (export_inputs: the actions test target's closure in the target graph, which the regenerate step
+# alone builds from; GENERATOR_INPUTS without a graph), they are HEAD's, so HEAD's fresh export is the
+# base's. A change elsewhere in Packages or plans no longer builds the base: 10 of the 16 slow pull request
+# runs on 2026-11-16..17 whose PR is known touched no path of that closure. Otherwise the changed
+# package and plans paths are checked out from HEAD^1 in place, the package is rebuilt and exported, and then HEAD's
+# inputs are put back, so the suites that run with `--skip-build` after this step test HEAD's
+# products. When the calling job built HEAD's package itself (CMUX_NEXT_JOB_BUILT=plain, the three
+# CI jobs that run this), a copy-on-write clone of HEAD's .build is kept before the base build and
+# put back after it, so nothing is rebuilt (one CmuxNext rebuild was 14.8 min of daemon-test job
+# 132397275531). Without it, or when the clone cannot be made or put back, HEAD's inputs are
+# rebuilt. If that rebuild fails, the built products are removed, so those suites fail instead of
+# testing the base's binaries. This mirrors check-settings-exports.sh.
+#
+# A fresh export is a function of the generator inputs alone (the rule above), so it is kept by their
+# key (`--inputs-key REV`: the objects of export_inputs at REV, less the exports) in a local
+# directory, CACHE/KEY/<repository path> plus CACHE/KEY/.complete (CMUX_ACTION_EXPORTS_CACHE, default a
+# temporary one), backed by R2: in CI a key the directory lacks is read from the public bucket
+# (CMUX_ACTION_EXPORTS_R2_URL; empty turns R2 off). The base autofix's Mac exports job, a feat-cmux-next
+# push job in the next-cache-writer environment, uploads each export it makes (`--publish`); a run that
+# has the bucket's credentials on a feat-cmux-next ref that is not a pull request also uploads the keys
+# it learns (HEAD's fresh export, and the base's when it built it). When the base parent's key is there, the base's
+# fresh export is read from it and nothing is built: that build was 16 to 32 min of the daemon-test
+# job in 28 of the 68 pull request runs that checked the generated files there (2026-11-16..17), and
+# with the job's cold build it ran the job past its 60 min timeout in 12 of them. A pull request never
+# writes the bucket. $GITHUB_OUTPUT names the keys (head_key, base_key) and base_built / base_cached.
 #
 # The commands are overridable for scripts/cmux-next/tests/judge-action-exports.test.sh:
 #   CMUX_ACTION_EXPORTS_CHECK   the checks (default: check-action-surfaces.sh PACKAGE)
 #   CMUX_ACTION_EXPORTS_REGEN   rewrites the exports (default: regenerate-action-contracts.sh PACKAGE)
 #   CMUX_ACTION_EXPORTS_BUILD   rebuilds the package and its tests (default: swift build --build-tests)
 # Usage: scripts/cmux-next/judge-action-exports.sh [package-root]
+#        scripts/cmux-next/judge-action-exports.sh --inputs-key REV
+#        scripts/cmux-next/judge-action-exports.sh --publish REV DIR FALLBACK (the base autofix)
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(git rev-parse --show-toplevel)"
-package="${1:-$root/Packages/macOS/CmuxNext}"
-temp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/action-exports.XXXXXX")"
-# The exports the regenerate step writes (ActionSurfaceParityTests), and every input the generator
-# reads: the local packages (the catalog and its tests) and plans/cmux-next (the inventory the
-# catalog tests read).
+# The exports the regenerate step writes (ActionSurfaceParityTests), and the broad inputs: what a base
+# build checks out from the base, and the exports' inputs when a commit has no target graph.
 EXPORTS=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md)
 GENERATOR_INPUTS=(Packages plans/cmux-next scripts/cmux-next/regenerate-action-contracts.sh)
+
+# The paths REV's exports are made from: the CmuxNextActionsTests target, what it depends on and
+# reads, and the manifest inputs, from REV's own target graph (action_export_inputs.py). A change
+# elsewhere in Packages does not move them. GENERATOR_INPUTS when REV has no usable graph.
+export_inputs() {
+  git -C "$root" show "$1:Packages/macOS/CmuxNext/ci-target-graph.json" 2>/dev/null \
+    | python3 -I "$here/action_export_inputs.py" 2>/dev/null || printf '%s\n' "${GENERATOR_INPUTS[@]}"
+}
+# REV's actions.md less its generated block: the hand-written part, which the generated block sits in.
+generated_free() {
+  git -C "$root" show "$1:plans/cmux-next/actions.md" 2>/dev/null \
+    | awk -v b='<!-- generated: action surfaces -->' -v e='<!-- /generated -->' \
+        'index($0, b) { skip = 1 } !skip { print } index($0, e) { skip = 0 }' || true
+}
+# The key of REV's fresh export: the object ids of its inputs (export_inputs) less the exports
+# themselves, plus actions.md's hand-written part, hashed. The base autofix's commit that lands fresh
+# exports keeps the key of the commit they were made at, so a pull request on either reads the same entry.
+inputs_key() {
+  local rev="$1" path paths=()
+  git -C "$root" cat-file -e "$rev^{commit}" 2>/dev/null || return 1
+  while IFS= read -r path; do [[ -n "$path" ]] && paths+=("$path"); done < <(export_inputs "$rev")
+  {
+    printf 'v3\n'
+    git -C "$root" ls-tree -r --full-tree "$rev" -- "${paths[@]}" \
+      | awk -F '\t' -v skip="${EXPORTS[*]}" 'BEGIN { n = split(skip, a, " "); for (i = 1; i <= n; i++) s[a[i]] = 1 } !($2 in s)'
+    printf 'actions.md %s\n' "$(generated_free "$rev" | git hash-object --stdin)"
+  } | git hash-object --stdin
+}
+if [[ "${1:-}" == --inputs-key ]]; then inputs_key "${2:?--inputs-key REV}"; exit; fi
+
+package="${1:-$root/Packages/macOS/CmuxNext}"
+temp="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/action-exports.XXXXXX")"
+cache="${CMUX_ACTION_EXPORTS_CACHE:-$temp/cache}"
+r2_url="${CMUX_ACTION_EXPORTS_R2_URL-https://ci-cache-next.cmux.com}"
+[[ "${GITHUB_ACTIONS:-}" == true ]] || r2_url=""
+output() { [[ -z "${GITHUB_OUTPUT:-}" ]] || echo "$1" >> "$GITHUB_OUTPUT"; }
+# r2 restore|save KEY: CACHE/KEY to or from the bucket (its own namespace; a key without "-" publishes
+# no prefix pointer). Best effort: any failure is a miss or nothing saved.
+r2() {
+  [[ -n "$r2_url" && -n "$2" ]] || return 0
+  [[ "$1" == restore || ( -n "${AWS_ACCESS_KEY_ID:-}" && "${GITHUB_EVENT_NAME:-}" != pull_request \
+    && "${GITHUB_REF:-}" == refs/heads/feat-cmux-next ) ]] || return 0
+  CI_CACHE_R2_PUBLIC_URL="$r2_url" CI_CACHE_R2_NAMESPACE=cmux-next-action-exports \
+    CI_CACHE_R2_BUCKET="${CI_CACHE_R2_BUCKET:-cmux-ci-cache-next}" GITHUB_OUTPUT="" \
+    "$here/../ci/r2-cache.sh" "$1" "$cache/$2" "v1.$2" > "$temp/r2-$1.log" 2>&1 || true
+}
+# cache_put KEY DIR: DIR's exports (repository paths under it) become CACHE/KEY. Best effort.
+cache_put() {
+  [[ -n "$1" ]] || return 0
+  local dest="$cache/$1" file
+  [[ -f "$dest/.complete" ]] && return 0
+  rm -rf "$dest" && mkdir -p "$dest" || return 0
+  for file in "${EXPORTS[@]}"; do
+    [[ -f "$2/$file" ]] || continue
+    if ! { mkdir -p "$dest/${file%/*}" && cp "$2/$file" "$dest/$file"; }; then rm -rf "$dest"; return 0; fi
+  done
+  : > "$dest/.complete"
+  r2 save "$1"
+}
+# cache_has KEY: CACHE/KEY is complete, from the directory or the bucket.
+cache_has() {
+  [[ -n "$1" ]] || return 1
+  [[ -f "$cache/$1/.complete" ]] || r2 restore "$1"
+  [[ -f "$cache/$1/.complete" ]]
+}
+# --publish REV DIR FALLBACK: the base autofix's action-exports job regenerated REV's exports into DIR, which
+# holds each one that differs from FALLBACK's committed file (base-autofix-action-exports.sh): keep them under
+# REV's key, for the pull requests on REV.
+if [[ "${1:-}" == --publish ]]; then
+  rev="${2:?--publish REV DIR FALLBACK}" dir="${3:?--publish REV DIR FALLBACK}" fallback="${4:?--publish REV DIR FALLBACK}"
+  key="$(inputs_key "$rev")" || { echo "::warning::no commit $rev here: nothing kept"; exit 0; }
+  mkdir -p "$temp/made"
+  for file in "${EXPORTS[@]}"; do
+    mkdir -p "$temp/made/${file%/*}"
+    if [[ -f "$dir/$file" ]]; then cp "$dir/$file" "$temp/made/$file"
+    elif git -C "$root" cat-file -e "$fallback:$file" 2>/dev/null; then git -C "$root" show "$fallback:$file" > "$temp/made/$file"
+    else rm -f "$temp/made/$file"; fi
+  done
+  cache_put "$key" "$temp/made"
+  echo "kept the fresh action exports of ${rev:0:12} (inputs key ${key:0:12})"
+  exit 0
+fi
+head_key="$(inputs_key HEAD || true)"
+output "head_key=$head_key"
 
 check() {
   if [[ -n "${CMUX_ACTION_EXPORTS_CHECK:-}" ]]; then bash -c "$CMUX_ACTION_EXPORTS_CHECK"
@@ -58,7 +161,8 @@ stale_exports() {
   git -C "$root" diff --name-only -- "${EXPORTS[@]}"
 }
 
-if check; then exit 0; fi
+# Fresh as committed: the committed exports are HEAD's fresh export.
+if check; then cache_put "$head_key" "$root"; exit 0; fi
 regen > "$temp/regen.log" 2>&1 || { cat "$temp/regen.log" >&2; echo "::error::the action exports could not be regenerated" >&2; exit 1; }
 if ! check > "$temp/recheck.log" 2>&1; then
   cat "$temp/recheck.log"
@@ -83,23 +187,59 @@ for file in "${EXPORTS[@]}"; do
   [[ -f "$file" ]] || continue
   present+=("$file"); mkdir -p "$temp/head/${file%/*}" && cp "$file" "$temp/head/$file"
 done
+cache_put "$head_key" "$temp/head"
+base_key="$(inputs_key HEAD^1 || true)"
+output "base_key=$base_key"
 
+# The exports' inputs this event changed (export_inputs at either commit, less the exports; actions.md
+# when its hand-written part changed). None: HEAD's fresh export is the base's.
+inputs=()
+while IFS= read -r path; do [[ -n "$path" ]] && inputs+=("$path"); done < <(
+  { export_inputs HEAD; export_inputs HEAD^1; } | sort -u)
 changed=()
-while IFS= read -r path; do [[ -n "$path" ]] && changed+=("$path"); done < <(
+while IFS= read -r path; do
+  [[ -n "$path" && " ${EXPORTS[*]} " != *" $path "* ]] && changed+=("$path")
+done < <(git diff --no-renames --name-only HEAD^1 HEAD -- "${inputs[@]}")
+if [[ "$(generated_free HEAD^1 | git hash-object --stdin)" != "$(generated_free HEAD | git hash-object --stdin)" ]]; then
+  changed+=(plans/cmux-next/actions.md)
+fi
+# What a base build checks out from HEAD^1: those, and every other change to the package and plans, so
+# the base builds as the base did.
+from_base=(${changed[@]+"${changed[@]}"})
+while IFS= read -r path; do [[ -n "$path" ]] && from_base+=("$path"); done < <(
   git diff --no-renames --name-only HEAD^1 HEAD -- "${GENERATOR_INPUTS[@]}")
 
 # A path HEAD does not have: `git checkout HEAD^1 -- path` stages it, so the index goes back too.
 restore_absent() { rm -f "$1"; git reset -q HEAD -- "$1" 2>/dev/null || true; }
 
-if ((${#changed[@]})); then
+if ((${#changed[@]})) && cache_has "$base_key"; then
+  output "base_cached=true"
+  # The base's fresh export, kept by a run that had it: nothing to build. An export it lacks is
+  # one the base's regenerate does not write, as below.
+  for file in "${stale[@]}"; do
+    mkdir -p "$temp/base/${file%/*}"
+    if [[ -f "$cache/$base_key/$file" ]]; then cp "$cache/$base_key/$file" "$temp/base/$file"; else : > "$temp/base/$file"; fi
+  done
+  echo "::notice title=Base action exports from the cache::the base parent's fresh action exports (inputs key ${base_key:0:12}) came from the cache: no base build"
+elif ((${#changed[@]})); then
+  pkg_build="$package/.build"
+  head_build="$package/.build-action-exports-head"
+  kept=0
   restored=0
   restore() {
     ((restored)) && return 0
     restored=1
-    for path in "${changed[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
+    for path in "${from_base[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
       if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
     done
     for file in ${present[@]+"${present[@]}"}; do cp "$temp/head/$file" "$file"; done
+    # HEAD's own build, kept before the base build: nothing to rebuild. The sources' new mtimes only
+    # make a later build recompile what they feed, which is correct.
+    if ((kept)); then
+      if rm -rf "$pkg_build" && mv "$head_build" "$pkg_build"; then return 0; fi
+      echo "::warning::HEAD's kept build could not be put back; rebuilding from HEAD's sources instead" >&2
+      rm -rf "$head_build"
+    fi
     if build > "$temp/head-build.log" 2>&1; then return 0; fi
     cat "$temp/head-build.log" >&2
     echo "::error::the package could not be rebuilt from HEAD's sources; removing its built products so that nothing runs against the base's binaries" >&2
@@ -107,20 +247,32 @@ if ((${#changed[@]})); then
     return 1
   }
   trap 'restore || true' EXIT
-  # The stale files start from the base's committed bytes too, so a file the base's export does not
-  # rewrite is never read back as HEAD's fresh one.
-  for path in "${changed[@]}" "${stale[@]}"; do
+  rm -rf "$head_build"
+  if [[ "${CMUX_NEXT_JOB_BUILT:-}" == plain && -d "$pkg_build" ]]; then
+    if [[ "$(uname -s)" == Darwin ]]; then clone=(cp -c -R -p); else clone=(cp -a --reflink=auto); fi
+    if "${clone[@]}" "$pkg_build" "$head_build" 2>"$temp/head-clone.txt"; then
+      kept=1
+    else
+      echo "::notice::HEAD's package build could not be cloned ($(head -c 300 "$temp/head-clone.txt" 2>/dev/null)); the restore rebuilds from HEAD's sources"
+      rm -rf "$head_build"
+    fi
+  fi
+  # Every export starts from the base's committed bytes too, so a file the base's export does not
+  # rewrite is never read back as HEAD's fresh one, and what the cache keeps for the base's key is
+  # the base's alone.
+  for path in "${from_base[@]}" "${EXPORTS[@]}"; do
     if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else restore_absent "$path"; fi
   done
   build > "$temp/base-build.log" 2>&1 || { cat "$temp/base-build.log" >&2; echo "::error::the base parent's package does not build here; the stale exports count as this change's: ${stale[*]}"; restore || true; exit 1; }
-  regen > "$temp/base-regen.log" 2>&1 || true
+  # Only a regenerate that ran is the base's fresh export to keep.
+  if regen > "$temp/base-regen.log" 2>&1; then cache_put "$base_key" "$root"; output "base_built=true"; fi
   for file in "${stale[@]}"; do
     mkdir -p "$temp/base/${file%/*}"
     if [[ -f "$file" ]]; then cp "$file" "$temp/base/$file"; else : > "$temp/base/$file"; fi
   done
   restore || exit 1
 else
-  # The generator's inputs are the base's: HEAD's fresh export is the base's fresh export.
+  # The exports' inputs are the base's: HEAD's fresh export is the base's fresh export.
   for file in "${stale[@]}"; do mkdir -p "$temp/base/${file%/*}" && cp "$temp/head/$file" "$temp/base/$file"; done
 fi
 

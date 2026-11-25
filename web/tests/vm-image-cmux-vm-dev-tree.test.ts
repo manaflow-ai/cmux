@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { CREDENTIAL_FILES_CHECK, devTreeCommand, devTreeCredentialCheckCommand, devTreeLock, devTreeUserPaths, FIRST_BUILD } from "../scripts/cmux-vm-image/dev-tree";
+import { CREDENTIAL_FILES_CHECK, devTreeCloneCommand, devTreeCommand, devTreeCredentialCheckCommand, devTreeLock, devTreeUserPaths, FIRST_BUILD } from "../scripts/cmux-vm-image/dev-tree";
 import { type FirstBuildReport, reportTable, summarize } from "../scripts/cmux-vm-image/first-build";
 import { DEFAULT_LOCK_PATH, LockError, readInputsLock, validateInputsLock } from "../scripts/cmux-vm-image/lock";
 import { secretScanCommand } from "../scripts/cmux-vm-image/smoke";
@@ -37,6 +37,29 @@ describe("the cmux dev tree (bake.ts --dev-tree)", () => {
     expect(tree.rustupInit.url).toContain(`/rustup/archive/${tree.rustupInit.version}/x86_64-unknown-linux-gnu/rustup-init`);
   });
 
+  test("the first clone tries the edge bundle lists in order, then clones plain (RFD 0056 part 3)", async () => {
+    const tree = devTreeLock(readInputsLock());
+    expect(tree.bundleLists).toEqual([
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless-rolling.list",
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless.list",
+    ]);
+    const clone = devTreeCloneCommand(tree, "");
+    expect(clone.startsWith(`DEV_TREE_BUNDLE_LISTS='${tree.bundleLists!.join(" ")}' bash `)).toBe(true);
+    await bashSyntax(clone);
+    expect(devTreeCloneCommand({ ...tree, bundleLists: undefined }, "").startsWith("DEV_TREE_BUNDLE_LISTS='' bash ")).toBe(true);
+    const script = readFileSync(`${GUEST_DIR}/dev-tree.sh`, "utf8");
+    // Bounded like tools/edge_bundle.py: git's own http has no connect bound.
+    expect(script).toContain("--connect-timeout 0.2");
+    expect(script).toContain("--bundle-uri=");
+    expect(script).toContain("no edge bundle list answered; plain clone");
+    const raw = fresh();
+    raw.devTree.bundleLists = ["http://example.com/x.list", "https://example.com/x.bundle"];
+    expect(problemsOf(raw)).toContain("devTree.bundleLists: must be a list of https URLs of .list files");
+    const without = fresh();
+    delete without.devTree.bundleLists;
+    expect(problemsOf(without)).toEqual([]);
+  });
+
   test("the lock refuses a private or non-https repo, a dir outside the work home and a closure that overlaps the image", () => {
     const raw = fresh();
     raw.devTree.repo = "git@github.com:manaflow-ai/cmux.git";
@@ -51,7 +74,10 @@ describe("the cmux dev tree (bake.ts --dev-tree)", () => {
     expect(problems).toContain("devTree.aptRoots: clang is not in devTree.apt");
     expect(problems).toContain("devTree.rustupInit.sha256: missing or not 64 lowercase hex");
     const without = fresh();
+    const orphan = Object.entries(without.devTree.apt).map(([name, version]) => `${name}=${version}`);
     delete without.devTree;
+    expect(problemsOf(without)).toEqual(orphan.map((pin) => `apt.ubuntu.debs[${pin}]: no package pins this version`));
+    for (const pin of orphan) delete without.apt.ubuntu.debs[pin];
     expect(problemsOf(without)).toEqual([]);
   });
 

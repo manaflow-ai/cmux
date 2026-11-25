@@ -30,6 +30,15 @@
 #    (scripts/cmux-next/app_ffi_additive.py): a removed or changed declaration
 #    can break the Swift build, so result=pr and the pull request's app compile
 #    proves it first;
+#  - the action catalog crate is unchanged from the installed pin. Header-compatible
+#    catalog changes still require app handlers, so result=pr sends them through
+#    the re-pin PR's runtime HandlerCoverageTests before the pin lands;
+#    Neither of these two holds once that proof is in: PROVEN_PIN set to this
+#    release's sha (publish-app-ffi-repin.sh sets it when the re-pin PR head that
+#    pins this release passed its app compile and fast tier) pins it here. The
+#    PR's whole rollup is not that proof: on infra reds it never went green, base
+#    merges restarted its CI, and the pin sat about 11 hours behind (cmux#55633,
+#    2026-11-25);
 #  - scripts/cmux-next/check-app-ffi-pin.sh --verify-release passes on the
 #    pinned tree (the sources match and the release carries the checksum).
 # A tip that moves during the push is re-read and the pin re-applied, 5 times.
@@ -38,7 +47,7 @@
 # manaflow-cmux-pr-autofix App: the branch requires a check this commit cannot
 # have yet, and that App is the ruleset's bypass actor); ENABLED=true to push
 # (otherwise result=dry-run); PIN_BASE_REMOTE (default this repository on
-# GitHub); PIN_BASE_BRANCH (default feat-cmux-next). Writes result= to
+# GitHub); PIN_BASE_BRANCH (default feat-cmux-next); PROVEN_PIN (above). Writes result= to
 # GITHUB_OUTPUT: pinned, already, newer, pr or dry-run.
 set -euo pipefail
 
@@ -115,7 +124,13 @@ for attempt in 1 2 3 4 5; do
   fi
   rc=0; additive="$(python3 -I scripts/cmux-next/app_ffi_additive.py "$pinned" "$sha" -- "${inputs[@]}" 2>&1)" || rc=$?
   echo "$additive"
-  (( rc == 0 )) || finish pr "the FFI does not only add over the current pin ${pinned:0:12}; the re-pin pull request's app compile proves them first"
+  proof="It keeps the packaging, directives and declarations of the pin before, ${pinned:0:12}."
+  if (( rc != 0 )); then
+    [[ "$sha" == "${PROVEN_PIN:-}" ]] ||
+      finish pr "the FFI does not only add over the current pin ${pinned:0:12}; the re-pin pull request's app compile proves them first"
+    echo "$tag does not only add over ${pinned:0:12}; the app compile of the re-pin pull request proved it (PROVEN_PIN)"
+    proof="It does not only add over the pin before, ${pinned:0:12}; the app compile of the re-pin pull request proved it, and its fast tier (HandlerCoverageTests) passed."
+  fi
   bash scripts/cmux-next/repin-app-ffi.sh "$sha" "$checksum"
   if (( behind )); then
     # The tip is ahead of this release by design, so only the release itself is proven here: the grace is a year.
@@ -129,7 +144,7 @@ for attempt in 1 2 3 4 5; do
   git add -- "$pin_file" "$manifest"
   git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
     commit --quiet -m "chore(next): pin CCmuxAppFFI to $tag" \
-    -m "$about It keeps the packaging, directives and declarations of the pin before, ${pinned:0:12}." \
+    -m "$about $proof" \
     -m "scripts/cmux-next/pin-app-ffi-on-base.sh${GITHUB_RUN_ID:+: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID}"
   if [[ "${ENABLED:-}" != true ]]; then
     finish dry-run "would push $(git rev-parse --short HEAD) on ${tip:0:12} (the repository variable CMUX_NEXT_BASE_AUTOFIX is not 1)"
