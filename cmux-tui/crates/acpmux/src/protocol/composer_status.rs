@@ -380,9 +380,7 @@ pub fn machine_link_item(
             };
             (StatusLevel::Attention, words, offline_action(reason))
         }
-        AuthFailed => {
-            (StatusLevel::Problem, "authFailed".to_owned(), Some(StatusAction::SignIn))
-        }
+        AuthFailed => (StatusLevel::Problem, "authFailed".to_owned(), Some(StatusAction::SignIn)),
         UpdateRequired => {
             (StatusLevel::Problem, "updateRequired".to_owned(), Some(StatusAction::Update))
         }

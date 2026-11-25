@@ -1382,6 +1382,8 @@ mod local_reload;
 mod openers;
 #[path = "supervisor_overlay_tests.rs"]
 mod overlay;
+#[path = "supervisor_pane_flow_tests.rs"]
+mod pane_flow;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
