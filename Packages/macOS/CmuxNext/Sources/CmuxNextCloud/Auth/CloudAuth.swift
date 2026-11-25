@@ -211,7 +211,7 @@ public final class CloudAuth {
             tokenStore = fencedStore
             authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
             client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
-            tokenStorageAvailable = { await productionStore.isTokenStorageAvailable() }
+            tokenStorageAvailable = { await productionStore.isStorageAvailable() }
         }
         #else
         let productionStore = Self.tokenStore(configuration: configuration, memoryOnly: signIn.memoryOnly)
@@ -222,7 +222,7 @@ public final class CloudAuth {
         // never shows the file's account over the session in the Keychain.
         authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
         client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
-        tokenStorageAvailable = { await productionStore.isTokenStorageAvailable() }
+        tokenStorageAvailable = { await productionStore.isStorageAvailable() }
         #endif
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
