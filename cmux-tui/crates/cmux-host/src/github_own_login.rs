@@ -16,7 +16,7 @@
 use std::ffi::OsString;
 use std::io::Read as _;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use zeroize::Zeroizing;
 
@@ -63,7 +63,7 @@ impl Reach {
 
 /// `gh api repos/REPO --jq .permissions.push` with the carried token, as a [`Reach`].
 pub fn probe(gh: &OsString, token: &str, repo: &str) -> Reach {
-    let Ok(mut child) = std::process::Command::new(gh)
+    let Ok(mut child) = cmux_process::Command::new(gh)
         .args(["api", &format!("repos/{repo}"), "--jq", ".permissions.push"])
         .env("GH_TOKEN", token)
         .env("GH_HOST", HOST)
@@ -72,26 +72,15 @@ pub fn probe(gh: &OsString, token: &str, repo: &str) -> Reach {
         .env_remove("GITHUB_TOKEN")
         .env_remove("GH_ENTERPRISE_TOKEN")
         .env_remove("GITHUB_ENTERPRISE_TOKEN")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
         .spawn()
     else {
         return Reach::None;
     };
-    let started = Instant::now();
-    let ok = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.success(),
-            Err(_) => break false,
-            Ok(None) if started.elapsed() > PROBE_WAIT => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break false;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-        }
-    };
+    // The Child is owned here: a drop past the wait ends gh with it.
+    let ok = matches!(child.wait_timeout(PROBE_WAIT), Ok(Some(status)) if status.success());
     let mut out = String::new();
     if let Some(stdout) = child.stdout.take() {
         let _ = stdout.take(64).read_to_string(&mut out);

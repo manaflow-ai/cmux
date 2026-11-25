@@ -129,7 +129,7 @@ const GH_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 /// removed, no prompt. Its stdout's first line, when it exits 0 in time.
 fn gh_line(args: &[&str]) -> Option<Zeroizing<String>> {
     let gh = std::env::var_os("CMUX_GH").filter(|v| !v.is_empty()).unwrap_or_else(|| "gh".into());
-    let mut child = std::process::Command::new(gh)
+    let mut child = cmux_process::Command::new(gh)
         .args(args)
         .env_remove("GH_TOKEN")
         .env_remove("GITHUB_TOKEN")
@@ -138,23 +138,15 @@ fn gh_line(args: &[&str]) -> Option<Zeroizing<String>> {
         .env_remove("GH_HOST")
         .env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
         .spawn()
         .ok()?;
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) | Err(_) => return None,
-            Ok(None) if started.elapsed() > GH_WAIT => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
-        }
+    // The Child is owned here: a drop past the wait ends gh with it.
+    match child.wait_timeout(GH_WAIT) {
+        Ok(Some(status)) if status.success() => {}
+        _ => return None,
     }
     let mut out = Zeroizing::new(String::new());
     child.stdout.take()?.take(64 * 1024).read_to_string(&mut out).ok()?;
