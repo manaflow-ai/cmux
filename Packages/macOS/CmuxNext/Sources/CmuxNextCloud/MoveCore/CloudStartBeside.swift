@@ -51,8 +51,16 @@ extension PersonalGateway {
     /// ``onlineBeside(within:)`` for a start whose model route may not use this gateway: `servedElsewhere` (the
     /// route's ``CloudSetup/Choice/servedWithoutMacGateway``) is asked first, and when it says yes the start waits for
     /// no gateway (true at once). A chat on its own connection or the organization's key never needed it, yet a
-    /// gateway that could not come up held such a start for its whole deadline.
+    /// gateway that could not come up held such a start for its whole deadline. On by default; the kill switch
+    /// ``gatewaySkipOffKey`` (`defaults write <app id> cmux.cloud.gatewaySkip.off -bool YES`) brings the wait back.
     public func onlineBeside(within deadline: Duration, unless servedElsewhere: @escaping @MainActor @Sendable () async -> Bool) -> CloudStartBeside<Bool> {
-        CloudStartBeside { [self] in await servedElsewhere() ? true : await ensureOnline(within: deadline) }
+        let skipOff = UserDefaults.standard.bool(forKey: Self.gatewaySkipOffKey)
+        return CloudStartBeside { [self] in
+            if !skipOff, await servedElsewhere() { return true }
+            return await ensureOnline(within: deadline)
+        }
     }
+
+    /// The kill switch for the gateway skip above: set, every start waits for this Mac's gateway as before.
+    public nonisolated static let gatewaySkipOffKey = "cmux.cloud.gatewaySkip.off"
 }
