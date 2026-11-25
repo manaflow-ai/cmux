@@ -6085,11 +6085,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudTypeWaking, setCloudTypeWaking] = useState(false);
   /// The chat whose machine typing woke in this stretch of its sleep: one wake per sleep, not per key.
   const cloudTypeWoke = useRef<string | undefined>(undefined);
+  /// The chat itself answered for good: no machine coming back opens it, so a resume ends (cmux#55066).
+  const cloudChatSettled =
+    snapshot.unavailable !== undefined &&
+    (["deleted", "notFound", "gone", "unreached", "machineDeleted"] as const).some(
+      (reason) => reason === snapshot.unavailable?.reason,
+    );
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
     session: snapshot.missingSession ?? snapshot.sessionId,
     active: cloudRecoveryShows || cloudWaking || cloudTypeWaking,
     recheck: recheckCloudChat,
+    settled: cloudChatSettled,
   });
   const cloudUnavailable =
     cloudRecoveryShows &&
@@ -6328,7 +6335,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!wakeShownChat || !hold.wakingAny() || hold.rowsIn(wakeShownChat).some((row) => row.waking)) return;
     void giveBackTrustHeld.current(hold.takeWaking());
   }, [wakeShownChat]);
-  const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted";
+  const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted" || cloudChatSettled;
   // A typing wake that failed stops; it is not tried again on the next key, and a send still wakes.
   useEffect(() => {
     if (cloudWakeFailed) setCloudTypeWaking(false);

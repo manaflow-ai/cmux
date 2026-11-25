@@ -757,3 +757,49 @@ test("beforeDeadline answers late past its deadline and drops a late refusal", a
   refuse(new Error("late"));
   await expect(beforeDeadline(Promise.reject(new Error("now")), performance.now() + 1_000)).rejects.toThrow("now");
 });
+
+// cmux#55066 review: a resume whose machine came back but whose chat answered for good (deleted, not
+// found) ends: no spinner under "This chat was deleted", no reads every second behind it.
+test.serial("a resume ends once the chat itself answers for good", async () => {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  const calls: string[] = [];
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            calls.push(method);
+            if (method === "cloudMachine.attach") return { ok: true, value: {} };
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "ready" }],
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+  let seen: { resuming: boolean; resume(): void } | undefined;
+  const recheck = async () => {};
+  const cloud = { id: "vm-demo", account: ["user", null] as [string, null] };
+  function Probe({ settled }: { settled: boolean }) {
+    const recovery = useCloudChatRecovery({ cloud, session: "chat-demo", active: true, recheck, settled });
+    seen = recovery;
+    return null;
+  }
+  await act(async () => root.render(<Probe settled={false} />));
+  await act(async () => seen!.resume());
+  expect(seen!.resuming).toBe(true);
+  await act(async () => root.render(<Probe settled />));
+  expect(seen!.resuming).toBe(false);
+  const reads = calls.length;
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+  expect(calls.length).toBe(reads);
+  await act(async () => root.render(null));
+});

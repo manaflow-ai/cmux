@@ -9,6 +9,9 @@ type Props = {
   session?: string;
   active: boolean;
   recheck(): Promise<void>;
+  /// The chat itself answered for good (deleted, not found, gone, unreached, its machine deleted): a
+  /// resume ends there, since no machine coming back opens it (cmux#55066).
+  settled?: boolean;
   /// Each read's deadline (RECOVERY_READ_MS); tests shorten it.
   readMs?: number;
 };
@@ -55,7 +58,14 @@ export async function beforeDeadline<T>(
 // chat opens, the machine is deleted, a read fails for good, or the chat/account changes or
 // unmounts; the resume has no deadline, each read has RECOVERY_READ_MS. Past RESUME_SLOW_MS it is
 // `slow`, and Resume machine asks the machine to wake again while the reads continue.
-export function useCloudChatRecovery({ cloud, session, active, recheck, readMs = RECOVERY_READ_MS }: Props) {
+export function useCloudChatRecovery({
+  cloud,
+  session,
+  active,
+  recheck,
+  settled = false,
+  readMs = RECOVERY_READ_MS,
+}: Props) {
   const t = useT();
   const [state, setState] = useState<CloudChatState>();
   const [resuming, setResuming] = useState(false);
@@ -105,6 +115,10 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
       setResuming(false);
       if (failed) setError(true);
     };
+    if (resuming && settled) {
+      finishResume();
+      return;
+    }
     // A failed or superseded inventory read says nothing about the accepted wake.
     // Keep the paused card while the machine reconnects.
     const retry = () => {
@@ -160,7 +174,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck, readMs =
       left.abort();
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [identity, session, active, resuming, recheck, readRevision, readMs]);
+  }, [identity, session, active, resuming, settled, recheck, readRevision, readMs]);
 
   const resume = () => {
     // Past the slow bound a click wakes the machine again; the reads already running go on.
