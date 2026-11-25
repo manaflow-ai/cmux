@@ -7,7 +7,8 @@
 //!
 //! The requests mirror cmux-next-ios `AcpmuxHub.swift`: `initialize` and `_acpmux/watch
 //! {enabled, limit: 100}` pipelined, then `_acpmux/attach {sessionId, limit: 400, kinds,
-//! eventStream, maxBytes: 128 KiB, toolOutputMaxBytes: 64 KiB}`; a prompt is `session/prompt`
+//! eventStream, maxBytes: 128 KiB, toolOutputMaxBytes: 64 KiB}`; a cold open writes that attach
+//! with them, its sudo-card kinds in `alsoKinds` (`AcpmuxHub+EarlyAttach.swift`); a prompt is `session/prompt`
 //! with a `promptId`, shown as sent when its `user_message` record comes back; a reconnect
 //! re-attaches with `afterSeq`. The app's link gives up after 20 s with no inbound frame
 //! (keepalive pings every 15 s) and redials at once on a path change.
@@ -27,6 +28,7 @@ mod daemon_env;
 // environment, so the bench's knobs are kept by name or every run takes the defaults.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_PROFILES",
+    "NETCOND_LOAD",
     "NETCOND_PROFILES_FILE",
     "NETCOND_RELAY",
     "NETCOND_SCALES",
@@ -79,6 +81,9 @@ const CHAT_KINDS: &[&str] = &[
     "bookmarks",
 ];
 const ELEVATION_CAPABILITY: &str = "elevation-cards-v1";
+const ELEVATION_KINDS: &[&str] = &["elevation_request", "elevation_decision"];
+/// acpmux folds `alsoKinds` into an attach's `kinds` (`server/requests/also_kinds.rs`).
+const ALSO_KINDS_CAPABILITY: &str = "attach-also-kinds-v1";
 /// The link's keepalive: a ping every 15 s, given up after 20 s with nothing inbound.
 const PING_EVERY: Duration = Duration::from_secs(15);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(20);
@@ -298,7 +303,8 @@ impl Link {
         app: App,
         delta: bool,
     ) -> Result<Self, String> {
-        let mut meta = json!({"localAppToken": token});
+        // The phone draws no time breakdown (`AcpmuxHub.swift` `bind`).
+        let mut meta = json!({"localAppToken": token, "omitTimeBreakdown": true});
         if app == App::IosCompact {
             meta["chunkDeltas"] = json!(true);
         }
@@ -327,6 +333,102 @@ impl Link {
             .unwrap_or_default();
         link.answer(watch, deadline).await?;
         Ok(link)
+    }
+
+    /// The answers to `ids`, in that order, however acpmux ordered them; notifications on the way
+    /// wait in `pending`.
+    async fn answers(
+        &mut self,
+        ids: &[i64],
+        deadline: Instant,
+    ) -> Result<Vec<(Instant, Value)>, String> {
+        let mut got: std::collections::HashMap<i64, (Instant, Value)> = Default::default();
+        while got.len() < ids.len() {
+            match self.frame(deadline).await {
+                Next::Frame(at, v) if v.get("method").is_some() => self.pending.push_back((at, v)),
+                Next::Frame(at, v) => {
+                    let Some(id) =
+                        v.get("id").and_then(Value::as_i64).filter(|id| ids.contains(id))
+                    else {
+                        continue;
+                    };
+                    if let Some(e) = v.get("error") {
+                        return Err(format!("request {id}: {e}"));
+                    }
+                    got.insert(id, (at, v["result"].clone()));
+                }
+                Next::Silent => return Err(format!("no answer to requests {ids:?} in time")),
+                Next::Closed => return Err(format!("closed before the answers to {ids:?}")),
+            }
+        }
+        Ok(ids.iter().filter_map(|id| got.remove(id)).collect())
+    }
+
+    /// The app's cold chat open (cmux-next-ios `AcpmuxHub+EarlyAttach.swift`): `initialize`, the
+    /// first watch page and the chat's first attach written together, the attach's sudo-card
+    /// kinds in `alsoKinds`. A daemon that serves those kinds but does not fold `alsoKinds` keeps
+    /// its page and gets a re-attach from the page's end plus a sudo-card read, as the app does.
+    /// Returns the link, when the page could be drawn, and the page's reply.
+    async fn open_attached(
+        addr: std::net::SocketAddr,
+        token: &str,
+        deadline: Instant,
+        session: &str,
+    ) -> Result<(Self, Instant, Value), String> {
+        let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": {"localAppToken": token}}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let attach = link
+            .post(
+                "_acpmux/attach",
+                json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": CHAT_KINDS,
+                       "alsoKinds": ELEVATION_KINDS, "eventStream": true,
+                       "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES,
+                       // The app asks for no breakdown from its first attach (`attachParams`).
+                       "omitTimeBreakdown": true}),
+            )
+            .await?;
+        let mut got = link.answers(&[init, watch, attach], deadline).await?.into_iter();
+        let (_, init) = got.next().ok_or("no initialize answer")?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        let (at, reply) = got.nth(1).ok_or("no attach answer")?;
+        let has = |id: &str| link.capabilities.iter().any(|c| c == id);
+        if has(ELEVATION_CAPABILITY) && !has(ALSO_KINDS_CAPABILITY) {
+            // The page is kept and drawn at once (`readPages`); behind it the app attaches again
+            // from its end with every kind, which widens the stream and reads only what came
+            // after, and reads the sudo-card records since its start (`cardsFollowUp`). Their
+            // answers come after first content, and count in the 10 s window.
+            let last = reply["lastSeq"].as_u64().unwrap_or(0);
+            let first = rows(&reply).first().copied().unwrap_or(1);
+            let kinds = link.kinds();
+            link.post(
+                "_acpmux/attach",
+                json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": kinds,
+                       "eventStream": true, "afterSeq": last, "omitTimeBreakdown": true}),
+            )
+            .await?;
+            link.post(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": first.saturating_sub(1),
+                       "limit": PAGE_SIZE, "kinds": ELEVATION_KINDS}),
+            )
+            .await?;
+            return Ok((link, at, reply));
+        }
+        Ok((link, at, reply))
     }
 
     /// The chat's attach; `after` for a reattach. Returns the reply's arrival and the reply.
@@ -487,30 +589,24 @@ async fn cold_and_warm(
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = match Link::open(shaper.addr(), token, deadline).await {
-        Ok(l) => l,
-        Err(e) => {
-            for m in ["first_content_ms", "interactive_ms"] {
-                emit(&k, m, None);
-                emit_error(&k, m, &e);
+    // The chat is on screen as the link comes up: its attach rides with `initialize`.
+    let (mut link, at, reply) =
+        match Link::open_attached(shaper.addr(), token, deadline, session).await {
+            Ok(opened) => opened,
+            Err(e) => {
+                for m in ["first_content_ms", "interactive_ms"] {
+                    emit(&k, m, None);
+                    emit_error(&k, m, &e);
+                }
+                return None;
             }
-            return None;
-        }
-    };
-    match link.attach(session, None, deadline).await {
-        Ok((at, reply)) if !rows(&reply).is_empty() => {
-            emit(&k, "first_content_ms", Some(ms(at - start)));
-            emit_bytes(&k, shaper);
-        }
-        Ok(_) => {
-            emit(&k, "first_content_ms", None);
-            emit_error(&k, "first_content_ms", "the attach reply carried no rows");
-        }
-        Err(e) => {
-            emit(&k, "first_content_ms", None);
-            emit_error(&k, "first_content_ms", &e);
-            return None;
-        }
+        };
+    if rows(&reply).is_empty() {
+        emit(&k, "first_content_ms", None);
+        emit_error(&k, "first_content_ms", "the attach reply carried no rows");
+    } else {
+        emit(&k, "first_content_ms", Some(ms(at - start)));
+        emit_bytes(&k, shaper);
     }
     // The prompt is shown as sent when its user_message record comes back.
     let prompt_id = format!("netcond-{profile}-{scale}-{run}");
@@ -1271,6 +1367,174 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
 }
 
 // ---------------------------------------------------------------------------------------------
+// A cold open on a busy chat
+
+/// The busy chat's agent: a ~1 KB turn every `BUSY_TURN_EVERY` (about one record a second),
+/// as cmux#54478's time-away bench drives it.
+const BUSY_TURN_EVERY: Duration = Duration::from_secs(2);
+/// How long after the tap a busy open's bytes are counted: the page plus the stream behind it.
+const BUSY_WINDOW: Duration = Duration::from_secs(10);
+
+/// One cold open of `session` while its agent works, in the phone's old order (`seq`:
+/// `initialize` and the watch answered, then the attach) or the new one (`early`: the attach
+/// written with them). Emits `first_content_ms` and the bytes to it, then `bytes_down_10s` and
+/// `events_10s`: everything the link carried in the first `BUSY_WINDOW`.
+async fn busy_open(shaper: &Shaper, token: &str, session: &str, k: &Key<'_>, early: bool) {
+    shaper.reset_counters();
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let opened = if early {
+        Link::open_attached(shaper.addr(), token, deadline, session).await
+    } else {
+        match Link::open(shaper.addr(), token, deadline).await {
+            Ok(mut link) => match link.attach(session, None, deadline).await {
+                Ok((at, reply)) => Ok((link, at, reply)),
+                Err(e) => Err(e),
+            },
+            Err(e) => Err(e),
+        }
+    };
+    let (mut link, at, reply) = match opened {
+        Ok(opened) => opened,
+        Err(e) => {
+            emit(k, "first_content_ms", None);
+            emit_error(k, "first_content_ms", &e);
+            return;
+        }
+    };
+    if rows(&reply).is_empty() {
+        emit(k, "first_content_ms", None);
+        emit_error(k, "first_content_ms", "the attach reply carried no rows");
+        return;
+    }
+    emit(k, "first_content_ms", Some(ms(at - start)));
+    emit_bytes(k, shaper);
+    emit_kinds(k, "to_first", &link.tap.take());
+    let mut events = link
+        .pending
+        .iter()
+        .filter(|(_, v)| v.get("method").and_then(Value::as_str) == Some("_acpmux/event"))
+        .count();
+    let end = start + BUSY_WINDOW;
+    while let Next::Frame(_, v) = link.frame(end).await {
+        if v.get("method").and_then(Value::as_str) == Some("_acpmux/event") {
+            events += 1;
+        }
+    }
+    emit(k, "bytes_down_10s", Some(shaper.counters().down_bytes as f64));
+    emit(k, "events_10s", Some(events as f64));
+    emit_kinds(k, "after_first", &link.tap.take());
+}
+
+/// Every message type the link carried down, bytes and count: `<when>:down:<type>`.
+fn emit_kinds(k: &Key, when: &str, t: &TapInner) {
+    for (name, (n, bytes)) in &t.down {
+        emit(k, &format!("{when}:down:{name}"), Some(*bytes as f64));
+        emit(k, &format!("{when}:msgs_down:{name}"), Some(*n as f64));
+    }
+}
+
+/// The cold open of a chat whose agent is working (cmuxterm-hq optimum-ledger rows 95 and 105;
+/// the busy rows asked for on cmux#54388): for each profile in `NETCOND_PROFILES` (good-wifi,
+/// lte, lossy-3), scale and run, one open in the old order (phase `busy_seq`) and one in the new
+/// (`busy_early`), alternating which goes first, against the same daemon. The old order against
+/// this daemon is the old phone against the new Mac: acpmux reads it as before (`also_kinds.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the busy open bench: run with --ignored --nocapture"]
+async fn chat_cold_open_while_the_agent_works() {
+    let scratch = daemon_env::Scratch::new("netcond-busy");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = ProfileFile::builtin();
+    let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", &["good-wifi", "lte", "lossy-3"])
+        .iter()
+        .map(|n| file.get(n).unwrap_or_else(|| panic!("no link profile {n}")).clone())
+        .collect();
+    let scales = env_list("NETCOND_SCALES", &["1x", "10x"]);
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-busy"}}}),
+        )
+        .await;
+    let session =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let trace = Trace::new();
+    eprintln!(
+        "NETCOND-FIXTURE busy chat: a ~1 KB turn every {BUSY_TURN_EVERY:?}; bytes counted for \
+         {BUSY_WINDOW:?} from the tap"
+    );
+    let mut turns = 0;
+    for scale in &scales {
+        let x: u64 =
+            scale.trim_end_matches('x').parse().unwrap_or_else(|_| panic!("scale {scale}"));
+        control.seed(&session, turns, BASE_TURNS * x).await;
+        turns = turns.max(BASE_TURNS * x);
+        // The agent works through every open of this scale (`NETCOND_LOAD=idle`: it does not), on
+        // the connection that made the session (a second connection's prompts did not run there).
+        let idle = std::env::var("NETCOND_LOAD").is_ok_and(|l| l == "idle");
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worked = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut agent = control;
+        let busy_session = session.clone();
+        let (busy_stop, busy_worked) = (stop.clone(), worked.clone());
+        let busy = tokio::spawn(async move {
+            let pad = "busy busy busy ".repeat(64);
+            let mut n = 0u64;
+            while !idle && !busy_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let next = Instant::now() + BUSY_TURN_EVERY;
+                let id = agent.prompt(&busy_session, &format!("busy {n}: {pad}")).await;
+                match agent.answer(id, BOUND).await {
+                    Some(v) if v.get("error").is_none() => {
+                        busy_worked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    // Counted, not fatal: the rows then say how little the agent did.
+                    other if n < 3 => eprintln!("NETCOND-ERROR busy turn {n}: {other:?}"),
+                    _ => {}
+                }
+                n += 1;
+                tokio::time::sleep_until(next).await;
+            }
+            agent
+        });
+        tokio::time::sleep(BUSY_TURN_EVERY * 3).await;
+        for profile in &profiles {
+            let name = profile.label(None);
+            for run in 0..runs {
+                let seed = run + seed_base;
+                let order = if run % 2 == 0 { [false, true] } else { [true, false] };
+                for early in order {
+                    let phase = if early { "busy_early" } else { "busy_seq" };
+                    let k = Key { profile: &name, phase, scale, run, seed };
+                    let started =
+                        Shaper::start_through(upstream, profile.clone(), None, seed, &trace);
+                    match started.await {
+                        Ok((shaper, _hop)) => {
+                            busy_open(&shaper, &listener.token, &session, &k, early).await
+                        }
+                        Err(e) => emit_error(&k, "first_content_ms", &format!("shaper: {e}")),
+                    }
+                }
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        control = busy.await.expect("the busy agent");
+        eprintln!(
+            "NETCOND-FIXTURE busy chat {scale}: the agent finished {} turns while measured",
+            worked.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Background: the time-away table (Leo, 2026-11-24: "the syncing can arguably happen in the
 // background too, so deltas can be sipped and maintained"; cmux-next-ios/design/
 // background-delta-sync.md). The phone holds the chat at its newest record and its link closes;
@@ -1362,14 +1626,15 @@ async fn bg_chat_once(
         let (_, reply) = link.answer(id, deadline).await?;
         (upgrade, link, reply)
     } else {
-        // initialize, the watch and the attach in one burst, the attach with the last
-        // connection's kinds; acpmux answers them in order.
+        // initialize, the watch and the attach in one burst, as #54388's early attach writes it
+        // (`AcpmuxHub+EarlyAttach.swift`): every Mac's kinds, the sudo-card kinds in `alsoKinds`.
         let mut link = tokio::time::timeout_at(deadline, Link::dial(shaper.addr()))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
         let upgrade = start.elapsed();
-        link.capabilities = cached.to_vec();
-        let pipelined = tail(link.kinds());
+        let _ = cached;
+        let mut pipelined = tail(json!(CHAT_KINDS));
+        pipelined["alsoKinds"] = json!(ELEVATION_KINDS);
         let init = link
             .post(
                 "initialize",
@@ -1388,8 +1653,9 @@ async fn bg_chat_once(
             .unwrap_or_default();
         link.answer(watch, deadline).await?;
         let (_, mut reply) = link.answer(id, deadline).await?;
-        if tail(link.kinds()) != pipelined {
-            // initialize named other kinds: the phone asks again.
+        let has = |c: &str| link.capabilities.iter().any(|x| x == c);
+        if has(ELEVATION_CAPABILITY) && !has(ALSO_KINDS_CAPABILITY) {
+            // A Mac that serves sudo cards but does not fold `alsoKinds`: the phone asks again.
             let id = link.post("_acpmux/attach", tail(link.kinds())).await?;
             reply = link.answer(id, deadline).await?.1;
         }

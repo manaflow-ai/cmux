@@ -120,6 +120,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         // The page may have moved under or out from under the traffic lights (the window's sidebar).
         list.updateWindowControlsAvoidance()
         if foldLoneConversation() { return }
+        // A divider drag places the list itself (it can be 0 wide until the drag ends).
+        guard dragStart == nil else { return }
         // One rule on every size change (live resize, split drag, fullscreen, a dock that
         // shrank): the list shows the saved width as far as this width allows, so it shrinks to
         // leave the transcript its minimum and grows back when there is room again. The saved
@@ -141,7 +143,26 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             resetWidth()
             return
         }
+        // NSSplitView tracks a divider drag in its own `mouseDown` and returns at the mouse-up.
+        let dragging = !list.isHidden
+        // The saved width, not the one on screen: a narrow window shows the strip for a wider saved width.
+        let saved = widths.width(window: windowKey())
+        dragStart = dragging ? sidebarWidth : nil
         super.mouseDown(with: event)
+        dragStart = nil
+        if dragging { endDrag(from: saved) }
+    }
+
+    /// The width when the divider's drag started; nil while no drag runs (layout leaves the list where the drag puts it).
+    private var dragStart: CGFloat?
+
+    /// A drag that ended with the list closed (`HomeSidebarWidth.drag` gave 0) hides it, as the Chats button does, and
+    /// puts back `saved`, the width saved before the drag (nil: the standard width), so the button opens it there and a
+    /// wider window grows it back.
+    func endDrag(from saved: CGFloat?) {
+        guard !list.isHidden, list.frame.width < minimum / 2 else { return }
+        if let saved { widths.save(saved, window: windowKey()) } else { widths.reset(window: windowKey()) }
+        showsList = false
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -221,11 +242,19 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     // MARK: NSSplitViewDelegate
 
     public func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        minimum
+        // 0, so a drag can close the list; `constrainSplitPosition` keeps every open width at `minimum` or more.
+        0
     }
 
     public func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         clamp(.greatestFiniteMagnitude)
+    }
+
+    /// The divider's drag (``HomeSidebarWidth/drag(_:minimum:fullMinimum:widest:)``): the strip, or the full list up to
+    /// the widest, and the list closes once the pointer is half way into the strip. The drag's end hides it
+    /// (``mouseDown(with:)``).
+    public func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        HomeSidebarWidth.drag(proposedPosition, minimum: minimum, widest: clamp(.greatestFiniteMagnitude))
     }
 
     public func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
@@ -247,7 +276,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         // Every width change (a drag too, which runs no layout pass) moves compose to or from the chat.
         updateChatCompose()
         // Only the user's drag is kept (AppKit names the divider it moved).
-        guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+        // A drag closing the list (0 wide) keeps the width it had (``endDrag()``).
+        guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil, sidebarWidth >= minimum else { return }
         widths.save(sidebarWidth, window: windowKey())
     }
 }

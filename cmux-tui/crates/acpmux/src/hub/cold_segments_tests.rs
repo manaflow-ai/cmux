@@ -204,3 +204,38 @@ fn warm_is_refused_while_the_setting_is_on_and_brings_a_chat_back_with_it_off() 
     assert!(!sessions.join("parent").join("cold-segments").exists());
     assert_eq!((all(hub.store.as_ref(), "parent"), all(hub.store.as_ref(), "fork")), before);
 }
+
+/// The store budget (`session_store.rs`): a chat writing past its budget is told once and has its
+/// sealed segments compressed, every record still read back, and its store shrinks.
+#[test]
+fn a_chat_past_its_store_budget_is_told_and_compressed_losslessly() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), SEGMENT).unwrap()));
+    hub.store.save(&meta("w")).unwrap();
+    for seq in 1..=1500 {
+        hub.store.append("w", &record(seq)).unwrap();
+    }
+    hub.store.flush().unwrap();
+    let before_records = all(hub.store.as_ref(), "w");
+    let dir = hub.store.session_path("w").unwrap();
+    let (before, _) = crate::session_store::measure(Some(&dir), &root.path().join("no-bg"));
+    let budget = before / 2;
+    let actions = hub.session_store_pass_of(vec!["w".into()], budget, true);
+    assert!(actions.contains(&("w".into(), crate::session_store::Action::Compress)), "{actions:?}");
+    assert!(
+        actions.iter().any(
+            |(_, a)| matches!(a, crate::session_store::Action::Warn { bytes } if *bytes >= before)
+        ),
+        "{actions:?}"
+    );
+    assert_eq!(hot_sealed(&sessions, "w"), 0, "every sealed segment compressed");
+    assert!(cold(&sessions, "w") > 4);
+    let (after, _) = crate::session_store::measure(Some(&dir), &root.path().join("no-bg"));
+    eprintln!("store budget: {before} bytes before, {after} after, budget {budget}");
+    assert!(after < before, "{after} < {before}");
+    assert_eq!(all(hub.store.as_ref(), "w"), before_records, "nothing a person reads is lost");
+    // A second pass still over (or under now): never told twice for the same size.
+    let again = hub.session_store_pass_of(vec!["w".into()], budget, true);
+    assert!(!again.iter().any(|(_, a)| matches!(a, crate::session_store::Action::Warn { .. })));
+}
