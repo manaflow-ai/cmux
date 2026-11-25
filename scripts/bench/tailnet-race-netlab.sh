@@ -1,64 +1,46 @@
 #!/usr/bin/env bash
 # ask-3c089caeef: before/after of racing the direct tailnet path (acpmux, Braid RFD 0164).
-# A throwaway netlab on this machine: one network namespace stands in for the peer, with two
-# links shaped by netem: the "tailnet direct" link (RTT 2*TAILNET_MS) and the link every
-# other path takes (relay/ssh, RTT 2*OTHER_MS). No Tailscale, no real network or ACL is touched.
-# Needs root (sudo -n) and a built acpmux test binary: BIN=path/to/acpmux-<hash>.
+# A throwaway netlab on loopback, no root: one echo server per link adds the link's round trip
+# (RTT_MS once for the handshake, once for the echo), so the "tailnet direct" link answers in
+# 2*TAILNET_RTT and the link every other path takes (relay/ssh) in 2*OTHER_RTT. A black-holed
+# link accepts and never answers (a network change that killed it). No Tailscale, no real
+# network or ACL is touched. BIN=path/to/acpmux-<hash> (the lib test binary).
 set -euo pipefail
 BIN=${BIN:?acpmux test binary}
 N=${N:-200}
-TAILNET_MS=${TAILNET_MS:-4}
-OTHER_MS=${OTHER_MS:-35}
-NS=tnb-peer-$$
-PORT=7801
+TAILNET_RTT=${TAILNET_RTT:-8}
+OTHER_RTT=${OTHER_RTT:-70}
 busy=()
-cleanup() {
-  for p in "${busy[@]}"; do kill "$p" 2>/dev/null || true; done
-  [ -n "${server:-}" ] && sudo -n kill "$server" 2>/dev/null || true
-  sudo -n ip link del tnbt0-$$ 2>/dev/null || true
-  sudo -n ip link del tnbr0-$$ 2>/dev/null || true
-  sudo -n ip netns del "$NS" 2>/dev/null || true
-}
+cleanup() { for p in "${busy[@]}" ${server:-}; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
-sudo -n ip netns add "$NS"
-link() { # name host-ip peer-ip delay
-  sudo -n ip link add "$1"0-$$ type veth peer name "$1"1-$$
-  sudo -n ip link set "$1"1-$$ netns "$NS"
-  sudo -n ip addr add "$2"/24 dev "$1"0-$$
-  sudo -n ip link set "$1"0-$$ up
-  sudo -n ip netns exec "$NS" ip addr add "$3"/24 dev "$1"1-$$
-  sudo -n ip netns exec "$NS" ip link set "$1"1-$$ up
-  sudo -n tc qdisc add dev "$1"0-$$ root netem delay "$4"ms
-  sudo -n ip netns exec "$NS" tc qdisc add dev "$1"1-$$ root netem delay "$4"ms
-}
-link tnbt 10.77.1.1 10.77.1.2 "$TAILNET_MS"
-link tnbr 10.77.2.1 10.77.2.2 "$OTHER_MS"
-sudo -n ip netns exec "$NS" ip link set lo up
-sudo -n ip netns exec "$NS" python3 -I -c '
-import socket, threading
-s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(("0.0.0.0", '"$PORT"')); s.listen(512)
-def serve(c):
-    try:
-        b = c.recv(1)
-        if b: c.sendall(b)
-    finally: c.close()
-while True:
-    c, _ = s.accept(); threading.Thread(target=serve, args=(c,), daemon=True).start()
-' & server=$!
+python3 -I -c '
+import asyncio, sys
+links = {7811: float(sys.argv[1]) / 1000, 7812: float(sys.argv[2]) / 1000, 7813: None, 7814: None}
+async def main():
+    async def serve(port, rtt, r, w):
+        if rtt is None:
+            await asyncio.sleep(3600); return
+        await asyncio.sleep(rtt)
+        b = await r.read(1)
+        await asyncio.sleep(rtt)
+        w.write(b); await w.drain(); w.close()
+    for port, rtt in links.items():
+        await asyncio.start_server(lambda r, w, p=port, t=rtt: serve(p, t, r, w), "127.0.0.1", port, backlog=1024)
+    await asyncio.sleep(10**9)
+asyncio.run(main())
+' "$TAILNET_RTT" "$OTHER_RTT" & server=$!
 sleep 1
-run() { # label
-  TAILNET_BENCH_TAILNET=10.77.1.2:$PORT TAILNET_BENCH_OTHER=10.77.2.2:$PORT TAILNET_BENCH_N=$N \
+run() { # label tailnet-port other-port
+  TAILNET_BENCH_TAILNET=127.0.0.1:$2 TAILNET_BENCH_OTHER=127.0.0.1:$3 TAILNET_BENCH_N=$N \
   TAILNET_BENCH_LABEL="$1" "$BIN" tailnet_race_netlab_bench --ignored --exact --nocapture \
     --test-threads 1 2>&1 | grep '^BENCH'
 }
-blackhole() { sudo -n tc qdisc change dev "$1"0-$$ root netem delay "$2"ms loss 100%; }
-restore() { sudo -n tc qdisc change dev "$1"0-$$ root netem delay "$2"ms; }
-echo "netlab: tailnet RTT $((2*TAILNET_MS))ms, other paths RTT $((2*OTHER_MS))ms, n=$N, nproc=$(nproc)"
-run steady
-blackhole tnbt "$TAILNET_MS"; run "after-change:tailnet-blackholed"; restore tnbt "$TAILNET_MS"
-blackhole tnbr "$OTHER_MS"; run "after-change:relay-blackholed"; restore tnbr "$OTHER_MS"
+echo "netlab: tailnet RTT ${TAILNET_RTT}ms, other paths RTT ${OTHER_RTT}ms, n=$N, nproc=$(nproc)"
+run steady 7811 7812
+run "after-change:tailnet-blackholed" 7813 7812
+run "after-change:relay-blackholed" 7811 7814
 for _ in $(seq $(( $(nproc) * 2 ))); do (while :; do :; done) & busy+=($!); done
+sleep 2
 echo "Duress: $(( $(nproc) * 2 )) busy loops on $(nproc) cpus, load1 $(cut -d' ' -f1 /proc/loadavg)"
-run duress
+run duress 7811 7812
 echo "Duress: load1 at end $(cut -d' ' -f1 /proc/loadavg)"
