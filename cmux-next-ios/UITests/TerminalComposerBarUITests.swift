@@ -63,9 +63,18 @@ final class TerminalComposerBarUITests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
 
         // Keyboard up, filled.
+        let keyRowY = keyboardKey.frame.midY
+        let window = app.windows.firstMatch.frame
         field.typeText("git status --short && ls -la ~/Development")
         Thread.sleep(forTimeInterval: 0.8)
-        shots(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-filled")
+        shots(app, keyRowY: keyRowY, window: window, name: "\(look)-kbd-up-filled")
+        // How long the app takes to answer again after the typing and drags.
+        let asked = Date()
+        let answered = keyboardKey.waitForExistence(timeout: 90)
+        let busy = XCTAttachment(string: "responsive-again \(look) answered=\(answered) after=\(String(format: "%.1f", Date().timeIntervalSince(asked)))s")
+        busy.name = "\(look)-responsive-again"
+        busy.lifetime = .keepAlways
+        add(busy)
 
         // Keyboard down, filled: the key row's keyboard key hides it.
         keyboardKey.tap()
@@ -129,8 +138,7 @@ final class TerminalComposerBarUITests: XCTestCase {
     /// Start, middle and end of the row by drags alone: no per-key
     /// queries, which a busy app answers slowly (the walk above did them).
     @MainActor
-    private func shots(_ app: XCUIApplication, keyRowY: CGFloat, name: String) {
-        let window = app.windows.firstMatch.frame
+    private func shots(_ app: XCUIApplication, keyRowY: CGFloat, window: CGRect, name: String) {
         let origin = app.coordinate(withNormalizedOffset: .zero)
         func drag(_ from: CGFloat, _ to: CGFloat) {
             origin.withOffset(CGVector(dx: window.width * from, dy: keyRowY))
