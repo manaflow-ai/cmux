@@ -54,3 +54,11 @@ is red on feat-cmux-next's base tier run (cmux-next-base-tier-kick.yml; pushes s
 Mac run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
 (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
 vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-24: 0 of 37 PR runs green in 2 h, about 10k min a day.
+
+## 8
+
+Stood above: `CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && env.CMUX_NEXT_FOLD_GENERATED != 'true' && 'fleet' || 'build' }}`
+
+Fleet-built test bundles for this commit (scripts/ci/fleet-test-products.py), off unless
+vars.CI_FAST_TIER_PRODUCTS_FLEET is 1. The generated-files checks need the whole build, so a job
+that folds them builds here as before; so does any job the fleet has no products for.

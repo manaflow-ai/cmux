@@ -9,3 +9,9 @@ file size limit (`tests/test_ci_workflow_file_size.py`). Each section is one com
 Stood above: `- name: Check out the fleet compile reader`
 
 (scripts/ci/fleet_compile_result.py) and compile here only when it has none. Trusted base copy.
+
+## 2
+
+Stood above: `release-compile-fast:`
+
+The fleet compile check is the first Release gate. It checks the exact

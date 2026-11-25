@@ -75,3 +75,45 @@ commit, whose context the head may not have.
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-238`
 
 Also after a failure or a cancel: end the daemon of this job's home and
+
+## 12
+
+Stood above: `actions: read`
+
+The reuse lookup lists artifacts.
+
+## 13
+
+Stood above: `- name: Keep Swift package builds on this owned Mac`
+
+Checkout removes .build. Link the owned Mac's kept build after Xcode
+
+## 14
+
+Stood above: `- name: Restore pinned Bun 1.4.4 from the CI cache bucket`
+
+The package's resources include the web bundles (agent pane, pages,
+
+## 15
+
+Stood above: `- name: Run package tests (changed suites first, then selected targets)`
+
+Samples and fails a run still going after 15 minutes, so a hang shows
+
+## 16
+
+Stood above: `- name: Run CloudBringBack cases in fresh processes`
+
+Cloud bring-back round trips launch two daemons and mutate shared
+
+## 17
+
+Stood above: `- name: Run control package tests and callback regressions`
+
+Each isolated step below runs when its suites' target is selected and
+
+## 18
+
+Stood above: `- name: Upload the test helper's crash reports`
+
+A test helper that died on a signal leaves its crash report here

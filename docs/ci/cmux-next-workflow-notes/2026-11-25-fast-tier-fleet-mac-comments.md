@@ -22,3 +22,9 @@ A step id as the fleet tools read it (tip-test-compile.sh): 6 to 64 hex.
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-37`
 
 The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
+
+## 4
+
+Stood above: `if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi`
+
+The client names its step before the step's own log streams.

@@ -271,3 +271,57 @@ Only while the base predates --tree (the pull request that adds it).
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-31`
 
 `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
+
+## 45
+
+Stood above: `bash scripts/cmux-next/tests/capability-text.test.sh`
+
+Version skew: the capability-text lint.
+
+## 46
+
+Stood above: `python3 -I scripts/cmux-next/tests/test_renderer_rest.py`
+
+renderer-rest.py's per-renderer footprint parse (#44113).
+
+## 47
+
+Stood above: `python3 -I scripts/cmux-next/tests/test_check_v2_app_callers.py`
+
+check-v2-app-callers.py's caller scan (#44407).
+
+## 48
+
+Stood above: `- name: CmuxNextApp size cap`
+
+Every CmuxNextApp edit re-emits the whole module; the target may only
+
+## 49
+
+Stood above: `- name: Protected-folder copies`
+
+LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
+
+## 50
+
+Stood above: `- name: Bundled terminfo`
+
+The bundled terminfo (Ghostty's entries with cmux's overlay on top)
+
+## 51
+
+Stood above: `- name: App Store review rules (cmux-next-ios intents, Info.plist)`
+
+What App Store Connect rejects only after an upload (ITMS-90626 device
+
+## 52
+
+Stood above: `- name: DEV update and classic import scripts`
+
+The cmux NEXT DEV update script (an unchanged build is left alone; an
+
+## 53
+
+Stood above: `- name: Daemon capabilities export is fresh`
+
+plans/cmux-next/daemon-capabilities.json against the lists in

@@ -15,3 +15,21 @@ This job's tests can start acpmux daemons: they get a home of the job's
 Stood above: `echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"`
 
 An inherited socket would still name another home's daemon; empty is unset.
+
+## 3
+
+Stood above: `fast-tier:`
+
+The PR fast tier (hq#1915, cx-29ch2): every registered deterministic suite
+
+## 4
+
+Stood above: `actions: read`
+
+The reuse lookup lists artifacts.
+
+## 5
+
+Stood above: `- name: Keep Swift package builds on this owned Mac`
+
+Checkout removes .build. On an owned Mac the tier builds in one of the

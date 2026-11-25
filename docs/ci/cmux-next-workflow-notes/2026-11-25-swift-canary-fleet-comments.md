@@ -29,3 +29,9 @@ every feat-cmux-next push; this cmux-linux runner compiles nothing. Why: note-ca
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-35`
 
 The PR app compile's gateway runner, judged at once (Leo, 2026-11-08: the Linux checks start at once
+
+## 5
+
+Stood above: `swift-canary-fleet:`
+
+The build fleet's compile verdict for the Swift canary. Opt-in: with the

@@ -15,3 +15,15 @@ A feat-cmux-next push or dispatch lists the pass artifacts with a cmux-bot token
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-67`
 
 On a mini, the compile reads the fleet's shared compile cache (glaeda fleet-cas, the store
+
+## 3
+
+Stood above: `actions: write`
+
+The reuse lookup lists artifacts.
+
+## 4
+
+Stood above: `- name: Warn on missing Release bundle notices`
+
+Early advisory for a newly bundled binary. The signed nightly check

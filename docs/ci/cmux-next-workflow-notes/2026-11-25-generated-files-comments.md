@@ -62,3 +62,15 @@ Also after a failure or a cancel: end the daemon of this job's home and
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-279`
 
 A pass records itself for the next run on the same inputs: an artifact named after
+
+## 10
+
+Stood above: `actions: read`
+
+The reuse lookup lists artifacts.
+
+## 11
+
+Stood above: `- name: Keep Swift package builds on this owned Mac`
+
+Checkout removes .build. Link the owned Mac's kept build after Xcode

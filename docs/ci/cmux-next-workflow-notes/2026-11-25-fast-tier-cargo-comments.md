@@ -71,3 +71,15 @@ rust-cache keeps (scripts/ci/cargo_target_strip.py). Why: docs/ci/cmux-next-work
 Stood above: `rm -rf "$REGISTRY/src"`
 
 Extracted sources come back from the .crate files in registry/cache.
+
+## 10
+
+Stood above: `actions: read`
+
+The reuse lookup lists artifacts.
+
+## 11
+
+Stood above: `- name: Verify planner promotion evidence`
+
+The mode switch is deliberately insufficient on its own.  Promotion

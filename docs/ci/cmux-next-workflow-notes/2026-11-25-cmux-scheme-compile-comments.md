@@ -21,3 +21,21 @@ The DEV Release app is reused, not recompiled, when nothing it is built from cha
 Stood above: `# Why: docs/ci/cmux-next-workflow-notes.md#note-314`
 
 R2 first (feat-cmux-next's bundles, published by the web-bundles job of
+
+## 4
+
+Stood above: `- name: Fetch the same-tree cmux-tui`
+
+The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
+
+## 5
+
+Stood above: `- name: Source key of the web bundles`
+
+The app's web bundles are build output (cx-vn5); the "Verify web
+
+## 6
+
+Stood above: `retention-days: 2`
+
+As long as the product artifact it names.

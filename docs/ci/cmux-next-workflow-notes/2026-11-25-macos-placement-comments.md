@@ -19,3 +19,21 @@ runner for the sleep on every pull request run, 1.64% of pull request runner-min
 verdict of its own: cmuxterm-hq#16094). Only the Mac jobs wait for it (Leo, 2026-11-08) and every one of them
 follows this job, so the Linux jobs still start at once, a change that reaches no Mac tier sleeps on no
 runner, and the routing before this job counts toward the wait. Why: docs/ci/cmux-next-workflow-notes.md#note-1
+
+## 3
+
+Stood above: `[[ "$QUIET_SECONDS" =~ ^[0-9]+$ ]] || QUIET_SECONDS=300`
+
+At most 10 minutes, whatever the variable says.
+
+## 4
+
+Stood above: `- name: Mark a run on the minis`
+
+Fail-safe: without the marker the run is only not watched. Skipped
+
+## 5
+
+Stood above: `- name: Upload the owned-pool watch marker`
+
+With no free overflow slot a bot re-run takes the same side label
