@@ -12,9 +12,9 @@
 //!   --json` only when the LocalAPI is unavailable ([`PathSource`]). Nothing is advertised on
 //!   the wire, so old and new daemons need no negotiation: see "Lockstep" below.
 //! - **Which hint is offered.** The status says how this machine reaches the node: `CurAddr`
-//!   set is direct, a peer relay or a DERP region is not. Only a direct path is offered, under
-//!   `direct-only` and `on` alike: a DERP or peer-relay path loses to the paths cmux owns, so it
-//!   is never raced (the setting `transport.tailnetCarrier` says so too).
+//!   set is direct, a peer relay or a DERP region is not. `direct-only` offers only direct;
+//!   `on` offers every path, the non-direct ones in the relayed class (they never beat a direct
+//!   path, and compete with the hub relay by round trip).
 //! - **No wait on tailscaled.** The status is a snapshot read from memory: the LocalAPI's
 //!   refreshes itself on its own thread; the CLI fallback ([`Snapshots`]) makes one background
 //!   call at most every [`FRESH`], a failed one every [`FAILED_FRESH`].
@@ -62,8 +62,7 @@ pub enum Mode {
     Off,
     /// Only a path tailscale reports as direct.
     DirectOnly,
-    /// Reserved for relayed tailnet paths once their cost is measured; today the same as
-    /// `direct-only`.
+    /// Every tailnet path: a non-direct one is relayed-class.
     On,
 }
 
@@ -82,11 +81,12 @@ impl Mode {
         std::env::var(ENV).ok().and_then(|text| Self::parse(&text)).unwrap_or_default()
     }
 
-    /// Whether a path tailscale reports as `path` is offered as a candidate: only a direct one.
+    /// Whether a path tailscale reports as `path` is offered as a candidate.
     pub fn offers(self, path: PeerPath) -> bool {
         match self {
             Self::Off => false,
-            Self::DirectOnly | Self::On => path == PeerPath::Direct,
+            Self::DirectOnly => path == PeerPath::Direct,
+            Self::On => true,
         }
     }
 
@@ -107,7 +107,7 @@ pub struct Route {
 }
 
 impl Route {
-    /// Not a direct WireGuard path: the relayed class (never offered today, see [`Mode::offers`]).
+    /// Not a direct WireGuard path: the relayed class (`on` only).
     pub fn relayed(&self) -> bool {
         self.path != PeerPath::Direct
     }
