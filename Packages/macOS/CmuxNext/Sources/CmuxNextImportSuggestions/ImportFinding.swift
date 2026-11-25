@@ -55,11 +55,11 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
     /// Browser profiles (only those not imported yet) or iTerm2 profiles.
     public var profiles: [Profile]
     /// Sessions, threads or workspaces, for the agent, Classic and Conductor sources.
-    public var count: Int
+    public var count: Int?
     public var access: Access
 
     public init(id: String, kind: ImportSourceKind, browser: ImportBrowser? = nil, name: String,
-                profiles: [Profile] = [], count: Int = 0, access: Access = .ready) {
+                profiles: [Profile] = [], count: Int? = 0, access: Access = .ready) {
         self.id = id
         self.kind = kind
         self.browser = browser
