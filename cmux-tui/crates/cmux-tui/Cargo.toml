@@ -224,6 +224,9 @@ cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true
+# `cmux link sync` writes: the per-part codec choice (cmux-bytes) and its zstd frames.
+cmux-bytes.workspace = true
+zstd.workspace = true
 # `cmux customize use pr:N` unpacks a published web bundle archive (cli/customize/pr.rs).
 tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).

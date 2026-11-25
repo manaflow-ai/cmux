@@ -1,0 +1,83 @@
+//! Priority lanes over one link. Frames are bounded (a chunk is at most four
+//! times the CDC average), so a faulted read waits at most one frame per
+//! stream behind the background fill, never behind a whole file.
+
+use std::collections::VecDeque;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Lane {
+    Manifest = 0,
+    Fault = 1,
+    Hot = 2,
+    Fill = 3,
+}
+
+pub const LANES: [Lane; 4] = [Lane::Manifest, Lane::Fault, Lane::Hot, Lane::Fill];
+
+/// Strict priority, except the fill keeps one frame in `fill_every` so a
+/// stream of faults cannot starve it forever.
+pub struct Scheduler<T> {
+    queues: [VecDeque<T>; 4],
+    fill_every: u32,
+    since_fill: u32,
+}
+
+impl<T> Scheduler<T> {
+    pub fn new(fill_every: u32) -> Self {
+        Self { queues: Default::default(), fill_every: fill_every.max(1), since_fill: 0 }
+    }
+
+    pub fn push(&mut self, lane: Lane, item: T) {
+        self.queues[lane as usize].push_back(item);
+    }
+
+    /// Moves a queued item to the fault lane (an agent read a file the fill had not sent yet).
+    pub fn promote(&mut self, from: Lane, pick: impl Fn(&T) -> bool) -> bool {
+        let q = &mut self.queues[from as usize];
+        if let Some(item) = q.iter().position(pick).and_then(|i| q.remove(i)) {
+            self.queues[Lane::Fault as usize].push_back(item);
+            return true;
+        }
+        false
+    }
+
+    pub fn pop(&mut self) -> Option<(Lane, T)> {
+        let fill = Lane::Fill as usize;
+        if self.since_fill + 1 >= self.fill_every && !self.queues[fill].is_empty() {
+            self.since_fill = 0;
+            return self.queues[fill].pop_front().map(|t| (Lane::Fill, t));
+        }
+        for lane in LANES {
+            if let Some(t) = self.queues[lane as usize].pop_front() {
+                self.since_fill = if lane == Lane::Fill { 0 } else { self.since_fill + 1 };
+                return Some((lane, t));
+            }
+        }
+        None
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queues.iter().all(VecDeque::is_empty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn faults_jump_the_fill_but_the_fill_still_moves() {
+        let mut s = Scheduler::new(8);
+        for i in 0..100 {
+            s.push(Lane::Fill, i);
+        }
+        for i in 1000..1020 {
+            s.push(Lane::Fault, i);
+        }
+        let first: Vec<_> = (0..9).map(|_| s.pop().unwrap()).collect();
+        assert!(first[..7].iter().all(|(l, _)| *l == Lane::Fault));
+        assert!(first.iter().any(|(l, _)| *l == Lane::Fill));
+        assert!(s.promote(Lane::Fill, |i| *i == 50));
+        assert_eq!(s.pop().unwrap(), (Lane::Fault, 1008));
+    }
+}

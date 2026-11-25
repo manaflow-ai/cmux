@@ -1590,6 +1590,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bytes"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-cas",
+ "flate2",
+ "libc",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-cas"
 version = "0.1.0"
 dependencies = [
@@ -3171,6 +3183,7 @@ dependencies = [
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
+ "cmux-bytes",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -3286,6 +3299,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
