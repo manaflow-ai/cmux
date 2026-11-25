@@ -122,12 +122,14 @@ pub fn install_script() -> String {
     let line = format!("EnvironmentFile=-{TURN_ENV_FILE}");
     format!(
         "trap 'rm -f {TURN_ENV_STAGE} {next}' EXIT; set -e; umask 077; unit=read; \
+         if command -v systemctl >/dev/null 2>&1; then \
          if ! load=$(systemctl show cmux-chief.service -p LoadState --value 2>/dev/null); then \
          echo 'systemd unavailable' >&2; exit 1; fi; \
          if [ \"$load\" = not-found ] || ! systemctl cat cmux-chief.service 2>/dev/null | grep -qxF '{line}'; then \
          install -d -m 0755 -o root -g root \"$(dirname {TURN_UNIT_DROP_IN})\"; \
          printf '[Service]\\n%s\\n' '{line}' > {TURN_UNIT_DROP_IN}; chmod 0644 {TURN_UNIT_DROP_IN}; \
          systemctl daemon-reload; unit=added; fi; \
+         fi; \
          mkdir -p {TURN_ENV_DIR}; chown root:root {TURN_ENV_DIR}; chmod 0700 {TURN_ENV_DIR}; \
          install -m 0600 -o root -g root {TURN_ENV_STAGE} {next}; \
          if cmp -s {next} {TURN_ENV_FILE}; then \

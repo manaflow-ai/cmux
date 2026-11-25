@@ -108,7 +108,7 @@ async function chiefReply(api: Api, conversation: string, chief: string, seen: S
       if (who !== chief || !id || seen.has(id)) continue;
       const text = rowText(m);
       if (!text.trim()) continue;
-      if (!text.includes(expected)) continue;
+      if (!text.includes(expected) && !/not signed in|not logged in/i.test(text)) continue;
       seen.add(id);
       return { text };
     }
