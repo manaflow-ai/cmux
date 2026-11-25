@@ -164,6 +164,10 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
     // `server/fork_through.rs` `RETARGET_FEATURE` (private to the server).
     PeerFeature { id: "sessionForkRetarget", gates: &[] },
     PeerFeature { id: crate::hub::fork_subagent::FEATURE, gates: &[] },
+    // `acp.session.fork`'s `requestId` was already on the wire with `beforePromptId`; the feature
+    // lets a client send it without one, so it gates no new name (`server/fork_through.rs`
+    // `FORK_REQUEST_FEATURE`, private to the server).
+    PeerFeature { id: "forkRequestId", gates: &[] },
     // Sent to a link that listed it in its own `initialize` (`server/client_features.rs`).
     PeerFeature { id: crate::server::client_features::UNSENT_FEATURE, gates: &[m::MUX_UNSENT] },
     PeerFeature { id: crate::link_v2::FEATURE, gates: &[m::MUX_V2] },
