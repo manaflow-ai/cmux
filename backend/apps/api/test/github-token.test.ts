@@ -679,7 +679,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await list(a.session, `team=${a.team}&query=${"x".repeat(257)}`)).status).toBe(400)
     const seam = await worker.fetch("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) })
     expect(seam.status).toBe(404)
-    // Staging answers the seam as development does (cmux-platform's environment builds mint through it); production stays 404.
+    // Staging and production answer the seam as development does (cmux-platform's environment builds mint through it).
     // A token's issuer names its environment, so the same install's bearer is minted for each one asked.
     const claims = JSON.parse(atob(a.installToken.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub: string; team: string; inst: string; grant: string }
     const seamIn = async (environment: string) => {
@@ -687,12 +687,11 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       const bearer = (await mintAccessToken(envIn, { user: claims.sub, team: claims.team, install: claims.inst, grant: claims.grant })).token
       return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
     }
-    for (const environment of ["development", "staging"]) {
+    for (const environment of ["development", "staging", "production"]) {
       const answer = await seamIn(environment)
       // The person's cli install reaches the route's own gate, which wants a machine install.
       expect([environment, answer.status, ((await answer.json()) as any).error.message]).toEqual([environment, 403, "a machine install is required"])
     }
-    expect((await seamIn("production")).status).toBe(404)
   })
 
   it("GET /repos answers a Cloud machine in every environment for its own team only, under the token route's machine gate", async () => {
@@ -735,7 +734,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // Every repository listed is one the same VM can mint a token for; the left-out one is refused on both.
     const mint = (repo: string) => handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo, permissions: { contents: "read" } }) }), env as any, "token").then((r) => r.status)
     expect([await mint("acme/web"), await mint("acme/api"), await mint("acme/unlinked")]).toEqual([200, 200, 403])
-    // The machine-only seam mints for the same VM on staging (cmux-platform's environment build); production answers 404.
+    // The machine-only seam mints for the same VM on staging and production (cmux-platform's environment build).
     // A token's issuer names its environment: the VM's bearer is minted for the environment asked.
     const seam = async (environment: string) => {
       const envIn = { ...env, ENVIRONMENT: environment } as any
@@ -744,7 +743,8 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     }
     const staged = await seam("staging")
     expect([staged.status, typeof ((await staged.json()) as any).token]).toEqual([200, "string"])
-    expect((await seam("production")).status).toBe(404)
+    const produced = await seam("production")
+    expect([produced.status, typeof ((await produced.json()) as any).token]).toEqual([200, "string"])
     // An edge machine (the platform's vm.self.get says platform_edge): the guest's own bearer is refused on /token and
     // the seam with github.edge_only, and still lists; only the platform egress's bearer (claim edge) mints.
     edged.add(MACHINE)

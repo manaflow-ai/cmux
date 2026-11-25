@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UserNotifications)
 import UserNotifications
+#endif
 
 /// Mute Chat Notifications on this phone (the Mac's `agentChat.toggleNotificationMute`, which
 /// tags the chat in the Mac's acpmux). Here it is a phone-local choice per chat, as the Feed's
@@ -74,6 +76,7 @@ public struct PushChatMutes: @unchecked Sendable {
         return isMuted(mac: payload.mac, session: payload.sessionId)
     }
 
+    #if canImport(UserNotifications)
     /// The service extension's last step: a muted chat's notification is delivered quietly
     /// (no sound, passive). Nil for any other notification, which keeps its content.
     public func quieted(_ content: UNNotificationContent) -> UNNotificationContent? {
@@ -83,4 +86,5 @@ public struct PushChatMutes: @unchecked Sendable {
         out.relevanceScore = 0
         return out
     }
+    #endif
 }

@@ -79,6 +79,27 @@ fn hub_refuses_a_key_in_argv_and_bad_arguments() {
 }
 
 #[test]
+fn hub_call_named_args() {
+    let verb =
+        parse_ok(r#"call test.run --enabled true --tag=--draft --label="true" --list [1,2]"#);
+    let request = request_of(&verb);
+    assert_eq!(
+        request.body.unwrap()["args"],
+        json!({
+            "enabled": true, "tag": "--draft", "label": "true", "list": [1, 2],
+        })
+    );
+    for input in [
+        "call test.run --amount",
+        "call test.run --amount --charge ch_1",
+        "call test.run --amount 100 --amount 200",
+        "call test.run --args {} --amount 100",
+    ] {
+        assert!(parse(&words(input), &no_env).is_err(), "{input}");
+    }
+}
+
+#[test]
 fn hub_common_flags_and_origin() {
     let env = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "t".to_owned());
     let (common, _) = parse(&words("connections --team acme"), &env).unwrap();
@@ -268,12 +289,19 @@ fn hub_shapes_connections() {
     assert_eq!(c["sharingLabel"], "Shared with the team");
     assert_eq!(c["statusLabel"], "Needs a new key");
     assert_eq!(c["healthy"], false);
+    assert_eq!(c["reconnect"], "key");
     let c = connection_view(
         &json!({"id": "hubc_2", "provider": "stripe", "account": "B", "sharing": "private", "status": "active"}),
     );
     assert_eq!(c["modeLabel"], Value::Null);
     assert_eq!(c["sharingLabel"], "Private to you");
     assert_eq!(c["canRemove"], false);
+    assert_eq!(c["reconnect"], Value::Null);
+    let c = connection_view(
+        &json!({"id": "hubc_3", "provider": "github", "account": "acme", "status": "needs_reauth"}),
+    );
+    assert_eq!(c["statusLabel"], "Needs to be linked again");
+    assert_eq!(c["reconnect"], "link");
 }
 
 #[test]
