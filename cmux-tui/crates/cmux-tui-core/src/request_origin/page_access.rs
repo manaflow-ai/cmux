@@ -430,6 +430,7 @@ const fn access(operation: Op) -> Access {
         | Op::ThemeSchemeConvert
         | Op::ThemeSchemeExport
         | Op::ThemeSchemeFromImage
+        | Op::ThemeSlotsResolve
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet

@@ -96,8 +96,10 @@ Total falls back to the RFB update with `presented_null` saying why.
 viewing Mac it launches the cmux NEXT app bundle APP (`open -n`, foreground unless
 --app-viewer-background, its control socket in automation mode, --encode-profile written to a
 CMUX_NEXT_CONFIG_FILE because remote.screenSharingProfile is user-only), and over that socket
-(the `cmux` CLI's) opens a full-control Mac Screen pane to the host (`debug.device_hub connect`),
-waits for its first frame (`debug.mac_screen state`: window_pid, window_id, transport), finds the
+(the `cmux` CLI's) opens a full-control Mac Screen pane to the host (`debug.device_hub connect`;
+a Release app, NIGHTLY: the `macScreen.open` action with scope full and autoconnect), waits for
+its first frame (`debug.mac_screen state`, a Release app `mac_screen.state`: window_pid, window_id,
+transport), finds the
 marker in it (`screencapture -D 1` + screen-eval-marker-locate from --tools), runs observe, reads
 the app's own stage ledger from its log (`stage ledger:`), and ends the session and the app it
 launched. The app's session goes through the hub to the host's sharing cmux NEXT app, not to the
@@ -106,8 +108,9 @@ bench's `cmux-rd serve`: --app-host-app APP (host) approves it and names the dev
 (`app-viewer` or `presented-flags`), the Total cell's `via` the same, `app_ledger` the app's
 stages, and `app_timings` the pane's own decode, glass and decode_present ms (`mac_screen.state`,
 every build's read, the last 120 frames; decode_present is the viewer's Decode+Present, released
-to on glass). The pane is driven through DEV-only methods, so --app-viewer needs a DEV build; a
-Release app (NIGHTLY) fails at launch and says so. A NIGHTLY's own timings: `cmux app mac-screens`.
+to on glass). A Release app (NIGHTLY) is driven through every build's methods only: launch says
+`release: true`, the host's approval is the permission it already holds (no `decide`), and its
+window fields need a NIGHTLY whose `mac_screen.state` has window_id (else the pane check says so).
 
 The Apple leg is a headless RFB client (the cua-vnc client, imported from --cua-vnc) on port 5900
 asking only for the marker's strip. It never opens Screen Sharing.app or any window on either Mac.
@@ -1615,14 +1618,14 @@ def cmd_app(args):
                 out["error"] = f"the app's socket did not answer in {args.wait:g} s ({paths[0]})"
             out["env"] = sorted(env)
         if not out.get("error"):
-            # --app-viewer drives the pane through debug.device_hub and debug.mac_screen, which
-            # only DEV builds register: a Release app (NIGHTLY) answers method_not_found.
+            # debug.device_hub and debug.mac_screen exist only in DEV builds: a Release app (NIGHTLY)
+            # answers method_not_found, and --app-viewer drives it through every build's methods
+            # (macScreen.open, mac_screen.state) instead.
             probe = app_call(paths, "debug.mac_screen", {"action": "state"}, timeout=10)
-            if "method_not_found" in str(probe.get("error") or ""):
-                out["error"] = (f"{app} is a Release build: debug.mac_screen and debug.device_hub, which "
-                                "--app-viewer drives, exist only in DEV builds. Pass a DEV build at or after "
-                                "cmux#47235; a Release app's own pane timings are `cmux app mac-screens` "
-                                f"({APP_STATE_METHOD})")
+            out["release"] = "method_not_found" in str(probe.get("error") or "")
+            if out["release"] and "error" in app_call(paths, APP_STATE_METHOD, {}, timeout=10):
+                out["error"] = (f"{app} is a Release build without {APP_STATE_METHOD} (before cmux#43923): "
+                                "--app-viewer cannot open or read its Mac Screen pane")
     elif args.action == "locate":
         out = locate_marker(args.state, args.locate, args.wait)
     elif args.action == "ledger":
@@ -2740,11 +2743,13 @@ class Orchestrator:
             return a.app_host_device, "--app-host-device"
         if a.app_host_app:
             st = self.app_rpc(self.host, a.app_host_app, "debug.device_hub", {"action": "state"})
+            if "method_not_found" in str(st.get("error") or ""):  # a Release host: every build's hub row
+                st = self.app_rpc(self.host, a.app_host_app, APP_STATE_METHOD, {}).get("hub") or {}
             if st.get("this_device"):
                 return st["this_device"], "--app-host-app this_device"
             raise RuntimeError(f"the host app has no hub device id: {st}")
         name = self.host.run("scutil --get ComputerName").strip()
-        st = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})
+        st = self.viewer_hub()
         hits = [d for d in st.get("devices") or []
                 if d.get("name") == name and d.get("online") and d.get("shared") and not d.get("this")]
         if len(hits) != 1:
@@ -2769,8 +2774,8 @@ class Orchestrator:
         if launch.get("error"):
             raise RuntimeError(launch["error"])
         self.app_launched = not launch.get("reused")
-        hub = self.until(120, lambda: (lambda st: st if st.get("signed_in") else None)(
-            self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})), 2)
+        self.app_release = rec["release"] = bool(launch.get("release"))
+        hub = self.until(120, lambda: (lambda st: st if st.get("signed_in") else None)(self.viewer_hub()), 2)
         if not hub:
             raise RuntimeError("the app viewer is not signed in to the hub "
                                "(pass --app-viewer-env CMUX_AUTH_CREDENTIALS_FILE=...)")
@@ -2778,32 +2783,47 @@ class Orchestrator:
         rec["host_device"] = device
 
         def tabs():
-            st = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen", {"action": "state"})
-            return {t["tab"] for t in st.get("tabs") or []}
+            return {t["tab"] for t in self.pane_rows()}
 
         before = tabs()
         # One connect: it opens a Mac Screen tab even when it answers "no pane", so a retry
         # would open a second tab that replaces the first session. The new tab is followed.
-        rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
-                                      {"action": "connect", "device": device, "scope": "full"})
+        if self.app_release:
+            # Every build's open: an automation open of the person's own device asks for the
+            # scope at once (MacScreenActions.record); autoconnect starts it with the tab unseen.
+            rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "action.run", {
+                "action": "macScreen.open", "origin": "cli",
+                "args": {"device": device, "scope": "full", "autoconnect": True}})
+        else:
+            rec["connect"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
+                                          {"action": "connect", "device": device, "scope": "full"})
         new = self.until(15, lambda: tabs() - before) or set()
         if len(new) != 1:
             raise RuntimeError(f"connect opened {len(new)} Mac Screen tabs: {rec['connect']}")
         tab = next(iter(new))
 
+        host_debug = [bool(a.app_host_app)]
+
         def ready():
-            if a.app_host_app:
+            if host_debug[0]:
                 st = self.app_rpc(self.host, a.app_host_app, "debug.device_hub", {"action": "state"})
+                if "method_not_found" in str(st.get("error") or ""):
+                    # A Release host: its saved permission for this viewer decides, no prompt to answer.
+                    host_debug[0] = False
+                    rec["host_release"] = True
                 for req in st.get("pending_requests") or []:
                     self.app_rpc(self.host, a.app_host_app, "debug.device_hub",
                                  {"action": "decide", "session": req["id"], "choice": "always_full"})
-            rows = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
-                                {"action": "state", "tab": tab}).get("tabs") or [{}]
-            row = rows[0]
+            row = (self.pane_rows(tab) or [{}])[0]
+            last[0] = row
             ok = row.get("phase") == "connected" and row.get("has_frame") and row.get("window_id")
             return row if ok else None
 
+        last = [{}]
         row = self.until(a.timeout, ready, 2)
+        if not row and self.app_release and last[0].get("has_frame") and "window_id" not in last[0]:
+            raise RuntimeError("the Release app's mac_screen.state has no window_id (a NIGHTLY before "
+                               "the pane's window fields): observe cannot find its window")
         if not row:
             raise RuntimeError("the app's Mac Screen pane showed no frame of the host in "
                                f"{a.timeout:g} s (approve it on the host, or pass --app-host-app)")
@@ -2813,6 +2833,26 @@ class Orchestrator:
             raise RuntimeError("the app's window is not on the main display (marker-locate reads -D 1)")
         rec["tab"] = tab
         return row
+
+    def viewer_hub(self):
+        """The viewer app's device hub: `debug.device_hub state` (DEV), or a Release app's
+        `mac_screen.state` hub row, signed in once its hub runs and this device is registered."""
+        a = self.a
+        if not getattr(self, "app_release", False):
+            return self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub", {"action": "state"})
+        hub = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD, {}).get("hub") or {}
+        return dict(hub, signed_in=bool(hub.get("running") and hub.get("registered")))
+
+    def pane_rows(self, tab=None):
+        """The viewer app's Mac Screen tab rows (one TAB's, or all): `debug.mac_screen state`, or a
+        Release app's `mac_screen.state` (window_pid, window_id, hub_session, session_scope too)."""
+        a = self.a
+        if getattr(self, "app_release", False):
+            st = self.app_rpc(self.viewer, a.app_viewer, APP_STATE_METHOD, {"tab": tab} if tab else {})
+        else:
+            st = self.app_rpc(self.viewer, a.app_viewer, "debug.mac_screen",
+                              {"action": "state", **({"tab": tab} if tab else {})})
+        return st.get("tabs") or []
 
     def read_app_timings(self, tab):
         """The pane's own frame timings from `mac_screen.state` (every build; APP_TIMING_FIELDS, each a
@@ -2842,7 +2882,7 @@ class Orchestrator:
         a = self.a
         row = rec.get("pane") or {}
         try:
-            if row.get("hub_session"):
+            if row.get("hub_session") and not getattr(self, "app_release", False):
                 rec["end"] = self.app_rpc(self.viewer, a.app_viewer, "debug.device_hub",
                                           {"action": "end", "session": row["hub_session"]})
             if getattr(self, "app_launched", False):
