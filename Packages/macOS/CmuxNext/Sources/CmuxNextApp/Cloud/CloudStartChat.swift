@@ -29,6 +29,7 @@ struct CloudStartChat {
     /// dialog on the active window.
     var asker: AgentPaneCloudAsker?
     var timeline: CloudSendTimeline? // to the chat's first token (cmux#45953); its tab marks the rest (CloudSendTimelines)
+    weak var tabs: AgentTabStore? // whose first session begins a hybrid start's move (``CloudHybridGUIStart``); nil: none
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
@@ -37,7 +38,7 @@ struct CloudStartChat {
             guard let view, let tab = localTab(view, tabs, services) else { return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat) }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
             let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
-            return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline).reply(start, tab: tab) { [weak view] step in
+            return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline, tabs: tabs).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
             }
         }
@@ -59,6 +60,8 @@ struct CloudStartChat {
             if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
             // The copy's preflight (a read of the folder, no machine) runs beside Cloud first use's read below, not after it (cmux#45953).
             let folder = start.home || start.repository != nil ? nil : (start.cwd ?? tab.cwd).flatMap(CloudMoveFolder.init(chat:)).flatMap { $0.isTooBroad ? nil : $0 }
+            if let tabs, let cli = services.cloud.move.cli, CloudHybridGUIStart.runsHere(.init(plan: services.cloudPlanID, signedIn: services.cloud.isSignedIn, cloudDisabled: !services.cloud.mayCallCloud, folder: folder != nil, repository: start.repository != nil, team: start.team != nil, replacesChat: start.replacesChat != nil, environment: start.environment != nil, harness: start.harness, catalog: await QuitAgents.environment(services)?.harnessCatalog()), logger: services.cloud.logger) { // hybrid (cmux-cloud-start-core `hybrid_gui`): the page runs the first turn here while the machine boots; the driver's fenced move follows
+                tabs.firstSessionWaits[tab.id] = { [logger = services.cloud.logger] session in CloudHybridGUIStart.begin(session: session, cli: cli, logger: logger) }; return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode) }
             let preflight = folder.flatMap { folder in services.cloud.move.cli.map { CloudStartPreflight(root: folder.root, cli: CloudMoveCLI(binary: $0, timeout: services.cloud.move.timeout)) } }
             defer { preflight?.cancel() } // unused when the start ends before it, or takes another folder
             // Cloud first use, read in the team the start runs in: the connection the chat runs on (its credential goes
@@ -356,7 +359,7 @@ extension CloudStartChat {
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
         services.cloud.setup.gateway = { [weak services] in guard let services else { return nil }; return await gatewayServes(services) }
-        services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
+        services.cloud.setup.run = SettingsModels.cloudSetupRun(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) }, changed: { [weak services] in services?.cloud.setup.connectionsChanged() }, openSettings: { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) })
         services.cloud.signedIn = { [weak services] in if let services { warmSpare(services) } } // a sign-in in front, as an activation signed in: an activation before the sign-in (signed out) warmed nothing
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
@@ -386,9 +389,7 @@ extension CloudStartSession {
     /// The folder's copy on the machine for a `--from-folder` run (nil without one), before the session starts in it.
     /// Only to a machine this account owns: a teammate's would keep the copy after refusing the chat.
     func copiedIfAsked(_ request: Request, to session: CloudMachineSession, account: [String?]) async throws -> (chat: String, trusted: Bool)? {
-        guard let local = request.fromFolder else { return nil }
-        try await Self.requireOwned(session)
-        return try await copied(local, to: session, request, account: account)
+        guard let local = request.fromFolder else { return nil }; try await Self.requireOwned(session); return try await copied(local, to: session, request, account: account)
     }
 
     /// A copy of a folder this Mac trusts is trusted there too, on the new chat tab's `surface` before its session
@@ -459,8 +460,5 @@ extension CloudStartSession {
 
 extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
-    init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
-        self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, fromFolder: request.fromFolder, model: request.model)
-    }
+    init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) { self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd, caller: caller, account: account, fromFolder: request.fromFolder, model: request.model) }
 }

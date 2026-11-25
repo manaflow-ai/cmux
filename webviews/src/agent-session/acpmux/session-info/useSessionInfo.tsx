@@ -86,6 +86,7 @@ import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
 import { useAlsoHere } from "./alsoHereSectionModel";
+import { agentSideRowsOf } from "./agentSide";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -1264,6 +1265,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
+  // What waits on the agent's side (agentSide.ts): the chat's, never a subagent scope's.
+  const agentSide = scope ? undefined : agentSideRowsOf(t, snapshot.surge, snapshot.queue);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
   // steps aside for it as for the folder and Changes, and is back once that pane closes (Lucas,
   // 2026-11-06: "clicking on a subagent will close the session info summary menu, like how it does for
@@ -1404,6 +1407,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           processes={processes ?? []}
           listed={registry?.listed ?? false}
           transcriptTasks={transcriptTasks ?? []}
+          agentSide={agentSide}
           sessions={scope ? [] : (sessions?.list ?? [])}
           workflows={scope ? [] : (workflows?.list ?? [])}
           agent={scope?.agent}
@@ -1491,6 +1495,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
+        agentSide={agentSide}
         // The chats the chat's agent started are the chat's.
         sessions={startedList}
         workflows={workflowList}
