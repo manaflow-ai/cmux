@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { StatusVerbContext, type StatusVerbConfig } from "../statusVerbs";
-import { ActivityLine } from "./ActivityLine";
 import { WorkingFor } from "./WorkingFor";
 import { WAITING_LABEL, WaitingOnContext, type WaitingOn } from "./waitingOn";
 
@@ -13,7 +12,6 @@ const row: AcpmuxRow = { id: "live", kind: "working", version: 1, at: 0, below: 
 const custom: StatusVerbConfig = { mode: "custom", verbs: ["Planning", "Reading"] };
 const layouts = [
   { name: "WorkingFor", render: (value: AcpmuxRow, now: number) => <WorkingFor row={value} now={() => now} /> },
-  { name: "ActivityLine", render: (value: AcpmuxRow, now: number) => <ActivityLine row={value} now={() => now} /> },
 ];
 
 function render(line: ReactElement, config: StatusVerbConfig = custom, waiting?: WaitingOn) {
