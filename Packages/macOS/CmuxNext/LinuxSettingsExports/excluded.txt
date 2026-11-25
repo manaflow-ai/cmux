@@ -1,0 +1,4 @@
+# Files of CmuxNextSettings and CmuxNextDesignTokens the Linux settings exporter leaves out
+# (scripts/cmux-next/regenerate-settings-exports-linux.sh), as MODULE/PATH, beyond those that import an Apple-only
+# module (the script skips those itself): what reads a Darwin-only API through Foundation.
+CmuxNextSettings/ConfigFileWatcher.swift
