@@ -1504,7 +1504,7 @@ function folderChoicesFor({
   computer: string;
   summaryPlace: Summary | undefined;
   sessions: readonly Session[];
-  savedFolders: readonly { folder: string }[];
+  savedFolders: readonly { folder?: string | undefined }[];
   choices: readonly Project[] | undefined;
   cloudMachine: boolean;
 }): Location[] {

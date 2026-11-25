@@ -3011,7 +3011,7 @@ test("with Cloud picked on a New Tab that starts on the last chat's Cloud machin
         environments
         runMode={{ mode: "cloud", onMode: () => {} }}
         onCloud={() => true}
-        onAsk={(...args: unknown[]) => void asked.push(args)}
+        onProjectPicked={(cwd: string) => void asked.push([cwd])}
       />,
     );
   });
@@ -3032,4 +3032,7 @@ test("with Cloud picked on a New Tab that starts on the last chat's Cloud machin
   await act(async () => notes!.click());
   await settle();
   expect(folder().textContent).toContain("notes");
+  // The pick is this Mac's: the host grants it for the Cloud start's copy, and the chip no longer names the machine.
+  expect(asked).toEqual([["/Users/you/notes"]]);
+  expect(container.querySelector(".acpmux-composer-context")?.textContent).not.toContain("cloud-box");
 });
