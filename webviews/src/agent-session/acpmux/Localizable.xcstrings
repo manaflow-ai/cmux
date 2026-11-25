@@ -150083,6 +150083,150 @@
         }
       }
     },
+    "transport.pathInvalid": {
+      "comment": "Agent pane: the app refused a folder or file that is not there (or not a folder)",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Ordner existiert nicht mehr. Wähle einen anderen Ordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder no longer exists. Pick another folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa carpeta ya no existe. Elige otra carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce dossier n’existe plus. Choisissez un autre dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quella cartella non esiste più. Scegli un’altra cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのフォルダーはもう存在しません。別のフォルダーを選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essa pasta não existe mais. Escolha outra pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этой папки больше нет. Выберите другую папку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该文件夹已不存在。请选择其他文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該資料夾已不存在。請選擇其他資料夾。"
+          }
+        }
+      }
+    },
+    "transport.pathMissing": {
+      "comment": "Agent pane: the folder a chat was to start in no longer exists (a reboot wiped it, it was removed). {path} is its path.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Ordner {path} existiert nicht mehr. Wähle einen anderen Ordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder {path} no longer exists. Pick another folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La carpeta {path} ya no existe. Elige otra carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le dossier {path} n’existe plus. Choisissez un autre dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cartella {path} non esiste più. Scegli un’altra cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォルダー {path} はもう存在しません。別のフォルダーを選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{path} 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pasta {path} não existe mais. Escolha outra pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папки {path} больше нет. Выберите другую папку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件夹 {path} 已不存在。请选择其他文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "資料夾 {path} 已不存在。請選擇其他資料夾。"
+          }
+        }
+      }
+    },
     "transport.pathOutsideRoots": {
       "comment": "Agent pane",
       "extractionState": "manual",
