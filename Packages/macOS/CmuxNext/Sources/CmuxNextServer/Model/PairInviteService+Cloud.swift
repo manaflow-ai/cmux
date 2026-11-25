@@ -1,4 +1,3 @@
-import CmuxEgress
 public import CMUXAuthCore
 import CmuxNextCloud
 public import Foundation
@@ -99,7 +98,7 @@ extension PairInviteService {
     /// it closed (``PairInviteFrame/expired`` at the code's expiry, else ``PairInviteFrame/lost``).
     /// Event driven: each turn awaits the next frame; a closed socket throws and ends it.
     nonisolated private static func watch(_ request: URLRequest, invite: PairInvite, into continuation: AsyncStream<PairInviteFrame>.Continuation) async {
-        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxNextServer.PairInviteService+Cloud"), with: request, site: "CmuxNextServer.PairInviteService+Cloud")
+        let task = URLSession.shared.webSocketTask(with: request)
         task.maximumMessageSize = 64 << 10
         task.resume()
         defer {

@@ -281,7 +281,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     func select(_ effect: ConversationMessageEffect) {
         let changed = selectedBubbleEffect != effect
         selectedBubbleEffect = effect
-        ConversationHaptics.selectionChanged()
+        UISelectionFeedbackGenerator().selectionChanged()
         for row in rows { row.setSelected(row.effect == effect) }
         view.setNeedsLayout()
         stage.layer.removeAnimation(forKey: "messageEffect")
@@ -353,7 +353,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         guard page != screenPage || !screenPreview.isPlaying else { return }
         screenPage = max(0, min(page, ConversationMessageEffect.screenEffects.count - 1))
         pageControl.currentPage = screenPage
-        ConversationHaptics.selectionChanged()
+        UISelectionFeedbackGenerator().selectionChanged()
         playScreenPreview()
     }
 
@@ -381,7 +381,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
 
     private func send(_ effect: ConversationMessageEffect) {
         previewGeneration += 1
-        ConversationHaptics.impact(.light)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onSend?(effect)
     }
 

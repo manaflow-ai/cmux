@@ -190,6 +190,7 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
       "chat",
       true,
       { id: "ui-key", name: "Review", state: "running", lastProgressAt: progress },
+      "Parent",
       read,
       "connected",
     );
@@ -268,7 +269,7 @@ test("usage-only workflow progress refreshes once and coalesces events during a 
   let calls = 0;
   const read = async () => (++calls === 3 ? pending.promise : page(0, 1, 1, [text(`read ${calls}`)]));
   function Probe() {
-    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, read, "connected");
+    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, "Parent", read, "connected");
     return null;
   }
   const show = () => {

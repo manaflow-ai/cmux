@@ -173,7 +173,6 @@ extension SidebarBuiltIn {
         case .searchChats: "magnifyingglass"
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
-        case .forum: "text.bubble"
         }
     }
 
@@ -194,7 +193,6 @@ extension SidebarBuiltIn {
         case .searchChats: .search
         case .chief: .agentChief
         case .automations: .automation
-        case .forum: .agentChatList
         }
     }
 
@@ -220,7 +218,6 @@ extension SidebarBuiltIn {
         case .searchChats: SectionStrings.searchChats
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
-        case .forum: SectionStrings.forum
         }
     }
 
@@ -234,17 +231,12 @@ extension SidebarBuiltIn {
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
 
-    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum while its
-    /// experiment is off.
-    /// - Parameters:
-    ///   - showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
-    ///   - showsForum: Whether the Forum shows (`CmuxConfigSnapshot.showsForum`, `experiments.forum` on).
-    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false, the Forum's
-    ///   when `showsForum` is false.
-    public func defaultInfo(showsStore: Bool, showsForum: Bool = false) -> SidebarItemInfo {
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready.
+    /// - Parameter showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
+    /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false.
+    public func defaultInfo(showsStore: Bool) -> SidebarItemInfo {
         var info = defaultInfo
         if self == .appStore, !showsStore { info.isHidden = true }
-        if self == .forum, !showsForum { info.isHidden = true }
         return info
     }
 }

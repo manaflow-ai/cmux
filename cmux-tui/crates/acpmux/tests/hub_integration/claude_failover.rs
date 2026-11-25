@@ -6,8 +6,7 @@
 //! died, the `claude` fallback resumed the never-stored id).
 use super::*;
 
-/// A hub with two Claude stdio profiles over one Claude store (`CLAUDE_CONFIG_DIR`, in Claude
-/// Code's own layout, which acpmux reads before every `--resume`, #48596):
+/// A hub with two Claude stdio profiles over one fake session store:
 /// `primary` fails authentication on its first prompt and falls back to `direct`.
 async fn claude_failover_setup(store: &std::path::Path) -> (Arc<Hub>, TestClient) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
@@ -16,7 +15,7 @@ async fn claude_failover_setup(store: &std::path::Path) -> (Arc<Hub>, TestClient
         argv: vec!["python3".into(), fake_claude.into()],
         env: {
             let mut env = BTreeMap::from([(
-                "CLAUDE_CONFIG_DIR".to_owned(),
+                "FAKE_CLAUDE_STORE".to_owned(),
                 store.to_string_lossy().into_owned(),
             )]);
             if die {

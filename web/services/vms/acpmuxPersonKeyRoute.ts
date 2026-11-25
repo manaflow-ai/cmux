@@ -25,12 +25,6 @@ const ANSWERS: Record<AcpmuxRefusal, Answer> = {
     action: "Approve this machine's agent prompts on the machine itself.",
     retryable: false,
   },
-  no_work_user: {
-    status: 409,
-    message: "This machine's work user is not usable, and cmux never runs agents as root.",
-    action: "Recreate the machine from a current image, then try again.",
-    retryable: false,
-  },
   not_running: {
     status: 409,
     message: "The machine is not running.",

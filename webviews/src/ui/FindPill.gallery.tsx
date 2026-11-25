@@ -4,13 +4,7 @@ import { componentEntry } from "../gallery/format";
 import { Icon, type IconName } from "../icons";
 import { FindPill, type FindPillIconRole } from "./FindPill";
 
-type Props = {
-  noMatches?: boolean;
-  selected?: boolean;
-  replace?: boolean;
-  /** Terminal history find: whole-word and regex toggles, a streaming count, an inline pattern error. */
-  terminal?: "idle" | "streaming" | "invalid" | "toggles";
-};
+type Props = { noMatches?: boolean; selected?: boolean; replace?: boolean };
 const icons = {
   search: "search",
   previous: "chevronUp",
@@ -18,51 +12,26 @@ const icons = {
   close: "close",
 } as const satisfies Record<FindPillIconRole, IconName>;
 
-function FindFixture({ noMatches = false, selected = false, replace = false, terminal }: Props) {
+function FindFixture({ noMatches = false, selected = false, replace = false }: Props) {
   const [query, setQuery] = useState("needle");
   const [matchCase, setMatchCase] = useState(selected);
   const [replacement, setReplacement] = useState("replacement");
   const [replaceOpen, setReplaceOpen] = useState(replace);
   const [index, setIndex] = useState(1);
-  const [wholeWord, setWholeWord] = useState(terminal === "toggles");
-  const [regex, setRegex] = useState(terminal === "toggles" || terminal === "invalid");
-  const invalid = terminal === "invalid";
-  const status =
-    terminal === "idle"
-      ? ""
-      : terminal === "streaming"
-        ? "3 of 1,204+"
-        : invalid
-          ? "Invalid pattern"
-          : noMatches
-            ? "No matches"
-            : `${index} of 3`;
   return (
     <div style={{ padding: 24 }}>
       <FindPill
-        query={terminal === "idle" ? "" : invalid ? "(unclosed" : query}
+        query={query}
         onQueryChange={setQuery}
-        status={status}
-        noMatches={noMatches || invalid}
-        canStep={!noMatches && !invalid && terminal !== "idle"}
+        status={noMatches ? "No matches" : `${index} of 3`}
+        noMatches={noMatches}
+        canStep={!noMatches}
         onNext={() => setIndex((value) => (value % 3) + 1)}
         onPrevious={() => setIndex((value) => ((value + 1) % 3) + 1)}
         onClose={() => setQuery("")}
         matchCase={matchCase}
         onMatchCaseChange={setMatchCase}
-        wholeWord={wholeWord}
-        onWholeWordChange={terminal ? setWholeWord : undefined}
-        regex={regex}
-        onRegexChange={terminal ? setRegex : undefined}
-        labels={{
-          placeholder: "Find",
-          previous: "Previous",
-          next: "Next",
-          close: "Close",
-          matchCase: "Match case",
-          wholeWord: "Match whole word",
-          regex: "Use regular expression",
-        }}
+        labels={{ placeholder: "Find", previous: "Previous", next: "Next", close: "Close", matchCase: "Match case" }}
         icon={(role) => <Icon name={icons[role]} />}
         replace={
           replace
@@ -94,16 +63,6 @@ export default componentEntry<Props>({
     matches: { props: {}, note: "Hold a navigation button to see press feedback; Tab shows keyboard focus." },
     selected: { props: { selected: true }, note: "Match case keeps its selected hue while held." },
     replace: { props: { replace: true }, note: "Replace and All use the same immediate pressed feedback." },
-    terminalIdle: { props: { terminal: "idle" }, note: "Terminal find before a query: toggles shown, no count." },
-    terminalStreaming: {
-      props: { terminal: "streaming" },
-      note: "Pages stream in from the daemon: the count grows and keeps a + until the search completes.",
-    },
-    terminalInvalidPattern: {
-      props: { terminal: "invalid" },
-      note: "A bad regex shows Invalid pattern in the danger ink instead of a count.",
-    },
-    terminalToggles: { props: { terminal: "toggles", selected: true }, note: "Case, whole word and regex all on." },
     empty: {
       props: { noMatches: true, replace: true },
       note: "No matches uses the theme danger ink; disabled actions stay still.",

@@ -10,9 +10,8 @@
 // this hangs on for a bit too much"), the line reads "Thinking" the moment a call completes, in the
 // same element, instead of holding the finished step.
 //
-// The live line goes "grep 0s" (a clock that started again at each call) to "Thinking 15s" under
-// the call's own "Ran grep …" row, with no running-state word (Leo, 2026-11-23: "running" doesn't
-// need text).
+// Before: the line went "Running grep 0s" (a clock that started again at each call) to "Thinking
+// 15s" under the call's own "Ran grep …" row.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -188,9 +187,9 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
     const all = (step: string) => trace.filter((row) => row.step === step);
     const last = (step: string) => all(step).at(-1)!.text;
     expect(last("thinking")).toStartWith("Thinking");
-    expect(last("grep running")).toStartWith("grep");
+    expect(last("grep running")).toStartWith("Running grep");
     for (const step of ["grep done", "thought", "sed done"])
       for (const row of all(step)) expect(row.text).toStartWith("Thinking");
-    expect(last("sed running")).toStartWith("sed");
+    expect(last("sed running")).toStartWith("Running sed");
   });
 });

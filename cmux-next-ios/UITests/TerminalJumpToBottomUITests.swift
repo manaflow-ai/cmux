@@ -25,11 +25,11 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         // The pill plus its tap slop (`TerminalJumpToBottomRow.hitSlop` each side), never the full-width row.
         XCTAssertLessThan(jump.frame.width, window.width * 0.75, "the element is the pill's target, not the full-width row: \(jump.frame)")
         XCTAssertEqual(jump.frame.midX, window.midX, accuracy: 2, "Jump to bottom is centered (was trailing)")
-        // With the keyboard down there is no key row: the pill's target (its gap included) ends
-        // where the composer field starts.
-        XCTAssertLessThanOrEqual(jump.frame.maxY, field.frame.minY + 0.5, "it sits above the composer field")
+        XCTAssertLessThan(jump.frame.maxY, field.frame.minY, "it sits above the composer field")
         let keyRow = app.descendants(matching: .any)["terminal.key.keyboard"]
-        XCTAssertFalse(keyRow.exists, "the key row stays hidden with the keyboard down")
+        XCTAssertTrue(keyRow.exists, "the key row shows\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(jump.frame.maxY, keyRow.frame.minY,
+                                 "Jump to bottom sits above the key row (was between it and the composer): jump \(jump.frame) keys \(keyRow.frame)")
         attach(app, "scrolled-up-centered")
 
         jump.tap()
@@ -84,14 +84,12 @@ final class TerminalJumpToBottomUITests: XCTestCase {
     @MainActor
     func testJumpToBottomAboveKeyRowWithKeyboardUp() throws {
         let app = launch()
-        // Scroll first because dragging the terminal can dismiss the keyboard.
+        let field = app.textViews["terminal.composer.field"]
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard shows")
         let jump = app.buttons["terminal.jumpToBottom"]
-        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up: Jump to bottom shows\n\(app.debugDescription)")
-        app.textViews["terminal.composer.field"].tap()
+        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up with the keyboard up: Jump to bottom shows\n\(app.debugDescription)")
         let keyRow = app.descendants(matching: .any)["terminal.key.keyboard"]
-        XCTAssertTrue(keyRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(jump.exists, "Jump to bottom stays visible with the keyboard up")
         XCTAssertLessThanOrEqual(jump.frame.maxY, keyRow.frame.minY, "above the key row: jump \(jump.frame) keys \(keyRow.frame)")
         XCTAssertEqual(jump.frame.midX, app.windows.firstMatch.frame.midX, accuracy: 2, "centered")
         attach(app, "keyboard-up-scrolled-up")
@@ -103,17 +101,14 @@ final class TerminalJumpToBottomUITests: XCTestCase {
     func testJumpToBottomWithHideToolbar() throws {
         let app = launch()
         let keyboardKey = app.descendants(matching: .any)["terminal.key.keyboard"]
-        app.textViews["terminal.composer.field"].tap()
-        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 5))
         let hide = app.buttons["Hide Toolbar"]
         let window = app.windows.firstMatch.frame
         let rowY = (keyboardKey.frame.midY - window.minY) / window.height
-        // 44 pt keys: the row is ~1900 pt wide, so a few more drags than the old 28 pt row took.
-        for _ in 0..<16 where !(hide.exists && hide.isHittable) {
+        for _ in 0..<8 where !(hide.exists && hide.isHittable) {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
         }
-        XCTAssertTrue(hide.waitForHittable(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
         hide.tap()
         XCTAssertTrue(keyboardKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
         let jump = app.buttons["terminal.jumpToBottom"]

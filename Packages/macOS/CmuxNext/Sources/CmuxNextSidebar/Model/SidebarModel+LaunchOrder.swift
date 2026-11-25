@@ -42,10 +42,7 @@ extension SidebarModel {
         let live = launchOrder.live
         launchOrder = LaunchOrderLists()
         guard !live.isEmpty else { return }
-        let before = structureRevision
         setDisplayedSections(Self.arranging(sections, live))
-        // The release shows in one step, never on a spring (`SidebarView.isRestoreArrival`).
-        if structureRevision != before { releasedLaunchOrderRevision = structureRevision }
     }
 
     // MARK: Lists

@@ -13,9 +13,6 @@ local-networks = ["dep:libc"]
 
 [dependencies]
 libc = { version = "0.2", optional = true }
-# The three-way hub's end-to-end seal (src/hub.rs); both already in the workspace graph.
-blake3 = "1"
-chacha20poly1305 = "0.10"
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

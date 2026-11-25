@@ -1,4 +1,3 @@
-import CmuxEgress
 public import CMUXAuthCore
 public import CmuxInstallAuthCore
 public import Foundation
@@ -20,7 +19,7 @@ public struct InstallHTTPTransport: InstallAuthTransport {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
-        session = CmuxEgress.session(site: "CmuxNextCloud.InstallHTTPTransport", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        session = URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {

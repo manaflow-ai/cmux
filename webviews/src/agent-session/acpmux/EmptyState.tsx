@@ -1,6 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
 import type { Project } from "./ProjectChooser";
-import { NEW_CHAT_ENTRANCE, claimNewChatEntrance, playNewChatEntrance, type NewChatEntrance } from "./newChatEntrance";
 import { TourOffer, type TourOfferActions } from "./repoTour/TourOffer";
 /// A new chat's folder choices and what a pick does (cx-9g0w). The composer's folder chip draws them;
 /// the chat view's empty state names no folder and asks nothing.
@@ -21,29 +19,10 @@ export type EmptyStateProjects = {
 /// start, a harness switch): nothing in the pane says "What should we build" or lists other chats
 /// (Leo, 2026-11-22: "we wanted the plain one didnt we? without the chatter intro"). That builder
 /// screen is an opt-in look in examples/looks/codex/send-parity, never a fallback here. With `tour`,
-/// a folder no chat has used yet offers a repo tour (repoTour/TourOffer.tsx). On mount the tour offer
-/// and the composer under it settle in on one spring (newChatEntrance.ts); `entrance` picks the motion.
-/// `entranceKey` names the chat: its entrance plays once, and a remount of the same chat's empty state is at rest.
-export function EmptyState({
-  tour,
-  entrance = NEW_CHAT_ENTRANCE,
-  entranceKey,
-}: {
-  tour?: TourOfferActions;
-  entrance?: NewChatEntrance;
-  entranceKey?: string;
-}) {
-  const root = useRef<HTMLDivElement>(null);
-  // The mount's entrance only: a tour offer that shows later joins an empty state already at rest.
-  const entranceOnMount = useRef(entrance);
-  const entranceKeyOnMount = useRef(entranceKey);
-  useLayoutEffect(() => {
-    if (!claimNewChatEntrance(entranceKeyOnMount.current)) return undefined;
-    const play = playNewChatEntrance(root.current, entranceOnMount.current);
-    return () => play?.stop();
-  }, []);
+/// a folder no chat has used yet offers a repo tour (repoTour/TourOffer.tsx).
+export function EmptyState({ tour }: { tour?: TourOfferActions }) {
   return (
-    <div ref={root} className="acpmux-empty" data-plain-new-chat="">
+    <div className="acpmux-empty" data-plain-new-chat="">
       {tour && (
         <div className="acpmux-empty-title-anchor">
           <TourOffer {...tour} />

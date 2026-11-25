@@ -1,8 +1,4 @@
-#if canImport(Darwin)
 import Darwin
-#else
-import Glibc
-#endif
 import Foundation
 
 /// Lists this Mac's TCP listeners that loopback can reach, natively through

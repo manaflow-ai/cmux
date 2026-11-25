@@ -26,16 +26,10 @@ final class SocketWriter: Sendable {
     private let limit: Int
     private let queue: DispatchQueue
     private let state = Mutex(State())
-    /// Called on the writer's queue after each slice reaches the socket (``TransportProgress``).
-    private let onProgress: (@Sendable () -> Void)?
 
-    /// The most bytes one `send` takes, so a large line reports its progress as it goes.
-    static let sliceBytes = 256 << 10
-
-    init(fd: Int32, label: String, limit: Int = 64 << 20, onProgress: (@Sendable () -> Void)? = nil) {
+    init(fd: Int32, label: String, limit: Int = 64 << 20) {
         self.fd = fd
         self.limit = limit
-        self.onProgress = onProgress
         self.queue = DispatchQueue(label: label)
         // A write to a closed peer must fail with EPIPE, not raise SIGPIPE
         // (whose default action ends the process), whatever the caller set.
@@ -89,7 +83,7 @@ final class SocketWriter: Sendable {
                 return state.pending
             }
             guard let chunk else { return }
-            if let failure = Self.writeAll(chunk, fd: fd, onProgress: onProgress) {
+            if let failure = Self.writeAll(chunk, fd: fd) {
                 state.withLock { state in
                     state.failure = failure
                     state.pending = Data()
@@ -100,13 +94,13 @@ final class SocketWriter: Sendable {
         }
     }
 
-    static func writeAll(_ bytes: Data, fd: Int32, onProgress: (@Sendable () -> Void)? = nil) -> SocketWriteFailure? {
+    private static func writeAll(_ bytes: Data, fd: Int32) -> SocketWriteFailure? {
         bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
             guard var pointer = raw.baseAddress else { return nil }
             var remaining = raw.count
             while remaining > 0 {
                 // concurrency-allow: runs only on this writer's private serial queue, never the main thread or the cooperative pool.
-                let written = Darwin.send(fd, pointer, min(remaining, sliceBytes), MSG_NOSIGNAL)
+                let written = Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
                 if written < 0 {
                     let code = errno
                     if code == EINTR { continue }
@@ -117,7 +111,6 @@ final class SocketWriter: Sendable {
                 if written == 0 { return .noProgress }
                 remaining -= written
                 pointer += written
-                onProgress?()
             }
             return nil
         }

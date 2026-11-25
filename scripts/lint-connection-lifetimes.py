@@ -61,6 +61,7 @@ SKIPPED_CRATES = (
     "ghostty-vt",
     "ghostty-vt-sys",
     "cmux-classic-import",
+    "cmux-cellgrid-bench",
     "cmux-remote-browser-testhost",
 )
 MARKERS = ("lifetime-ok:",)

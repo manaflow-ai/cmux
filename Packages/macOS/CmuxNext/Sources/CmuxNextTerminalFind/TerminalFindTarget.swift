@@ -25,17 +25,4 @@ public protocol TerminalFindTarget: AnyObject {
     /// controller asked for focus, so the key typed right after Cmd-F lands
     /// in the field and not in the terminal.
     func showFindBar()
-
-    /// The daemon's whole-history search for this terminal, nil where there is none (a terminal
-    /// with no daemon): the bar then searches the screen Ghostty holds.
-    var historyFind: (any TerminalFindHistory)? { get }
-    /// Scrolls `match` into view and selects it (the selection is the highlight, and stays on
-    /// its text while the view scrolls). `columns` is the daemon terminal's width. False when the
-    /// mirror does not hold that row or its text differs.
-    func revealHistoryMatch(_ match: TerminalFindMatch, columns: Int) -> Bool
-}
-
-public extension TerminalFindTarget {
-    var historyFind: (any TerminalFindHistory)? { nil }
-    func revealHistoryMatch(_ match: TerminalFindMatch, columns: Int) -> Bool { false }
 }

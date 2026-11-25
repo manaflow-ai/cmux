@@ -1,5 +1,4 @@
 import Foundation
-import CmuxMobileModel
 
 /// The live Feed saved on the phone, so a relaunch shows the events it had
 /// (the Mac's watch only reports what happens next). Keeps finished turns and
@@ -15,40 +14,12 @@ public struct FeedArchive: Sendable {
         self.url = url
     }
 
-    /// The legacy account-only archive in Application Support. It has no team
-    /// provenance, so callers must not show it under an arbitrary team. Keep
-    /// this filename stable so sign-out can erase archives made by older builds.
+    /// The archive for an account in Application Support.
     public static func forAccount(_ accountID: String) -> FeedArchive {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         let safe = accountID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "_" }.joined()
         return FeedArchive(url: base.appending(path: "Feed", directoryHint: .isDirectory).appending(path: "\(safe).json"))
-    }
-
-    /// The archive for one account and team. Components live in separate
-    /// encoded directories so account/team combinations cannot collide on a
-    /// case-insensitive filesystem.
-    public static func forAccount(_ accountID: String, teamID: String) -> FeedArchive {
-        let directory = feedDirectory()
-        let scoped = LastKnownListStore.scopedDirectory(in: directory, components: [accountID, teamID, "feed"])
-        return FeedArchive(url: scoped.appending(path: "archive.json"))
-    }
-
-    private static func feedDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return base.appending(path: "Feed", directoryHint: .isDirectory)
-    }
-
-    /// Removes every team archive and the legacy account archive on sign-out.
-    public static func removeAll(forAccount accountID: String) {
-        let legacy = forAccount(accountID)
-        let directory = legacy.url.deletingLastPathComponent()
-        let teamDirectory = LastKnownListStore.scopedDirectory(in: directory, components: [accountID])
-        Self.io.sync {
-            try? FileManager.default.removeItem(at: legacy.url)
-            try? FileManager.default.removeItem(at: teamDirectory)
-        }
     }
 
     /// Every read and write of every archive, in order, off the main thread:
@@ -68,18 +39,12 @@ public struct FeedArchive: Sendable {
     }
 
     public func load() -> [FeedItem] {
-        loadIfPresent() ?? []
+        Self.io.sync { read() }
     }
 
-    /// Loads one valid account snapshot, preserving the distinction between a missing
-    /// archive and a successfully read empty array.
-    public func loadIfPresent() -> [FeedItem]? {
-        Self.io.sync { readIfPresent() }
-    }
-
-    private func readIfPresent() -> [FeedItem]? {
+    private func read() -> [FeedItem] {
         guard let data = try? Data(contentsOf: url),
-              let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return nil }
+              let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
         return entries.compactMap(\.item)
     }
 

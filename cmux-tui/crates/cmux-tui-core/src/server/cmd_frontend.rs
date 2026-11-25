@@ -177,13 +177,9 @@ pub(super) fn report_agent(
     }))
 }
 
-pub(super) fn list_notifications(
-    mux: &Arc<Mux>,
-    limit: Option<usize>,
-    stats: bool,
-) -> anyhow::Result<Value> {
+pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow::Result<Value> {
     let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-    let mut listed = json!({
+    Ok(json!({
         "notifications": rows
             .iter()
             .map(|(row, acknowledged)| {
@@ -224,11 +220,7 @@ pub(super) fn list_notifications(
                 })
             })
             .collect::<Vec<_>>(),
-    });
-    if stats && let Some(fields) = listed.as_object_mut() {
-        fields.insert("agent_notice_stats".to_owned(), mux.agent_notice_stats()?);
-    }
-    Ok(listed)
+    }))
 }
 
 /// One `list-agents` row. `state` is the roster state (`done` there is an

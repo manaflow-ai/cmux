@@ -31,10 +31,6 @@ pub struct Start {
     /// Shows with this `cloud`. None for lines written before the driver stamped them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since_ms: Option<u64>,
-    /// How ready the machine is, 0 to 100 ([`crate::hybrid_tools::readiness`]): the line's own
-    /// when it carries one, else its stage's. None when the start failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub readiness: Option<u8>,
 }
 
 /// The driver's folder for the cmux-tui sessions folder `sessions` (`workspace_state_dir`, the
@@ -61,7 +57,7 @@ pub fn show_file(sessions: &Path, session: &str) -> PathBuf {
     folder(sessions).join(format!("{}.show", file_stem(session)))
 }
 
-/// One Show line as the driver writes it, with its readiness (0 to 100) when the start has one.
+/// One Show line as the driver writes it.
 pub fn show_line(
     cloud: Cloud,
     session: &str,
@@ -71,9 +67,6 @@ pub fn show_line(
 ) -> Value {
     let mut show = serde_json::Map::new();
     show.insert("cloud".to_owned(), json!(cloud));
-    if let Some(readiness) = crate::hybrid_tools::readiness(cloud, &[]) {
-        show.insert("readiness".to_owned(), json!(readiness));
-    }
     show.insert("session".to_owned(), json!(session));
     show.insert("at".to_owned(), json!(at_ms));
     if let Some(reason) = reason {
@@ -85,41 +78,28 @@ pub fn show_line(
     json!({ "show": show })
 }
 
-type Shown = (Cloud, Option<String>, Option<u64>, Option<u8>);
-
-fn show_of(line: &str) -> Option<Shown> {
+fn show_of(line: &str) -> Option<(Cloud, Option<String>, Option<u64>)> {
     let value: Value = serde_json::from_str(line.trim()).ok()?;
     let show = value.get("show")?;
     let cloud: Cloud = serde_json::from_value(show.get("cloud")?.clone()).ok()?;
     let reason = show.get("reason").and_then(Value::as_str).map(str::to_owned);
-    // A line from before readiness was written: its stage's.
-    let readiness = crate::hybrid_tools::readiness(cloud, &[]).map(|stage| {
-        show.get("readiness")
-            .and_then(Value::as_u64)
-            .and_then(|value| u8::try_from(value.min(100)).ok())
-            .unwrap_or(stage)
-    });
-    Some((cloud, reason, show.get("at").and_then(Value::as_u64), readiness))
+    Some((cloud, reason, show.get("at").and_then(Value::as_u64)))
 }
 
 /// The newest Show in a driver's log text, or None when the log shows nothing (no hybrid start,
 /// or its newest Show is `none`). Lines that are not a whole Show (the driver's other lines, a
 /// line torn by a write still under way, junk) are skipped, so the Show before them stands. Once
-/// a Show says `live` the chat is in Cloud and the answer stays `live`. Readiness never goes
-/// down while the start boots: the highest seen stands until the start fails.
+/// a Show says `live` the chat is in Cloud and the answer stays `live`.
 pub fn newest(log: &str) -> Option<Start> {
     let mut now: Option<Start> = None;
-    for (cloud, reason, at, readiness) in log.lines().filter_map(show_of) {
-        let before = now.as_ref().and_then(|start| start.readiness);
-        let readiness = readiness.map(|ready| before.map_or(ready, |before| ready.max(before)));
+    for (cloud, reason, at) in log.lines().filter_map(show_of) {
         match &mut now {
             Some(start) if start.cloud == Cloud::Live => break,
             Some(start) if start.cloud == cloud => {
                 start.reason = reason;
                 start.since_ms = start.since_ms.or(at);
-                start.readiness = readiness;
             }
-            _ => now = Some(Start { cloud, reason, since_ms: at, readiness }),
+            _ => now = Some(Start { cloud, reason, since_ms: at }),
         }
     }
     now.filter(|start| start.cloud != Cloud::None)
@@ -145,15 +125,12 @@ mod tests {
         ]
         .join("\n");
         let start = newest(&log).unwrap();
-        assert_eq!(
-            start,
-            Start { cloud: Cloud::Moving, reason: None, since_ms: Some(300), readiness: Some(100) }
-        );
+        assert_eq!(start, Start { cloud: Cloud::Moving, reason: None, since_ms: Some(300) });
         let ready = newest(&log.lines().take(5).collect::<Vec<_>>().join("\n")).unwrap();
         assert_eq!(ready.since_ms, Some(200), "a repeated Show keeps when its state began");
         assert_eq!(
             serde_json::to_value(start).unwrap(),
-            json!({"cloud": "moving", "sinceMs": 300, "readiness": 100})
+            json!({"cloud": "moving", "sinceMs": 300})
         );
     }
 
@@ -167,22 +144,6 @@ mod tests {
             serde_json::to_value(start).unwrap(),
             json!({"cloud": "failed", "reason": "quota", "sinceMs": 2})
         );
-    }
-
-    #[test]
-    fn readiness_rides_the_show_line_and_never_goes_down() {
-        let booting = newest(&line(Cloud::Booting, None, 1)).unwrap();
-        assert_eq!(booting.readiness, Some(crate::hybrid_tools::BOOTING));
-        assert_eq!(serde_json::to_value(&booting).unwrap()["readiness"], 5);
-        // A line that carries more (a boot mark), then a lower one: the higher stands.
-        let more = line(Cloud::Booting, None, 2).replace("\"readiness\":5", "\"readiness\":50");
-        let log = [line(Cloud::Booting, None, 1), more, line(Cloud::Booting, None, 3)].join("\n");
-        assert_eq!(newest(&log).unwrap().readiness, Some(50));
-        // A line from before readiness was written reads as its stage's.
-        let old = r#"{"show":{"cloud":"ready","session":"s1","at":4}}"#;
-        assert_eq!(newest(old).unwrap().readiness, Some(100));
-        let failed = [line(Cloud::Booting, None, 1), line(Cloud::Failed, Some("quota"), 2)];
-        assert_eq!(newest(&failed.join("\n")).unwrap().readiness, None);
     }
 
     #[test]
@@ -209,7 +170,7 @@ mod tests {
         let log = [line(Cloud::Live, None, 9), line(Cloud::Failed, Some("late"), 10)].join("\n");
         assert_eq!(
             newest(&log).unwrap(),
-            Start { cloud: Cloud::Live, reason: None, since_ms: Some(9), readiness: Some(100) }
+            Start { cloud: Cloud::Live, reason: None, since_ms: Some(9) }
         );
     }
 

@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 public import CryptoKit
-#else
-@preconcurrency public import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
-#endif
 public import Foundation
 
 /// A relay's secret, as the configuring device enters it.

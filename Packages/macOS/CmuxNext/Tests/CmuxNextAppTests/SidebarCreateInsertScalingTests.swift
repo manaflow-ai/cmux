@@ -108,8 +108,8 @@ import Testing
         }
     }
 
-    /// An archived group is drawn by no list (`withoutArchived`, cmux#51635): a row inserted right before its node
-    /// lands in its list as the full layout puts it (review of #37139).
+    /// An archived group leaves its list for "Archive (N)" at the bottom (`splittingArchive`): opened, its header row
+    /// there is no place for a row inserted right before its node (review of #37139).
     @Test func anInsertBeforeAnArchivedGroupStaysInItsList() {
         var group = SidebarGroup(id: GroupID("ci-ag"), name: "archived", workspaces: [
             SidebarWorkspace(id: WorkspaceID("ci-a0"), title: "member 0"), SidebarWorkspace(id: WorkspaceID("ci-a1"), title: "member 1"),
@@ -117,14 +117,16 @@ import Testing
         group.isArchived = true
         let h = Self.make(10, extra: [.group(group), .workspace(SidebarWorkspace(id: WorkspaceID("ci-after"), title: "after"))])
         defer { h.window.close() }
+        h.sidebar.list.openDoneFolds.insert(.archive)
+        h.sidebar.list.reload(animated: false)
         Self.insert(h, at: 10)
         let list = h.sidebar.list
         #expect(list.displayed.row(for: .workspace(Self.created)) != nil)
-        #expect(list.displayed == Self.fullLayout(h), "the row went where the full layout puts it")
+        #expect(list.displayed == Self.fullLayout(h), "the row went under Archive")
     }
 
-    /// An archived group keeps its place in its list while it holds the selection (`withoutArchived`): a create that
-    /// moves the selection out of it takes the group out of the sidebar (review of #37139).
+    /// An archived group keeps its place in its list while it holds the selection (`splittingArchive`): a create that
+    /// moves the selection out of it sends the group to the Archive (review of #37139).
     @Test func anInsertThatTakesTheSelectionFromAnArchivedGroupArchivesIt() {
         var group = SidebarGroup(id: GroupID("ci-sg"), name: "archived", workspaces: [
             SidebarWorkspace(id: WorkspaceID("ci-s0"), title: "member 0"), SidebarWorkspace(id: WorkspaceID("ci-s1"), title: "member 1"),

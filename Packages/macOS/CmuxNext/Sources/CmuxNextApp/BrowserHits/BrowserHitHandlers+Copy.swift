@@ -1,5 +1,4 @@
 import AppKit
-import CmuxEgress
 import CmuxNextActions
 import CmuxNextBrowser
 
@@ -59,13 +58,13 @@ extension BrowserHitHandlers {
 
 /// The bytes behind an image address for Copy Image. A `data:` address
 /// decodes in place; `http(s)` loads without the page's cookies (neither
-/// engine gives the host its cached image yet), at most 64 MB. The person picked it, so its host passes.
+/// engine gives the host its cached image yet), at most 64 MB.
 enum BrowserImageData {
     static let limit = 64 << 20
 
-    static func load(_ url: URL, session: URLSession? = nil) async throws -> Data {
+    static func load(_ url: URL, session: URLSession = .shared) async throws -> Data {
         guard ["http", "https", "data"].contains(url.scheme?.lowercased() ?? "") else { throw URLError(.unsupportedURL) }
-        let (data, response) = try await (session ?? CmuxEgress.named(url, site: "CmuxNextApp.BrowserImageData")).data(from: url)
+        let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }
         guard data.count <= limit else { throw URLError(.dataLengthExceedsMaximum) }
         return data

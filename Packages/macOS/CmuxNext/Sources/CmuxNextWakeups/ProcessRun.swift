@@ -135,7 +135,6 @@ final class ProcessRun: Sendable {
             }
         }
         do {
-            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
             process.terminationHandler = nil

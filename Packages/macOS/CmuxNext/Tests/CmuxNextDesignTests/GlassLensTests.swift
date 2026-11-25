@@ -22,8 +22,7 @@ import CmuxNextDesignTokens
             #expect(mode.effective(reduceTransparency: true, lowPowerMode: false) == .plain)
             #expect(mode.effective(reduceTransparency: false, lowPowerMode: true) == .plain)
         }
-        #expect(GlassLensMode.lens.refracts && GlassLensMode.spectrum.refracts && GlassLensMode.engine.refracts && !GlassLensMode.plain.refracts)
-        #expect(GlassLensMode.engine.lensToggled == .plain)
+        #expect(GlassLensMode.lens.refracts && GlassLensMode.spectrum.refracts && !GlassLensMode.plain.refracts)
     }
 
     @Test func theCurrentModeReadsTheDebugChoiceAndBothSystemSwitches() {
@@ -70,8 +69,7 @@ import CmuxNextDesignTokens
 
     @Test func theBootstrapSetsDataGlassAndDefinesTheBackdropPush() {
         let script = WebTheme.bootstrapScript
-        #expect(script.contains("root.setAttribute('data-glass', payload.glass === 'engine' ? 'lens' : payload.glass)"))
-        #expect(script.contains("root.setAttribute('data-glass-engine', '')"))
+        #expect(script.contains("root.setAttribute('data-glass', payload.glass)"))
         #expect(script.contains("backdrop: function (partial)"))
         #expect(script.contains("window.cmuxBackdropState = next"))
         #expect(script.contains("Object.assign({}, window.cmuxBackdropState || {})"))

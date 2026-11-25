@@ -43,18 +43,7 @@ await requireBrowserLane("focus-modality-browser.test.ts", async () => {
   const ringOf = async (page: Page, id: string) => (await look(page, id)) !== resting.get(page)![id];
   const modality = (page: Page) => page.evaluate(() => document.documentElement.dataset.focusModality);
   const active = (page: Page) => page.evaluate(() => document.activeElement?.id);
-  /** The composer's settled rim: its box-shadow eases between rest, hover and focus
-   * (composerStates.css), so a read waits for the running transitions to end, never a mid-fade value. */
-  const rim = (page: Page) =>
-    page.evaluate(async () => {
-      await Promise.all(
-        document
-          .getAnimations()
-          .filter((animation) => animation instanceof CSSTransition)
-          .map((animation) => animation.finished.catch(() => undefined)),
-      );
-      return getComputedStyle(document.getElementById("composer")!).boxShadow;
-    });
+  const rim = (page: Page) => page.evaluate(() => getComputedStyle(document.getElementById("composer")!).boxShadow);
 
   for (const [name, engine] of [
     ["chromium", chromium],
@@ -160,8 +149,6 @@ await requireBrowserLane("focus-modality-browser.test.ts", async () => {
         const resting = await rim(page);
         await page.click("#field");
         expect(await active(page)).toBe("field");
-        // The pointer leaves the card: the hover's own glass band is not focus's rim.
-        await page.mouse.move(400, 340);
         expect(await rim(page)).toBe(resting);
         await page.mouse.click(400, 340);
         await focusByKey(page, "#field");

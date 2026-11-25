@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -101,4 +100,3 @@ struct IrxTunnelLiveTests {
         await pair.close()
     }
 }
-#endif

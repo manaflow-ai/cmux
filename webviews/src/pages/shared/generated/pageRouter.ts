@@ -67,17 +67,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
-  "forum": {
-    "read": [
-      "forum.snapshot",
-      "forum.thread.get"
-    ],
-    "gesture": [
-      "forum.thread.post",
-      "forum.thread.reply"
-    ],
-    "confirm": []
-  },
   "history": {
     "read": [
       "history.entries.list",
@@ -203,17 +192,6 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "feed.presence.set",
       "feed.reports.reply",
       "feed.withdraw"
-    ]
-  },
-  "forum": {
-    "owner": "forum.hosted",
-    "read": [
-      "forum.snapshot",
-      "forum.thread.get"
-    ],
-    "mutation": [
-      "forum.thread.post",
-      "forum.thread.reply"
     ]
   },
   "tasks": {

@@ -26,7 +26,11 @@ import {
   shownPrompt,
 } from "../src/agent-session/acpmux/pastedText";
 import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
-import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
+import {
+  DEFAULT_COMPOSER,
+  setComposerSettings,
+  type AttachmentView,
+} from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -89,7 +93,7 @@ afterEach(() => {
   // Every test opens chat "chat-a": its saved draft (composerDraft.ts, the page's localStorage
   // remount cache) would come back in the next test's prompt.
   dom.window.localStorage.clear();
-  setComposerSettings({ attachmentView: "inline" });
+  setComposerSettings({ attachmentView: DEFAULT_COMPOSER.attachmentView });
 });
 
 afterAll(async () => {

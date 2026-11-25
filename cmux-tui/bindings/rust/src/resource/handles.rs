@@ -1805,7 +1805,19 @@ impl Terminal {
         let object = value.as_object().ok_or_else(|| {
             Error::UnexpectedEnvelope("renderer grant must be an object".to_string())
         })?;
-        // Fields a newer daemon adds are ignored, not refused.
+        let unknown = object
+            .keys()
+            .filter(|key| {
+                !matches!(key.as_str(), "token" | "endpoint" | "terminal_id" | "rights" | "ttl_ms")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unknown.is_empty() {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "renderer grant contains unknown fields: {}",
+                unknown.join(", ")
+            )));
+        }
         let token = object
             .get("token")
             .and_then(Value::as_str)

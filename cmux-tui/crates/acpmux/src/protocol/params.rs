@@ -83,7 +83,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "approverDecisions",
     "argv",
     "author",
-    "autoPlace",
     "beforePromptId",
     "callerKind",
     "callerProtocol",
@@ -94,7 +93,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "cliHost",
     "compression",
     "context",
-    "createKey",
     "createdBy",
     "cwd",
     "decisionNonce",
@@ -103,7 +101,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "effort",
     "env",
     "ephemeral",
-    "features",
     "forceAdmit",
     "forwardProjection",
     "fromAgent",
@@ -132,8 +129,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "personDecision",
     "personKey",
     "personStop",
-    "personVerified",
-    "placeRedirect",
     "policy",
     "pr",
     "preset",
@@ -143,16 +138,15 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "provenance",
     "reportTo",
     "requestId",
-    "requireAsking",
     "requireFullAccess",
     "resend",
     "restricted",
     "route",
+    "sessionChangedDelta",
+    "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
     "senderToken",
-    "sessionChangedDelta",
-    "sessionCreatedAt",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -197,15 +191,15 @@ keyed! {
     /// `_acpmux/app_reply`.
     AppReplyParams: ["sessionId", "to", "replyTo", "threadId", "text", "replyId"];
     /// `_acpmux/archive`.
-    ArchiveParams: ["sessionId", "archived", "opId"];
+    ArchiveParams: ["sessionId", "archived"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.
     TurnShotsParams: ["sessionId", "turnId"];
     /// `_acpmux/turn_frames`.
-    TurnFramesParams: ["sessionId", "turnId", "index", "sinceSeq", "look"];
-    /// `_acpmux/customize_run`.
-    CustomizeRunParams: ["run"];
+    TurnFramesParams: ["sessionId", "turnId", "sinceSeq", "index"];
+    /// `_acpmux/look`.
+    LookParams: ["sessionId", "capture"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
@@ -267,7 +261,7 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait", "shapes"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
@@ -295,7 +289,7 @@ keyed! {
     /// `_acpmux/route/list`.
     RouteListParams: ["sessionId"];
     /// `_acpmux/secret_submit`.
-    SecretSubmitParams: ["sessionId", "secretId", "value", "keepAs"];
+    SecretSubmitParams: ["sessionId", "secretId", "value"];
     /// `session/cancel`.
     SessionCancelParams: ["sessionId"];
     /// `session/new`.

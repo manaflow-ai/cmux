@@ -18,7 +18,6 @@
 //! cmux quit, and in safe mode.
 
 mod brief;
-pub mod checklist;
 pub mod community;
 mod diff;
 mod engine;
@@ -36,7 +35,7 @@ mod validate;
 
 use serde::Serialize;
 
-pub use brief::{SURFACE_KEYS, brief};
+pub use brief::brief;
 pub use engine::Customize;
 pub use paths::{Roots, STATE_OVERRIDE};
 pub use redact::Reader;

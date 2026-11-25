@@ -22,11 +22,13 @@ describe("merge", () => {
 })
 
 describe("split", () => {
-  test("open items oldest first, done ones latest first", () => {
+  test("open items oldest first, done ones latest first, and a just-checked item stays open until it settles", () => {
     const items = [at("b", 1, { created: 2 }), at("a", 1, { created: 1 }), at("c", 1, { created: 3, done: true, doneAt: 5 }), at("d", 1, { created: 4, done: true, doneAt: 9 })]
     expect(split(items).open.map((i) => i.id)).toEqual(["a", "b"])
     expect(split(items).done.map((i) => i.id)).toEqual(["d", "c"])
-    expect(split(items).remaining).toBe(2)
+    const settling = split(items, new Set(["d"]))
+    expect(settling.open.map((i) => i.id)).toEqual(["a", "b", "d"])
+    expect(settling.remaining).toBe(2)
   })
 })
 

@@ -1,4 +1,3 @@
-import CmuxEgress
 package import CryptoKit
 public import Foundation
 
@@ -28,7 +27,7 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     ///
     /// - Parameter version: The npm version to load; defaults to ``pinnedVersion``.
     /// - Parameter sha256: The expected lowercase hex SHA-256 of the file; defaults to ``pinnedSHA256``.
-    /// - Parameter fetch: Downloads a URL's bytes; defaults to `CmuxEgress.shared(site: "CmuxNextBrowserCore.ReactGrabScriptLoader")`. Tests pass a fake.
+    /// - Parameter fetch: Downloads a URL's bytes; defaults to `URLSession.shared`. Tests pass a fake.
     public init(
         version: String = ReactGrabScriptLoader.pinnedVersion,
         sha256: String = ReactGrabScriptLoader.pinnedSHA256,
@@ -62,9 +61,9 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
         return text
     }
 
-    /// The default `fetch`: the URL's bytes through `CmuxEgress.shared(site: "CmuxNextBrowserCore.ReactGrabScriptLoader")` (a named function, not
+    /// The default `fetch`: the URL's bytes through `URLSession.shared` (a named function, not
     /// an async closure default argument; cx-bsue).
     public nonisolated static func download(_ url: URL) async throws -> Data {
-        try await CmuxEgress.shared(site: "CmuxNextBrowserCore.ReactGrabScriptLoader").data(from: url).0
+        try await URLSession.shared.data(from: url).0
     }
 }

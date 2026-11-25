@@ -29,6 +29,6 @@ struct SettingsIconAssetsTests {
 
     @Test func aSpaceRowCarriesItsIcon() {
         let row = SettingsListRow.space(id: "r1", title: "Work", icon: Self.icon)
-        #expect(row.hostJSON["icon"] == .string(Self.icon))
+        #expect(SettingsWindowService.listRow(row)["icon"] == .string(Self.icon))
     }
 }

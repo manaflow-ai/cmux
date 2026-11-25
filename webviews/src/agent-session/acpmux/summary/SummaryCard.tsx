@@ -16,7 +16,6 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
-import { CountLine, countParts, live } from "./LiveCount";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
 import { sessionRetry } from "../subagents/retryState";
@@ -246,15 +245,14 @@ export function SummaryCard({
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
   const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
-  // What runs is its mark and its number (LiveCount.tsx); what waits on the person keeps its word.
-  const counts = countParts(
+  const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    live(runningCount, t("summary.subagents.running", { n: runningCount })),
+    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
-  );
+  ].filter(Boolean);
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
@@ -342,9 +340,7 @@ export function SummaryCard({
             {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
               carries them, is gone). */}
             {!tab && (card.column || card.collapsed) && counts.length > 0 && (
-              <span className="acpmux-summary-card__counts">
-                <CountLine parts={counts} />
-              </span>
+              <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
             )}
             {!card.column && (
               <button
@@ -382,7 +378,7 @@ export function SummaryCard({
             {subagentList && (
               <SubagentStatusList
                 agents={agents}
-                counts={!card.column ? counts : undefined}
+                counts={!card.column ? counts.join(" · ") : undefined}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}

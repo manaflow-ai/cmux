@@ -6,7 +6,6 @@
   "lists": {
     "terminalFont": ["fontRows", null],
     "openingLinks": ["linkRows", null],
-    "terminalCompatibility": ["compatibilityRows", null],
-    "terminalTyping": ["typingRows", null]
+    "terminalCompatibility": ["compatibilityRows", null]
   }
 }

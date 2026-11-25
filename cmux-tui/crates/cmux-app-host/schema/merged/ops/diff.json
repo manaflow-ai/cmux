@@ -19,12 +19,7 @@
     "diff.comments.send": {
       "source": "local",
       "class": "mutation",
-      "digest": "450e7b3904147300"
-    },
-    "diff.comments.thread": {
-      "source": "local",
-      "class": "mutation",
-      "digest": "278e78b78437ed04"
+      "digest": "cf0de8605d19ab19"
     }
   }
 }

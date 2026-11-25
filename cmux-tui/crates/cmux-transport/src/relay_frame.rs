@@ -10,9 +10,6 @@
 //! are WireGuard messages it cannot decrypt. The TypeScript relay checks
 //! itself against `tests/vectors/relay-frames.json`.
 //!
-//! A `Hub` payload (kind 5, RFD 0142 R6) starts with the clear hub header
-//! of [`crate::hub`]; decoders check it after `too_large` (`bad_hub`).
-//!
 //! A `Datagrams` payload is one or more `[u16 big-endian length][datagram]`
 //! records. Batching matters: one Durable Object passes about 4,000
 //! incoming messages per second (measured 2026-10-02), so a sender packs
@@ -37,12 +34,6 @@ pub enum FrameKind {
     /// Ask a paused or sleeping host to come back; the relay forwards it to
     /// the host's socket or to the wake path.
     Wake = 3,
-    /// RFD 0142 R6, the three-way hub: one event of a session, sealed end to
-    /// end by its source (the Mac or the VM) to the session's viewers, behind
-    /// a clear [`crate::hub::HubHeader`] the relay schedules on. Only a hub
-    /// relay forwards it; a two-party relay answers `bad_frame:kind`.
-    /// Kind 4 is LinkRelay's tagged datagrams (cmux#54189); the hub is 5.
-    Hub = 5,
 }
 
 impl FrameKind {
@@ -51,7 +42,6 @@ impl FrameKind {
             1 => Some(Self::Datagrams),
             2 => Some(Self::Candidates),
             3 => Some(Self::Wake),
-            5 => Some(Self::Hub),
             _ => None,
         }
     }
@@ -73,9 +63,6 @@ pub enum RelayFrameError {
     /// A `Datagrams` payload whose records do not tile it exactly, or an
     /// empty record.
     BadBatch,
-    /// A `Hub` payload whose clear hub header is short, of an unknown
-    /// version, or names an unknown role or target.
-    BadHub,
 }
 
 impl RelayFrame {
@@ -83,7 +70,9 @@ impl RelayFrame {
         if self.payload.len() > RELAY_FRAME_MAX_PAYLOAD {
             return Err(RelayFrameError::TooLarge(self.payload.len()));
         }
-        check_payload(self.kind, &self.payload)?;
+        if self.kind == FrameKind::Datagrams {
+            split_batch(&self.payload)?;
+        }
         let mut bytes = Vec::with_capacity(RELAY_FRAME_HEADER_LEN + self.payload.len());
         bytes.push(RELAY_FRAME_VERSION);
         bytes.push(self.kind as u8);
@@ -104,7 +93,9 @@ impl RelayFrame {
         if payload.len() > RELAY_FRAME_MAX_PAYLOAD {
             return Err(RelayFrameError::TooLarge(payload.len()));
         }
-        check_payload(kind, payload)?;
+        if kind == FrameKind::Datagrams {
+            split_batch(payload)?;
+        }
         let peer: [u8; 16] = *peer_bytes;
         Ok(Self { kind, peer: PeerId(peer), payload: payload.to_vec() })
     }
@@ -134,16 +125,6 @@ impl RelayFrame {
     /// The datagrams of a `Datagrams` frame, in order.
     pub fn split_datagrams(&self) -> Result<Vec<&[u8]>, RelayFrameError> {
         split_batch(&self.payload)
-    }
-}
-
-fn check_payload(kind: FrameKind, payload: &[u8]) -> Result<(), RelayFrameError> {
-    match kind {
-        FrameKind::Datagrams => split_batch(payload).map(|_| ()),
-        FrameKind::Hub => {
-            crate::hub::HubHeader::decode(payload).map(|_| ()).map_err(|_| RelayFrameError::BadHub)
-        }
-        FrameKind::Candidates | FrameKind::Wake => Ok(()),
     }
 }
 

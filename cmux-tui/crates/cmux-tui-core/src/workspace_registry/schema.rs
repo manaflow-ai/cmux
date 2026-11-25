@@ -837,55 +837,34 @@ pub(super) fn upsert_workspace_resource(
     Ok(())
 }
 
-/// The public upsert of `workspace` at `index` in the session's order, as the journal states it
-/// (undecorated), numbered `sequence`.
-pub(super) fn workspace_upsert_delta(
-    session_id: &SessionPublicId,
-    workspace: &RegistryWorkspace,
-    index: usize,
-    sequence: usize,
-    active_workspace: Option<&str>,
-) -> anyhow::Result<Value> {
-    Ok(serde_json::json!({
-        "kind":"upsert",
-        "sequence":sequence,
-        "resource":"workspace",
-        "id":workspace.public_id,
-        "value":{
-            "id":workspace.public_id,
-            "session_id":session_id,
-            "name":workspace.name,
-            "index":u32::try_from(index)
-                .context("workspace index exceeds public uint32 range")?,
-            "focused":active_workspace == Some(workspace.public_id.as_str()),
-            "extra":crate::resource_name::workspace_name_extra(
-                workspace.name_source,
-                workspace.name_revision,
-            ),
-        },
-    }))
-}
-
 pub(super) fn normalized_workspace_resource_deltas(
     session_id: &SessionPublicId,
     workspaces: &[RegistryWorkspace],
     active_workspace: Option<&str>,
     before: &ResourceTopologySnapshot,
-    owed: Option<&HashSet<&str>>,
 ) -> anyhow::Result<Value> {
-    #[cfg(test)]
-    crate::walk_counters::workspace_list_walked(workspaces.len());
-    // `owed` (public ids): only these workspaces get an upsert, built with their own index. A value
-    // built for every workspace of the session and then pruned against the public fold cost a
-    // serialization for each workspace of every create.
     let mut deltas = workspaces
         .iter()
         .enumerate()
-        .filter(|(_, workspace)| {
-            owed.is_none_or(|owed| owed.contains(workspace.public_id.as_str()))
-        })
         .map(|(index, workspace)| {
-            workspace_upsert_delta(session_id, workspace, index, index, active_workspace)
+            Ok(serde_json::json!({
+                "kind":"upsert",
+                "sequence":index,
+                "resource":"workspace",
+                "id":workspace.public_id,
+                "value":{
+                    "id":workspace.public_id,
+                    "session_id":session_id,
+                    "name":workspace.name,
+                    "index":u32::try_from(index)
+                        .context("workspace index exceeds public uint32 range")?,
+                    "focused":active_workspace == Some(workspace.public_id.as_str()),
+                    "extra":crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
+                },
+            }))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let live_workspaces =

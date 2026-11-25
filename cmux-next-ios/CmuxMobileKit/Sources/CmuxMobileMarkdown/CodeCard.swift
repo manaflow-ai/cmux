@@ -105,7 +105,7 @@ public struct CodeCard: View {
         .padding(.leading, 16)
         .padding(.trailing, 8)
         .frame(height: 40)
-        .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
 
     private var isShell: Bool {

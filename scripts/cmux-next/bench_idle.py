@@ -53,17 +53,16 @@ STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no 
 # ---------------------------------------------------------------------------
 # Process usage (proc_pid_rusage, RUSAGE_INFO_V4)
 
-import macos_libs  # noqa: E402
-
-_libproc = macos_libs.library("/usr/lib/libproc.dylib")
-_libc = macos_libs.library("/usr/lib/libSystem.B.dylib")
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+_libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
 
 
 class _Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 
 
-_tb = macos_libs.timebase_of(_libc, _Timebase())
+_tb = _Timebase()
+_libc.mach_timebase_info(ctypes.byref(_tb))
 
 
 def usage(pid: int):

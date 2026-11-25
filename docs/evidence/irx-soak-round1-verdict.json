@@ -1,0 +1,19 @@
+{
+  "verdict": "PASS",
+  "minutes": 15,
+  "establish_ms": 90,
+  "observations": {
+    "client_pongs": 167,
+    "client_rotations": 28,
+    "mac_rotations": 28,
+    "mac_pings_answered": 167,
+    "non_relay_paths": 0,
+    "screenshot_changes": 14,
+    "screenshot_samples": 14,
+    "inputs_typed": 30,
+    "mint_failures": 2,
+    "last_pong_mono": null,
+    "max_pong_gap_s": 0.0
+  },
+  "failures": []
+}

@@ -1,8 +1,6 @@
 import Foundation
 import Testing
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 @testable import CmuxMobileNotifications
 
 /// PROTOCOL.md "Push notifications (API 0.12.0)": what the phone reads from a
@@ -104,7 +102,6 @@ import UserNotifications
         #expect(PushActions().plan(for: PushPayload(mac: "m", kind: .terminal)).isEmpty)
     }
 
-    #if canImport(UserNotifications)
     @Test func signedActionsOpenTheAppAndNeedUnlock() {
         let actions = PushActions()
         for a in [PushAction.option(0), .allowOnce, .allowAlways] {
@@ -116,25 +113,20 @@ import UserNotifications
         let reply = actions.action(.reply)
         #expect(reply is UNTextInputNotificationAction && !reply.options.contains(.foreground) && reply.options.contains(.authenticationRequired))
     }
-    #endif
 
-    #if canImport(UserNotifications)
     @Test func everyCategoryIsRegistered() {
         let ids = Set(PushActions().categories.map(\.identifier))
         #expect(ids == Set(PushCategory.allCases.map(\.rawValue)))
         #expect(ids.contains("CMUX_MOBILE_QUESTION_FORM") && ids.contains("CMUX_MOBILE_TERMINAL") && ids.contains("CMUX_MOBILE_RETRY"))
         #expect(ids.contains("CLOUD_QUESTION") && ids.contains("CLOUD_PERMISSION") && ids.contains("CLOUD_DONE"))
     }
-    #endif
 
     @Test func actionIdentifiersRoundTrip() {
         for a in [PushAction.option(3), .answer, .allowOnce, .allowAlways, .deny, .reply, .terminalReply, .retry] {
             #expect(PushAction(identifier: a.identifier) == a)
         }
         #expect(PushAction(identifier: "cmux.option.-1") == nil)
-        #if canImport(UserNotifications)
         #expect(PushAction(identifier: UNNotificationDefaultActionIdentifier) == nil)
-        #endif
     }
 }
 

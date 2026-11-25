@@ -37,10 +37,9 @@ public nonisolated struct AppsPageConfirmations {
             let optional = params["grant_optional"]?.boolValue ?? false
             if fromPage, !optional, params["deploy"] == nil { return nil }
             return PageConfirmation(kind: .install, name: name, scopes: scopes.filter { optional || !$0.optional }.map(\.sheet),
-                                    detail: sourceLine(detail), deployTarget: params["deploy"]?["target"]?.stringValue,
-                                    bind: boundCommit(detail))
+                                    deployTarget: params["deploy"]?["target"]?.stringValue)
         case "cmux.apps.update":
-            return PageConfirmation(kind: .update, name: name, scopes: scopes.filter { !$0.optional }.map(\.sheet), detail: sourceLine(detail))
+            return PageConfirmation(kind: .update, name: name, scopes: scopes.filter { !$0.optional }.map(\.sheet))
         case "cmux.apps.uninstall":
             return PageConfirmation(kind: .uninstall, name: name)
         case "cmux.apps.set":
@@ -65,14 +64,6 @@ public nonisolated struct AppsPageConfirmations {
         default:
             return nil
         }
-    }
-
-    /// The commit a git-sourced card listed: the approved install carries it, so what installs is
-    /// what the person saw even if the repository's branch moved since.
-    private func boundCommit(_ detail: JSONValue?) -> [String: String] {
-        guard detail?["repository"]?.stringValue?.isEmpty == false,
-              let commit = detail?["commit"]?.stringValue, !commit.isEmpty else { return [:] }
-        return ["commit": commit]
     }
 
     private struct Scope {

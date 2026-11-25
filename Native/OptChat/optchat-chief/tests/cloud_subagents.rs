@@ -67,12 +67,10 @@ fn wait_for(h: &mut Harness, what: impl Fn(&Harness) -> bool) {
     assert!(what(h), "timed out");
 }
 
-/// The subagent sessions' specs and the text of their first prompts, by
-/// subagent (a1, a2, ...): one spawn's sessions start side by side, so the
-/// order they were made in is not the tasks' order.
+/// The subagent sessions' specs and the text of their first prompts.
 fn subs(h: &Harness) -> Vec<(optchat_chief::acpmux::SessionSpec, String)> {
     let inner = h.agents.inner.lock().unwrap();
-    let mut subs: Vec<_> = inner
+    inner
         .specs
         .iter()
         .enumerate()
@@ -88,18 +86,7 @@ fn subs(h: &Harness) -> Vec<(optchat_chief::acpmux::SessionSpec, String)> {
                 .unwrap_or_default();
             (s.clone(), prompt)
         })
-        .collect();
-    // Stable: a subagent started twice keeps its sessions' order.
-    subs.sort_by_key(|(s, _)| {
-        let id = &s.tags["optchat.subagent"];
-        (
-            id.trim_start_matches('a')
-                .parse::<u64>()
-                .unwrap_or(u64::MAX),
-            id.clone(),
-        )
-    });
-    subs
+        .collect()
 }
 
 #[test]

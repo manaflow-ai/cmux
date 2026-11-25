@@ -152,8 +152,9 @@ extension TabHandlers {
         })
         registry.bind("reloadTab", invoke: { invocation in
             guard let (_, content) = ctx.visibleContent(invocation) else { return }
-            if case .agent(let view) = content { return view.reloadForPerson() }
-            guard case .browser(let entry) = content else { return ctx.refuse(RefusalStrings.terminalCannotReload) }
+            guard case .browser(let entry) = content else {
+                return ctx.refuse(RefusalStrings.terminalCannotReload)
+            }
             if let chrome = entry.chrome { chrome.perform(.reload) } else { entry.tab.reload() }
         })
         // Full Width Tab: the pane's strip shows only the selected tab, across the strip (PaneFullWidthTabs).

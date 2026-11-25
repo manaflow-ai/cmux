@@ -56,14 +56,12 @@ struct CmxIrohPersistenceLifecycleRaceTests {
         let expectation = try fixture.expectation()
         let store = TestControllableSecureCredentialStore()
         let cache = CmxIrohHostPolicyCache(secureStore: store)
-        let policy = try fixture.policy()
-        let savedAt = fixture.now
         await store.suspendNextWrite()
         let save = Task {
             try await cache.save(
-                policy,
+                fixture.policy(),
                 for: expectation,
-                now: savedAt
+                now: fixture.now
             )
         }
         await store.waitUntilWriteIsSuspended()

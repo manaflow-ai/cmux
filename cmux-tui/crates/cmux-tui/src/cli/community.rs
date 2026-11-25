@@ -114,13 +114,6 @@ pub(super) fn routed(words: &[String], is_file: impl Fn(&str) -> bool) -> Option
 /// A link carries nothing else that is used: any other parameter, a user, a
 /// port or a fragment is refused, so a link can never pass `--yes` or a flag.
 pub(super) fn link_reference(link: &str) -> Result<String, String> {
-    link_reference_at(link, "apps")
-}
-
-/// [`link_reference`] for the link of one kind of install: `apps` (an
-/// extension, theme or snippet) or `setups` (a setup repo,
-/// `<scheme>://setups/install?repo=...&commit=...`, from a cmux.com setup page).
-pub(super) fn link_reference_at(link: &str, kind: &str) -> Result<String, String> {
     let bad = |why: &str| Err(format!("{link}: {why}"));
     let Some((scheme, rest)) = link.split_once("://") else {
         return bad("not a cmux link");
@@ -135,11 +128,10 @@ pub(super) fn link_reference_at(link: &str, kind: &str) -> Result<String, String
         return bad("a link to install has no fragment");
     }
     let (location, query) = rest.split_once('?').unwrap_or((rest, ""));
-    let install = format!("{kind}/install");
-    if !location.eq_ignore_ascii_case(&install)
-        && !location.eq_ignore_ascii_case(&format!("{install}/"))
+    if !location.eq_ignore_ascii_case("apps/install")
+        && !location.eq_ignore_ascii_case("apps/install/")
     {
-        return bad(&format!("not an install link (<scheme>://{install}?repo=HOST/OWNER/REPO)"));
+        return bad("not an install link (<scheme>://apps/install?repo=HOST/OWNER/REPO)");
     }
     let (mut repo, mut commit) = (None, None);
     for pair in query.split('&').filter(|pair| !pair.is_empty()) {

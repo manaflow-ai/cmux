@@ -1,0 +1,117 @@
+
+### server cloud_vm_request: per operation, success only (14d)
+op | n | p50_ms | p90_ms | p95_ms | max_ms
+open_attach | 81299 | 1122.0 | 3389.0 | 14921.0 | 65911.0
+approve_cmux_remote_enrollment | 12705 | 159.0 | 488.0 | 553.0 | 3824.0
+exec | 8838 | 75.0 | 981.0 | 1214.0 | 182291.0
+enroll_tunnel | 696 | 174.0 | 428.0 | 500.0 | 6307.0
+create | 221 | 935.0 | 1661.0 | 2025.0 | 5600.0
+destroy | 204 | 478.0 | 25451.0 | 43806.0 | 56971.0
+open_port | 103 | 633.0 | 881.0 | 946.0 | 10481.0
+revoke_tunnel | 77 | 230.0 | 1830.0 | 5625.0 | 39121.0
+revoke_access | 72 | 252.0 | 2507.0 | 8085.0 | 12474.0
+rename | 24 | 281.0 | 13880.0 | 13949.0 | 14072.0
+base.open | 11 | 403.0 | 1530.0 | 1688.0 | 1846.0
+prepare_scp | 6 | 439.0 | 6417.0 | 9325.0 | 12232.0
+snapshot | 5 | 3885.0 | 31780.0 | 39856.0 | 47932.0
+resize | 5 | 744.0 | 14466.0 | 18978.0 | 23491.0
+restore | 4 | 1108.0 | 28267.0 | 34085.0 | 39903.0
+reflection | 2 | 4857.0 | 8598.0 | 9066.0 | 9533.0
+fork | 1 | 10700.0 | 10700.0 | 10700.0 | 10700.0
+snapshot.list | 1 | 207.0 | 207.0 | 207.0 | 207.0
+
+### server cloud_vm_request: failures per operation/status (14d)
+op | status | n | p50_ms | max_ms
+stats | 501.0 | 102364 | 325.0 | 31635.0
+list | 503.0 | 14108 | 213.0 | 15808.0
+approve_cmux_remote_enrollment | 502.0 | 9335 | 33943.0 | 137902.0
+open_attach | 502.0 | 5744 | 4501.0 | 330958.0
+enroll_tunnel | 503.0 | 3347 | 30.0 | 1422.0
+approve_cmux_remote_enrollment | 404.0 | 257 | 10.0 | 1031.0
+list | 401.0 | 132 | 2.0 | 1207.0
+exec | 502.0 | 78 | 303121.0 | 662607.0
+stats | 404.0 | 41 | 721.0 | 17322.0
+status | 401.0 | 37 | 1.0 | 5.0
+create | 402.0 | 31 | 207.0 | 1366.0
+status | 404.0 | 19 | 311.0 | 13598.0
+enroll_tunnel | 400.0 | 18 | 167.0 | 310.0
+stats | 502.0 | 16 | 504.0 | 13546.0
+exec | 404.0 | 15 | 555.0 | 1563.0
+create | 409.0 | 13 | 242.0 | 740.0
+open_attach | 409.0 | 11 | 336.0 | 4812.0
+create | 400.0 | 8 | 7.0 | 190.0
+destroy | 404.0 | 7 | 357.0 | 18047.0
+get_tunnel | 401.0 | 6 | 2.0 | 381.0
+open_attach | 404.0 | 5 | 466.0 | 13971.0
+create | 502.0 | 4 | 2075.0 | 2290.0
+fork | 501.0 | 4 | 96.0 | 205.0
+enroll_tunnel | 401.0 | 4 | 1.0 | 2.0
+enroll_tunnel | 403.0 | 4 | 3431.0 | 7564.0
+create | 401.0 | 4 | 1.0 | 2.0
+restore | 409.0 | 4 | 110.0 | 293.0
+approve_cmux_remote_enrollment | 401.0 | 3 | 4.0 | 14.0
+open_attach | 401.0 | 3 | 10.0 | 11.0
+create | 503.0 | 2 | 178.0 | 352.0
+resize | 501.0 | 2 | 516.0 | 557.0
+fork | 409.0 | 1 | 321.0 | 321.0
+revoke_tunnel | 503.0 | 1 | 175.0 | 175.0
+base.open | 502.0 | 1 | 1462.0 | 1462.0
+base.open | 402.0 | 1 | 41.0 | 41.0
+restore | 404.0 | 1 | 20.0 | 20.0
+revoke_access | 503.0 | 1 | 361.0 | 361.0
+open_port | 502.0 | 1 | 625.0 | 625.0
+open_session | 409.0 | 1 | 6.0 | 6.0
+enroll_tunnel | 409.0 | 1 | 381.0 | 381.0
+
+### server create/attach by client_channel, success (14d)
+op | channel | n | p50_ms | p90_ms | p95_ms | max_ms
+create | None | 116 | 872.0 | 1413.0 | 1917.0 | 2400.0
+create | nightly | 98 | 982.0 | 1943.0 | 2652.0 | 5600.0
+create | dev | 7 | 1127.0 | 1794.0 | 1893.0 | 1993.0
+enroll_tunnel | nightly | 665 | 170.0 | 408.0 | 492.0 | 2862.0
+enroll_tunnel | None | 28 | 392.0 | 572.0 | 1658.0 | 2484.0
+enroll_tunnel | dev | 3 | 668.0 | 5179.0 | 5743.0 | 6307.0
+fork | nightly | 1 | 10700.0 | 10700.0 | 10700.0 | 10700.0
+restore | None | 2 | 1052.0 | 1091.0 | 1096.0 | 1101.0
+restore | nightly | 2 | 20509.0 | 36024.0 | 37964.0 | 39903.0
+
+### server create per day, success (14d)
+day | n | p50_ms | p90_ms | max_ms
+2026-09-04 | 46 | 759.0 | 1245.0 | 1610.0
+2026-09-05 | 11 | 696.0 | 954.0 | 986.0
+2026-09-06 | 32 | 871.0 | 1497.0 | 2400.0
+2026-09-07 | 1 | 1155.0 | 1155.0 | 1155.0
+2026-09-08 | 35 | 874.0 | 1376.0 | 2130.0
+2026-09-09 | 3 | 1148.0 | 1694.0 | 1831.0
+2026-09-10 | 36 | 642.0 | 1100.0 | 1661.0
+2026-09-11 | 26 | 1341.0 | 1548.0 | 1941.0
+2026-09-12 | 5 | 1008.0 | 1355.0 | 1367.0
+2026-09-13 | 8 | 1304.0 | 2187.0 | 2564.0
+2026-09-14 | 6 | 1857.0 | 3739.0 | 4326.0
+2026-09-15 | 6 | 3115.0 | 5090.0 | 5600.0
+2026-09-16 | 2 | 1502.0 | 1517.0 | 1520.0
+2026-09-17 | 1 | 2033.0 | 2033.0 | 2033.0
+2026-09-18 | 3 | 1631.0 | 1969.0 | 2054.0
+
+### client cmux_cloud_vm_request: key operations by channel (14d)
+op | channel | ok | n | p50_ms | p90_ms | p95_ms | max_ms
+POST /api/vm | nightly | False | 17 | 321.0 | 929.0 | 1372.0 | 2392.0
+POST /api/vm | nightly | True | 98 | 1074.0 | 2970.0 | 3300.0 | 5653.0
+POST /api/vm/base/open | nightly | False | 2 | 843.0 | 1518.0 | 1602.0 | 1687.0
+POST /api/vm/base/open | nightly | True | 5 | 308.0 | 1231.0 | 1433.0 | 1634.0
+POST /api/vm/tunnel | nightly | False | 1250 | 204.0 | 587.0 | 686.0 | 18337.0
+POST /api/vm/tunnel | nightly | True | 665 | 304.0 | 637.0 | 836.0 | 3569.0
+POST /api/vm/{id}/attach-endpoint | nightly | False | 1327 | 4522.0 | 8526.0 | 16321.0 | 888239.0
+POST /api/vm/{id}/attach-endpoint | nightly | True | 6962 | 748.0 | 1079.0 | 1343.0 | 42501.0
+POST /api/vm/{id}/exec | nightly | False | 13 | 2293.0 | 35008.0 | 35181.0 | 35440.0
+POST /api/vm/{id}/exec | nightly | True | 7050 | 124.0 | 2457.0 | 2657.0 | 212532.0
+
+### cloud_vm_provision failures: phase/code (14d)
+op | phase | code | n | p50_ms | max_ms
+create | None | None | 42 | 190.0 | 1366.0
+create | create | None | 16 | 378.0 | 2288.0
+fork | fork | None | 5 | 95.0 | 320.0
+restore | restore | None | 4 | 109.0 | 292.0
+base_open | create | None | 1 | 1461.0 | 1461.0
+base_open | None | None | 1 | 39.0 | 39.0
+restore | None | None | 1 | 19.0 | 19.0

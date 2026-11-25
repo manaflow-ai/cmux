@@ -1,4 +1,3 @@
-public import CmuxEgress
 public import Foundation
 public import CmuxNextCloud
 
@@ -26,7 +25,7 @@ extension CodeRouterClient {
     /// before transport. Submitted requests keep the pinned credentials and team;
     /// switching accounts cannot reroute a request that has already been sent.
     @MainActor public init(baseURL: URL, account: any CodeRouterAccountSource, labeler: @escaping Labeler,
-                           session: URLSession = CmuxEgress.shared(site: "CmuxNextCodeRouter.CodeRouterAccountSource"), timeout: Duration = .seconds(15)) {
+                           session: URLSession = .shared, timeout: Duration = .seconds(15)) {
         let userID = account.codeRouterAccountID
         let teamID = account.teamID
         let scopeVersion = account.codeRouterScopeVersion

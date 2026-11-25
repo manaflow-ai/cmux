@@ -63,24 +63,16 @@ export function machineTitle(machine: CloudMachine): string {
   return machine.name || machine.id;
 }
 
-/**
- * Each status the page knows, with its label. `MachineStatus` is the generated wire's status plus
- * `unknown`, and a `Record` over it names every one, so this is the page's one status list.
- * `powerTable.test.ts` replays schemas/cloud-machine-power/table.json (cmux-cloud-machine's power
- * table) against it.
- */
-export const StatusLabel: Record<MachineStatus, StringKey> = {
-  provisioning: L.statusProvisioning,
-  starting: L.statusStarting,
-  running: L.statusRunning,
-  pausing: L.statusPausing,
-  paused: L.statusPaused,
-  deleting: L.statusDeleting,
-  failed: L.statusFailed,
-  unknown: L.statusUnknown,
-};
-
-const STATUSES = new Set<string>(Object.keys(StatusLabel));
+const STATUSES = new Set<string>([
+  "provisioning",
+  "starting",
+  "running",
+  "pausing",
+  "paused",
+  "deleting",
+  "failed",
+  "unknown",
+]);
 
 /** A status the page does not know becomes `unknown`, like the server's decoder. */
 export function normalizeMachine(machine: CloudMachine): CloudMachine {
@@ -162,6 +154,17 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
   }
   return rows;
 }
+
+export const StatusLabel: Record<MachineStatus, StringKey> = {
+  provisioning: L.statusProvisioning,
+  starting: L.statusStarting,
+  running: L.statusRunning,
+  pausing: L.statusPausing,
+  paused: L.statusPaused,
+  deleting: L.statusDeleting,
+  failed: L.statusFailed,
+  unknown: L.statusUnknown,
+};
 
 export const IntentLabel: Record<IntentKind, StringKey> = {
   create: L.pendingCreate,

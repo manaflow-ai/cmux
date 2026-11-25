@@ -1,4 +1,3 @@
-public import CmuxEgress
 public import Foundation
 
 /// ``VoiceRoomEventSource`` from the room's WebSocket, joined as an observer, so this Mac's
@@ -10,7 +9,7 @@ public struct VoiceRoomWebSocketEvents: VoiceRoomEventSource {
     /// - Parameters:
     ///   - address: The room.
     ///   - session: The URL session.
-    public init(address: VoiceRoomAddress, session: URLSession = CmuxEgress.shared(site: "CmuxNextDictation.VoiceRoomWebSocketEvents")) {
+    public init(address: VoiceRoomAddress, session: URLSession = .shared) {
         self.address = address
         self.session = session
     }
@@ -20,7 +19,7 @@ public struct VoiceRoomWebSocketEvents: VoiceRoomEventSource {
         let session = session
         // Only the newest pause state matters.
         let (stream, continuation) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
-        let socket = CmuxEgress.websocket(session, with: url, site: "CmuxNextDictation.VoiceRoomWebSocketEvents")
+        let socket = session.webSocketTask(with: url)
         let reader = Task {
             socket.resume()
             // Each receive awaits the next message; a close, an error or cancel (which cancels the socket) ends it.

@@ -1,11 +1,5 @@
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
-public import CmuxEgress
-#if canImport(OSLog)
 import OSLog
-#endif
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 
@@ -136,7 +130,7 @@ public actor PushRegistrationService: PushRegistering {
         pushIdentityProvider: (@Sendable () -> PushRegistrationIdentity?)? = nil,
         suiteName: String? = nil,
         pendingUnregisterStoreURL: URL? = nil,
-        session: sending URLSession = CmuxEgress.shared(site: "CmuxAuthRuntime.PushRegistrationService"),
+        session: sending URLSession = .shared,
         retryDelays: [Duration] = [
             .seconds(1),
             .seconds(4),

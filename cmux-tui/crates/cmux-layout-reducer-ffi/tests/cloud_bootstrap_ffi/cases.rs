@@ -121,16 +121,6 @@ fn the_create_rules_answer() {
         &json!({"code": "cmux.cloud.indeterminate", "attempt": 1, "attempts": 3}),
     );
     assert_eq!(retries, json!({"retries": true}));
-    let (code, note) = call(
-        c"cloud_create_spare_note",
-        &json!({"answer": {"machine": {"id": "vm_x"}, "spare_fallback": "all_skipped",
-            "spare_skips": {"image": 2}, "spare_skipped": [{"id": "vm_s", "reason": "image"}]}}),
-    );
-    assert_eq!(code, OK);
-    assert_eq!(
-        note,
-        json!({"note": r#"spare_fallback=all_skipped spare_skips={"image":2} spare_skipped=1"#})
-    );
 }
 
 #[test]

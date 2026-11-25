@@ -1,566 +1,489 @@
-//! A turn's frames (RFD 0150-0153, cmuxterm-hq `docs/rfd/0151-deterministic-capture.md`): while an
-//! agent works on UI, acpmux keeps pictures of the chat's page as it forms, at no agent tokens. The
-//! chat draws them as a strip under the turn and as a live preview window
-//! (`webviews/.../liveFrames`), through `_acpmux/turn_frames` (capability `turn-frames-v1`).
+//! Live frames of the chat's page while an agent works: the strip of pictures between a turn's
+//! before and after (`turn_shots.rs`). Leo: "the agent needs to be able to simply go ahead with
+//! it, and then we can deterministically do the vast majority of the work without adding
+//! unnecessary context to it... especially sometimes the agent may be able to call in as it works
+//! to look at the image OR COMPUTER USE AN INTERACTION AS IT WORKS."
 //!
-//! Triggers, all deterministic and from the daemon's own records:
-//! - `turn-start`: the turn began.
-//! - `edit`: a finished tool call named a UI file ([`ui_path`]); debounced [`DEBOUNCE`], so a burst
-//!   of edits is one frame.
-//! - `build`: a finished shell call (a build, a reload); debounced the same way.
-//! - `turn-end`: the turn's result was written.
-//! - `look`: the agent asked (the `look` MCP tool), the one trigger that costs it tokens.
+//! So the daemon takes the pictures itself, at no cost in the agent's tokens, of the same tab
+//! `turn_shots` pictures (the chat workspace's selected live tab an agent drove), at:
+//! - the turn's start and end: `turn_shots`' before and after are handed in (`start`, `end`),
+//!   and when it took none (no page at the start, an agent opened one) the end is taken here;
+//! - an edit or write of a UI file ([`is_ui_path`]), [`DEBOUNCE`] after the last such tool call
+//!   or its completion (`edit`), from the hub's tool call records ([`tool_record`]);
+//! - the agent's own ask, the `look` MCP tool (`look`, [`look`]).
 //!
-//! The page is the one turn shots take (`turn_shots.rs`): the selected, live, agent-driven http(s)
-//! tab of the chat's workspace, through the app's own browser host. No page: no frame, never a wait.
+//! Each frame keeps its PNG, a JPEG thumbnail [`THUMB_WIDTH`] wide and a 64-bit dHash; a frame
+//! within [`SAME_FRAME`] bits of the last kept one is dropped (nothing changed on screen). At most
+//! [`MAX_FRAMES`] per turn: past that a new frame takes the last one's place, so the strip keeps
+//! its history and its newest picture. `_acpmux/turn_frames` reads them, `sinceSeq` only the new
+//! ones for a poller, and `_acpmux/look` takes one now for the agent.
 //!
-//! A frame within [`SAME`] bits (64-bit dHash) of the turn's last kept frame is dropped, so a turn
-//! that changed nothing on screen keeps one frame. At most [`MAX_FRAMES`] a turn (the turn's end
-//! always gets one more). Each frame keeps a [`THUMB_WIDTH`] px thumbnail and a picture at most
-//! [`FULL_WIDTH`] px wide. Disk: `<ACPMUX_HOME>/turn-frames/<session>/<turn>/`, [`KEEP_TURNS`]
-//! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
+//! Disk: `<ACPMUX_HOME>/turn-frames/<session>/<turn>/{frames.json,NNN.png,NNN.jpg}`, the
+//! [`super::turn_shots::KEEP_TURNS`] newest turns of a chat and
+//! [`super::turn_shots::KEEP_CHATS`] chats; full PNGs past [`MAX_TURN_IMAGE_BYTES`] in one turn
+//! keep their thumbnail only. A deleted chat's go with it. Unix only, as `turn_shots`.
 
 use super::Session;
-use super::turn_shots::{capture_page, prune, segment};
+use super::turn_shots::{self, KEEP_CHATS, KEEP_TURNS, MAX_SHOT_BYTES};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
-/// Frames a turn keeps before its end (whose frame always comes).
+/// Frames kept per turn.
 pub(crate) const MAX_FRAMES: usize = 24;
-pub(crate) const KEEP_TURNS: usize = 6;
-pub(crate) const KEEP_CHATS: usize = 32;
-/// A burst of edits or shell calls inside this is one frame.
+/// A frame whose dHash is within this many bits of the last kept frame's shows nothing new.
+pub(crate) const SAME_FRAME: u32 = 4;
+/// How long after the last UI edit of a burst its frame is taken.
 pub(crate) const DEBOUNCE: Duration = Duration::from_millis(1500);
-/// Hamming distance at or under which two frames are the same picture.
-pub(crate) const SAME: u32 = 4;
+/// A thumbnail's width (never scaled up).
 pub(crate) const THUMB_WIDTH: u32 = 320;
-pub(crate) const FULL_WIDTH: u32 = 1280;
-/// The long edge of the picture a `look` hands the agent (RFD 0153: about 350-700 image tokens).
+/// The `look` picture's long edge.
 pub(crate) const LOOK_EDGE: u32 = 512;
-const REPL_SESSION: &str = "acpmux-turn-frames";
-const LOOK_REPL_SESSION: &str = "acpmux-turn-frames-look";
+/// Full PNGs one turn keeps; past it a frame keeps its thumbnail only.
+pub(crate) const MAX_TURN_IMAGE_BYTES: u64 = 32 << 20;
+/// Pixels a picture may have to be read at all (a 8K by 8K page).
+const MAX_PIXELS: u64 = 64 << 20;
+const JPEG_QUALITY: u8 = 72;
 const INDEX: &str = "frames.json";
-/// One app-window capture, run to answer.
-const WINDOW_LIMIT: Duration = Duration::from_secs(20);
+/// This daemon's REPL session on the browser host for frames: its own, so a frame never waits on
+/// a before or after in `turn_shots`' session.
+const REPL_SESSION: &str = "acpmux-turn-frames";
 
-/// Every frame's place in the daemon's order: the preview window asks for what is newer than the
-/// last it drew.
-static SEQ: AtomicU64 = AtomicU64::new(0);
+/// What took a frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Trigger {
+    Start,
+    Edit,
+    End,
+    Look,
+}
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+impl Trigger {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Trigger::Start => "start",
+            Trigger::Edit => "edit",
+            Trigger::End => "end",
+            Trigger::Look => "look",
+        }
+    }
+}
+
+/// One kept frame, as `frames.json` holds it and `_acpmux/turn_frames` answers it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Frame {
+    /// Its place in the turn's strip, from 0.
     pub index: usize,
+    /// When it was kept, after every frame kept before it on this machine: a poller's `sinceSeq`.
     pub seq: u64,
+    /// `start`, `edit`, `end` or `look`.
     pub trigger: String,
-    /// Epoch ms.
+    /// Unix ms.
     pub at: u64,
     pub width: u32,
     pub height: u32,
-    /// Bits from the frame before, over 64 (`0..1`; 0 for the first).
-    pub distance: f64,
-    /// Bits from the turn's first frame, over 64.
-    #[serde(default)]
-    pub moved: f64,
-    pub hash: u64,
-    #[serde(default)]
+    /// The 64-bit dHash, 16 hex digits.
+    pub hash: String,
+    /// Bits from the frame before it; none for the first.
+    pub distance: Option<u32>,
+    /// Bits from the turn's first frame.
+    pub first_distance: u32,
+    /// The page's address when it was taken.
     pub url: Option<String>,
+    pub thumbnail_width: u32,
+    pub thumbnail_height: u32,
+    /// Whether its full PNG is kept (`_acpmux/turn_frames` with `index`).
+    pub has_image: bool,
 }
 
-/// The chat's running (or last) turn and its frames.
-struct Turn {
-    id: String,
-    workspace: String,
-    frames: Vec<Frame>,
-    live: bool,
-    /// A capture is running; the next asked waits in `again`.
-    capturing: bool,
-    again: Option<&'static str>,
-    /// Bumped by each edit or shell call, so only a burst's last schedules the frame.
-    debounce: u64,
-    /// The tool kind of each call this turn, by id (`tool_call_update` records often omit it).
-    kinds: HashMap<String, String>,
-    /// The turn customizes the app itself ([`customizes_app`]): with no agent-driven page, frames
-    /// are of the app's window (`cmux window screenshot`, masked by the app).
-    chrome: bool,
-}
-
-static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
-
-fn turns() -> std::sync::MutexGuard<'static, HashMap<String, Turn>> {
-    TURNS.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn root() -> PathBuf {
-    crate::config::home().join("turn-frames")
-}
-
-fn turn_dir(base: &Path, session: &str, turn: &str) -> Option<PathBuf> {
-    Some(base.join(segment(session)?).join(segment(turn)?))
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-// ---- pictures ---------------------------------------------------------------------------------
-
-/// A decoded picture, 8-bit RGB.
-pub(crate) struct Rgb {
+/// A picture read for a frame: its size, dHash, thumbnail and, when asked, the `look` copy.
+pub(crate) struct Picture {
     pub width: u32,
     pub height: u32,
-    pub pixels: Vec<u8>,
+    pub hash: u64,
+    pub thumb: Vec<u8>,
+    pub thumb_size: (u32, u32),
+    pub look: Option<(Vec<u8>, u32, u32)>,
 }
 
-pub(crate) fn decode(bytes: &[u8]) -> Option<Rgb> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+/// The size of a `w`x`h` thumbnail: [`THUMB_WIDTH`] wide, never up.
+fn thumb_size(w: u32, h: u32) -> (u32, u32) {
+    if w <= THUMB_WIDTH {
+        return (w.max(1), h.max(1));
+    }
+    let h = (u64::from(h) * u64::from(THUMB_WIDTH)).div_ceil(u64::from(w)).max(1);
+    (THUMB_WIDTH, h.min(u64::from(u16::MAX)) as u32)
+}
+
+/// Reads a PNG once, a row at a time, into its thumbnail, its dHash and (with `look`) its `look`
+/// copy. None for a PNG that is not valid, is interlaced or is too large.
+pub(crate) fn analyze(png_bytes: &[u8], look: bool) -> Option<Picture> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    decoder.set_limits(png::Limits { bytes: 256 << 20 });
     let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).ok()?;
-    let (width, height) = (info.width, info.height);
-    if width == 0 || height == 0 {
+    let (w, h) = (reader.info().width, reader.info().height);
+    if reader.info().interlaced || w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
         return None;
     }
-    let channels = match info.color_type {
+    let channels = match reader.output_color_type().0 {
         png::ColorType::Grayscale => 1,
         png::ColorType::GrayscaleAlpha => 2,
         png::ColorType::Rgb => 3,
         png::ColorType::Rgba => 4,
         png::ColorType::Indexed => return None,
     };
-    let data = &buf[..info.buffer_size()];
-    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-    for px in data.chunks_exact(channels) {
-        match channels {
-            1 | 2 => pixels.extend_from_slice(&[px[0], px[0], px[0]]),
-            _ => pixels.extend_from_slice(&px[..3]),
+    let (tw, th) = thumb_size(w, h);
+    let mut thumb = cmux_image_linear::Downscaler::new(w, h, tw, th, false);
+    let mut hash = cmux_image_linear::Downscaler::new(w, h, 9, 8, false);
+    let mut looked = look.then(|| {
+        let (lw, lh) = cmux_image_linear::fit(w, h, LOOK_EDGE);
+        cmux_image_linear::Downscaler::new(w, h, lw, lh, false)
+    });
+    for _ in 0..h {
+        let row = reader.next_row().ok()??;
+        let pixels = row.data().chunks_exact(channels).take(w as usize).map(|px| match px {
+            [g] => [*g, *g, *g, 255],
+            [g, a] => [*g, *g, *g, *a],
+            [r, g, b] => [*r, *g, *b, 255],
+            [r, g, b, a] => [*r, *g, *b, *a],
+            _ => [0; 4],
+        });
+        // Collected once: three scalers read the same row.
+        let pixels: Vec<[u8; 4]> = pixels.collect();
+        thumb.push_row(pixels.iter().copied());
+        hash.push_row(pixels.iter().copied());
+        if let Some(scaler) = looked.as_mut() {
+            scaler.push_row(pixels.iter().copied());
         }
     }
-    Some(Rgb { width, height, pixels })
-}
-
-/// `picture` shrunk by area averaging so that it is at most `max_width` wide and, with
-/// `max_height`, at most that tall. Never enlarged.
-pub(crate) fn shrink(picture: &Rgb, max_width: u32, max_height: Option<u32>) -> Rgb {
-    let mut scale = f64::from(max_width) / f64::from(picture.width);
-    if let Some(h) = max_height {
-        scale = scale.min(f64::from(h) / f64::from(picture.height));
-    }
-    if scale >= 1.0 {
-        return Rgb {
-            width: picture.width,
-            height: picture.height,
-            pixels: picture.pixels.clone(),
-        };
-    }
-    let width = ((f64::from(picture.width) * scale).round() as u32).max(1);
-    let height = ((f64::from(picture.height) * scale).round() as u32).max(1);
-    resample(picture, width, height)
-}
-
-/// Area average onto `width` x `height`.
-fn resample(picture: &Rgb, width: u32, height: u32) -> Rgb {
-    let (sw, sh) = (picture.width as usize, picture.height as usize);
-    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
-    for y in 0..height as usize {
-        let y0 = y * sh / height as usize;
-        let y1 = ((y + 1) * sh / height as usize).max(y0 + 1).min(sh);
-        for x in 0..width as usize {
-            let x0 = x * sw / width as usize;
-            let x1 = ((x + 1) * sw / width as usize).max(x0 + 1).min(sw);
-            let mut sum = [0u64; 3];
-            for row in y0..y1 {
-                for col in x0..x1 {
-                    let at = (row * sw + col) * 3;
-                    for (c, total) in sum.iter_mut().enumerate() {
-                        *total += u64::from(picture.pixels[at + c]);
-                    }
-                }
-            }
-            let count = ((y1 - y0) * (x1 - x0)) as u64;
-            pixels.extend(sum.iter().map(|total| (total / count) as u8));
+    let hash_size = hash.output_size();
+    let hash = dhash(&hash.finish(), hash_size);
+    let thumb_size = thumb.output_size();
+    let thumb = jpeg(&thumb.finish(), thumb_size)?;
+    let look = match looked {
+        Some(scaler) => {
+            let size = scaler.output_size();
+            Some((jpeg(&scaler.finish(), size)?, size.0, size.1))
         }
-    }
-    Rgb { width, height, pixels }
+        None => None,
+    };
+    Some(Picture { width: w, height: h, hash, thumb, thumb_size, look })
 }
 
-pub(crate) fn encode(picture: &Rgb) -> Option<Vec<u8>> {
-    let mut bytes = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut bytes, picture.width, picture.height);
-        encoder.set_color(png::ColorType::Rgb);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_compression(png::Compression::Fast);
-        let mut writer = encoder.write_header().ok()?;
-        writer.write_image_data(&picture.pixels).ok()?;
-    }
-    Some(bytes)
+/// `rgb` pixels as a JPEG.
+fn jpeg(rgb: &[u8], (w, h): (u32, u32)) -> Option<Vec<u8>> {
+    let (w16, h16) = (u16::try_from(w).ok()?, u16::try_from(h).ok()?);
+    let mut out = Vec::new();
+    jpeg_encoder::Encoder::new(&mut out, JPEG_QUALITY)
+        .encode(rgb, w16, h16, jpeg_encoder::ColorType::Rgb)
+        .ok()?;
+    Some(out)
 }
 
-/// The 64-bit difference hash: 9x8 grey, one bit per left-right step that brightens.
-pub(crate) fn dhash(picture: &Rgb) -> u64 {
-    let small = resample(picture, 9, 8);
-    let grey: Vec<u32> = small
-        .pixels
-        .chunks_exact(3)
-        .map(|p| (u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114) / 1000)
-        .collect();
-    let mut hash = 0u64;
-    for row in 0..8 {
-        for col in 0..8 {
-            hash <<= 1;
-            if grey[row * 9 + col] < grey[row * 9 + col + 1] {
-                hash |= 1;
+/// The difference hash of a 9x8 RGB picture (`size` as the scaler gave it): bit `8y+x` is set
+/// when pixel `x` of row `y` is brighter than the one right of it.
+pub(crate) fn dhash(rgb: &[u8], (w, h): (u32, u32)) -> u64 {
+    let luma = |x: u32, y: u32| -> u32 {
+        let (x, y) = (x.min(w.saturating_sub(1)), y.min(h.saturating_sub(1)));
+        let at = ((y * w + x) * 3) as usize;
+        match rgb.get(at..at + 3) {
+            Some([r, g, b]) => u32::from(*r) * 299 + u32::from(*g) * 587 + u32::from(*b) * 114,
+            _ => 0,
+        }
+    };
+    let mut bits = 0u64;
+    for y in 0..8 {
+        for x in 0..8 {
+            if luma(x, y) > luma(x + 1, y) {
+                bits |= 1 << (y * 8 + x);
             }
         }
     }
-    hash
+    bits
 }
 
-fn bits(a: u64, b: u64) -> u32 {
+/// The bits two hashes differ in.
+pub(crate) fn distance(a: u64, b: u64) -> u32 {
     (a ^ b).count_ones()
 }
 
-// ---- triggers ---------------------------------------------------------------------------------
-
-/// A path an agent edits that can change what the page shows.
-pub(crate) fn ui_path(path: &str) -> bool {
-    const EXTENSIONS: [&str; 14] = [
-        "tsx", "ts", "jsx", "js", "mjs", "css", "scss", "html", "htm", "svg", "swift", "vue",
-        "svelte", "json",
-    ];
-    let lower = path.to_ascii_lowercase();
-    let extension = lower.rsplit_once('.').map(|(_, e)| e).unwrap_or_default();
-    EXTENSIONS.contains(&extension)
-        || lower.contains("/webviews/")
-        || lower.contains("/sources/")
-        || lower.ends_with("cmux-next.json")
+fn parse_hash(hex: &str) -> Option<u64> {
+    u64::from_str_radix(hex, 16).ok()
 }
 
-/// The paths a tool call record names: its locations, its diffs, its input's `file_path`.
-fn named_paths(update: &Value) -> Vec<String> {
-    let mut paths = Vec::new();
-    if let Some(locations) = update.get("locations").and_then(Value::as_array) {
-        paths.extend(locations.iter().filter_map(|l| l.get("path")?.as_str().map(str::to_owned)));
-    }
-    if let Some(content) = update.get("content").and_then(Value::as_array) {
-        paths.extend(
-            content
-                .iter()
-                .filter(|c| c["type"] == "diff")
-                .filter_map(|c| c.get("path")?.as_str().map(str::to_owned)),
-        );
-    }
-    for key in ["/rawInput/file_path", "/rawInput/path", "/rawInput/notebook_path"] {
-        if let Some(path) = update.pointer(key).and_then(Value::as_str) {
-            paths.push(path.to_owned());
+/// What a new frame does to a turn's strip.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Place {
+    /// Within [`SAME_FRAME`] of the last kept frame: not kept.
+    Same,
+    /// Kept at the end.
+    Append,
+    /// The strip is full ([`MAX_FRAMES`]): it takes the last frame's place, at this index.
+    Replace(usize),
+}
+
+/// Where a frame of `hash` goes in `frames`.
+pub(crate) fn place(frames: &[Frame], hash: u64) -> Place {
+    if let Some(last) = frames.last() {
+        if parse_hash(&last.hash).is_some_and(|h| distance(h, hash) <= SAME_FRAME) {
+            return Place::Same;
+        }
+        if frames.len() >= MAX_FRAMES {
+            return Place::Replace(last.index);
         }
     }
-    paths
+    Place::Append
 }
 
-/// What a finished tool call asks for: `edit` for a UI file, `build` for a shell call, else none.
-pub(crate) fn trigger_of(kind: Option<&str>, update: &Value) -> Option<&'static str> {
-    if update.get("status").and_then(Value::as_str) != Some("completed") {
+/// Whether an edit of `path` is a UI file whose page a frame may show.
+pub(crate) fn is_ui_path(path: &str) -> bool {
+    const EXTENSIONS: &[&str] =
+        &["tsx", "ts", "jsx", "css", "scss", "html", "htm", "swift", "vue", "svelte"];
+    let path = path.replace('\\', "/");
+    if path.split('/').any(|part| part == "webviews" || part == "Sources") {
+        return true;
+    }
+    let name = path.rsplit('/').next().unwrap_or_default();
+    name.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty() && EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
+    })
+}
+
+/// The files a `tool_call` or `tool_call_update` names: its locations, its diffs' paths and its
+/// input's path.
+fn record_paths(update: &Value) -> impl Iterator<Item = &str> {
+    let locations = update.get("locations").and_then(Value::as_array).into_iter().flatten();
+    let diffs = update
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("diff"));
+    let input = ["file_path", "path", "notebook_path"]
+        .into_iter()
+        .filter_map(|key| update.pointer(&format!("/rawInput/{key}"))?.as_str());
+    locations.chain(diffs).filter_map(|item| item.get("path")?.as_str()).chain(input)
+}
+
+/// What a tool call record says for frames: an edit of a UI file (with its call id), or the
+/// completion of a call (by its id).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum Seen {
+    UiEdit(Option<String>),
+    Completed(String),
+}
+
+/// A `tool_call` or `tool_call_update` record's meaning for frames, read without any lock.
+pub(crate) fn seen(kind: &str, msg: &Value) -> Option<Seen> {
+    if !matches!(kind, "tool_call" | "tool_call_update") {
         return None;
     }
-    if named_paths(update).iter().any(|p| ui_path(p)) && kind != Some("read") {
-        return Some("edit");
+    let update = msg.pointer("/params/update")?;
+    let id = update.get("toolCallId").and_then(Value::as_str).map(str::to_owned);
+    let edit = update.get("kind").and_then(Value::as_str) == Some("edit")
+        || update.get("content").and_then(Value::as_array).is_some_and(|c| {
+            c.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("diff"))
+        });
+    if edit && record_paths(update).any(is_ui_path) {
+        return Some(Seen::UiEdit(id));
     }
-    (kind == Some("execute")).then_some("build")
+    let done = matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
+    done.then_some(id).flatten().map(Seen::Completed)
 }
 
-/// A tool call that changes the app's own look: an edit of its settings file, or a `cmux customize`,
-/// `cmux live`, `cmux app try` or `cmux settings` run.
-pub(crate) fn customizes_app(update: &Value) -> bool {
-    let settings = named_paths(update).iter().any(|p| {
-        let p = p.to_ascii_lowercase();
-        p.ends_with("cmux-next.json") || p.ends_with("cmux.json")
+/// A turn whose frames are being taken.
+struct Live {
+    turn: String,
+    workspace: String,
+    /// The tab its frames show, once one was taken.
+    tab: Option<String>,
+    url: Option<String>,
+    /// Bumped by each UI edit: a debounced capture runs only if none came after it.
+    edits: u64,
+    /// The UI edit calls not yet completed: their completion arms the debounce again.
+    edit_calls: HashSet<String>,
+    /// Held while a frame is written, so frames land one at a time.
+    write: Arc<Mutex<()>>,
+}
+
+/// The running turn of each chat with a workspace, by session.
+static LIVE: LazyLock<Mutex<HashMap<String, Live>>> = LazyLock::new(Default::default);
+static SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn live() -> std::sync::MutexGuard<'static, HashMap<String, Live>> {
+    LIVE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// The next frame's seq: past every earlier one, and past the clock in ms, so a poller's
+/// `sinceSeq` stays right across a restart.
+fn next_seq() -> u64 {
+    let now = now_ms();
+    let prev = SEQ.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |s| Some(s.max(now) + 1));
+    prev.unwrap_or(0).max(now) + 1
+}
+
+pub(crate) fn root() -> PathBuf {
+    crate::config::home().join("turn-frames")
+}
+
+/// The UI edit seen in a record, for the session's running turn: the debounce generation to fire
+/// at, or none (not a UI edit, no such turn, or the completion of a call that was no UI edit).
+pub(crate) fn note_edit(session: &str, seen: &Seen) -> Option<(String, u64)> {
+    let mut all = live();
+    let turn = all.get_mut(session)?;
+    match seen {
+        Seen::UiEdit(id) => {
+            if let Some(id) = id {
+                turn.edit_calls.insert(id.clone());
+            }
+        }
+        Seen::Completed(id) => {
+            if !turn.edit_calls.remove(id) {
+                return None;
+            }
+        }
+    }
+    turn.edits += 1;
+    Some((turn.turn.clone(), turn.edits))
+}
+
+/// Whether the debounced capture armed at `edits` is still the newest of the session's turn.
+pub(crate) fn still_newest(session: &str, turn: &str, edits: u64) -> bool {
+    live().get(session).is_some_and(|t| t.turn == turn && t.edits == edits)
+}
+
+/// The hub's hook on every live tool call record (`Hub::append_at`): an edit or write of a UI file
+/// takes a frame [`DEBOUNCE`] after the last of its burst. Cheap for every other record: no lock
+/// unless the record is a UI edit or a call's completion.
+pub(super) fn tool_record(scope: &cmux_scope::Scope, session: &Session, kind: &str, msg: &Value) {
+    let Some(seen) = seen(kind, msg) else { return };
+    let Some((turn, edits)) = note_edit(&session.id, &seen) else { return };
+    let id = session.id.clone();
+    scope.spawn_named("turn-frames-edit", async move {
+        tokio::time::sleep(DEBOUNCE).await;
+        if still_newest(&id, &turn, edits) {
+            let _ =
+                tokio::task::spawn_blocking(move || capture_now(&id, &turn, Trigger::Edit, false))
+                    .await;
+        }
     });
-    let command = update
-        .pointer("/rawInput/command")
-        .and_then(|c| c.as_str().map(str::to_owned).or_else(|| Some(c.to_string())))
-        .unwrap_or_default();
-    settings
-        || ["cmux customize", "cmux live", "cmux app try", "cmux settings", "cmux theme"]
-            .iter()
-            .any(|verb| command.contains(verb))
 }
 
-/// The turn began: a new frame list, and its first frame. Nothing for a chat with no workspace.
-pub(super) fn turn_began(session: &Session, turn: &str) {
-    let workspace =
-        session.meta.lock().unwrap_or_else(PoisonError::into_inner).workspace_id.clone();
-    let Some(workspace) = workspace else { return };
-    if turn_dir(&root(), &session.id, turn).is_none() {
-        return;
-    }
-    turns().insert(
-        session.id.clone(),
-        Turn {
-            id: turn.to_owned(),
-            workspace,
-            frames: Vec::new(),
-            live: true,
-            capturing: false,
-            again: None,
-            debounce: 0,
-            kinds: HashMap::new(),
-            chrome: false,
+/// A turn of a chat with a workspace began: its frames start (`turn_shots::turn_began`). An older
+/// turn of the chat that never ended stops taking frames.
+pub(super) fn turn_began(session: &str, turn: &str, workspace: &str) {
+    live().insert(
+        session.to_owned(),
+        Live {
+            turn: turn.to_owned(),
+            workspace: workspace.to_owned(),
+            tab: None,
+            url: None,
+            edits: 0,
+            edit_calls: HashSet::new(),
+            write: Arc::default(),
         },
     );
-    ask(&session.id, "turn-start");
-}
-
-/// A record the hub writes: a finished tool call that edited a UI file or ran a shell command asks
-/// for a frame once its burst settles.
-pub(super) fn record(session: &str, kind: &str, msg: &Value) {
-    if !matches!(kind, "tool_call" | "tool_call_update") {
-        return;
-    }
-    let Some(update) = msg.pointer("/params/update") else { return };
-    let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or_default();
-    let generation = {
-        let mut all = turns();
-        let Some(turn) = all.get_mut(session).filter(|t| t.live) else { return };
-        if let Some(tool) = update.get("kind").and_then(Value::as_str)
-            && !id.is_empty()
-            && turn.kinds.len() < 4096
-        {
-            turn.kinds.insert(id.to_owned(), tool.to_owned());
-        }
-        let tool =
-            update.get("kind").and_then(Value::as_str).or(turn.kinds.get(id).map(String::as_str));
-        if customizes_app(update) {
-            turn.chrome = true;
-        }
-        let Some(trigger) = trigger_of(tool, update) else { return };
-        turn.debounce += 1;
-        (turn.id.clone(), turn.debounce, trigger)
-    };
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
-    let session = session.to_owned();
-    let (turn_id, debounce, trigger) = generation;
-    runtime.spawn(async move {
-        tokio::time::sleep(DEBOUNCE).await;
-        let settled = turns()
-            .get(&session)
-            .is_some_and(|t| t.id == turn_id && t.live && t.debounce == debounce);
-        if settled {
-            ask(&session, trigger);
-        }
+    let base = root();
+    tokio::task::spawn_blocking(move || {
+        prune_all(&base);
     });
 }
 
-/// The turn's result was written: its last frame.
-pub(super) fn turn_ended(session: &Session, turn: &str) {
-    let ours = {
-        let mut all = turns();
-        match all.get_mut(&session.id).filter(|t| t.id == turn) {
-            Some(t) => {
-                t.live = false;
+/// `turn_shots`' before, taken at the turn's start: the strip's first frame. Blocking.
+pub(super) fn start_shot(key: &(String, String), png: &Path, tab: &str, url: Option<&str>) {
+    {
+        let mut all = live();
+        let Some(turn) = all.get_mut(&key.0).filter(|t| t.turn == key.1) else { return };
+        turn.tab.get_or_insert_with(|| tab.to_owned());
+        if url.is_some() {
+            turn.url = url.map(str::to_owned);
+        }
+    }
+    if let Ok(bytes) = std::fs::read(png) {
+        let _ = keep(&root(), key, &bytes, Trigger::Start, url, false);
+    }
+}
+
+/// The turn ended (`turn_shots::turn_ended`): `turn_shots`' after (its PNG, tab and address) is
+/// its last frame, or with none one is taken here. Then the turn stops taking frames and keeps
+/// them, or its folder goes when it has none. Blocking.
+pub(super) fn end_shot(key: &(String, String), after: Option<(&Path, &str, Option<&str>)>) {
+    let known = {
+        let mut all = live();
+        match all.get_mut(&key.0).filter(|t| t.turn == key.1) {
+            Some(turn) => {
+                // A debounced edit still waiting takes no frame now.
+                turn.edits += 1;
                 true
             }
             None => false,
         }
     };
-    if ours {
-        ask(&session.id, "turn-end");
+    if !known {
+        return;
+    }
+    let base = root();
+    match after.and_then(|(png, _, url)| Some((std::fs::read(png).ok()?, url))) {
+        Some((bytes, url)) => {
+            let _ = keep(&base, key, &bytes, Trigger::End, url, false);
+        }
+        None => {
+            let _ = capture_now(&key.0, &key.1, Trigger::End, false);
+        }
+    }
+    let mut all = live();
+    if all.get(&key.0).is_some_and(|t| t.turn == key.1) {
+        all.remove(&key.0);
+    }
+    drop(all);
+    if let Some(dir) = turn_shots::turn_dir(&base, &key.0, &key.1)
+        && read_index(&dir).is_empty()
+    {
+        turn_shots::drop_turn(&dir);
     }
 }
 
-/// A turn refused after it began: no more frames come.
-pub(super) fn turn_refused(session: &Session, turn: &str) {
-    if let Some(t) = turns().get_mut(&session.id).filter(|t| t.id == turn) {
-        t.live = false;
+/// A turn refused after it started keeps no frames.
+pub(super) fn turn_refused(session: &str, turn: &str) {
+    let mut all = live();
+    if all.get(session).is_some_and(|t| t.turn == turn) {
+        all.remove(session);
+    }
+    drop(all);
+    if let Some(dir) = turn_shots::turn_dir(&root(), session, turn) {
+        tokio::task::spawn_blocking(move || turn_shots::drop_turn(&dir));
     }
 }
 
 /// Session `id`'s frames, deleted with its chat. Blocking.
 pub(crate) fn remove_session(id: &str) {
-    turns().remove(id);
-    if let Some(id) = segment(id) {
+    live().remove(id);
+    if let Some(id) = turn_shots::segment(id) {
         let _ = crate::home_fs::remove_dir_all(root().join(id));
     }
 }
 
-/// Asks for a frame now; one capture at a time per chat, the newest ask waiting behind it (a turn's
-/// end wins over any other).
-fn ask(session: &str, trigger: &'static str) {
-    {
-        let mut all = turns();
-        let Some(turn) = all.get_mut(session) else { return };
-        if turn.frames.len() >= MAX_FRAMES && trigger != "turn-end" {
-            return;
+/// The newest [`KEEP_TURNS`] turns of each chat and [`KEEP_CHATS`] chats stay.
+pub(crate) fn prune_all(base: &Path) {
+    if let Ok(chats) = std::fs::read_dir(base) {
+        for chat in chats.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_dir())) {
+            turn_shots::prune(&chat.path(), KEEP_TURNS);
         }
-        if turn.capturing {
-            if turn.again != Some("turn-end") {
-                turn.again = Some(trigger);
-            }
-            return;
-        }
-        turn.capturing = true;
     }
-    if tokio::runtime::Handle::try_current().is_err() {
-        if let Some(turn) = turns().get_mut(session) {
-            turn.capturing = false;
-        }
-        return;
-    }
-    let session = session.to_owned();
-    tokio::task::spawn_blocking(move || {
-        let mut trigger = trigger;
-        loop {
-            take(&session, trigger, REPL_SESSION);
-            let mut all = turns();
-            let Some(turn) = all.get_mut(&session) else { return };
-            match turn.again.take() {
-                Some(next) => trigger = next,
-                None => {
-                    turn.capturing = false;
-                    return;
-                }
-            }
-        }
-    });
-}
-
-/// Takes one frame of `session`'s current turn and keeps it unless it is the same picture as the
-/// last kept. The kept frame, or none. Blocking.
-fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
-    let (turn_id, _, dir, picture) = shoot(session, repl)?;
-    keep(session, &turn_id, &dir, &picture, trigger, None)
-}
-
-/// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
-/// customizes the app, the app's window. The turn, what was shot (a tab id or `window`), the turn's
-/// folder and the picture. Blocking.
-fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
-    let (turn_id, workspace, chrome) = {
-        let all = turns();
-        let turn = all.get(session)?;
-        (turn.id.clone(), turn.workspace.clone(), turn.chrome)
-    };
-    let base = root();
-    let dir = turn_dir(&base, session, &turn_id)?;
-    crate::home_fs::create_dirs(&dir).ok()?;
-    let raw = dir.join(format!("{repl}.capture.png"));
-    let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
-    if shown.is_none() && chrome && window_shot(&raw) {
-        shown = Some("window".to_owned());
-    }
-    let bytes = shown.as_ref().and_then(|_| std::fs::read(&raw).ok());
-    let _ = crate::home_fs::remove_file(&raw);
-    let picture = decode(&bytes?)?;
-    Some((turn_id, shown?, dir, picture))
-}
-
-/// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
-/// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
-fn window_shot(out: &Path) -> bool {
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
-    let binary =
-        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
-    let mut command = tokio::process::Command::new(binary);
-    command
-        .args(["window", "screenshot", "--out"])
-        .arg(out)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let ran = runtime.block_on(async {
-        tokio::time::timeout(WINDOW_LIMIT, command.status()).await.ok().and_then(Result::ok)
-    });
-    ran.is_some_and(|status| status.success())
-        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= 8 << 20)
-}
-
-/// Keeps `picture` as the turn's next frame unless it matches the last kept one (a `turn-end`
-/// matching it is still dropped: the strip already shows that picture).
-fn keep(
-    session: &str,
-    turn_id: &str,
-    dir: &Path,
-    picture: &Rgb,
-    trigger: &'static str,
-    url: Option<String>,
-) -> Option<Frame> {
-    let hash = dhash(picture);
-    let full = shrink(picture, FULL_WIDTH, None);
-    let thumb = shrink(picture, THUMB_WIDTH, None);
-    let (full_bytes, thumb_bytes) = (encode(&full)?, encode(&thumb)?);
-    let mut all = turns();
-    let turn = all.get_mut(session).filter(|t| t.id == turn_id)?;
-    let last = turn.frames.last().map(|f| f.hash);
-    if last.is_some_and(|last| bits(last, hash) <= SAME) {
-        return None;
-    }
-    let first = turn.frames.first().map(|f| f.hash);
-    let frame = Frame {
-        index: turn.frames.len(),
-        seq: SEQ.fetch_add(1, Ordering::SeqCst) + 1,
-        trigger: trigger.to_owned(),
-        at: now_ms(),
-        width: full.width,
-        height: full.height,
-        distance: last.map_or(0.0, |l| f64::from(bits(l, hash)) / 64.0),
-        moved: first.map_or(0.0, |f| f64::from(bits(f, hash)) / 64.0),
-        hash,
-        url,
-    };
-    let written =
-        std::fs::write(dir.join(format!("{}.png", frame.index)), &full_bytes).and_then(|()| {
-            std::fs::write(dir.join(format!("{}.thumb.png", frame.index)), &thumb_bytes)
-        });
-    if written.is_err() {
-        return None;
-    }
-    turn.frames.push(frame.clone());
-    let index = serde_json::to_vec(&turn.frames).unwrap_or_default();
-    drop(all);
-    let _ = std::fs::write(dir.join(INDEX), index);
-    if frame.index == 0 {
-        // A new turn's folder: the oldest turns and chats go.
-        if let Some(chat) = dir.parent() {
-            prune(chat, KEEP_TURNS);
-        }
-        prune(&root(), KEEP_CHATS);
-    }
-    Some(frame)
-}
-
-// ---- reads ------------------------------------------------------------------------------------
-
-fn picture_value(bytes: &[u8]) -> Value {
-    use base64::Engine as _;
-    json!({"mimeType": "image/png", "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
-}
-
-fn frame_value(dir: &Path, frame: &Frame, full: bool) -> Option<Value> {
-    let thumb = std::fs::read(dir.join(format!("{}.thumb.png", frame.index))).ok()?;
-    let mut value = json!({
-        "index": frame.index,
-        "seq": frame.seq,
-        "trigger": frame.trigger,
-        "at": frame.at,
-        "width": frame.width,
-        "height": frame.height,
-        "distance": frame.distance,
-        "moved": frame.moved,
-        "thumb": picture_value(&thumb),
-    });
-    if full && let Ok(bytes) = std::fs::read(dir.join(format!("{}.png", frame.index))) {
-        value["full"] = picture_value(&bytes);
-    }
-    Some(value)
+    turn_shots::prune(base, KEEP_CHATS);
 }
 
 fn read_index(dir: &Path) -> Vec<Frame> {
@@ -570,88 +493,298 @@ fn read_index(dir: &Path) -> Vec<Frame> {
         .unwrap_or_default()
 }
 
-/// `_acpmux/turn_frames`:
-/// - `{sessionId, turnId}`: the turn's frames, thumbnails only (`{frames: [...]}`);
-/// - `{sessionId, turnId, index}`: that frame with its `full` picture;
-/// - `{sessionId, sinceSeq}`: the chat's newest frame after `sinceSeq` with its `full` picture, or
-///   none (`{frames, seq, turnId, live}`), for the live preview window.
-pub(crate) async fn turn_frames(session: &str, params: &Value) -> Value {
-    let session = session.to_owned();
-    let params = params.clone();
-    tokio::task::spawn_blocking(move || read(&session, &params))
-        .await
-        .unwrap_or_else(|_| json!({"frames": []}))
+fn frame_file(dir: &Path, index: usize, ext: &str) -> PathBuf {
+    dir.join(format!("{index:03}.{ext}"))
 }
 
-fn read(session: &str, params: &Value) -> Value {
+/// What keeping a picture did: the frame (kept or not) and the `look` copy when asked.
+pub(crate) struct Kept {
+    pub frame: Frame,
+    pub kept: bool,
+    pub look: Option<(Vec<u8>, u32, u32)>,
+}
+
+/// Keeps the PNG `bytes` as the turn's next frame unless it shows the same as the last one.
+/// Blocking.
+pub(crate) fn keep(
+    base: &Path,
+    key: &(String, String),
+    bytes: &[u8],
+    trigger: Trigger,
+    url: Option<&str>,
+    look: bool,
+) -> Option<Kept> {
+    let dir = turn_shots::turn_dir(base, &key.0, &key.1)?;
+    let lock = live().get(&key.0).filter(|t| t.turn == key.1).map(|t| t.write.clone())?;
+    let picture = analyze(bytes, look)?;
+    let _write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+    crate::home_fs::create_dirs(&dir).ok()?;
+    let mut frames = read_index(&dir);
+    let first = frames.first().and_then(|f| parse_hash(&f.hash));
+    let last = frames.last().and_then(|f| parse_hash(&f.hash));
+    let placed = place(&frames, picture.hash);
+    let index = match placed {
+        Place::Same => frames.last().map_or(0, |f| f.index),
+        Place::Append => frames.len(),
+        Place::Replace(index) => index,
+    };
+    let kept_bytes: u64 = frames
+        .iter()
+        .filter(|f| f.has_image && f.index != index)
+        .filter_map(|f| std::fs::metadata(frame_file(&dir, f.index, "png")).ok())
+        .map(|m| m.len())
+        .sum();
+    let has_image =
+        bytes.len() <= MAX_SHOT_BYTES && kept_bytes + bytes.len() as u64 <= MAX_TURN_IMAGE_BYTES;
+    let frame = Frame {
+        index,
+        seq: if placed == Place::Same { frames.last().map_or(0, |f| f.seq) } else { next_seq() },
+        trigger: trigger.as_str().to_owned(),
+        at: now_ms(),
+        width: picture.width,
+        height: picture.height,
+        hash: format!("{:016x}", picture.hash),
+        distance: last.map(|h| distance(h, picture.hash)),
+        first_distance: first.map_or(0, |h| distance(h, picture.hash)),
+        url: url.map(str::to_owned),
+        thumbnail_width: picture.thumb_size.0,
+        thumbnail_height: picture.thumb_size.1,
+        has_image,
+    };
+    if placed == Place::Same {
+        return Some(Kept { frame, kept: false, look: picture.look });
+    }
+    let write = |path: PathBuf, data: &[u8]| crate::config::write_atomic_unsynced(&path, data).ok();
+    write(frame_file(&dir, index, "jpg"), &picture.thumb)?;
+    if has_image {
+        write(frame_file(&dir, index, "png"), bytes)?;
+    } else {
+        let _ = crate::home_fs::remove_file(frame_file(&dir, index, "png"));
+    }
+    frames.retain(|f| f.index != index);
+    frames.push(frame.clone());
+    frames.sort_by_key(|f| f.index);
+    write(dir.join(INDEX), &serde_json::to_vec(&frames).ok()?)?;
+    Some(Kept { frame, kept: true, look: picture.look })
+}
+
+/// Takes a frame of the turn's tab now (its first: whichever page of the workspace an agent drove
+/// is shown). None when there is no such turn or page. Blocking, bounded by the capture's limit.
+pub(crate) fn capture_now(session: &str, turn: &str, trigger: Trigger, look: bool) -> Option<Kept> {
+    let (workspace, tab) = {
+        let all = live();
+        let t = all.get(session).filter(|t| t.turn == turn)?;
+        (t.workspace.clone(), t.tab.clone())
+    };
     let base = root();
-    if let Some(turn) = params.get("turnId").and_then(Value::as_str) {
-        let Some(dir) = turn_dir(&base, session, turn) else {
-            return json!({"sessionId": session, "turnId": turn, "frames": []});
-        };
-        let index = params.get("index").and_then(Value::as_u64).map(|i| i as usize);
-        let frames: Vec<Value> = read_index(&dir)
-            .iter()
-            .filter(|f| index.is_none_or(|i| f.index == i))
-            .filter_map(|f| frame_value(&dir, f, index.is_some()))
-            .collect();
-        return json!({"sessionId": session, "turnId": turn, "frames": frames});
+    let dir = turn_shots::turn_dir(&base, session, turn)?;
+    crate::home_fs::create_dirs(&dir).ok()?;
+    let out = dir.join(format!("capture-{}.png", next_seq()));
+    let shot = turn_shots::capture(
+        &turn_shots::host_socket(),
+        REPL_SESSION,
+        &base,
+        &workspace,
+        tab.as_deref(),
+        &out,
+    );
+    let bytes = shot.as_ref().and_then(|_| std::fs::read(&out).ok());
+    let _ = crate::home_fs::remove_file(&out);
+    let (id, url) = shot?;
+    {
+        let mut all = live();
+        if let Some(t) = all.get_mut(session).filter(|t| t.turn == turn) {
+            t.tab.get_or_insert(id);
+            t.url = url.clone();
+        }
     }
-    let since = params.get("sinceSeq").and_then(Value::as_u64).unwrap_or(0);
-    let (turn_id, live, newest) = {
-        let all = turns();
-        let Some(turn) = all.get(session) else {
-            return json!({"sessionId": session, "frames": [], "seq": since, "live": false});
-        };
-        let newest = turn.frames.iter().rev().find(|f| f.seq > since).cloned();
-        (turn.id.clone(), turn.live, newest)
-    };
-    let seq = newest.as_ref().map_or(since, |f| f.seq);
-    let frames: Vec<Value> = match (turn_dir(&base, session, &turn_id), &newest) {
-        (Some(dir), Some(frame)) => frame_value(&dir, frame, true).into_iter().collect(),
-        _ => Vec::new(),
-    };
-    json!({"sessionId": session, "turnId": turn_id, "frames": frames, "seq": seq, "live": live})
+    keep(&base, &(session.to_owned(), turn.to_owned()), &bytes?, trigger, url.as_deref(), look)
 }
 
-/// `_acpmux/turn_frames {sessionId, look: true}`: a frame now (kept as `look` when the page moved),
-/// handed back at most [`LOOK_EDGE`] px on its long edge with one line of where it is: the `look`
-/// MCP tool. With no page, the reason.
-pub(crate) async fn look(session: &str) -> Value {
-    let session = session.to_owned();
-    tokio::task::spawn_blocking(move || look_now(&session))
-        .await
-        .unwrap_or_else(|_| json!({"error": "the capture stopped"}))
+/// The turn a read means: `turn` when given, else the chat's running turn, else its newest turn
+/// with frames.
+fn which_turn(base: &Path, session: &str, turn: Option<&str>) -> Option<String> {
+    if let Some(turn) = turn {
+        return Some(turn.to_owned());
+    }
+    if let Some(t) = live().get(session) {
+        return Some(t.turn.clone());
+    }
+    let chat = base.join(turn_shots::segment(session)?);
+    std::fs::read_dir(chat)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.file_name())))
+        .max_by_key(|(at, _)| *at)
+        .and_then(|(_, name)| name.into_string().ok())
 }
 
-fn look_now(session: &str) -> Value {
-    if !turns().contains_key(session) {
-        return json!({"error": "this chat has no workspace page to look at: open the page with the browser or `open` tools first"});
-    }
-    // A look may always see the app's own window: the agent asked.
-    if let Some(turn) = turns().get_mut(session) {
-        turn.chrome = true;
-    }
-    let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
-        return json!({"error": "no agent-driven page is showing in this chat's workspace and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
-    };
-    let kept = keep(session, &turn_id, &dir, &picture, "look", None);
-    let hash = dhash(&picture);
-    let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
-    let moved = first.map_or(0, |f| bits(f, hash));
-    let small = shrink(&picture, LOOK_EDGE, Some(LOOK_EDGE));
-    let Some(png) = encode(&small) else {
-        return json!({"error": "the picture could not be encoded"});
-    };
+fn data_url(mime: &str, bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+/// `_acpmux/turn_frames` read from `base`. Blocking.
+pub(crate) fn read_frames(
+    base: &Path,
+    session: &str,
+    turn: Option<&str>,
+    since: Option<u64>,
+    index: Option<usize>,
+) -> Value {
+    let turn = which_turn(base, session, turn);
+    let live_turn = live().get(session).map(|t| t.turn.clone());
+    let running = turn.is_some() && turn == live_turn;
+    let dir = turn.as_deref().and_then(|t| turn_shots::turn_dir(base, session, t));
+    let frames = dir.as_deref().map(read_index).unwrap_or_default();
+    let seq = frames.iter().map(|f| f.seq).max().unwrap_or(0);
+    let rows: Vec<Value> = frames
+        .iter()
+        .filter(|f| since.is_none_or(|s| f.seq > s))
+        .filter(|f| index.is_none_or(|i| f.index == i))
+        .filter_map(|f| {
+            let dir = dir.as_deref()?;
+            let mut row = serde_json::to_value(f).ok()?;
+            let thumb = std::fs::read(frame_file(dir, f.index, "jpg")).ok()?;
+            row["thumbnail"] = json!(data_url("image/jpeg", &thumb));
+            if index.is_some() && f.has_image {
+                let full = std::fs::read(frame_file(dir, f.index, "png")).ok();
+                row["image"] = json!(full.map(|b| data_url("image/png", &b)));
+            }
+            Some(row)
+        })
+        .collect();
     json!({
-        "image": picture_value(&png),
-        "width": small.width,
-        "height": small.height,
-        "tab": tab,
-        "movedBits": moved,
-        "kept": kept.map(|f| f.index),
-        "turnId": turn_id,
+        "sessionId": session,
+        "turnId": turn,
+        "live": running,
+        "seq": seq,
+        "frames": rows,
     })
+}
+
+/// `_acpmux/turn_frames {sessionId, turnId?, sinceSeq?, index?}`: the turn's frames with their
+/// thumbnails, only those past `sinceSeq` with it, and with `index` that one frame and its full PNG.
+pub(crate) async fn turn_frames(
+    session: &str,
+    turn: Option<&str>,
+    since: Option<u64>,
+    index: Option<usize>,
+) -> Value {
+    let (session, turn) = (session.to_owned(), turn.map(str::to_owned));
+    let read = {
+        let session = session.clone();
+        move || read_frames(&root(), &session, turn.as_deref(), since, index)
+    };
+    tokio::task::spawn_blocking(read)
+        .await
+        .unwrap_or_else(|_| json!({"sessionId": session, "frames": []}))
+}
+
+/// The newest kept frame of a turn and its `look` copy, from its full PNG (else its thumbnail,
+/// which is a JPEG already). Blocking.
+fn latest_look(base: &Path, session: &str, turn: &str) -> Option<(Frame, Vec<u8>, u32, u32)> {
+    let dir = turn_shots::turn_dir(base, session, turn)?;
+    let frame = read_index(&dir).into_iter().max_by_key(|f| f.seq)?;
+    if frame.has_image
+        && let Ok(png) = std::fs::read(frame_file(&dir, frame.index, "png"))
+        && let Some((jpeg, w, h)) = analyze(&png, true).and_then(|p| p.look)
+    {
+        return Some((frame, jpeg, w, h));
+    }
+    let thumb = std::fs::read(frame_file(&dir, frame.index, "jpg")).ok()?;
+    let (w, h) = (frame.thumbnail_width, frame.thumbnail_height);
+    Some((frame, thumb, w, h))
+}
+
+/// `_acpmux/look {sessionId, capture?}`: a frame of the chat's page now (`capture`, the default),
+/// or the turn's newest one, with a [`LOOK_EDGE`] JPEG of it for the agent. Takes a frame outside
+/// a turn too (kept nowhere) when the chat has a workspace.
+pub(crate) async fn look(session: &Session, capture: bool) -> Value {
+    let id = session.id.clone();
+    let workspace =
+        session.meta.lock().unwrap_or_else(PoisonError::into_inner).workspace_id.clone();
+    let answer = tokio::task::spawn_blocking(move || look_blocking(&id, workspace, capture))
+        .await
+        .unwrap_or_else(|_| json!({"captured": false, "reason": "the capture failed"}));
+    let mut answer = answer;
+    answer["sessionId"] = json!(session.id);
+    answer
+}
+
+fn look_blocking(session: &str, workspace: Option<String>, capture: bool) -> Value {
+    let turn = live().get(session).map(|t| t.turn.clone());
+    let base = root();
+    let image = |jpeg: &[u8], w: u32, h: u32| {
+        use base64::Engine as _;
+        json!({"mimeType": "image/jpeg", "data": base64::engine::general_purpose::STANDARD.encode(jpeg), "width": w, "height": h})
+    };
+    if capture {
+        if let Some(turn) = &turn
+            && let Some(kept) = capture_now(session, turn, Trigger::Look, true)
+            && let Some((jpeg, w, h)) = &kept.look
+        {
+            return json!({
+                "turnId": turn,
+                "captured": true,
+                "kept": kept.kept,
+                "url": kept.frame.url,
+                "firstDistance": kept.frame.first_distance,
+                "frame": kept.frame,
+                "image": image(jpeg, *w, *h),
+            });
+        }
+        // No running turn: a picture of the workspace's page, kept nowhere.
+        if turn.is_none()
+            && let Some(workspace) = &workspace
+            && let Some(answer) = look_outside_turn(&base, workspace)
+        {
+            return answer;
+        }
+    }
+    let turn = which_turn(&base, session, turn.as_deref());
+    match turn.as_deref().and_then(|t| latest_look(&base, session, t)) {
+        Some((frame, jpeg, w, h)) => json!({
+            "turnId": turn,
+            "captured": false,
+            "kept": true,
+            "url": frame.url,
+            "firstDistance": frame.first_distance,
+            "frame": frame,
+            "image": image(&jpeg, w, h),
+        }),
+        None => json!({
+            "turnId": turn,
+            "captured": false,
+            "reason": if workspace.is_none() {
+                "this chat has no cmux workspace, so it has no page to picture"
+            } else {
+                "no page an agent opened is shown in this chat's workspace: open one with cmux browser first"
+            },
+        }),
+    }
+}
+
+fn look_outside_turn(base: &Path, workspace: &str) -> Option<Value> {
+    crate::home_fs::create_dirs(base).ok()?;
+    let out = base.join(format!("look-{}.png", next_seq()));
+    let shot =
+        turn_shots::capture(&turn_shots::host_socket(), REPL_SESSION, base, workspace, None, &out);
+    let bytes = shot.as_ref().and_then(|_| std::fs::read(&out).ok());
+    let _ = crate::home_fs::remove_file(&out);
+    let (_, url) = shot?;
+    let picture = analyze(&bytes?, true)?;
+    let (jpeg, w, h) = picture.look?;
+    use base64::Engine as _;
+    Some(json!({
+        "turnId": null,
+        "captured": true,
+        "kept": false,
+        "url": url,
+        "firstDistance": 0,
+        "image": {"mimeType": "image/jpeg", "data": base64::engine::general_purpose::STANDARD.encode(jpeg), "width": w, "height": h},
+    }))
 }
 
 #[cfg(test)]

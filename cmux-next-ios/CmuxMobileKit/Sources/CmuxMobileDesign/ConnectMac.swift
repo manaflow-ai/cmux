@@ -30,61 +30,33 @@ public struct ConnectMacSteps: View {
         self.openAccount = openAccount
     }
 
-    @State private var showsHelp = false
-
-    /// One line of status. The two steps (what to do on the Mac) sit behind an info circle that opens a small popover
-    /// (Leo, 2026-11-23: "NEVER THIS F***ING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
-    /// With no Mac on this account, the way to its settings stays out, styled as a link (iOS release bar read-back, 2026-11-22).
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                status
-                helpButton
+        VStack(alignment: .leading, spacing: 14) {
+            if onlineMac == nil, noMacsForAccount {
+                otherAccount
+            } else {
+                step(1, signInText)
             }
-            if onlineMac == nil, noMacsForAccount, let openAccount {
-                Button(action: openAccount) {
-                    HStack(spacing: 3) {
-                        Text("Account Settings")
-                        Image(systemName: "chevron.forward")
-                            .font(.caption2.weight(.semibold))
-                            .accessibilityHidden(true)
-                    }
-                }
-                .buttonStyle(.cmuxPressFill)
-                .font(theme.type.rowSubtitle.weight(.semibold))
-                .foregroundStyle(theme.colors.accent.color)
-                .accessibilityIdentifier("connect-mac.account")
-            }
+            // A Mac with connections disabled has not registered with the account either.
+            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
+            status
+                .padding(.top, 6)
         }
         .frame(maxWidth: 340, alignment: .leading)
     }
 
-    private var helpButton: some View {
-        Button {
-            showsHelp = true
-        } label: {
-            Image(systemName: "info.circle")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.cmuxPressFill)
-        .accessibilityLabel("How to connect")
-        .accessibilityIdentifier("connect-mac.help")
-        .popover(isPresented: $showsHelp) {
-            VStack(alignment: .leading, spacing: 12) {
-                if onlineMac == nil, noMacsForAccount {
-                    Text("Your account has no Mac. A Mac signed in with another account will not show here.")
-                        .font(theme.type.body)
-                }
-                step(1, signInText)
-                // A Mac with connections disabled has not registered with the account either.
-                step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
+    /// Said plainly when no Mac is signed in to this account anywhere: the
+    /// usual cause is a Mac signed in with another account (another sign-in
+    /// method can make another account for the same person).
+    private var otherAccount: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            step(1, signInText)
+            if let openAccount {
+                Button("Account Settings", action: openAccount)
+                    .font(theme.type.rowSubtitle.weight(.semibold))
+                    .foregroundStyle(theme.colors.label)
+                    .accessibilityIdentifier("connect-mac.account")
             }
-            .padding(16)
-            .frame(maxWidth: 320, alignment: .leading)
-            .presentationCompactAdaptation(.popover)
         }
     }
 
@@ -96,12 +68,6 @@ public struct ConnectMacSteps: View {
     }
 
     private func step(_ number: Int, _ text: Text) -> some View {
-        step(number, text) { EmptyView() }
-    }
-
-    /// A numbered step; `accessory` (a link) goes under its words, in their column.
-    private func step<Accessory: View>(_ number: Int, _ text: Text,
-                                       @ViewBuilder accessory: () -> Accessory) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(number)")
                 .font(.footnote.weight(.semibold).monospacedDigit())
@@ -109,13 +75,10 @@ public struct ConnectMacSteps: View {
                 .frame(width: 22, height: 22)
                 .background(theme.colors.fill.color, in: .circle)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 6 }
-            VStack(alignment: .leading, spacing: 6) {
-                text
-                    .font(theme.type.body)
-                    .foregroundStyle(theme.colors.label)
-                    .fixedSize(horizontal: false, vertical: true)
-                accessory()
-            }
+            text
+                .font(theme.type.body)
+                .foregroundStyle(theme.colors.label)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

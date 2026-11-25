@@ -112,29 +112,16 @@ final class HandsEngine {
             case .bytes(let data):
                 for line in splitter.append(data) {
                     if case .dropped = continuation.yield(line) {
-                        // Closed, not only unread: the engine's next write fails (EPIPE) and it exits, where a
-                        // pipe left open would fill and hold it in that write for good.
                         handle.readabilityHandler = nil
-                        try? handle.close()
                         continuation.finish()
                         return
                     }
                 }
             case .retry: return
-            case .end: handle.readabilityHandler = nil; try? handle.close(); continuation.finish()
+            case .end: handle.readabilityHandler = nil; continuation.finish()
             }
         }
-        let output = stdout.fileHandleForReading
-        process.terminationHandler = { _ in ChildOutputEnds.closeAfterExit(reading: [output]) { continuation.finish() } }
-        do {
-            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
-            try process.run()
-        } catch {
-            process.terminationHandler = nil
-            ChildOutputEnds.closeNow(reading: [output, reader], writing: [stdout.fileHandleForWriting, writer])
-            continuation.finish()
-            throw error
-        }
+        try process.run()
         try? reader.close()
         (self.process, input) = (process, writer)
         // task-owner: HandsEngine.run: reads the child's stdout until it ends (the child exited).

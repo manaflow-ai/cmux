@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import os
 import StackAuth
 
 /// macOS hosted-browser sign-in flow, including external URL callbacks and

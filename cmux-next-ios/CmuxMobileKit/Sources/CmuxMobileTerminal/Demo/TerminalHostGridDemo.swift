@@ -14,7 +14,6 @@ import Foundation
 public final class TerminalHostGridDemoSession: TerminalSession {
     public let programName: String
     public private(set) var isAlternateScreen: Bool
-    private let drawsHeader: Bool
     /// `top` on the primary screen instead of a shell.
     private let runsTop: Bool
     public let remoteColumns: Int?
@@ -28,7 +27,6 @@ public final class TerminalHostGridDemoSession: TerminalSession {
         guard size.count == 2, size[0] > 1, size[1] > 1 else { return nil }
         remoteColumns = size[0]
         remoteRows = size[1]
-        drawsHeader = parts.dropFirst().contains("header")
         isAlternateScreen = parts.dropFirst().contains("tui")
         runsTop = !isAlternateScreen && parts.dropFirst().contains("top")
         programName = isAlternateScreen ? "htop" : runsTop ? "top" : "zsh"
@@ -57,10 +55,9 @@ public final class TerminalHostGridDemoSession: TerminalSession {
             text += "\u{1B}[1;1H┌\(horizontal)┐"
             for row in 2..<rows { text += "\u{1B}[\(row);1H│\u{1B}[\(row);\(columns)H│" }
             text += "\u{1B}[\(rows);1H└\(horizontal)┘"
-            let label = drawsHeader ? "CLAUDE CODE HEADER" : "Mac grid \(columns)×\(rows)"
-            let labelRow = drawsHeader ? 1 : rows / 2
-            text += "\u{1B}[\(labelRow);\(max(2, (columns - label.count) / 2))H\(label)"
-            text += "\u{1B}[\(drawsHeader ? rows : rows / 2 + 1);3H"
+            let label = "Mac grid \(columns)×\(rows)"
+            text += "\u{1B}[\(rows / 2);\(max(2, (columns - label.count) / 2))H\(label)"
+            text += "\u{1B}[\(rows / 2 + 1);3H"
         } else {
             let ruler = (0..<columns).map { String($0 % 10) }.joined()
             let tens = (0..<columns).map { $0 % 10 == 0 ? String(($0 / 10) % 10) : " " }.joined()

@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
 import Darwin
 import Foundation
@@ -460,4 +459,3 @@ struct CmxIrohLibEndpointTests {
         return (endpoint, driver.addr())
     }
 }
-#endif

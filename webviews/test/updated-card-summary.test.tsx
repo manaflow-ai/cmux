@@ -104,8 +104,7 @@ const note = () => [...host.querySelectorAll(".wn-card-note")].map((n) => n.text
 test("the Updated card summarizes every skipped nightly by area, not the newest commit's subject", async () => {
   await renderCard(data, span);
   // The newest commit is one change among the rest, never the card's headline.
-  // The change in full, never cut at its first clause (u51892: "we need to show everything").
-  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color, not grey"]);
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
   // CI, tests and autofixes stay out; no count of the rest.
   expect(host.querySelector(".wn-card-more")).toBeNull();
   expect(host.textContent).not.toContain("shard");
@@ -170,8 +169,7 @@ test("a build whose What's New is the generic entry shows its real top change, n
     },
     [build],
   );
-  // The change in full, never cut at its first clause (u51892: "we need to show everything").
-  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color, not grey"]);
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
   expect(host.textContent?.toLowerCase()).not.toContain("fixes and improvements");
 });
 

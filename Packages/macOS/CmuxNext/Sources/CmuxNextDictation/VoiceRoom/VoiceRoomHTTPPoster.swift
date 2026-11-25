@@ -1,4 +1,3 @@
-public import CmuxEgress
 public import Foundation
 
 /// ``VoiceRoomPosting`` over HTTP: `POST <room>/api/transcript` with the line as JSON.
@@ -9,7 +8,7 @@ public struct VoiceRoomHTTPPoster: VoiceRoomPosting {
     /// - Parameters:
     ///   - address: The room.
     ///   - session: The URL session; tests pass one with a stub protocol.
-    public init(address: VoiceRoomAddress, session: URLSession = CmuxEgress.shared(site: "CmuxNextDictation.VoiceRoomHTTPPoster")) {
+    public init(address: VoiceRoomAddress, session: URLSession = .shared) {
         self.address = address
         self.session = session
     }

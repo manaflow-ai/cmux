@@ -4,8 +4,7 @@ import { Tooltip } from "../../ui/Tooltip";
 import { Clock as ClockText } from "../../ui/Typography";
 import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
-import { Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
-import { HatChevron } from "./subagents/HatChevron";
+import { ChevronDown, Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
 import { formatDuration } from "./conversation/turns";
 import { goalHatPlace } from "./goalHat.experiment";
 import { cssTimeMs } from "./conversation/fold";
@@ -87,10 +86,8 @@ function GoalStrip({
   const canControl = provider === "codex";
   const live = goal.status === "running" || goal.status === "active";
   const done = goal.status === "done" || goal.status === "complete";
-  // A live goal is just "Goal": its mark says it runs; only met, paused and stalled are worded
-  // (Leo, 2026-11-23: ""running" doesn't need text. it can usually just be.").
   const status = live
-    ? t("goal.label")
+    ? t("goal.headRunning")
     : done
       ? t("goal.headMet")
       : goal.status === "paused"
@@ -367,7 +364,7 @@ function GoalStrip({
         </span>
         <GoalTime goal={goal} live={live} />
         <span className="acpmux-goal-chevron" aria-hidden="true">
-          <HatChevron />
+          <ChevronDown size={14} />
         </span>
       </span>
       {error && (

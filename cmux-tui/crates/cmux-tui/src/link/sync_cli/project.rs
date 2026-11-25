@@ -28,8 +28,6 @@
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
-//!     cmux link project pin | unpin --socket S --at REMOTE FOLDER PATH   (available offline)
-//!     cmux link project pins --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::collections::BTreeMap;
@@ -41,7 +39,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
-use cmux_projection::link::{Source, answer_asks, answer_asks_packed};
+use cmux_projection::link::{Source, answer_asks};
 use cmux_projection::manifest::{Item, Kind, Manifest};
 use cmux_projection::wire::{self, Part};
 use serde_json::{Value, json};
@@ -83,15 +81,6 @@ fn ok(answer: &Value) -> bool {
     answer.get("ok").and_then(Value::as_bool) == Some(true)
 }
 
-/// Whether the machine's answer says it reads binary lines and packed answers (`"wire": 2`,
-/// `cmux_tui_core::projection`'s module docs): this Mac then writes both on the dial.
-fn packs(answer: &Value) -> bool {
-    answer
-        .pointer("/data/wire")
-        .and_then(Value::as_u64)
-        .is_some_and(|wire| wire >= u64::from(cmux_tui_core::projection::WIRE))
-}
-
 fn code(answer: &Value) -> Option<&str> {
     answer.get("error_code").and_then(Value::as_str)
 }
@@ -105,9 +94,7 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
-                     REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
-                     moves on|off";
+                     archived|deleted] | enable | disable | status | moves on|off";
 
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
@@ -129,9 +116,6 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
-        Some(cmd @ ("pin" | "unpin" | "pins")) => {
-            super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
-        }
         _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
@@ -560,7 +544,6 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     if !ok(&answer) {
         return Ok(answer);
     }
-    let packed = packs(&answer);
     // The folder is mounted and the chat can start; without a base, Bring Back says so
     // (`sync_no_base`) rather than guess.
     let kept = match made {
@@ -587,7 +570,6 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
         (answer.get_mut("data").and_then(Value::as_object_mut), timing)
     {
         data.extend(timing);
-        data.insert("kept_on_mac".into(), json!(listed.manifest.kept_count()));
     }
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
@@ -620,7 +602,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
                 }
             });
         }
-        serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);
+        serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
     });
     Ok(Value::Null)
 }
@@ -694,7 +676,7 @@ fn serve_until_gone(
     at: &str,
     encoded: &[u8],
     listed: &Listed,
-    first: (BufReader<UnixStream>, bool),
+    first: BufReader<UnixStream>,
     revisions: &mut Revisions,
 ) {
     let mut stream = Some(first);
@@ -705,20 +687,17 @@ fn serve_until_gone(
     // each refusal is the same line.
     let mut last_error: Option<String> = None;
     loop {
-        if let Some((reader, packed)) = stream.take() {
+        if let Some(reader) = stream.take() {
             unreachable_since = None;
             backoff = Duration::from_millis(200);
             last_error = None;
             if let Ok(writer) = reader.get_ref().try_clone() {
-                // Lines both ways: the Cloud carrier moves whole lines only (`dial`). A machine
-                // that said `"wire": 2` gets binary lines and packed answers.
-                let reader = cmux_tui_core::projection::LineReader::new(reader);
-                let _ = if packed {
-                    let writer = cmux_tui_core::projection::LineWriter::binary(writer);
-                    answer_asks_packed(reader, writer, listed)
-                } else {
-                    answer_asks(reader, cmux_tui_core::projection::LineWriter::new(writer), listed)
-                };
+                // Lines both ways: the Cloud carrier moves whole lines only (`dial`).
+                let _ = answer_asks(
+                    cmux_tui_core::projection::LineReader::new(reader),
+                    cmux_tui_core::projection::LineWriter::new(writer),
+                    listed,
+                );
             }
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
@@ -733,7 +712,7 @@ fn serve_until_gone(
         let (dialed, quiet) = redial(socket, name, at, &[], None);
         via_quiet = quiet;
         match dialed {
-            Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
+            Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
                 // The machine forgot the folder: it fetches the listing from the store when it
                 // can, and only then is the whole manifest sent over this Mac's uplink.
@@ -763,7 +742,7 @@ fn serve_until_gone(
                     }
                 };
                 match again {
-                    Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
+                    Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
                     Ok((_, answer)) => {
                         eprintln!(
                             "cmux link project: the machine refused the folder again: {answer}"
@@ -877,9 +856,6 @@ fn ask(
         // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
-        // This Mac reads binary lines and packed answers; it writes them once the answer says
-        // the machine does too (an older machine ignores this and keeps base64 lines).
-        "wire": cmux_tui_core::projection::WIRE,
     });
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.
@@ -909,11 +885,9 @@ fn ask(
 }
 
 /// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
-/// modification time, as a manifest; and every tracked file the copy's rules keep here, listed by
-/// its stat alone ([`super::project_kept`]), whose bytes are never served.
+/// modification time, as a manifest.
 fn list(folder: &Path) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
-    let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
     let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
     let stats = stat_all(&files);
@@ -945,28 +919,7 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             link: Some(linked.target.clone()),
         });
     }
-    let manifest = if home.is_empty() {
-        Manifest::build(root_mtime, items)?
-    } else {
-        let without = items.clone();
-        items.extend(home.iter().map(|kept| kept.item.clone()));
-        match Manifest::build(root_mtime, items) {
-            Ok(mut manifest) => {
-                for kept in &home {
-                    if let Some(index) = manifest.resolve(&kept.item.path) {
-                        manifest.keep_home(index, kept.why.text())?;
-                    }
-                }
-                manifest
-            }
-            // A kept file that no longer fits the listing (its folder became a file since): the
-            // folder goes without them, as before.
-            Err(error) => {
-                eprintln!("cmux link project: tracked files kept here are not listed: {error:#}");
-                Manifest::build(root_mtime, without)?
-            }
-        }
-    };
+    let manifest = Manifest::build(root_mtime, items)?;
     let mut served: Vec<Option<Served>> = Vec::new();
     served.resize_with(manifest.len(), || None);
     for (relative, file) in kept {

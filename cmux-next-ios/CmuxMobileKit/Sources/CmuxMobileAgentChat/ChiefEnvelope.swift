@@ -75,7 +75,7 @@ struct ChiefContextRow: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.cmuxPressLine)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityValue(open ? "Expanded" : "Collapsed")
                 Button {
                     UIPasteboard.general.string = context

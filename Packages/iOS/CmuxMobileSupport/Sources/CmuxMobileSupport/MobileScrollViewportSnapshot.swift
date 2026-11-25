@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 public import CoreGraphics
-#else
-public import Foundation
-#endif
 
 /// Captures the visible bottom edge of a scroll view before its keyboard inset changes.
 ///

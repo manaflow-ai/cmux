@@ -13,7 +13,6 @@ import java.util.Objects;
 /** Immutable set-client-info request. Protocol v6; authority: control. */
 public final class SetClientInfoRequest implements WireValue {
     private final Field<Long> apiRevision;
-    private final Field<String> apiVersion;
     private final Field<List<String>> capabilities;
     private final Field<String> deviceId;
     private final Field<String> deviceKind;
@@ -28,7 +27,6 @@ public final class SetClientInfoRequest implements WireValue {
 
     private SetClientInfoRequest(Builder builder) {
         this.apiRevision = builder.apiRevision;
-        this.apiVersion = builder.apiVersion;
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
         this.deviceId = builder.deviceId;
         this.deviceKind = builder.deviceKind;
@@ -45,7 +43,6 @@ public final class SetClientInfoRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Long> apiRevision() { return apiRevision; }
-    public Field<String> apiVersion() { return apiVersion; }
     public Field<List<String>> capabilities() { return capabilities; }
     public Field<String> deviceId() { return deviceId; }
     public Field<String> deviceKind() { return deviceKind; }
@@ -64,10 +61,6 @@ public final class SetClientInfoRequest implements WireValue {
         Object rawApiRevision = Wire.optional(object, "api_revision");
         if (!Wire.isMissing(rawApiRevision)) {
             builder.apiRevision(rawApiRevision == null ? null : Wire.uint32(rawApiRevision, "SetClientInfoRequest.api_revision"));
-        }
-        Object rawApiVersion = Wire.optional(object, "api_version");
-        if (!Wire.isMissing(rawApiVersion)) {
-            builder.apiVersion(rawApiVersion == null ? null : Wire.string(rawApiVersion, "SetClientInfoRequest.api_version"));
         }
         Object rawCapabilities = Wire.optional(object, "capabilities");
         if (!Wire.isMissing(rawCapabilities)) {
@@ -120,7 +113,6 @@ public final class SetClientInfoRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "api_revision", apiRevision);
-        Wire.put(object, "api_version", apiVersion);
         Wire.put(object, "capabilities", capabilities);
         Wire.put(object, "device_id", deviceId);
         Wire.put(object, "device_kind", deviceKind);
@@ -138,18 +130,17 @@ public final class SetClientInfoRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetClientInfoRequest that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(apiVersion, that.apiVersion) && Objects.equals(capabilities, that.capabilities) && Objects.equals(deviceId, that.deviceId) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(install, that.install) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(remote, that.remote) && Objects.equals(userId, that.userId) && Objects.equals(version, that.version);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(capabilities, that.capabilities) && Objects.equals(deviceId, that.deviceId) && Objects.equals(deviceKind, that.deviceKind) && Objects.equals(deviceName, that.deviceName) && Objects.equals(displayName, that.displayName) && Objects.equals(install, that.install) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(remote, that.remote) && Objects.equals(userId, that.userId) && Objects.equals(version, that.version);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, apiVersion, capabilities, deviceId, deviceKind, deviceName, displayName, install, kind, name, remote, userId, version); }
+    public int hashCode() { return Objects.hash(apiRevision, capabilities, deviceId, deviceKind, deviceName, displayName, install, kind, name, remote, userId, version); }
 
     @Override
     public String toString() { return "SetClientInfoRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Long> apiRevision = Field.omitted();
-        private Field<String> apiVersion = Field.omitted();
         private Field<List<String>> capabilities = Field.omitted();
         private Field<String> deviceId = Field.omitted();
         private Field<String> deviceKind = Field.omitted();
@@ -164,10 +155,6 @@ public final class SetClientInfoRequest implements WireValue {
 
         public Builder apiRevision(Long value) {
             this.apiRevision = Field.ofNullable(value);
-            return this;
-        }
-        public Builder apiVersion(String value) {
-            this.apiVersion = Field.ofNullable(value);
             return this;
         }
         public Builder capabilities(List<String> value) {

@@ -1,0 +1,161 @@
+import { readFileSync } from "node:fs";
+import { beforeAll, describe, expect, it } from "vite-plus/test";
+import { finishLine, initSync, OptChat, sizeCheck } from "../src/optchat-wasm/optchat_wasm.js";
+
+/** The JS side of the hosted placement: what the MemoryDO keeps in SQLite. */
+class Store {
+  messages: Array<{ kind: string; text: string }> = [];
+  nodes = new Map<string, string>();
+  message(i: number) {
+    return this.messages[i]!;
+  }
+  node(l: number, i: number) {
+    return this.nodes.get(`${l}:${i}`);
+  }
+}
+
+type Work = { kind: "free"; l: number; i: number; text: string } | { kind: "model"; l: number; i: number };
+
+/** Builds every node the pump asks for: free ones as given, model ones with a fixed summary. */
+function drain(memory: OptChat, store: Store, summary: (l: number, i: number) => string) {
+  for (;;) {
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    if (work.length === 0) return;
+    for (const w of work) {
+      const text = w.kind === "free" ? w.text : summary(w.l, w.i);
+      store.nodes.set(`${w.l}:${w.i}`, text);
+      if (w.kind === "model") memory.complete(w.l, w.i, text);
+    }
+  }
+}
+
+describe("optchat-core as WebAssembly (hosted placement)", () => {
+  beforeAll(() => {
+    initSync({ module: readFileSync(new URL("../src/optchat-wasm/optchat_wasm_bg.wasm", import.meta.url)) });
+  });
+
+  it("keeps short messages verbatim, folds, zooms and renders through a JS store", () => {
+    const store = new Store();
+    const memory = new OptChat(0);
+    for (const [kind, text] of [
+      ["user", "keep CSV and add JSON"],
+      ["talk", "done"],
+      ["tool", "x".repeat(2_000)],
+      ["echo", "ok"],
+    ] as const) {
+      store.messages.push({ kind, text });
+      expect(memory.append()).toBe(store.messages.length - 1);
+    }
+    drain(memory, store, (l, i) => `summary of ${l}:${i}`);
+    expect(memory.settled()).toBe(true);
+    expect(memory.zoom(store, 0, 1)).toBe("0+0|user: keep CSV and add JSON");
+    expect(memory.zoom(store, 0, 2)).toBe("0+1|user: keep CSV and add JSON\n1+1|talk: done");
+    expect(() => memory.zoom(store, 1, 2)).toThrow("No line 1+2.");
+    const view = JSON.parse(memory.renderView(store)) as { text: string; marks: number[] };
+    expect(view.text.startsWith("<chat>\n") && view.text.endsWith("</chat>")).toBe(true);
+    expect(view.text).toContain("summary of 0:2");
+  });
+
+  it("reloads to the same view and builds compactor requests with the chosen prompt", () => {
+    const store = new Store();
+    const memory = new OptChat(4_000);
+    for (let k = 0; k < 300; k++) {
+      store.messages.push({ kind: k % 2 ? "talk" : "user", text: "w".repeat(k % 3 === 0 ? 40 : 900) });
+      memory.append();
+      drain(memory, store, (l, i) => `s${l}:${i} `.padEnd(200, "."));
+    }
+    const built = [...store.nodes].map(([key, text]) => {
+      const [l, i] = key.split(":").map(Number);
+      return [l, i, new TextEncoder().encode(text).length];
+    });
+    const reloaded = OptChat.load(memory.len(), JSON.stringify(built), 4_000);
+    expect(reloaded.view()).toBe(memory.view());
+    expect(memory.viewSize()).toBeLessThanOrEqual(4_000);
+
+    store.messages.push({ kind: "echo", text: "z".repeat(3_000) });
+    memory.append();
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toEqual([{ kind: "model", l: 0, i: 300 }]);
+    const request = JSON.parse(memory.compactRequest(store, 0, 300, "cmux", "", "Chief")) as Record<string, string>;
+    expect(request.system!.startsWith("You write the memory of Chief")).toBe(true);
+    expect(request.system).toContain("Never copy a secret into a line");
+    expect(request.step).toContain("Compress this message into one line, in at most 512 bytes:\necho: zzz");
+  });
+
+  it("runs the size loop", () => {
+    expect(JSON.parse(sizeCheck(JSON.stringify(["  short  "])))).toEqual({ accept: "short" });
+    expect(JSON.parse(sizeCheck(JSON.stringify(["a".repeat(600)]))).retry).toContain("That line is 600 bytes");
+    expect(JSON.parse(sizeCheck(JSON.stringify([" "])))).toEqual({ fail: true });
+  });
+
+  it("exports the cut of a huge message so the host adds its prefix", () => {
+    // Audit round 3, m2: the wasm told the model the prefix was "added for
+    // you" but returned no cut, so nothing added it.
+    const store = new Store();
+    const memory = new OptChat(0);
+    store.messages.push({ kind: "echo", text: "e".repeat(400_000) });
+    memory.append();
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toContainEqual({ kind: "model", l: 0, i: 0 });
+    const request = JSON.parse(memory.compactRequest(store, 0, 0, "taelin", "", "Chief")) as {
+      cut: string | null;
+      room: number;
+      step: string;
+    };
+    expect(request.cut).toBe("(cut: 200000 of 400000 characters unread) ");
+    expect(request.room).toBe(512 - request.cut!.length);
+    expect(request.step).toContain(`in at most ${request.room} bytes`);
+    expect(finishLine(request.cut!, "echo: a long log")).toBe(`${request.cut}echo: a long log`);
+    expect(finishLine(request.cut!, `${request.cut}echo: x`)).toBe(`${request.cut}echo: x`);
+    const retry = JSON.parse(sizeCheck(JSON.stringify(["a".repeat(480)]), request.room)) as { retry: string };
+    expect(retry.retry).toContain(`the limit is ${request.room}`);
+  });
+
+  it("throws a failed or malformed store read and builds nothing from it", () => {
+    const store = new Store();
+    const memory = new OptChat(0);
+    store.messages.push({ kind: "user", text: "fine" });
+    memory.append();
+    drain(memory, store, () => "unused");
+    const broken = {
+      message: (i: number) => {
+        if (i === 1) throw new Error("SQLite busy");
+        return store.message(i);
+      },
+      node: (l: number, i: number) => store.node(l, i),
+    };
+    store.messages.push({ kind: "user", text: "later" });
+    memory.append();
+    expect(() => memory.pump(broken)).toThrow("SQLite busy");
+    expect(memory.settled()).toBe(false);
+    const malformed = { message: () => ({ kind: "mystery", text: "x" }), node: broken.node };
+    expect(() => memory.pump(malformed)).toThrow("unknown kind");
+    // The read works again: the real message becomes its node.
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toContainEqual({ kind: "free", l: 0, i: 1, text: "user: later" });
+    expect(() => memory.zoom(store, -1, 1)).toThrow("No line -1+1.");
+    expect(() => memory.zoom(store, Number.MAX_SAFE_INTEGER - 1, 2)).toThrow("No line");
+    expect(() => memory.complete(0, Number.NaN, "x")).toThrow("not a message id");
+  });
+
+  it("releases a model node whose compactor request fails on a read", () => {
+    // Audit round 2: pump marks the node busy; a failed read in compactRequest
+    // left it busy until the host called fail(), so a host that only retried
+    // compactRequest blocked every later level-0 node.
+    const store = new Store();
+    const memory = new OptChat(0);
+    store.messages.push({ kind: "tool", text: "y".repeat(3_000) });
+    memory.append();
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toContainEqual({ kind: "model", l: 0, i: 0 });
+    const broken = {
+      message: () => {
+        throw new Error("SQLite busy");
+      },
+      node: (l: number, i: number) => store.node(l, i),
+    };
+    expect(() => memory.compactRequest(broken, 0, 0, "taelin", "", "Chief")).toThrow("SQLite busy");
+    const again = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(again).toContainEqual({ kind: "model", l: 0, i: 0 });
+  });
+});

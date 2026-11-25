@@ -45,10 +45,6 @@ mod deploy;
 mod egress;
 pub(crate) mod envelope;
 #[cfg(unix)]
-mod git_install;
-#[cfg(unix)]
-mod git_source;
-#[cfg(unix)]
 mod github_gateway;
 #[cfg(unix)]
 mod grants;
@@ -95,8 +91,6 @@ mod overlay;
 mod page_bridge;
 #[cfg(unix)]
 mod page_calls;
-#[cfg(unix)]
-mod page_keys;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
@@ -168,8 +162,6 @@ use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
 pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
-#[cfg(unix)]
-pub(crate) use git_install::store_op_fetches;
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]

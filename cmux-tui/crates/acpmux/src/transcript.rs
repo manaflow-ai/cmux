@@ -62,7 +62,7 @@ pub struct Transcript {
     pub(crate) keeps_records: bool,
     /// Earliest item whose layout may have changed since the TUI consumed it.
     /// Streaming invalidates the mutable tail, not the entire conversation.
-    pub layout_dirty_from: usize,
+    pub(crate) layout_dirty_from: usize,
     pub last_seq: u64,
     pub status: String,
     pub mode: Option<String>,
@@ -93,7 +93,7 @@ pub struct Transcript {
     waiting_steers: Vec<(String, usize)>,
     /// Item indices removed since the TUI last read them, in order, so it can move
     /// state it keys by index (folds) with the rows that stay.
-    pub removed_items: Vec<usize>,
+    pub(crate) removed_items: Vec<usize>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -905,13 +905,14 @@ impl Transcript {
     }
 
     /// A transcript that keeps its records, so `prepend_events` can page older history in.
-    pub fn paging() -> Self {
+    pub(crate) fn paging() -> Self {
         Transcript { keeps_records: true, ..Transcript::default() }
     }
 
     /// Show an error this client raised (not one the daemon logged). A paging transcript keeps it
     /// as a record with no seq, so a rebuild puts it back where it was shown.
-    pub fn push_local_error(&mut self, text: String) {
+    #[cfg(feature = "tui")]
+    pub(crate) fn push_local_error(&mut self, text: String) {
         if self.keeps_records {
             self.raw_events.push(json!({"dir": LOCAL_ERROR, "text": text}));
         }
@@ -919,7 +920,8 @@ impl Transcript {
     }
 
     /// Record a message shown before the daemon echoes it, with the row it is shown as.
-    pub fn push_optimistic(&mut self, text: String, row: Item) {
+    #[cfg(any(test, feature = "tui"))]
+    pub(crate) fn push_optimistic(&mut self, text: String, row: Item) {
         self.items.push(row.clone());
         self.optimistic.push(text);
         if self.optimistic_rows.len() + 1 == self.optimistic.len() {

@@ -13,7 +13,6 @@ import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
 import { listPlacement } from "./listPlacement";
-import { ROW_ATTRIBUTE } from "./menuWindow";
 
 export interface PopupItem {
   id: string;
@@ -368,12 +367,7 @@ export function useEscapingPopup(
       // Another surface shows the panel: this one stays in the page.
       if (host.owner() && host.owner() !== me) return;
       const at = anchorRef.current();
-      // A windowed menu (menuWindow.tsx) has only the rows near its viewport mounted: the host would
-      // get those rows alone and no way to scroll to the rest, so it stays in the page's popup,
-      // which scrolls in whatever room the pane has.
-      const flat =
-        kind !== "menu" ||
-        !element.querySelector(`[aria-haspopup], input, textarea, [contenteditable], [${ROW_ATTRIBUTE}]`);
+      const flat = kind !== "menu" || !element.querySelector("[aria-haspopup], input, textarea, [contenteditable]");
       const { items } = popupItems(element, kind, active);
       const room = at?.getBoundingClientRect();
       if (!flat || !items.length || !room) return;

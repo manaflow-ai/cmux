@@ -9,6 +9,7 @@ use super::*;
 
 /// `agent-session-side`: the boundary of the fork and the side chat's first prompt.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Params {
     pub(super) surface: SurfaceId,
     #[serde(default)]

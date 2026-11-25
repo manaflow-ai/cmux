@@ -121,7 +121,7 @@ describe("the composer hat tucks away and comes back", () => {
       await act(async () => tuck.click());
       expect(host.querySelector(".acpmux-running-tray")).toBeNull();
       const tab = host.querySelector<HTMLButtonElement>(".acpmux-tray-pull__tab")!;
-      expect(tab.getAttribute("aria-label")).toBe("Show Running Work · 2 subagents");
+      expect(tab.getAttribute("aria-label")).toBe("Show Running Work · 2 running");
       await act(async () => tab.click());
       expect(host.querySelector(".acpmux-running-tray")).not.toBeNull();
       // The page sends the host one write 250 ms after the last change (chatDisplay.ts WRITE_DELAY_MS):
@@ -191,7 +191,7 @@ describe("the composer hat tucks away and comes back", () => {
       expect(host.querySelector(".acpmux-tray-pull__count")).toBeNull();
       expect(host.querySelector(".acpmux-tray-pull")?.hasAttribute("data-waiting")).toBe(true);
       expect(host.querySelector(".acpmux-tray-pull__tab")?.getAttribute("aria-label")).toBe(
-        "Show Running Work · 1 waiting · 2 subagents",
+        "Show Running Work · 1 waiting · 2 running",
       );
     } finally {
       await act(async () => root.unmount());

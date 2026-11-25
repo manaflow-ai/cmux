@@ -1,0 +1,80 @@
+{
+  "iosConnectionTests": {
+    "path": "/tmp/cmux-iv2a-20260910211351/Logs/Test/Test-cmux-ios-2026.09.10_22-01-25--0700.xcresult",
+    "summary": {
+      "devicesAndConfigurations": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "9331CE0B-B058-4320-AB0F-C5853BB4E723",
+            "deviceName": "iv2a-unit-20260910211351",
+            "modelName": "iPhone 17",
+            "osBuildNumber": "23D8133",
+            "osVersion": "26.3.1",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 0,
+          "passedTests": 13,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "environmentDescription": "cmux \u00b7 Built with macOS 26.5.1",
+      "expectedFailures": 0,
+      "failedTests": 0,
+      "finishTime": 1789102904.531,
+      "passedTests": 13,
+      "result": "Passed",
+      "skippedTests": 0,
+      "startTime": 1789102885.278,
+      "statistics": [],
+      "testFailures": [],
+      "title": "Test - cmux-ios",
+      "topInsights": [],
+      "totalTestCount": 13
+    }
+  },
+  "iosValidatorTests": {
+    "path": "/tmp/cmux-iv2a-20260910211351/Logs/Test/Test-cmux-ios-2026.09.10_22-03-24--0700.xcresult",
+    "summary": {
+      "devicesAndConfigurations": [
+        {
+          "device": {
+            "architecture": "arm64",
+            "deviceId": "9331CE0B-B058-4320-AB0F-C5853BB4E723",
+            "deviceName": "iv2a-unit-20260910211351",
+            "modelName": "iPhone 17",
+            "osBuildNumber": "23D8133",
+            "osVersion": "26.3.1",
+            "platform": "iOS Simulator"
+          },
+          "expectedFailures": 0,
+          "failedTests": 0,
+          "passedTests": 4,
+          "skippedTests": 0,
+          "testPlanConfiguration": {
+            "configurationId": "1",
+            "configurationName": "Test Scheme Action"
+          }
+        }
+      ],
+      "environmentDescription": "cmux \u00b7 Built with macOS 26.5.1",
+      "expectedFailures": 0,
+      "failedTests": 0,
+      "finishTime": 1789103009.106,
+      "passedTests": 4,
+      "result": "Passed",
+      "skippedTests": 0,
+      "startTime": 1789103004.739,
+      "statistics": [],
+      "testFailures": [],
+      "title": "Test - cmux-ios",
+      "topInsights": [],
+      "totalTestCount": 4
+    }
+  }
+}

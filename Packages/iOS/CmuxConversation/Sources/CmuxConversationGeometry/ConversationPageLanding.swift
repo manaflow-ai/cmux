@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 
 /// When a landed page of older messages waits before it is applied.
 ///

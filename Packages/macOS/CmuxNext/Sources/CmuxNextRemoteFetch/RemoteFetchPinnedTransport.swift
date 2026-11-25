@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 import Network
 
@@ -43,7 +42,7 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         tcp.connectionTimeout = Self.connectTimeoutSeconds
         let parameters = NWParameters(tls: tls, tcp: tcp)
         parameters.preferNoProxies = true
-        let connection = CmuxEgress.connection(host: host, port: port, using: parameters, site: "CmuxNextRemoteFetch.RemoteFetchPinnedTransport")
+        let connection = NWConnection(host: host, port: port, using: parameters)
         let exchange = Exchange(connection: connection, reader: RemoteFetchReplyReader(maximumBody: maximumBytes))
         let bytes = Self.encode(request)
         return try await withTaskCancellationHandler {

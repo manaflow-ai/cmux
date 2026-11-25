@@ -274,9 +274,9 @@ async fn a_report_queued_across_nine_ends_is_not_the_next_agents() {
         hub.end_managed_full_access(&chat).await;
     }
     let last = hub.child_for(&chat).await.expect("an agent");
-    chat.inbound_tx().send(report).await.unwrap();
+    chat.inbound_tx.send(report).await.unwrap();
     let (done, drained) = tokio::sync::oneshot::channel();
-    chat.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
+    chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
     drained.await.unwrap();
     assert_ne!(
         crate::web_modes::mode_of(&chat.meta()).as_deref(),
@@ -308,9 +308,9 @@ async fn a_report_of_an_agent_a_cap_stopped_is_not_the_next_agents() {
     hub.stop_full_access_agent(&chat, true).await;
     let next = hub.child_for(&chat).await.expect("an agent");
     assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
-    chat.inbound_tx().send(report).await.unwrap();
+    chat.inbound_tx.send(report).await.unwrap();
     let (done, drained) = tokio::sync::oneshot::channel();
-    chat.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
+    chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
     drained.await.unwrap();
     assert_ne!(
         crate::web_modes::mode_of(&chat.meta()).as_deref(),
@@ -360,9 +360,9 @@ async fn a_cap_stop_after_an_unset_during_its_mode_change_retires_the_agent() {
     assert!(!hub.full_access_managed_off(), "the unset did not land first");
     let next = hub.child_for(&chat).await.expect("an agent");
     assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
-    chat.inbound_tx().send(report).await.unwrap();
+    chat.inbound_tx.send(report).await.unwrap();
     let (done, drained) = tokio::sync::oneshot::channel();
-    chat.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
+    chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
     drained.await.unwrap();
     assert_ne!(
         crate::web_modes::mode_of(&chat.meta()).as_deref(),
@@ -392,9 +392,9 @@ async fn a_stop_for_the_persons_own_off_retires_nothing() {
     assert_eq!(chat.floor.retired_through.load(Ordering::SeqCst), 0, "a stop retired an agent");
     assert_eq!(chat.floor.report_epoch.load(Ordering::SeqCst), epoch, "a stop moved the epoch");
     hub.child_for(&chat).await.expect("an agent");
-    chat.inbound_tx().send(report).await.unwrap();
+    chat.inbound_tx.send(report).await.unwrap();
     let (done, drained) = tokio::sync::oneshot::channel();
-    chat.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
+    chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
     drained.await.unwrap();
     assert_eq!(
         crate::web_modes::mode_of(&chat.meta()).as_deref(),

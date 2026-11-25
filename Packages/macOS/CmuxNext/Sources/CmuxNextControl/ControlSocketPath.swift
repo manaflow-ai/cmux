@@ -7,15 +7,10 @@ import Darwin
 ///
 /// | Build | Path |
 /// | --- | --- |
-/// | tagged debug (bundle `com.cmuxterm.app.debug.<tag>`, or a bundled tag) | `~/.local/state/cmux-next/cmux-debug-<tag>.sock` |
-/// | untagged debug | `~/.local/state/cmux-next/cmux-debug.sock` |
-/// | nightly / rc / staging (optionally tagged) | `~/.local/state/cmux-next/cmux-<channel>[-<tag>].sock` |
-/// | release | `~/.local/state/cmux-next/cmux.sock` |
-///
-/// The folder is NEXT's own (`~/.local/state/cmux-next`), never classic cmux's `~/.local/state/cmux`
-/// (cmuxterm-hq goals/next-zero-classic-footprint-all-surfaces.md); the `cmux` CLI resolves the same
-/// path (cmux-agent-pane-policy `build_identity::SOCKET_STATE_DIR`) and still reaches an app from
-/// before the move in the old folder.
+/// | tagged debug (bundle `com.cmuxterm.app.debug.<tag>`, or a bundled tag) | `~/.local/state/cmux/cmux-debug-<tag>.sock` |
+/// | untagged debug | `~/.local/state/cmux/cmux-debug.sock` |
+/// | nightly / rc / staging (optionally tagged) | `~/.local/state/cmux/cmux-<channel>[-<tag>].sock` |
+/// | release | `~/.local/state/cmux/cmux.sock` |
 ///
 /// The sockets live in the user's own state folder (0700), not in `/tmp`: a
 /// host's /tmp cleaner deleted a running app's `/tmp/cmux-debug-<tag>.sock`
@@ -46,14 +41,8 @@ public struct ControlSocketPath: Sendable {
     /// Longest path `sockaddr_un.sun_path` holds, without its terminating NUL.
     static let maxPathBytes = MemoryLayout.size(ofValue: sockaddr_un().sun_path) - 1
 
-    /// The state folder every cmux-next control socket lives in: `~/.local/state/cmux-next`.
+    /// The state folder every cmux-next control socket lives in.
     public func stateDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
-        home.appending(path: ".local/state/cmux-next").path
-    }
-
-    /// Where builds before ``stateDirectory(home:)`` put their sockets, classic cmux's state folder: only
-    /// listed (``peerSocketPaths(home:fileManager:)``), never written.
-    public func stateDirectoryBefore(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
         home.appending(path: ".local/state/cmux").path
     }
 
@@ -111,7 +100,7 @@ public struct ControlSocketPath: Sendable {
         if isDebugBuild {
             return "/tmp/cmux-debug.sock"
         }
-        return home.appending(path: ".local/state/cmux-next/cmux.sock").path
+        return home.appending(path: ".local/state/cmux/cmux.sock").path
     }
 
     /// The tag a tagged bundle id carries (`com.cmuxterm.app.debug.<tag>`
@@ -150,9 +139,7 @@ public struct ControlSocketPath: Sendable {
             "/tmp/cmux-debug.sock",
             state + "/cmux.sock",
         ])
-        // The old folder is Classic's too: only NEXT's own channel sockets there
-        // are peers, never Classic's release `cmux.sock`.
-        for directory in ["/tmp", state, stateDirectoryBefore(home: home)] {
+        for directory in ["/tmp", state] {
             for entry in (try? fileManager.contentsOfDirectory(atPath: directory)) ?? []
             where ["cmux-debug", "cmux-nightly", "cmux-rc", "cmux-staging", "cmux-release"].contains(where: entry.hasPrefix)
                 && entry.hasSuffix(".sock") {

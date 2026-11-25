@@ -6,7 +6,6 @@ use crate::tailnet::{Node, Status};
 
 fn node(name: &str, online: bool) -> Node {
     Node {
-        path: crate::tailnet::PeerPath::Unknown,
         host_name: name.into(),
         dns_name: format!("{name}.tail9.ts.net"),
         os: "linux".into(),

@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 import Network
 
@@ -28,7 +27,7 @@ public nonisolated struct AcpmuxInstallCanary {
         "protocolVersion": 1,
         "clientInfo": ["name": "cmux-react-agent-pane", "version": "1"],
         "clientCapabilities": [String: any Sendable](),
-        "_meta": ["acpmux": ["peerRowBatches": true, "chunkDeltas": true, "sessionChangedDelta": true]],
+        "_meta": ["acpmux": ["peerRowBatches": true]],
     ]
 
     /// The page's first frame, as text.
@@ -55,7 +54,7 @@ public nonisolated struct AcpmuxInstallCanary {
         if let refusal = relayRefusal() { return .refused(refusal, retryable: false) }
         let connection: NWConnection
         do {
-            connection = CmuxEgress.connection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxInstallCanary")
+            connection = NWConnection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp)
         } catch {
             return .inconclusive(String(describing: error))
         }

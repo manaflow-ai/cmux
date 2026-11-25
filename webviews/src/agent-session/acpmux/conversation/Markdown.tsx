@@ -18,7 +18,7 @@ import { isChart } from "./diagramBlockModel";
 import { canRender } from "./renderCardModel";
 import { renderFence } from "./renderCall";
 import { TourBlock, isTourFence } from "../repoTour/TourBlock";
-import { CompareButton, RemoteMedia } from "../chips/ReplyMedia";
+import { RemoteMedia } from "../chips/ReplyMedia";
 import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import { MathDisplay } from "./Math";
@@ -30,7 +30,7 @@ import { ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
 
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { imageOnlyItems, proseImages, videoPair, type ThumbItem } from "./inlineMedia";
+import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { useStartedMentions } from "../started/startedSessionCardModel";
 import { entranceAllowed } from "../../shared/pageReveal";
@@ -50,11 +50,8 @@ function listNumberStyle(block: { ordered: boolean; start: number; items: unknow
 /// Thumbnails of `items` (inlineMedia.ts): one alone, or a row where each has the same share of
 /// the width, so a before/after pair sits side by side, captioned by its label or alt text.
 /// A written label (`Before:`) is always its caption; an alt text is one only in a row.
-/// A paragraph of only two videos (a before/after pair) also offers Compare; two clips merely named in a
-/// sentence do not: both on one clock (VideoPlayback.tsx).
-function Thumbs({ items, opts, compare = false }: { items: ThumbItem[]; opts: InlineOptions; compare?: boolean }) {
+function Thumbs({ items, opts }: { items: ThumbItem[]; opts: InlineOptions }) {
   const row = items.length > 1;
-  const pair = compare ? videoPair(items) : undefined;
   return (
     <span className={`cv-thumbs${row ? " is-row" : ""}`} data-count={items.length}>
       {items.map((item, index) => {
@@ -66,7 +63,6 @@ function Thumbs({ items, opts, compare = false }: { items: ThumbItem[]; opts: In
           </span>
         );
       })}
-      {pair && <CompareButton items={pair} />}
     </span>
   );
 }
@@ -126,7 +122,7 @@ function Block({
         return (
           <p className={`cv-p cv-p--images${motion}`}>
             <InlineTail trailing={trailing}>
-              <Thumbs items={images} opts={opts} compare />
+              <Thumbs items={images} opts={opts} />
             </InlineTail>
           </p>
         );

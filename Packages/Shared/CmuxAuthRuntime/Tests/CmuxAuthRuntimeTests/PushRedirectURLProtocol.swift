@@ -1,4 +1,3 @@
-#if canImport(Darwin) // URLProtocol redirect probing needs Darwin's URL loading
 import Foundation
 
 /// End-to-end URL loading probe for mutating redirect behavior.
@@ -108,4 +107,3 @@ actor PushRedirectState {
         targetRequests.append(request)
     }
 }
-#endif

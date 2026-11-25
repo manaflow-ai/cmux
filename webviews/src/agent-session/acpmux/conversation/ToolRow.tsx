@@ -95,12 +95,11 @@ export const ToolRow = memo(function ToolRow({
   const label = toolLabel(
     tool,
     item.text,
-    // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
-    // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
-    (command) => (running ? command : t("tools.ranCommand", { command })),
+    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
+    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
-    running || asRun ? undefined : t("tools.ranUnnamed"),
-    !asRun && !running,
+    t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    !asRun,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);

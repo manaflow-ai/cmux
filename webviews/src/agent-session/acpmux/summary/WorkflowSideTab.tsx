@@ -4,7 +4,6 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { StateMark } from "./StateMark";
 import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
@@ -150,7 +149,7 @@ function Lanes({
         <section key={phase.id} className="acpmux-workflow-side-tab__lane" data-state={phase.state}>
           <header>
             <span>{phaseLabel(t, phase)}</span>
-            <StateMark state={phase.state} label={stateLabel(t, phase.state)} mark />
+            <span>{stateLabel(t, phase.state)}</span>
           </header>
           <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         </section>
@@ -194,9 +193,7 @@ function Table({
                   />
                 </ul>
               </td>
-              <td>
-                <StateMark state={agent.state} label={stateLabel(t, agent.state)} mark />
-              </td>
+              <td>{stateLabel(t, agent.state)}</td>
             </tr>
           )),
         )}
@@ -236,7 +233,7 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
             ) : (
               <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={ROW_ICON} row />
             )}
-            <StateMark state={workflow.state} label={stateLabel(t, workflow.state)} />
+            {stateLabel(t, workflow.state)}
           </span>
           {elapsed !== undefined && (
             <time>

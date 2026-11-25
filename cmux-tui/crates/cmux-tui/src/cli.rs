@@ -5,8 +5,6 @@
 //! accidentally fall back to the private command protocol.
 
 #[cfg(unix)]
-mod account_limit;
-#[cfg(unix)]
 mod action_hint;
 #[cfg(unix)]
 mod agent_config;
@@ -130,8 +128,6 @@ mod key_broker;
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
-mod autocloud;
-#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod customize;
@@ -172,8 +168,6 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
-mod mcp_servers;
-#[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
 mod repo_hold;
@@ -182,8 +176,6 @@ mod repo_mcp_lazy;
 #[cfg(unix)]
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
-#[cfg(unix)]
-mod repro;
 #[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
@@ -199,8 +191,6 @@ mod vm_gcp;
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
-#[cfg(unix)]
-mod vm_tailnet;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
@@ -282,8 +272,6 @@ pub(crate) use machine_server::is_lifecycle_scope;
 mod computer_use;
 #[cfg(unix)]
 mod mcp;
-#[cfg(unix)]
-mod migrate;
 mod older_daemon;
 // `cmux pack`: theme packs (a whole look as one folder), swap, undo, redo, live edit.
 #[cfg(unix)]
@@ -335,8 +323,6 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
-#[cfg(unix)]
-mod video;
 #[cfg(unix)]
 mod wallpaper;
 mod wire;
@@ -650,7 +636,6 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "move",
     "teleport",
     "evacuate",
-    "video",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1077,8 +1062,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
-        .or_else(|| autocloud::run_if_requested(args))
-        .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -1086,8 +1069,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
-        .or_else(|| repro::run_if_requested(args))
-        .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
@@ -1123,7 +1104,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
-        .or_else(|| video::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
@@ -1293,7 +1273,7 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
+        Some("get" | "set" | "reset" | "unset" | "edit") => true,
         _ => false,
     }
 }
@@ -1863,7 +1843,6 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
-        "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),

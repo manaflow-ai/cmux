@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Foundation
 
 // Safari's address label rules: one short, single-line label per page, and

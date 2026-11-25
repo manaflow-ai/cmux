@@ -32,7 +32,6 @@ public nonisolated enum AgentChatRefusal: Sendable {
     }
 }
 
-#if canImport(AppKit)
 public extension ActionRegistry {
     /// `cause`'s reason for the action `id`, named by its title.
     func reason(_ cause: AgentChatRefusal, for id: ActionID) -> String {
@@ -66,4 +65,3 @@ public extension ActionRegistry {
         }
     }
 }
-#endif

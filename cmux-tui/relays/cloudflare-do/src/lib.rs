@@ -8,7 +8,6 @@ mod inline;
 #[cfg(test)]
 mod interleavings;
 mod park;
-mod placement;
 mod routing;
 mod slot;
 mod wire;

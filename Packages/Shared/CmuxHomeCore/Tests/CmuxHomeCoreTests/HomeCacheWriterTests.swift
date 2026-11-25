@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
 import os
-#endif
 import Testing
 @testable import CmuxHomeCore
 
@@ -24,11 +22,7 @@ import Testing
         var labels: [String] { state.withLock { $0.labels } }
 
         func write(_ data: Data, _ url: URL) throws {
-            #if canImport(Darwin)
             let label = String(cString: __dispatch_queue_get_label(nil))
-            #else
-            let label = DispatchSerialQueue.currentLabel ?? "" // the Linux stand-in's label
-            #endif
             let call = state.withLock { state -> Int in
                 state.calls += 1
                 state.labels.append(label)

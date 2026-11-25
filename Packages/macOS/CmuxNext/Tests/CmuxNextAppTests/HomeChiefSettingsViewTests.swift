@@ -77,10 +77,10 @@ import Testing
         view.frame.size = view.fittingSize
         view.layoutSubtreeIfNeeded()
         #expect(view.fittingSize.width == HomeChiefSettingsView.width)
-        // The name field runs from beside the avatar to its group's trailing padding (``HomeChiefFormGroup``).
+        // The name field runs from beside the avatar to the card's trailing inset.
         let box = try #require(fields.first?.superview)
         let trailing = view.convert(box.bounds, from: box).maxX
-        #expect(abs(trailing - (HomeChiefSettingsView.width - HomeChiefSettingsView.inset - HomeChiefFormGroup.padding)) < 1)
+        #expect(abs(trailing - (HomeChiefSettingsView.width - HomeChiefSettingsView.inset)) < 1)
     }
 
     @Test func leavingAnUnchangedNameRenamesNothing() async {

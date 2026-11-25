@@ -159,11 +159,10 @@ export function SlashMenu({
             }
           : undefined
       }
-      // The row's own `highlighted`, not `active`: a renderItem that read `active` would change with
-      // every highlight move (a scroll moves it), and every drawn row would draw again.
-      renderItem={(match, _index, highlighted) => {
+      renderItem={(match, index) => {
         // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
+        const highlighted = index === active;
         const fastName = t("picker.tierFast");
         return (
           <>

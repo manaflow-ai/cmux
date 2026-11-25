@@ -7,7 +7,6 @@ use serde::Deserialize;
 // Frozen provider-v1 descriptor from the target base, before metadata was added.
 // The external decoder's unknown-field rule is the compatibility oracle.
 #[derive(Debug, Deserialize)]
-// skew: strict test oracle: models a shipped strict v1 client
 #[serde(deny_unknown_fields)]
 struct LegacyMachine {
     id: OpaqueId,

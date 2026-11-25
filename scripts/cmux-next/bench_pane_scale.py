@@ -77,9 +77,7 @@ class _ThreadInfo(ctypes.Structure):
                 ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
 
 
-import macos_libs  # noqa: E402
-
-_libproc = macos_libs.library("/usr/lib/libproc.dylib")
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 
 
 def thread_times(pid):

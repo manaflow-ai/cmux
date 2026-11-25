@@ -96,5 +96,14 @@ impl LeaderExit {
 /// Tests only: this thread's agents start as if the kernel had no exit event, so their readers
 /// keep the timed check (`agent_idle_tests.rs`).
 #[cfg(test)]
-#[path = "leader_exit_timed_check_only_tests.rs"]
-pub(crate) mod timed_check_only;
+pub(crate) mod timed_check_only {
+    thread_local! {
+        static ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    pub(crate) fn set(on: bool) {
+        ON.with(|o| o.set(on));
+    }
+    pub(super) fn on() -> bool {
+        ON.with(std::cell::Cell::get)
+    }
+}

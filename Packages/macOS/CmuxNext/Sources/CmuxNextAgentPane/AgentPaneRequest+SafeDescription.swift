@@ -15,6 +15,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .reconnect: "reconnect"
         case .uiPointerReport: "uiPointerReport"
         case .restartAcpmux: "restartAcpmux"
+        case .restartStuckAcpmux: "restartStuckAcpmux"
         case .persistSession: "persistSession"
         case .missingChat: "missingChat"
         case .unsentDraft: "unsentDraft"
@@ -106,7 +107,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .copyText: "copyText"
         case .tabRowToolsSet: "tabRowToolsSet"
         case .tabRowToolsOpenMenu: "tabRowToolsOpenMenu"
-        case .customizationsMenu: "customizationsMenu"
         case .btwInline: "btwInline"
         case .sideChat: "sideChat"
         case .chatTab: "chatTab"
@@ -122,7 +122,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
         case .launchSettle: "launchSettle"
-        case .inputEchoed: "inputEchoed"
         case .painted(_, _, true, _): "painted(copy)"
         case .painted(let fromKeptTail, let settled, _, _):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"

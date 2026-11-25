@@ -10,21 +10,9 @@
         "ty": "uint32",
         "required": true
       },
-      "/activity/echo_at_ms": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/activity/echo_input_at_ms": {
-        "ty": "uint64",
-        "nullable": true
-      },
       "/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
-        "nullable": true
-      },
-      "/activity/last_person_attach_at_ms": {
-        "ty": "uint64",
         "nullable": true
       },
       "/activity/last_user_input_at_ms": {
@@ -8898,10 +8886,6 @@
         "ty": "json",
         "required": true,
         "nullable": true
-      },
-      "/op_id": {
-        "ty": "string",
-        "nullable": true
       }
     },
     "request:conversation-link-resolve": {
@@ -10207,10 +10191,6 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {
-      "/after": {
-        "ty": "uint64",
-        "nullable": true
-      },
       "/known": {
         "ty": "object",
         "nullable": true
@@ -12178,10 +12158,6 @@
         "ty": "uint32",
         "nullable": true
       },
-      "/api_version": {
-        "ty": "string",
-        "nullable": true
-      },
       "/capabilities": {
         "ty": "array",
         "nullable": true
@@ -13005,41 +12981,6 @@
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
-      }
-    },
-    "request:terminal-find": {
-      "/before": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/case_sensitive": {
-        "ty": "boolean"
-      },
-      "/epoch": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/max_matches": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/page_rows": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/query": {
-        "ty": "string",
-        "required": true
-      },
-      "/regex": {
-        "ty": "boolean"
-      },
-      "/surface": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/whole_word": {
-        "ty": "boolean"
       }
     },
     "request:terminal-history": {
@@ -18048,10 +17989,6 @@
         "ty": "uint32",
         "nullable": true
       },
-      "/data/api_version": {
-        "ty": "string",
-        "nullable": true
-      },
       "/data/app": {
         "ty": "literal",
         "required": true,
@@ -18142,10 +18079,6 @@
       },
       "/data/min_api_revision": {
         "ty": "uint32",
-        "nullable": true
-      },
-      "/data/min_api_version": {
-        "ty": "string",
         "nullable": true
       },
       "/data/pid": {
@@ -18732,9 +18665,6 @@
     "response:list-workspaces": {
       "/data/generation": {
         "ty": "string"
-      },
-      "/data/next": {
-        "ty": "uint64"
       },
       "/data/pane_revision": {
         "ty": "uint64"
@@ -22249,14 +22179,7 @@
         "required": true
       }
     },
-    "response:set-client-info": {
-      "/data/api_revision": {
-        "ty": "uint32"
-      },
-      "/data/api_version": {
-        "ty": "string"
-      }
-    },
+    "response:set-client-info": {},
     "response:set-client-sizing": {},
     "response:set-column-dock": {
       "/data": {
@@ -22694,21 +22617,9 @@
         "ty": "uint32",
         "required": true
       },
-      "/data/activity/echo_at_ms": {
-        "ty": "uint64",
-        "nullable": true
-      },
-      "/data/activity/echo_input_at_ms": {
-        "ty": "uint64",
-        "nullable": true
-      },
       "/data/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
-        "nullable": true
-      },
-      "/data/activity/last_person_attach_at_ms": {
-        "ty": "uint64",
         "nullable": true
       },
       "/data/activity/last_user_input_at_ms": {
@@ -22818,12 +22729,6 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64",
-        "required": true
-      }
-    },
-    "response:terminal-find": {
-      "/data": {
-        "ty": "json",
         "required": true
       }
     },

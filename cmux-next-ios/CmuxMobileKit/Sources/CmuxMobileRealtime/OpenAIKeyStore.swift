@@ -1,8 +1,6 @@
 import Foundation
 import Observation
-#if canImport(Security)
 import Security
-#endif
 
 /// Where the user's OpenAI API key is kept.
 public protocol OpenAIKeyStoring: Sendable {
@@ -11,7 +9,6 @@ public protocol OpenAIKeyStoring: Sendable {
     func delete() throws
 }
 
-#if canImport(Security)
 /// The key in this iPhone's Keychain, one item per cmux account: a second
 /// account signed in on the same phone never calls with the first one's key.
 /// `AfterFirstUnlockThisDeviceOnly`: readable while the phone is locked (a
@@ -65,16 +62,6 @@ public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
         public let status: OSStatus
     }
 }
-#else
-/// No Keychain off Apple platforms (the Linux test build): no key is ever stored.
-public struct KeychainOpenAIKeyStore: OpenAIKeyStoring {
-    public init(accountID: String) {}
-    public func load() -> String? { nil }
-    public func save(_ key: String) throws { throw Unavailable() }
-    public func delete() throws {}
-    public struct Unavailable: Error {}
-}
-#endif
 
 /// The key for the signed-in account as Settings and the call screen see it:
 /// whether there is one, its masked form, the newest check against OpenAI.

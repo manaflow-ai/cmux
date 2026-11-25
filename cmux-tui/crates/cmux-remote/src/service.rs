@@ -1456,18 +1456,13 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
     }
 }
 
-/// The lane a stream uses when its caller names none. It must match
-/// `MessageStream::new` in services.rs: a stream's tombstone guards this lane,
-/// so a mismatch leaves the lane its frames really use unguarded after close.
-pub(crate) fn default_lane(service: Service) -> Lane {
+fn default_lane(service: Service) -> Lane {
     match service {
-        Service::MuxControl | Service::TerminalBytes => Lane::Interactive,
-        // Process output replays and event pages are large; they never queue
-        // ahead of keystrokes (both ends already open it with Bulk).
-        Service::ProcessStream => Lane::Bulk,
-        // Computer use runs over workspace RPC on Control; this stream is
-        // refused, and a screenshot-sized answer has no place on Interactive.
-        Service::WorkspaceRpc | Service::ComputerUse => Lane::Control,
+        Service::MuxControl
+        | Service::ProcessStream
+        | Service::TerminalBytes
+        | Service::ComputerUse => Lane::Interactive,
+        Service::WorkspaceRpc => Lane::Control,
         Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
     }
 }

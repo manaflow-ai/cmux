@@ -84,8 +84,7 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.list",
-      "cloud.snapshot.restore",
-      "cloud.usage.current"
+      "cloud.snapshot.restore"
     ]
   },
   "scopes": {

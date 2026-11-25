@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 
 /// Spare cells for the transcript's reuse queues, made when a conversation
 /// opens.

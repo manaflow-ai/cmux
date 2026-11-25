@@ -9,16 +9,14 @@ use serde_json::Value;
 
 /// Transport provenance is kept separate from the public error code. Only
 /// credential-host refusals guaranteed to precede POST release a fresh intent.
-/// The error is boxed: `CloudError` is large and every op returns this
-/// on its error path (clippy::result_large_err).
 pub(crate) struct CallFailure {
-    pub(crate) error: Box<CloudError>,
+    pub(crate) error: CloudError,
     pub(crate) not_sent: bool,
 }
 
 impl From<CloudError> for CallFailure {
     fn from(error: CloudError) -> Self {
-        Self { error: Box::new(error), not_sent: false }
+        Self { error, not_sent: false }
     }
 }
 
@@ -80,7 +78,7 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
             expected_team: None,
             expected_revision: None,
         };
-        self.send(call).map_err(|failure| *failure.error)
+        self.send(call).map_err(|failure| failure.error)
     }
 
     pub(crate) fn origin(&self) -> Option<&'static str> {
@@ -116,13 +114,13 @@ impl<'a, C: ControlPlane> Ctx<'a, C> {
                 // backend catalog errors. Keep their final meaning intact.
                 if error.code == "credential.scope_refused" {
                     return Err(CallFailure {
-                        error: Box::new(CloudError::new(codes::CONFLICT, error.message)),
+                        error: CloudError::new(codes::CONFLICT, error.message),
                         not_sent: true,
                     });
                 }
                 if error.code == "credential.fence_invalid" {
                     return Err(CallFailure {
-                        error: Box::new(CloudError::new(codes::INVALID_ARGS, error.message)),
+                        error: CloudError::new(codes::INVALID_ARGS, error.message),
                         not_sent: true,
                     });
                 }

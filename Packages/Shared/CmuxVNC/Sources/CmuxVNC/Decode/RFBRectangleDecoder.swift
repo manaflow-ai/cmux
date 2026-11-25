@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// One `FramebufferUpdate` rectangle header.

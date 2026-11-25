@@ -180,7 +180,7 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     starts = _one_to_one_starts(steps, lines, texts, windows, step_names)
     if starts is None:
         starts = _aligned_starts(steps, lines, texts, windows, step_names)
-    if not starts:  # None, or [] (a job of only "Set up job" and "Complete job": no header to place a section by)
+    if starts is None:
         return unknown
     # Each section opens at its header's lead (_lead): the runner's download lines before a header are the opened step's,
     # in its times, on both readings. The first header leads nothing ("Set up job" prints its own downloads).
@@ -231,7 +231,7 @@ def _one_to_one_starts(steps: list[dict], lines: list[str], texts: list[str], wi
     one per step, each in its own step's times alone and fitting its name; else None."""
     proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
     starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if not starts or len(starts) != len(steps) - 2:  # no printing step (2 steps, 0 headers) proves nothing: not []
+    if len(starts) != len(steps) - 2:
         return None
     opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
     for k, n in enumerate(starts, 1):

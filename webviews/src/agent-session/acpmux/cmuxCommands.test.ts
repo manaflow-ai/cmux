@@ -19,7 +19,6 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "btw",
     "side",
     "status",
-    "rename",
     "mcp",
     "cd",
     "resume",

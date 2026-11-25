@@ -138,20 +138,19 @@ test("the same turn in a Codex chat folds its work and short narration under one
   const rows = await replayRows();
   const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "codex" });
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
-  // Only the final answer stays in sight (Lawrence, 2026-11-19), with no run line or short note
-  // beside the closed fold.
+  // Substantive replies stay in sight, with no run line or short note beside the closed fold.
   expect(
     assistants(view)
       .filter((row) => LONG.test(row.text ?? ""))
       .map(longAt),
-  ).toEqual([17]);
+  ).toEqual([14, 16, 17]);
   expect(assistants(view).some((row) => SHORT.test(row.text ?? ""))).toBe(false);
   // No tool line beside the closed fold; the edited-files card (`merged`) stays.
   expect(view.filter((row) => row.kind === "activity" && !row.merged)).toEqual([]);
   expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-test("the recorded turn restored in a Claude chat, folded by default, keeps only its final answer", async () => {
+test("the recorded turn restored in a Claude chat, folded by default, keeps substantive answers", async () => {
   globalThis.cmuxExperiments = {};
   try {
     const rows = await replayRows();
@@ -161,7 +160,7 @@ test("the recorded turn restored in a Claude chat, folded by default, keeps only
       assistants(view)
         .filter((row) => LONG.test(row.text ?? ""))
         .map(longAt),
-    ).toEqual([17]);
+    ).toEqual([14, 16, 17]);
   } finally {
     globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
   }

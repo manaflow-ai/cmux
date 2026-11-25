@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// The client's copy of the remote screen: row-major `0xAARRGGBB` words

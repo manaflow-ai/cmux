@@ -85,7 +85,7 @@ struct PaneTabBarPaneActionsTests {
             let shown = Self.shownControls(toolbar.view)
             #expect(shown.count == 1 && shown.first === toolbar.view.zoomButton, "\(density): \(shown)")
             let frame = toolbar.view.zoomButton.frame
-            let side = Metrics.tabBarControlSide
+            let side = TitlebarBandButton.side
             #expect(frame.width == side && frame.height == side, "\(density): \(frame.size)")
             #expect(abs(frame.maxX - (toolbar.view.bounds.width - PaneToolbarView.trailingGap)) < 0.5, "\(density): trailing slot")
         }

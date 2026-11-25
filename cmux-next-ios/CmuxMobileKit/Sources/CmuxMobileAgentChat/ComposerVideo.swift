@@ -4,14 +4,11 @@ import CmuxMobileTransport
 import CoreTransferable
 import UIKit
 import UniformTypeIdentifiers
-import os
 
 /// A video picked in Photos, copied out of the picker's temporary file into this app's own
 /// temporary folder (the picker deletes its copy when the load returns). The composer keeps it
 /// by URL, as a large file from Files: it streams to the Mac at send.
 struct PickedMovie: Transferable {
-    /// The pick hop's timing (`pick ms=`), next to LinkUpload's per-hop line in the same subsystem.
-    static let log = os.Logger(subsystem: "dev.cmux.mobile", category: "upload")
     let url: URL
 
     /// Where picked videos are copied: the app's temporary folder, which iOS empties.

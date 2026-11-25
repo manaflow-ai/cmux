@@ -20,16 +20,15 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Face } from "../multiplayer/Faces";
 import type { Participant } from "../multiplayer/participants";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
-import { Check, ChevronRight, Close } from "./icons";
+import { ChevronRight } from "./icons";
 import { IncomingMessageLine } from "./IncomingMessageCard";
-import "./cardFit.css";
 
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { messagePreview, type IncomingMessage } from "./incomingMessage";
 import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 import { heldLook, heldFiles } from "./queuedMessageCardModel";
-import { sentVideosOf, sentVideoFor } from "./sentVideos";
+import { sentVideoFor, sentVideosOf } from "./sentVideos";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
@@ -177,23 +176,16 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
     const files = heldFiles(row.inlineParts).filter((file) => !sentVideoFor(file, videos));
     return { videos, files, images: withoutVideoFrames(row).images };
   }, [row]);
-  // Words shrink to icons in a narrow card (cardFit.css); the name stays on the button.
-  const button = (approve: boolean) => {
-    const word = t(approve ? "queue.held.approve" : "queue.held.decline");
-    return (
-      <button
-        type="button"
-        className={approve ? "cv-held__approve" : "cv-held__decline"}
-        disabled={answering || updating}
-        title={word}
-        aria-label={word}
-        onClick={() => answer(approve)}
-      >
-        {approve ? <Check size={14} /> : <Close size={14} />}
-        <span className="cv-fit-label">{word}</span>
-      </button>
-    );
-  };
+  const button = (approve: boolean) => (
+    <button
+      type="button"
+      className={approve ? "cv-held__approve" : "cv-held__decline"}
+      disabled={answering || updating}
+      onClick={() => answer(approve)}
+    >
+      {t(approve ? "queue.held.approve" : "queue.held.decline")}
+    </button>
+  );
   const menu = (
     <span className="cv-received-actions cv-received__queued-actions">
       <Menu>
@@ -235,7 +227,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   return (
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the held card takes the focus so Return approves it (design/chat-multiplayer.md)
     <div
-      className="cv-incoming cv-held cv-fit"
+      className="cv-incoming cv-held"
       data-queued-message={promptId}
       data-held={held || undefined}
       data-look={held ? look : undefined}
@@ -255,7 +247,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         actions={
           <>
             {answers && look === "inline" && (
-              <span className="cv-held__actions cv-fit-actions">
+              <span className="cv-held__actions">
                 {button(true)}
                 {button(false)}
               </span>
@@ -279,7 +271,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         }
       />
       {answers && look === "bar" && (
-        <div className="cv-held__actions cv-held__bar cv-fit-actions">
+        <div className="cv-held__actions cv-held__bar">
           {button(true)}
           {button(false)}
         </div>

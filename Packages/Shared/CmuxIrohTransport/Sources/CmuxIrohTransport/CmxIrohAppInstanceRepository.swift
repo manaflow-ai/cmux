@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import Foundation
 
 /// Persists the broker-facing app-instance UUID for one active account and tag.

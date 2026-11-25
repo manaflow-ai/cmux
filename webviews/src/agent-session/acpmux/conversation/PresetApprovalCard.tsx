@@ -1,8 +1,6 @@
 import { memo, useState } from "react";
 import { useT } from "../i18n";
-import { Check, Close } from "./icons";
 import type { PresetApproval, PresetApprovalOutcome } from "./presetApproval";
-import "./cardFit.css";
 import "./PresetApprovalCard.css";
 
 /// How the open card is drawn. `card` (shipped): the memory card's hairline box, the question over
@@ -41,34 +39,25 @@ export const PresetApprovalCard = memo(function PresetApprovalCard({
     if (!onAnswer || closed || busy) return;
     onAnswer(pick);
   };
-  const notNow = t("presetApproval.notNow");
-  const approve = t("presetApproval.approve");
-  // Words shrink to icons in a narrow card (cardFit.css); the name stays on the button.
   const buttons = onAnswer && (
-    <div className="cv-preset-approval__actions cv-fit-actions">
+    <div className="cv-preset-approval__actions">
       <button
         type="button"
         className="cv-preset-approval__button"
         disabled={busy !== undefined}
         aria-busy={busy === "declined" || undefined}
-        title={notNow}
-        aria-label={notNow}
         onClick={() => answer("declined")}
       >
-        <Close size={14} />
-        <span className="cv-fit-label">{notNow}</span>
+        {t("presetApproval.notNow")}
       </button>
       <button
         type="button"
         className="cv-preset-approval__button is-primary"
         disabled={busy !== undefined}
         aria-busy={busy === "approved" || undefined}
-        title={approve}
-        aria-label={approve}
         onClick={() => answer("approved")}
       >
-        <Check size={14} />
-        <span className="cv-fit-label">{approve}</span>
+        {t("presetApproval.approve")}
       </button>
     </div>
   );
@@ -99,7 +88,7 @@ export const PresetApprovalCard = memo(function PresetApprovalCard({
 
   return (
     <section
-      className="cv-preset-approval cv-fit"
+      className="cv-preset-approval"
       data-look={look}
       data-closed={closed}
       aria-label={t("presetApproval.label", { preset: ask.preset })}
@@ -108,8 +97,8 @@ export const PresetApprovalCard = memo(function PresetApprovalCard({
       <div className="cv-preset-approval__fold cv-preset-approval__body" data-open={!closed} inert={closed}>
         <div className="cv-preset-approval__clip">
           {look === "inline" ? (
-            <div className="cv-preset-approval__row cv-fit-row">
-              <div className="cv-preset-approval__text cv-fit-text">
+            <div className="cv-preset-approval__row">
+              <div className="cv-preset-approval__text">
                 {title}
                 {what}
               </div>

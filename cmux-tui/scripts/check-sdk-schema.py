@@ -207,8 +207,7 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
     index = 0
     while index < len(lines):
         line = lines[index]
-        # A unit variant, or a struct variant with no fields (`Variant {},`).
-        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*)(?: \{\})?,", line)
+        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*),", line)
         if unit:
             commands[camel_to_kebab(unit.group(1))] = {}
             index += 1

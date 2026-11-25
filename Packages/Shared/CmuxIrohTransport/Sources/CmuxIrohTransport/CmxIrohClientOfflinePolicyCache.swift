@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import CMUXMobileCore
 public import Foundation
 

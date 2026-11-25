@@ -43,8 +43,7 @@ function motionAllowed(): boolean {
 }
 
 export function GlyphIcon({ glyph }: { glyph: SlotGlyph }) {
-  // Resume's ▶ is the mic's kind of glyph, a line icon, never a solid one (cmux#51039).
-  if (glyph === "play") return <Icon name="media.play" size={16} />;
+  if (glyph === "play") return <Icon name="media.play" size={14} selected />;
   if (glyph === "stopping") return <Spinner loading size={14} />;
   if (glyph === "pending") return <Spinner loading look="track" size={14} />;
   if (glyph === "stop") return <StopIcon />;
@@ -335,25 +334,10 @@ export function StopPulse({ pulses }: { pulses: number }) {
     return () => clearTimeout(timer);
   }, [playing]);
   const arm = experimentArm(stopPresence);
-  const shown = playing !== undefined && arm !== "fade";
-  // The button carries the playing pulse's look too, before the frame paints, so the bump that swells
-  // the glyph beside this span is a rule on the button's attribute: as `:has(> .acpmux-stop-pulse)`
-  // with `> :not(.acpmux-stop-pulse)` after it, Chromium restyled the whole page on every `:has()`
-  // change (test/css-invalidation-scope.test.ts).
-  const pulse = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const button = pulse.current?.parentElement;
-    if (!shown || !button) return undefined;
-    button.dataset.stopPulse = arm;
-    return () => {
-      delete button.dataset.stopPulse;
-    };
-  }, [shown, arm, playing]);
-  if (!shown) return null;
+  if (playing === undefined || arm === "fade") return null;
   return (
     <span
       key={playing}
-      ref={pulse}
       className="acpmux-stop-pulse"
       data-stop-pulse={arm}
       aria-hidden="true"

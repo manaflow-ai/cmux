@@ -47,10 +47,7 @@ extension FileHandle {
             switch handle.readReady() {
             case .bytes(let data):
                 if case .dropped(_) = continuation.yield(data) {
-                    // Nobody reads this pipe any more: close it, so the writer gets EPIPE instead of filling
-                    // it to 64 KB and waiting there for good (cmuxterm-hq#8747: 452 full pipes).
                     handle.readabilityHandler = nil
-                    try? handle.close()
                     continuation.finish()
                 }
             case .retry:

@@ -11,7 +11,13 @@ import { isItem, ITEM_PREFIX, itemKey, merge, TOMBSTONE_MS, type Item } from "./
 const [items, setItems] = signal<Map<string, Item>>(new Map())
 const [loaded, setLoaded] = signal(false)
 const [problem, setProblem] = signal<string | null>(null)
-export { items, loaded, problem }
+/** Items checked off a moment ago: drawn checked and faded before they leave the open list. */
+const [settling, setSettling] = signal<ReadonlySet<string>>(new Set())
+
+export { items, loaded, problem, settling }
+
+/** How long a checked item stays in place, faded, before it leaves the list (Reminders: about a second). */
+export const SETTLE_MS = 1200
 
 let device = ""
 let nextId = 0
@@ -151,21 +157,47 @@ export function add(text: string): Item {
   return item
 }
 
-/** Checks an item off or back on. The row strikes through and slides out of the open list; the host animates both. */
+const timers = new Map<string, number>()
+
+function settle(id: string, on: boolean) {
+  const old = timers.get(id)
+  if (old !== undefined) cmux.timer.clear(old)
+  timers.delete(id)
+  setSettling((s) => {
+    const next = new Set(s)
+    if (on) next.add(id)
+    else next.delete(id)
+    return next
+  })
+  if (on) {
+    timers.set(
+      id,
+      cmux.timer.after(SETTLE_MS, () => {
+        timers.delete(id)
+        settle(id, false)
+      })
+    )
+  }
+}
+
+/** Checks an item off or back on. A checked item stays, faded, for SETTLE_MS before it leaves the list. */
 export function toggle(id: string) {
   const item = items().get(id)
   if (!item || item.deleted) return
   const done = !item.done
   put(stamp(item, done ? { done, doneAt: Date.now() } : { done, doneAt: undefined }))
+  settle(id, done)
 }
 
 export function remove(id: string) {
   const item = items().get(id)
   if (!item || item.deleted) return
+  settle(id, false)
   put(stamp(item, { deleted: true }))
 }
 
-/** Removes the done items (the Completed section). */
+/** Removes the done items in the Completed section; one checked a moment ago (still shown, faded) stays. */
 export function clearCompleted() {
-  for (const item of items().values()) if (item.done && !item.deleted) remove(item.id)
+  const shown = settling()
+  for (const item of items().values()) if (item.done && !item.deleted && !shown.has(item.id)) remove(item.id)
 }

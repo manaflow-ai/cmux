@@ -77,15 +77,9 @@ export function createAttention(
     here = true;
     changed();
   };
-  const blur = () => {
-    if (!here) return;
-    here = false;
-    changed();
-  };
   const start = () => {
     for (const name of INPUTS) target.addEventListener(name, input, { capture: true, passive: true });
     target.addEventListener("focus", input);
-    target.addEventListener("blur", blur);
     // Watching starts with a reader here: whoever opened the chat did it by hand.
     lastInputAt = now();
     here = true;
@@ -94,7 +88,6 @@ export function createAttention(
   const stop = () => {
     for (const name of INPUTS) target.removeEventListener(name, input, { capture: true });
     target.removeEventListener("focus", input);
-    target.removeEventListener("blur", blur);
     if (timer !== undefined) timers.clear(timer);
     timer = undefined;
     here = true;

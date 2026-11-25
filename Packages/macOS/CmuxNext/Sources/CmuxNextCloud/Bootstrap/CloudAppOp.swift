@@ -1,13 +1,12 @@
 public import CmuxNextDaemon
-public import Foundation
+import Foundation
 
 /// Cloud ops through the Cloud app server (`cmux/cloud`, contract 2.1):
 /// `apps-run` on the local daemon; the server checks the args and origin,
 /// keeps the machine projection, and reaches the cmux-next API Worker
 /// through the host credential relay (install token, `CloudCredentialProvider`).
 /// Never `/api/vm`.
-/// A `LocalizedError`: a create's failure (the environment ensure) reads as this sentence, not "Something went wrong."
-public nonisolated struct CloudAppOpFailure: LocalizedError, Equatable, Sendable, CustomStringConvertible {
+public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomStringConvertible {
     /// The server's code (`cmux.cloud.<reason>`).
     public var code: String
     public var message: String
@@ -27,7 +26,6 @@ public nonisolated struct CloudAppOpFailure: LocalizedError, Equatable, Sendable
     public var approvalRequest: String? { details?["request"]?.stringValue }
 
     public var description: String { message.isEmpty ? code : message }
-    public var errorDescription: String? { description }
 
     /// The failure for the log: its code, its message and its details, so a daemon refusal such as
     /// `apps.unknown` names itself and what the daemon's catalog held (``description`` is the person's text).

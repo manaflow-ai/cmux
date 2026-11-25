@@ -133,7 +133,7 @@ fn pr05d_submit_time() {
     gate_rounds::report("v2.pr05d.submit_time", &[("small", &small_rounds), ("god", &god_rounds)]);
     let (small, god, god_all) =
         (best_p95(&small_rounds), best_p95(&god_rounds), all_p95(&god_rounds));
-    gate("v2.pr05d.submit_time", small, god, god_all, "ns");
     assert!(god * 10 <= small * 12, "submit p95 exceeded 1.2x: {small} -> {god} ns");
     assert!(god_all <= small * 2, "pooled submit p95 exceeded 2x: {small} -> {god_all} ns");
+    gate("v2.pr05d.submit_time", small, god, god_all, "ns");
 }

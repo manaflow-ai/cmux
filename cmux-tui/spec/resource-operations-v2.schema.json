@@ -292,10 +292,6 @@
         },
         "fields": {"$ref": "#/$defs/objectFields"},
         "extra": {"const": false},
-        "unknown_params": {
-          "const": "refuse",
-          "description": "Refuse a parameter the catalog does not declare (validation.invalid). Absent: the daemon drops it and runs the request."
-        },
         "constraints": {
           "type": "array",
           "items": {"type": "string", "minLength": 1}

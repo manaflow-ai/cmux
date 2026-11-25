@@ -7,13 +7,8 @@ import Foundation
 /// Accounts part of the Settings page. The App only binds them (code-quality.md SW14).
 extension GitHubConnections {
     /// The `accounts.githubConnect` result: connect, then report the page's outcome and detail.
-    /// A chat's Connect GitHub card (webviews githubConnect.ts) names the failed call's `repo` and
-    /// the chat's link (`returnTo`), both checked by the pane (AgentPaneRequest+Decoding.swift): the
-    /// person stays in the chat and GitHub's return comes back to it (``connect(repo:returnTo:)``).
-    /// Without a repository (the palette, Settings, `cmux accounts github-connect`) the App opens
-    /// Settings > Accounts first, as before.
-    public func connectResult(_ invocation: ActionInvocation? = nil) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
-        await connect(repo: invocation?["repo"]?.stringValue, returnTo: invocation?["returnTo"]?.stringValue)
+    public func connectResult() async -> Result<[String: ActionResultValue], ActionWorkFailure> {
+        await connect()
         let state = pageState
         let detail = state["detail"]?.stringValue ?? ""
         if error { return .failure(ActionWorkFailure(detail)) }

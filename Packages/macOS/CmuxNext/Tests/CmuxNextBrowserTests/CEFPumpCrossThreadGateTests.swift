@@ -86,25 +86,6 @@ import Testing
         #endif
     }
 
-    /// Bench builds tell a pass for "now" from a delayed timer fire, with the delay it was armed for (task 21: the
-    /// ledger's "scheduled" row, the top idle wakeup source, mixed both).
-    @Test func aBenchFireNamesImmediateOrItsDelay() {
-        let rig = Self.rig() // armed for a 10 ms request
-        rig.clock.seconds = 100.010
-        rig.timer.fire()
-        rig.pump.request(milliseconds: 0)
-        rig.timer.fire()
-        rig.pump.request(milliseconds: 400)
-        rig.clock.seconds = 100.410
-        rig.timer.fire()
-        let reasons = Set(rig.ledger.snapshot().filter { $0.owner == "CEFMessagePump" && $0.reason.hasPrefix("scheduled") }.map(\.reason))
-        #if DEBUG || CMUX_BENCH_HOOKS
-        #expect(reasons == ["scheduled (immediate)", "scheduled (delayed <17ms)", "scheduled (delayed <1s)"])
-        #else
-        #expect(reasons == ["scheduled"])
-        #endif
-    }
-
     /// A kept request still runs when the armed pass reports nothing new (CEF need not report it
     /// again): after the +10 ms pass the timer is armed for the kept +50 ms.
     @Test func aKeptRequestIsArmedAfterThePass() {

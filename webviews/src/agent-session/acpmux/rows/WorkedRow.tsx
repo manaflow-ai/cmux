@@ -14,13 +14,7 @@ export const WorkedRow = memo(
       // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
       return (
         <TranscriptDisclosureProvider sessionId={sessionId}>
-          <WorkingFor
-            row={row}
-            expanded={expanded}
-            // Under the `folded` live arm (the header carries `foldOpen`) it opens the running turn's work,
-            // under its own id: the key its "Worked for" opens with once the turn ended (#50987).
-            onToggle={row.foldOpen === undefined ? undefined : () => onToggleActivity(row.id)}
-          />
+          <WorkingFor row={row} />
         </TranscriptDisclosureProvider>
       );
     return <WorkedFor row={row} expanded={expanded} controls={controls} onToggle={() => onToggleActivity(row.id)} />;
@@ -29,7 +23,6 @@ export const WorkedRow = memo(
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.row.turnPhase === b.row.turnPhase &&
-    a.row.foldOpen === b.row.foldOpen &&
     // Running, its clock reads `at` and `durationMs`, which the version does not cover.
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&

@@ -26,8 +26,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var pulsePeriod: Double?
     /// The terminal font the braille style draws in (`terminal.fontFamily`).
     public var terminalFontFamily: String?
-    /// The status icon set (`appearance.statusIndicator.iconSet`, or the Debug Settings
-    /// `status.iconSet` override, cx-kxa2).
+    /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
     public var iconSet: StatusIconSet
     /// System Reduce Motion (or its test override).
     public var reduceMotion: Bool
@@ -86,7 +85,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             spinnerPeriod: Motion.indicators.period(.spinner),
             pulsePeriod: Motion.indicators.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.resolved(setting: DesignSettings.shared.statusIndicator.iconSet),
+            iconSet: StatusIconSet.tunable.value,
             reduceMotion: Motion.reduceMotion,
             staticShapes: StatusIndicatorPlan.staticShapes.value,
             workingLook: StatusWorkingLook.tunable.value)
@@ -122,12 +121,6 @@ public final class StatusIndicatorAppearance {
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     private var resyncObservers: [MainActorObservation] = []
-    /// Makes the view that plays a row's particles glyph (``SidebarRowGlyphPlayer``); the app layer
-    /// sets it. Unset, rows keep their loading indicator.
-    public var glyphPlayer: (@MainActor () -> any SidebarRowGlyphPlayer)?
-    /// The look's thinking glyph (`agentPane.display.thinking.glyph`) as compact JSON, which
-    /// `indicator: "glyph"` plays; the app layer sets it from the settings. Nil while none is set.
-    public var lookGlyph: @MainActor () -> String? = { nil }
 
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).

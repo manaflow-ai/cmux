@@ -24,21 +24,6 @@ import CmuxNextCompat
         #expect(sent[3]["visible"] as? Bool == false)
     }
 
-    @Test func aDaemonWithAttentionGetsTheReadCutoverFields() async throws {
-        let daemon = try PresenceDaemon(capabilities: [
-            "agent-session-attach-v1", "agent-session-presence-v1", "agent-session-attention-v1",
-        ])
-        defer { daemon.stop() }
-        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
-        try await client.view(true, attending: false, seenSeq: 41)
-        await client.close()
-        let sent = daemon.frames
-        #expect(sent.map { $0["cmd"] as? String } == ["identify", "set-client-info", "agent-session-view"])
-        #expect(sent[2]["visible"] as? Bool == true)
-        #expect(sent[2]["attending"] as? Bool == false)
-        #expect(sent[2]["seen_seq"] as? Int == 41)
-    }
-
     @Test func anOlderDaemonGetsNoNewVerbAndNoEcho() async throws {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1"])
         defer { daemon.stop() }

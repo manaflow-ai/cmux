@@ -57,8 +57,7 @@ async fn a_scheduled_wakeup_is_the_chats_loop_with_its_next_run() {
     assert_eq!(
         got,
         vec![json!({"kind": "loop", "status": "active", "objective": "check the deploy",
-            "reason": "deploy still rolling out", "nextRunAt": 1_790_000_270_000u64,
-            "timers": [{"at": 1_790_000_270_000u64, "recurring": false}]})]
+            "reason": "deploy still rolling out", "nextRunAt": 1_790_000_270_000u64})]
     );
 }
 
@@ -127,8 +126,7 @@ async fn a_recurring_cron_is_a_loop_until_its_delete() {
     assert_eq!(
         got,
         vec![json!({"kind": "loop", "status": "active", "objective": "/babysit-prs",
-            "schedule": "every 5 minutes", "nextRunAt": 9_000,
-            "timers": [{"at": 9_000, "recurring": true}]})]
+            "schedule": "every 5 minutes", "nextRunAt": 9_000})]
     );
     // Another job's delete leaves it.
     goals(&t, call("d0", "CronDelete", json!({"id": "job-other"}))).await;
@@ -182,8 +180,6 @@ async fn stopping_one_loop_shows_the_one_still_armed() {
     )
     .await;
     assert_eq!(both[0]["objective"], json!("wake work"));
-    // Both loops' timers, the cron's (no next fire said) and the wakeup's: Claude holds both.
-    assert_eq!(both[0]["timers"], json!([{"recurring": true}, {"at": 7, "recurring": false}]));
     goals(&t, call("w2", "ScheduleWakeup", json!({"stop": true}))).await;
     let left = goals(&t, result("w2", json!({"stopped": true, "scheduledFor": 0}))).await;
     assert_eq!(left[0]["objective"], json!("cron work"));

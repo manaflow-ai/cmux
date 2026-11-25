@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 private struct PushRegistrationLoadingContext: @unchecked Sendable {
     let loadingProtocol: PushRegistrationURLProtocol

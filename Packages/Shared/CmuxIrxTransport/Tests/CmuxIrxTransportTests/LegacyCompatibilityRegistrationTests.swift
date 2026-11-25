@@ -1,10 +1,4 @@
-// Registration runs against IrxStaleKeepAliveHTTPServer, a Network.framework listener.
-#if canImport(Network)
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 import Testing
 import CmuxIrohTransport
@@ -218,4 +212,3 @@ private final class CompatibilityRegistrationFixture: @unchecked Sendable {
         try #require(key.isValidSignature(decode(signature), for: Data(transcript.utf8)))
     }
 }
-#endif

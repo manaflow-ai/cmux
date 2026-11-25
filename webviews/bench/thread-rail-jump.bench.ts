@@ -13,7 +13,6 @@ import type { Page, CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow, TARGET_MS } from "./perfRow";
-import { sharedPaneDir } from "./support/sharedBuilds";
 
 const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]!;
 const distribution = (values: number[]) => ({ p50: pct(values, 0.5), p95: pct(values, 0.95) });
@@ -313,9 +312,6 @@ export async function measureTickJumps(
   };
 }
 
-/// How far an unloaded tick's prompt may move once drawn (sub-pixel layout and a late image settle well under it).
-const UNLOADED_MOVED_PX = 4;
-
 /// A click on a tick whose prompt is not held yet (a pending tick of a paged chat, far back), in a fresh
 /// pane each sample so every target is cold. It times the click to the prompt's first painted frame and
 /// to its settled frame, and adds up how far the prompt's bubble moved after it first showed: the
@@ -372,8 +368,6 @@ export async function measureUnloadedTickJumps(
             let stable = 0;
             let frames = 0;
             let settledAt: number | undefined;
-            // Each frame the prompt's top changed in (ms, px; null off screen), to read how it moved.
-            const path: [number, number | null, number][] = [];
             window.cmuxAfterPaint(() => {
               frames++;
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -392,11 +386,6 @@ export async function measureUnloadedTickJumps(
                 stable = top !== undefined && lastTop !== undefined && Math.abs(top - lastTop) < 0.5 ? stable + 1 : 0;
                 if (stable === 0) settledAt = elapsed;
               }
-              if (firstPaint !== undefined) {
-                const top = visible ? Math.round(box!.top) : null;
-                if (path.length < 40 && path.at(-1)?.[1] !== top)
-                  path.push([Math.round(elapsed), top, Math.round(scroller.scrollTop)]);
-              }
               if (firstPaint !== undefined) lastTop = visible ? box!.top : undefined;
               if (stable >= 10 || elapsed > 10_000) {
                 probe.railJump = {
@@ -406,7 +395,6 @@ export async function measureUnloadedTickJumps(
                   movedPx: moved,
                   frames,
                   timeout: stable < 10,
-                  path,
                 };
                 return false;
               }
@@ -426,9 +414,7 @@ export async function measureUnloadedTickJumps(
             }
           ).railJump,
       );
-      // A jump that lands and then moves (the window swapped for the chat's newest page, the view at the chat's end
-      // and back) fails too: the prompt drawn once and kept is the jump (Leo: "load without like unnecessary movement").
-      if (result.timeout || result.firstPaintMs === undefined || result.movedPx > UNLOADED_MOVED_PX)
+      if (result.timeout || result.firstPaintMs === undefined)
         throw new Error(`Unloaded jump failed: ${JSON.stringify(result)}`);
       all.push({ pendingCount, ...result });
     } finally {
@@ -660,11 +646,8 @@ async function main() {
   const out = process.env.RAIL_BENCH_OUT;
   if (out) fs.mkdirSync(out, { recursive: true });
   const traceOut = out ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-traces-"));
-  // PROD_DIR=dir takes a pane build already there; under bench/web-ui-suite.ts, the suite's one pane build of the run
-  // (bench/support/sharedBuilds.ts).
-  const given = process.env.PROD_DIR ?? sharedPaneDir({ variant: false }); // its build has no variant
-  const temporary = !given;
-  const prod = given ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
+  const temporary = !process.env.PROD_DIR;
+  const prod = process.env.PROD_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
   const { events, session } = papercutEvents({ turns, running: false });
   const paged = process.env.RAIL_BENCH_PAGED === "1";
   const pagedRun = paged;
@@ -804,26 +787,11 @@ async function main() {
             "RAIL_RESTYLE removed",
             await page.evaluate((needle) => {
               const removed: string[] = [];
-              // `#A-B,C-D`: the A-th to B-th (and C-th to D-th) :has() rules met, to bisect without a name.
-              const range = /^#[\d,-]+$/.test(needle)
-                ? needle
-                    .slice(1)
-                    .split(",")
-                    .map((span) => span.split("-").map(Number) as [number, number])
-                : undefined;
-              let seen = 0;
               const walk = (list: CSSRuleList) => {
                 for (let i = list.length - 1; i >= 0; i--) {
                   const rule = list[i] as CSSStyleRule & { cssRules?: CSSRuleList };
-                  const has = !!rule.selectorText?.includes(":has(");
-                  const ordinal = has ? seen++ : -1;
-                  if (
-                    has &&
-                    (range
-                      ? range.some(([from, to]) => ordinal >= from && ordinal < to)
-                      : rule.selectorText.includes(needle))
-                  ) {
-                    removed.push(range ? `${ordinal} ${rule.selectorText}` : rule.selectorText.slice(0, 120));
+                  if (rule.selectorText?.includes(needle) && rule.selectorText.includes(":has(")) {
+                    removed.push(rule.selectorText.slice(0, 120));
                     if (rule.parentRule && "deleteRule" in rule.parentRule)
                       (rule.parentRule as CSSGroupingRule).deleteRule(i);
                     else rule.parentStyleSheet?.deleteRule(i);
@@ -831,7 +799,7 @@ async function main() {
                 }
               };
               for (const sheet of document.styleSheets) walk(sheet.cssRules);
-              return JSON.stringify(removed);
+              return removed;
             }, restyle),
           );
         for (const phase of ["hover", "click"]) {

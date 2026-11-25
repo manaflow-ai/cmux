@@ -28,7 +28,7 @@ public struct AgentChatStart: Hashable, Sendable {
 }
 
 /// One model of an agent, as the Mac's model picker lists it.
-public struct AgentModelChoice: Identifiable, Hashable, Sendable, Codable {
+public struct AgentModelChoice: Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     /// Why it can't be used now (the Mac's "unavailable: <reason>"), or nil.
@@ -65,7 +65,7 @@ public struct AgentModelChoice: Identifiable, Hashable, Sendable, Codable {
 }
 
 /// One choice of an agent's setting: an effort level, a mode, or one value of an option.
-public struct AgentSettingChoice: Identifiable, Hashable, Sendable, Codable {
+public struct AgentSettingChoice: Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     /// What it does, when the agent says ("Asks before each change").
@@ -91,7 +91,7 @@ public struct AgentSettingChoice: Identifiable, Hashable, Sendable, Codable {
 
 /// One of an agent's own options a new chat can be started with (Fast mode, an agent's own
 /// setting), as its chats report it to the Mac (ACP `configOptions`): its id, name and choices.
-public struct AgentConfigChoice: Identifiable, Hashable, Sendable, Codable {
+public struct AgentConfigChoice: Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     public var category: String?
@@ -109,7 +109,7 @@ public struct AgentConfigChoice: Identifiable, Hashable, Sendable, Codable {
 }
 
 /// One agent (acpmux harness) of a Mac, as a phone may start it.
-public struct AgentHarnessChoice: Identifiable, Hashable, Sendable, Codable {
+public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     public var family: String
@@ -196,7 +196,7 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable, Codable {
 
 /// The agents a Mac offers a phone: the Mac's catalog (`_acpmux/harnesses`, `_acpmux/models`)
 /// with the remote rules applied, so the menu says what a phone can start and why not.
-public struct AgentCatalog: Hashable, Sendable, Codable {
+public struct AgentCatalog: Hashable, Sendable {
     public var harnesses: [AgentHarnessChoice]
     /// The agent and model the Mac's New Tab page picked last (acpmux `lastPicks`), so the
     /// phone's New Agent Chat starts where the Mac's does; nil when the Mac didn't say.
@@ -261,8 +261,8 @@ public struct AgentCatalog: Hashable, Sendable, Codable {
 
 /// The agent and model a Mac's New Tab page picked last, anywhere and per folder
 /// (the Mac's `newTab.lastAgent` and `newTab.lastPicks`, through acpmux `lastPicks`).
-public struct AgentLastPicks: Hashable, Sendable, Codable {
-    public struct Pick: Hashable, Sendable, Codable {
+public struct AgentLastPicks: Hashable, Sendable {
+    public struct Pick: Hashable, Sendable {
         public var harness: String
         /// nil: the agent alone was picked (its own default model).
         public var model: String?

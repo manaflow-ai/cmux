@@ -1,6 +1,7 @@
 import AppKit
 public import CmuxNextActions
 import Foundation
+import UniformTypeIdentifiers
 
 /// The notification sound actions: a sound (or no sound, or inherit) and a volume for a workspace,
 /// a group, an agent kind or one event; a preview; an import. Every surface (the workspace row and
@@ -11,7 +12,9 @@ import Foundation
 public final class NotificationSoundActions {
     private let host: any NotificationSoundHost
     private let gate: NotificationSoundGate
-    private let importer: NotificationSoundImport
+    private let library: NotificationSoundLibrary
+    /// Installed sound names, listed off the main thread at bind and after each import.
+    private var names: [String] = []
 
     /// A target the invocation does not name (its message is the person's).
     private struct Refusal: Error {
@@ -28,18 +31,19 @@ public final class NotificationSoundActions {
 
     /// - Parameters:
     ///   - host: The App's side (preferences, settings write, targets, groups).
-    ///   - gate: The notification service's sound gate: previews play through its player, it
-    ///     learns the person's groups from `host`, and its library lists and imports sounds.
-    public init(host: any NotificationSoundHost, gate: NotificationSoundGate) {
+    ///   - gate: The notification service's sound gate: previews play through its player, and it
+    ///     learns the person's groups from `host`.
+    ///   - library: Where sounds are listed and imported.
+    public init(host: any NotificationSoundHost, gate: NotificationSoundGate, library: NotificationSoundLibrary = NotificationSoundLibrary()) {
         self.host = host
         self.gate = gate
-        importer = NotificationSoundImport(host: host, gate: gate)
+        self.library = library
     }
 
     /// Binds the actions, the palette's sound and agent lists, and the menus' checked sound.
     public func bind(into registry: ActionRegistry) {
         gate.groups = { [weak host] in host?.soundGroups(ofWorkspace: $0) ?? [] }
-        Task { [gate, host] in await gate.refreshSounds(work: host.soundWork) }
+        refreshNames()
         registry.bindEffect("notifications.setWorkspaceSound", effect: { [self, weak registry] invocation in
             level(registry, "notifications.setWorkspaceSound", invocation) { try .workspace(self.host.soundWorkspace($0)) }
         })
@@ -67,7 +71,7 @@ public final class NotificationSoundActions {
             let file = Self.file(invocation)
             // action-wait-allow: the person picks a file in the open panel (or the CLI names one), and the copy reads the disk; nothing changes before it lands
             return .waiting(.fileSystem) { [self] in
-                if case .failure(let failure) = await importer.run(file) { return failure }
+                if case .failure(let failure) = await importSound(file) { return failure }
                 return nil
             }
         })
@@ -106,7 +110,7 @@ public final class NotificationSoundActions {
         }
         // action-wait-allow: the person picks a file in the open panel (or the CLI names one), and the copy reads the disk; nothing changes before it lands
         return .waiting(.fileSystem) { [self] in
-            switch await importer.run(file) {
+            switch await importSound(file) {
             case .failure(let failure): return failure
             case .success(nil): return nil
             case .success(let name?):
@@ -183,6 +187,42 @@ public final class NotificationSoundActions {
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
 
+    /// Imports `file`, or the file the person picks (nil name: they cancelled).
+    private func importSound(_ file: URL?) async -> Result<String?, ActionWorkFailure> {
+        var picked = file
+        if picked == nil { picked = await choose() }
+        guard let url = picked else { return .success(nil) }
+        let library = library
+        do {
+            let name = try await host.soundWork.run(.userBlocking, mayBlock: .files) { try library.importSound(from: url) }
+            refreshNames()
+            return .success(name)
+        } catch let refusal as NotificationSoundLibrary.ImportRefusal {
+            return .failure(ActionWorkFailure(refusal.message))
+        } catch {
+            return .failure(ActionWorkFailure(NotificationSoundStrings.importFailed(url.lastPathComponent)))
+        }
+    }
+
+    /// The sound file the person picks, nil on cancel.
+    private func choose() async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+        panel.message = NotificationSoundStrings.chooseMessage
+        panel.prompt = NotificationSoundStrings.choosePrompt
+        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+            if let anchor = host.soundAnchorWindow {
+                panel.beginSheetModal(for: anchor) { continuation.resume(returning: $0) }
+            } else {
+                panel.begin { continuation.resume(returning: $0) }
+            }
+        }
+        return response == .OK ? panel.url : nil
+    }
+
     // MARK: Lists
 
     /// The palette's full sound and agent lists, and the checked sound in a level's submenu.
@@ -192,7 +232,7 @@ public final class NotificationSoundActions {
             guard let self else { return otherSuggestions?(source) ?? [] }
             switch source {
             case ActionSuggestions.notificationSounds:
-                return gate.soundNames.map { ActionEnumCase(value: $0, title: $0) }
+                return names.map { ActionEnumCase(value: $0, title: $0) }
             case ActionSuggestions.notificationAgents:
                 let kinds = Set(host.soundAgentKinds.compactMap(NotificationSoundGate.agentKind))
                 return kinds.sorted().map { ActionEnumCase(value: $0, title: $0) }
@@ -212,6 +252,15 @@ public final class NotificationSoundActions {
             default:
                 return otherState?(action, target)
             }
+        }
+    }
+
+    /// Lists the installed sounds off the main thread.
+    private func refreshNames() {
+        let library = library, work = host.soundWork
+        Task { [weak self] in
+            let listed = (try? await work.run(.bestEffort, mayBlock: .files) { library.names() }) ?? []
+            self?.names = listed
         }
     }
 }

@@ -269,10 +269,7 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
 /// `wait` reports instead of a reply.
 fn failed_turn(s: &Value) -> Option<String> {
     let last = &s["lastTurn"];
-    // A turn held for capacity (`capacity`) failed too, and its retry waits.
-    if !(last["status"] == "failed" || last["status"] == "capacity")
-        || s.get("turn").is_some_and(|t| !t.is_null())
-    {
+    if last["status"] != "failed" || s.get("turn").is_some_and(|t| !t.is_null()) {
         return None;
     }
     let text = ["errorText", "error", "detail"]

@@ -1,0 +1,11 @@
+# Lawrence approved (2026-10-02) installing these packages before the 7-day
+# release age that ~/.npmrc sets: the pi-on-Durable-Objects harness shipped on
+# 2026-10-01/02 and the experiment uses it on purpose.
+[install]
+minimumReleaseAgeExcludes = [
+  "agents",
+  "@earendil-works/pi-durable",
+  "@earendil-works/pi-ai",
+  "@earendil-works/chord",
+  "@earendil-works/pi-telemetry",
+]

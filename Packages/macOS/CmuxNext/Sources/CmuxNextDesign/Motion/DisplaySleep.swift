@@ -1,4 +1,4 @@
-public import AppKit
+import AppKit
 import CmuxNextCompat
 
 /// Whether a screen's display is asleep, for ``Motion/canAnimate(in:)``.
@@ -13,30 +13,26 @@ import CmuxNextCompat
 /// sleep and wake notifications only trigger the end of running animations,
 /// so a sleep posted with no matching wake cannot leave later changes snapping.
 @MainActor
-public final class DisplaySleep {
-    public static let shared = DisplaySleep()
+final class DisplaySleep {
+    static let shared = DisplaySleep()
 
     /// Tests pin the answer for every display; nil asks Core Graphics.
     static var asleepOverride: Bool?
 
     private var observers: [MainActorObservation] = []
 
-    /// Runs on each display wake (the app's `switch.wake` signpost; one observer serves both).
-    public var onWake: (@MainActor () -> Void)?
-
     private init() {
         // Sleep ends what is running; wake ends what froze in the gap. Neither sets a state.
         let center = NSWorkspace.shared.notificationCenter
         observers = [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification].map { name in
-            MainActorObservation(name, center: center) { [weak self] in
-                if name == NSWorkspace.screensDidWakeNotification { self?.onWake?() }
+            MainActorObservation(name, center: center) {
                 MotionInFlight.finish()
             }
         }
     }
 
     /// Whether `screen`'s display draws no frames now.
-    public func isAsleep(_ screen: NSScreen) -> Bool {
+    func isAsleep(_ screen: NSScreen) -> Bool {
         if let override = Self.asleepOverride { return override }
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
         return CGDisplayIsAsleep(CGDirectDisplayID(number.uint32Value)) != 0

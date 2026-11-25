@@ -1,7 +1,4 @@
-import Foundation
-#if canImport(AppKit)
 public import AppKit
-#endif
 
 /// Default entries that are not an action's own catalog key (plans/cmux-next/keybindings.md
 /// section 5).
@@ -74,7 +71,6 @@ public nonisolated struct KeyBindingDefaults {
     /// Ghostty config and cmux.json win over them.
     public static let homeChatSwitching: [KeyBinding] = RustActionCatalog.shared.bindings["home_chat_switching"] ?? []
 
-#if canImport(AppKit)
     /// The Home tab keys whose action is on and keeps its default key: a rebound action (cmux.json,
     /// Settings) keeps only its own key, still scoped to Home (``homeChatScoped``).
     @MainActor static func homeChatSwitching(registry: ActionRegistry) -> [KeyBinding] {
@@ -83,9 +79,7 @@ public nonisolated struct KeyBindingDefaults {
                 && registry.shortcutOverrides[binding.command] == nil && registry.chordOverrides[binding.command] == nil
         }
     }
-#endif
 
-#if canImport(AppKit)
     /// The workspaces-as-tabs keys while the tunable is on, whose action is on and not removed or rebound in cmux.json.
     @MainActor static func workspacesAsTabs(registry: ActionRegistry) -> [KeyBinding] {
         guard registry.includesWorkspaceTabKeys() else { return [] }
@@ -94,9 +88,7 @@ public nonisolated struct KeyBindingDefaults {
                 && !registry.shortcutOverrides.keys.contains(binding.command) && registry.chordOverrides[binding.command] == nil
         }
     }
-#endif
 
-#if canImport(AppKit)
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
     /// elsewhere the global key runs. Any page adds its own keys here with a
@@ -114,7 +106,6 @@ public nonisolated struct KeyBindingDefaults {
                 && registry.chordOverrides[binding.command] == nil
         }
     }
-#endif
 
     /// The scoped defaults without the registry's unbinding applied.
     public static let scopedDefaults: [KeyBinding] = RustActionCatalog.shared.bindings["scoped_defaults"] ?? []
@@ -247,7 +238,6 @@ public nonisolated struct KeyBindingDefaults {
 
     public static let listNavigation: [KeyBinding] = RustActionCatalog.shared.bindings["list_navigation"] ?? []
 
-#if canImport(AppKit)
     /// The aliases whose action still has its default key, then list
     /// navigation (removed one by one with `-list.next` entries in
     /// keybindings.json).
@@ -261,5 +251,4 @@ public nonisolated struct KeyBindingDefaults {
         entries += paletteKeys
         return entries
     }
-#endif
 }

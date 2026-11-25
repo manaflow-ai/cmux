@@ -14,8 +14,6 @@ public struct TabsView<Source: TabsDataSource>: View {
     let source: Source
     let isShowingOverview: Binding<Bool>?
 
-    @State private var chrome = ChromeState()
-
     /// `isShowingOverview`: optional two-way binding to the tab grid. Set it
     /// to open or close the grid with the same zoom as the tabs button; the
     /// kit sets it when the user opens or closes the grid.
@@ -31,31 +29,15 @@ public struct TabsView<Source: TabsDataSource>: View {
         GeometryReader { withKeyboard in
             GeometryReader { outer in
                 GeometryReader { full in
-                    let inset = withKeyboard.safeAreaInsets.bottom
-                    let keyboard = inset > outer.safeAreaInsets.bottom + 1 ? inset : 0
+                    let kb = withKeyboard.safeAreaInsets.bottom
                     TabsScreen(source: source, isShowingOverview: isShowingOverview, size: full.size, safeTop: outer.safeAreaInsets.top,
                                safeBottom: outer.safeAreaInsets.bottom,
-                               keyboard: chrome.editing ? keyboard : 0, chrome: chrome)
-                        .environment(\.tabsAccessoryKeyboardHeight, keyboard)
+                               keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0)
                 }
                 .ignoresSafeArea()
             }
             .ignoresSafeArea(.keyboard)
         }
-    }
-}
-
-private extension EnvironmentValues {
-    @Entry var tabsAccessoryKeyboardHeight: CGFloat = 0
-}
-
-/// Only the accessory rides the keyboard when a page field is editing.
-private struct AccessoryKeyboardPadding: ViewModifier {
-    @Environment(\.tabsAccessoryKeyboardHeight) private var keyboard
-    let resting: CGFloat
-
-    func body(content: Content) -> some View {
-        content.padding(.bottom, keyboard > 0 ? keyboard : resting)
     }
 }
 
@@ -68,7 +50,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Software keyboard height from the screen bottom (0 when hidden).
     let keyboard: CGFloat
 
-    let chrome: ChromeState
+    @State private var chrome = ChromeState()
     /// Close All Tabs is waiting for the person's answer.
     @State private var confirmingCloseAll: CloseAllConfirmation?
     /// The page <-> grid transition (one interruptible progress value).
@@ -160,13 +142,6 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private var overviewLayout: OverviewLayout {
         OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
                        pinned: pinnedCount, columns: overviewColumns)
-    }
-
-    /// The top bar's band: to the content inset with the bar expanded, to just under the
-    /// pill collapsed (the page's rows show from there, never under the glass).
-    private var topBandHeight: CGFloat {
-        if chrome.bar == .collapsed, !chrome.editing { return toolbarLayout.capsule.maxY + 4 }
-        return ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -323,24 +298,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .id(tab.id)
                 }
                 // A top bar leaves the bottom to the accessory: it rests on the home indicator's inset.
-                .modifier(AccessoryKeyboardPadding(resting: theme.metrics.barEdge == .top ? safeBottom
-                                                   : size.height - layout.capsule.minY + 8))
+                .padding(.bottom, keyboard > 0 ? keyboard
+                         : theme.metrics.barEdge == .top ? safeBottom : size.height - layout.capsule.minY + 8)
                 .frame(width: size.width, height: size.height)
                 .scaleEffect(z.scale, anchor: .topLeading)
                 .offset(x: z.origin.x, y: z.origin.y)
                 .opacity(z.opacity)
                 .allowsHitTesting(z.interactive)
                 .accessibilityHidden(!z.accessible)
-            }
-
-            // A top bar is its own layer over the page: an opaque band from the screen's
-            // top to the bar's bottom edge (the pill's, collapsed), so scrolled rows never
-            // show between the status bar and the bar, nor under its glass (Leo,
-            // 2026-11-24: "fix the screens splitting between scrolling and whatnot").
-            if zoomState.phase != .overview, theme.metrics.barEdge == .top {
-                TopBarBand(height: topBandHeight,
-                           color: activeTab?.statusBarStyle == .lightContent ? Color.black : theme.colors.pageBackground)
-                    .opacity(1 - overviewShown)
             }
 
             // Out of the hierarchy on the settled grid (invisible there, and
@@ -416,7 +381,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // While it is hidden it is dormant: a change on the page (the toolbar collapsing, a
         // tab's title) does not re-run it (`DormantGate`).
         let hidden = zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID)
-        DormantGate(dormant: !overviewVisible, size: size) {
+        DormantGate(dormant: !overviewVisible) {
         TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
                     // On the settled grid the page layer draws the active
                     // tab's card live (the same view as the page); on the
@@ -449,18 +414,15 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page
 
     private var contentContext: TabsKitContentContext {
+        let barInset = ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
+        let top = theme.metrics.barEdge == .top
         let chrome = chrome, theme = theme
-        let insets = ToolbarLayout.pageInsets(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom,
-                                              bar: chrome.bar)
         return TabsKitContentContext(
             pageSize: size,
-            safeAreaInsets: EdgeInsets(top: insets.resting.top, leading: 0, bottom: insets.resting.bottom, trailing: 0),
-            chromeInsets: EdgeInsets(top: insets.live.top, leading: 0, bottom: insets.live.bottom, trailing: 0),
+            safeAreaInsets: EdgeInsets(top: top ? barInset : safeTop, leading: 0, bottom: top ? safeBottom : barInset, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
-            isOnPage: zoomState.pageInteractive,
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,
-            toolbarEdge: theme.metrics.barEdge,
             onScroll: { dy in chrome.pageDragged(dy, theme) })
     }
 
@@ -1001,28 +963,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
 /// The grid's own observation (its tabs, its cards' content) still applies.
 struct DormantGate<Content: View>: View, Equatable {
     let dormant: Bool
-    /// The size the content is laid out at. While dormant the body does not
-    /// run again, so the content keeps the size it last had: a rotation with
-    /// the grid hidden no longer lays the whole grid out again at the new
-    /// size in the turn's main-thread pass (ios-rotate, optimum ledger row
-    /// 8); it takes the new size as it wakes, before it shows.
-    /// None: the content takes whatever it is offered.
-    var size: CGSize?
     @ViewBuilder let content: Content
 
-    init(dormant: Bool, size: CGSize? = nil, @ViewBuilder content: () -> Content) {
-        self.dormant = dormant
-        self.size = size
-        self.content = content()
-    }
-
-    @ViewBuilder var body: some View {
-        if let size {
-            content.frame(width: size.width, height: size.height, alignment: .topLeading)
-        } else {
-            content
-        }
-    }
+    var body: some View { content }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.dormant && rhs.dormant }
 }
@@ -1049,19 +992,5 @@ struct BarCutout: View {
 private struct GridShape: Equatable {
     var width: CGFloat
     var columns: Int
-}
-/// The opaque band behind a top bar (``TabsView/topBandHeight``): never hit-tested,
-/// never read by accessibility; it rides the bar's own collapse and expand animation.
-private struct TopBarBand: View {
-    var height: CGFloat
-    var color: Color
-
-    var body: some View {
-        color
-            .frame(height: max(0, height))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
 }
 #endif

@@ -12,9 +12,6 @@ use super::{
 };
 
 /// Most terminals one app holds at once.
-/// Measured: not timed; each terminal is a pty pair (2 fds) and a session-host terminal (parser
-/// and journal) plus up to one DEFAULT_WINDOW_BYTES (256 KiB) of waiting bytes, so 64 is at most
-/// 128 fds and 16 MiB buffered per app.
 pub(crate) const MAX_TERMINALS_PER_APP: usize = 64;
 
 /// What the host records for a terminal.

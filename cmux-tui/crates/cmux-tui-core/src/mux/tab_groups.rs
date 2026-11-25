@@ -629,6 +629,10 @@ impl Mux {
                         ids.pane
                     }
                     TabGroupDestination::NewWorkspace { .. } => {
+                        anyhow::ensure!(
+                            state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+                            "workspace limit reached"
+                        );
                         let position = resource_topology::new_workspace_position(
                             state,
                             &presentation,

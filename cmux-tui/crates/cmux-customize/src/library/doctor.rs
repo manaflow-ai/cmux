@@ -39,7 +39,6 @@ use crate::tree::{self, SETTINGS, STYLE_SURFACES};
 use crate::{Customize, Error, validate};
 
 mod defaults;
-mod menus;
 mod recover;
 mod scan;
 mod stray;
@@ -306,11 +305,6 @@ impl Customize {
             }
             (FixKind::Restore, "broken") => {
                 let (_, said) = self.restore_file(subject, expiry.now_ms)?;
-                Ok(Fixed { id: finding.id, kind, kept: None, said })
-            }
-            // A menu entry cmux skips: the settings file's newest version whose menus all load.
-            (FixKind::Restore, "ignored") if subject.starts_with("menu:") => {
-                let (_, said) = self.restore_settings_menus(expiry.now_ms)?;
                 Ok(Fixed { id: finding.id, kind, kept: None, said })
             }
             _ => Err(Error::Library(format!("{id} has no {} fix", kind_word(kind)))),
@@ -614,9 +608,6 @@ impl Customize {
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
             .map(str::to_owned);
         let settings = settings_text.as_deref().and_then(|text| jsonc::parse(text).ok());
-        if let (Some(text), Some(root)) = (settings_text.as_deref(), &settings) {
-            self.menu_findings(text, root, out);
-        }
         if let (Some(text), Some(Value::Object(object))) = (settings_text.as_deref(), &settings) {
             let mut unknown = Vec::new();
             unknown_keys(object, &mut Vec::new(), &prefixes(), &mut unknown);

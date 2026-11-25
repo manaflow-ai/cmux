@@ -8,14 +8,11 @@
 // `#/settings/keys` (the request's notification). The list is read with the section
 // (sectionQueries), after each gesture and on the host's `cmux.settings.keys.changed`; no polling.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
-import { useCardWindow, windowGap } from "../cardWindow";
-import { keepUnchangedKeys, keyDate, keyRequestRows, keyRows, type KeyRequestRow, type KeyRow } from "../keys";
-import { startOfDay } from "../sharedLinks";
+import { keyDate, keyRequestRows, keyRows, type KeyRequestRow, type KeyRow } from "../keys";
 import { KEYS_KEY, keysQuery } from "../sectionQueries";
 import { locale, t } from "../strings";
 
@@ -29,55 +26,14 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
   const drawn = query.isFetched;
   const requests = keyRequestRows(state);
   const asking = requests.length > 0;
-  const [now] = useState(() => Date.now());
-  // The rows change with the list the host sends; a key whose record did not change keeps its row.
-  const [kept, setKept] = useState(() => ({ state, rows: keyRows(state, now) }));
-  let rows = kept.rows;
-  if (kept.state !== state) {
-    rows = keepUnchangedKeys(kept.rows, keyRows(state, now));
-    setKept({ state, rows });
-  }
-  const keys = useMemo(() => rows.map((row) => row.id), [rows]);
-  // A row draws its purpose and who added it only when the record has them.
-  // Rows whose Revoke is asking first: they stay mounted while it asks, wherever the page scrolls.
-  const [confirmOpen, setConfirmOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const rowWindow = useCardWindow(
-    keys,
-    KEY_ESTIMATE,
-    (index) => {
-      const row = rows[index];
-      return row ? `${row.purpose ? "p" : ""}${keyAddedBy(row) ? "a" : ""}` : "";
-    },
-    confirmOpen,
-  );
-  // The deep link (a request's notification) lands on the requests when any wait, else on the keys,
-  // once the keys' window is drawn (cardWindow.ts `ready`).
-  // The list's ref apart from the window: the compiler takes a property set as a `ref` for a ref
-  // object and every other read of the window for a ref read during render.
-  const { list: rowList, ready } = rowWindow;
+  // The deep link (a request's notification) lands on the requests when any wait, else on the keys.
   useLayoutEffect(() => {
-    if (drawn && reveal && ready) (asking ? requestsCard : card).current?.scrollIntoView?.({ block: "start" });
-  }, [drawn, reveal, asking, ready]);
-  // A row's dates need only whether a date is today.
-  const today = startOfDay(now);
+    if (drawn && reveal) (asking ? requestsCard : card).current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, reveal, asking]);
+  const [now] = useState(() => Date.now());
+  const rows = keyRows(state, now);
   const refresh = () => queryClient.invalidateQueries({ queryKey: KEYS_KEY });
-  const { onRevoke, onConfirming } = useStableHandlers({
-    onConfirming: (id: string, open: boolean) =>
-      setConfirmOpen((current) => {
-        if (current.has(id) === open) return current;
-        const next = new Set(current);
-        if (open) next.add(id);
-        else next.delete(id);
-        return next;
-      }),
-    onRevoke: async (id: string) => {
-      const error = await store.revokeKey(id);
-      await refresh();
-      return error;
-    },
-  });
   const unavailable = drawn && (state === null || state.available === false);
-  const listing = !unavailable && rows.length > 0;
   return (
     <>
       {asking && (
@@ -105,14 +61,7 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
       )}
       <section className="group" data-card="keys" id="keys" ref={card}>
         <h3 className="group-title">{t("settingsPage.keys.title")}</h3>
-        <div
-          className="rows"
-          ref={rowList}
-          role={listing ? "list" : undefined}
-          style={{ paddingBottom: rowWindow.padBottom }}
-          onFocus={rowWindow.onFocus}
-          onBlur={rowWindow.onBlur}
-        >
+        <div className="rows">
           {unavailable ? (
             <div className="row" data-keys-unavailable="">
               <span className="row-help">{t("settingsPage.keys.unavailable")}</span>
@@ -124,19 +73,17 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
               </span>
             </div>
           ) : (
-            rowWindow.items.map(({ index, key, gap }) => (
-              <Fragment key={key}>
-                {windowGap(gap)}
-                <KeyRowView
-                  row={rows[index]!}
-                  index={index}
-                  count={rows.length}
-                  today={today}
-                  onRevoke={onRevoke}
-                  onConfirming={onConfirming}
-                  measure={rowWindow.measure}
-                />
-              </Fragment>
+            rows.map((row) => (
+              <KeyRowView
+                key={row.id}
+                row={row}
+                now={now}
+                onRevoke={async () => {
+                  const error = await store.revokeKey(row.id);
+                  await refresh();
+                  return error;
+                }}
+              />
             ))
           )}
         </div>
@@ -282,39 +229,13 @@ export function keyAddedBy(row: KeyRow): string | null {
   return added ? t("settingsPage.keys.addedBy", added) : null;
 }
 
-/** A key row's height before one is measured (title, purpose, facts and who added it). */
-const KEY_ESTIMATE = 96;
-
-/** One key, a memo row: its own record, the start of today (all its dates need of the clock) and one
- * stable `onRevoke`, so a read that changed another key, or a revoke, leaves it be. */
-const KeyRowView = memo(function KeyRowView({
-  row,
-  index,
-  count,
-  today,
-  onRevoke,
-  onConfirming,
-  measure,
-}: {
-  row: KeyRow;
-  index: number;
-  count: number;
-  today: number;
-  onRevoke: (id: string) => Promise<string | null>;
-  /** The row's Revoke opened or closed its confirmation. */
-  onConfirming: (id: string, open: boolean) => void;
-  measure: (node: HTMLElement | null) => void;
-}) {
-  const [confirming, setConfirmingState] = useState(false);
-  const setConfirming = (open: boolean) => {
-    setConfirmingState(open);
-    onConfirming(row.id, open);
-  };
+function KeyRowView({ row, now, onRevoke }: { row: KeyRow; now: number; onRevoke: () => Promise<string | null> }) {
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const revoke = async () => {
     setBusy(true);
-    const refused = await onRevoke(row.id);
+    const refused = await onRevoke();
     setBusy(false);
     setConfirming(false);
     setError(refused === null ? null : t("settingsPage.keys.revokeFailed", refused));
@@ -329,18 +250,7 @@ const KeyRowView = memo(function KeyRowView({
   const confirmTitle = t("settingsPage.keys.revokeTitle", row.label);
   const addedBy = keyAddedBy(row);
   return (
-    <div
-      className="row"
-      data-key={row.id}
-      data-key-state={row.state}
-      ref={measure}
-      data-index={index}
-      // A list item by role: the card's `.rows` stays a div, the shape every Settings card has.
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="listitem"
-      aria-posinset={index + 1}
-      aria-setsize={count}
-    >
+    <div className="row" data-key={row.id} data-key-state={row.state}>
       <div className="row-main">
         <div className="row-label">
           <div className="row-title">
@@ -354,7 +264,7 @@ const KeyRowView = memo(function KeyRowView({
           </div>
           {row.purpose && <div className="row-help selectable keys-purpose">{row.purpose}</div>}
           <div className="row-help selectable" data-key-detail="">
-            {keyFacts(row, today)}
+            {keyFacts(row, now)}
           </div>
           {addedBy && (
             <div className="row-help" data-key-added="">
@@ -413,4 +323,4 @@ const KeyRowView = memo(function KeyRowView({
       )}
     </div>
   );
-});
+}

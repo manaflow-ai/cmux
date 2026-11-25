@@ -41,7 +41,6 @@ extension HomeChiefSettingsView {
         computerRow.addArrangedSubview(row)
         computerNote.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         computerRow.addArrangedSubview(computerNote)
-        computerRow.addArrangedSubview(computerDesktop)
         computerDesktop.setAccessibilityIdentifier("cmux.home.chief.computerDesktop")
         addFullWidth(computerRow)
         row.widthAnchor.constraint(equalTo: computerRow.widthAnchor).isActive = true

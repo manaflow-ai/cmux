@@ -1,5 +1,4 @@
 #if os(iOS)
-import CmuxMobileDesign
 import UIKit
 
 /// Text selection over the terminal's rows, scrollback included (G-14,
@@ -43,36 +42,9 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
     private(set) var selection: TerminalTextSelection? {
         didSet {
             guard selection != oldValue else { return }
-            if followsRows {
-                captureRows()
-                lostGrace.reset()
-            }
             redraw()
             selectionChanged(selection)
         }
-    }
-
-    /// The selection's rows are viewport rows of a screen the app redraws (a full-screen
-    /// app): ``followRows()`` keeps it on its text when the app moves it.
-    var followsRows = false
-    /// The selected rows' text as it read when the selection was made (``followsRows``).
-    private var selectedRows: [String] = []
-    /// The rows just above and below the selection as they read then (nil past the screen's
-    /// edge): they tell a row rewritten in place from text that scrolled away.
-    private var rowAbove: String?
-    private var rowBelow: String?
-
-    private func captureRows() {
-        guard let selection else {
-            selectedRows = []
-            rowAbove = nil
-            rowBelow = nil
-            return
-        }
-        let rows = documentRows()
-        selectedRows = (selection.start.row...selection.end.row).map { rowText($0) ?? "" }
-        rowAbove = rows.contains(selection.start.row - 1) ? rowText(selection.start.row - 1) ?? "" : nil
-        rowBelow = rows.contains(selection.end.row + 1) ? rowText(selection.end.row + 1) ?? "" : nil
     }
 
     /// Every change of the selection (a handle drag, a tap that ends it): Copy Mode follows it.
@@ -155,57 +127,9 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         selection = current
     }
 
-    /// The app redrew its screen (``followsRows``): the selection moves with its text to the
-    /// rows it is on now, or ends when that text left the screen, never staying behind over
-    /// other text (Leo, 2026-11-24: "sometimes the highlights in terminal just float and dont
-    /// move when i scroll?"). Rows rewritten where they are (the rows around them did not move)
-    /// keep it. Select All covers the whole screen, whatever it shows.
-    ///
-    /// A screen drawn in more than one batch (cleared, then drawn again) can lack the text for
-    /// a moment: the highlight hides, and ends only when the text is still gone
-    /// ``lostGrace`` later.
-    func followRows() {
-        guard followsRows, let current = selection, !selectedRows.isEmpty else { return }
-        let rows = documentRows()
-        guard !rows.isEmpty, current.start.row > rows.lowerBound || current.end.row < rows.upperBound - 1 else { return }
-        let screen = rows.map { rowText($0) ?? "" }
-        switch TerminalRowFollow.follow(selected: selectedRows, above: rowAbove, below: rowBelow,
-                                        firstRow: current.start.row - rows.lowerBound, screen: screen) {
-        case .gone:
-            switch lostGrace.lost(lookAgain: { [weak self] in self?.followRows() }) {
-            case .hide:
-                menu?.dismissMenu()
-                redraw()
-            case .wait:
-                break
-            case .end:
-                clear()
-            }
-        case .rewritten:
-            // The same rows, new text (htop, a spinner, a streamed line, Copy Mode's cursor
-            // cell): the selection stays and follows the rows' new text from here on.
-            if lostGrace.reset() { redraw() }
-            captureRows()
-        case .moved(let delta):
-            let wasLost = lostGrace.reset()
-            if delta == 0 {
-                // Rows around it may have changed: read them again so a later rewrite in place
-                // is told from a scroll by the rows as they are now.
-                captureRows()
-                if wasLost { redraw() }
-            } else {
-                shiftRows(by: delta)
-            }
-        }
-    }
-
-    /// A followed selection whose text left the screen hides, and ends when it is still gone
-    /// ``TerminalLostTextGrace/grace`` later.
-    private lazy var lostGrace = TerminalLostTextGrace(now: { CACurrentMediaTime() }, schedule: TerminalMainQueue.schedule)
-
     /// Re-lays the highlight (the document or the cell size changed).
     func redraw() {
-        guard let selection, isEnabled(), !lostGrace.isLost else {
+        guard let selection, isEnabled() else {
             highlight.isHidden = true
             startHandle.isHidden = true
             endHandle.isHidden = true
@@ -229,11 +153,6 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
         endHandle.isHidden = !showsHandles
     }
 
-    #if DEBUG
-    /// The highlight's rects drawn now, one per row, in the host's coordinates (the highlight demo).
-    var drawnRects: [CGRect] { highlight.isHidden ? [] : highlight.rects }
-    #endif
-
     // MARK: Gestures
 
     @objc private func longPressed(_ press: UILongPressGestureRecognizer) {
@@ -245,7 +164,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
             pressedLink = openLink == nil ? nil : linkAt(cell)
             showsHandles = true
             selection = TerminalTextSelection.word(at: cell, line: rowText(cell.row) ?? "", columns: columns())
-            CmuxMobileTheme.standard.haptics.selectionChanged()
+            UISelectionFeedbackGenerator().selectionChanged()
         case .changed:
             // Moving after the press extends the selection, like a drag-select.
             guard var current = selection, let cell = cellAt(point) else { return }

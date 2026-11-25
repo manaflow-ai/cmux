@@ -21,25 +21,11 @@
 //! A session no grant admitted, a grant without `vmk`, a teammate's grant
 //! without `chats`, or a grant whose `svc` lacks `acpmux` is refused before
 //! the socket is dialed. An owner's grant sends `chats: null`.
-//!
-//! The client side ([`open`], [`pump_lines`]) is what `cmux carrier dial
-//! --service acpmux` runs: it opens the service on a dialed session and
-//! carries newline JSON-RPC between stdio and the stream, writing only whole
-//! lines out. The service rides the session's Tunnel lane, which is bound to
-//! one session generation and never replayed: a resume of the session resets
-//! the stream ([`StreamFailure::GenerationChanged`](crate::service)), and
-//! [`pump_lines`] returns that as an error rather than reopening, because a
-//! fresh stream is a fresh acpmux connection (its JSON-RPC state is gone).
 
-use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
-
-use bytes::Bytes;
-use cmux_remote_protocol::Service;
 
 use cmux_link::carrier_grant::CarrierGrant;
 use cmux_link::token::VmKind;
@@ -51,9 +37,6 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
-
-use crate::bridge::{BridgeError, await_opened};
-use crate::service::{ServiceMultiplexer, ServiceStream};
 
 /// The upgrade header acpmux reads the person from.
 pub const HEADER: &str = "x-acpmux-carrier";
@@ -202,102 +185,6 @@ where
     tokio::select! {
         result = upload => result,
         result = download => result,
-    }
-}
-
-/// Opens [`Service::Acpmux`] on a dialed session and waits for the daemon's
-/// answer: the opened stream, or [`BridgeError::Rejected`] with the daemon's
-/// reason (`acpmux.no_grant`, `acpmux.not_granted`, no acpmux on the host).
-pub async fn open(
-    multiplexer: &Arc<ServiceMultiplexer>,
-) -> Result<Arc<ServiceStream>, BridgeError> {
-    let stream = multiplexer.open(Service::Acpmux, BTreeMap::new()).await?;
-    if let Err(error) = await_opened(&stream).await {
-        let _ = stream.close().await;
-        return Err(error);
-    }
-    Ok(Arc::new(stream))
-}
-
-/// Carries newline JSON-RPC between an opened acpmux stream (from [`open`])
-/// and `reader` / `writer` until either side ends. Each line from `reader`
-/// goes out whole in one send; `writer` gets whole lines only, each flushed,
-/// so a reader of it never sees half a message. EOF on `reader` closes the
-/// stream's sending side and the call returns when acpmux's side ends. A
-/// line longer than [`MAX_LINE_BYTES`] either way, a reset, or the session
-/// moving to a new generation under the stream (a resume) is an error.
-pub async fn pump_lines<R, W>(
-    stream: Arc<ServiceStream>,
-    reader: R,
-    mut writer: W,
-) -> Result<(), BridgeError>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    let too_long =
-        || BridgeError::Io(io::Error::new(io::ErrorKind::InvalidData, "acpmux line too long"));
-    let upload = {
-        let stream = stream.clone();
-        async move {
-            let mut reader = tokio::io::BufReader::new(reader);
-            loop {
-                let mut line = Vec::new();
-                let read = (&mut reader)
-                    .take(MAX_LINE_BYTES as u64 + 1)
-                    .read_until(b'\n', &mut line)
-                    .await?;
-                if read == 0 {
-                    stream.close().await?;
-                    return Ok::<_, BridgeError>(());
-                }
-                if line.last() != Some(&b'\n') && line.len() > MAX_LINE_BYTES {
-                    return Err(too_long());
-                }
-                stream.send(Bytes::from(line)).await?;
-            }
-        }
-    };
-    let download = {
-        let stream = stream.clone();
-        async move {
-            let mut pending: Vec<u8> = Vec::new();
-            while let Some(chunk) = stream.receive().await? {
-                pending.extend_from_slice(&chunk.payload);
-                if let Some(end) = pending.iter().rposition(|b| *b == b'\n') {
-                    let rest = pending.split_off(end + 1);
-                    writer.write_all(&pending).await?;
-                    writer.flush().await?;
-                    pending = rest;
-                }
-                if pending.len() > MAX_LINE_BYTES + 1 {
-                    return Err(too_long());
-                }
-                if chunk.reset {
-                    return Err(BridgeError::Rejected("the acpmux stream was reset".into()));
-                }
-                if chunk.finished {
-                    break;
-                }
-            }
-            if !pending.is_empty() {
-                writer.write_all(&pending).await?;
-            }
-            writer.shutdown().await?;
-            Ok::<_, BridgeError>(())
-        }
-    };
-    let transfer = async {
-        tokio::try_join!(upload, download)?;
-        Ok::<_, BridgeError>(())
-    };
-    tokio::pin!(transfer);
-    let failure = stream.wait_for_failure();
-    tokio::pin!(failure);
-    tokio::select! {
-        biased;
-        error = &mut failure => Err(error.into()),
-        result = &mut transfer => result,
     }
 }
 

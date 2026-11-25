@@ -26,9 +26,6 @@ export type ConnectorsInput = {
   /// A Reconnect under way or failed, by server (ReconnectButton's own state, held by the caller).
   reconnecting?: Readonly<Record<string, "reconnecting" | "failed">>;
   imessage?: IMessageView;
-  /// A pending server has lasted the shared bound (lasting.ts `useConnectionQuiet`, held by the caller):
-  /// until then its row says nothing and the section counts it loaded.
-  pendingShown?: boolean;
 };
 
 export function connectorsSection(
@@ -38,8 +35,7 @@ export function connectorsSection(
 ): NativeInfoSection | undefined {
   const { servers, onReconnect } = input;
   if (servers.length === 0 && !input.imessage) return undefined;
-  const pendingShown = input.pendingShown ?? true;
-  const summary = summarizeConnectors(servers, pendingShown);
+  const summary = summarizeConnectors(servers);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -66,10 +62,15 @@ export function connectorsSection(
         ],
       };
     }
-    if (server.status === "pending") return pendingShown ? { ...row, trailing: t("rail.connectorPending") } : row;
     return {
       ...row,
-      trailing: t(server.status === "failed" ? "sessionInfo.connectors.needsReconnect" : "composer.envConnected"),
+      trailing: t(
+        server.status === "failed"
+          ? "sessionInfo.connectors.needsReconnect"
+          : server.status === "pending"
+            ? "rail.connectorPending"
+            : "composer.envConnected",
+      ),
     };
   });
   const imessage = input.imessage;

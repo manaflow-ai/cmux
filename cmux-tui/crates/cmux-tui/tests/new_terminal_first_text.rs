@@ -129,16 +129,9 @@ fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64) {
     let reply_ms = sent.elapsed().as_millis() as u64;
     // A terminal holder outlives the daemon on purpose: end it (and its
     // shells) with the test.
-    // The holder is the default on macOS; the model variable overrides it.
-    let model = debug_env
+    let holder = debug_env
         .iter()
-        .find(|(key, _)| *key == "CMUX_TUI_TERMINAL_HOST_MODEL")
-        .map(|(_, value)| value.trim().to_string());
-    let holder = match model.as_deref() {
-        Some("holder") => true,
-        Some("hosts") => false,
-        _ => cfg!(target_os = "macos"),
-    };
+        .any(|(key, value)| *key == "CMUX_TUI_TERMINAL_HOST_MODEL" && value == "holder");
     let holder_pid = holder.then(|| {
         let resources = client
             .call(json!({"cmd": "terminal-resources", "surfaces": [created["surface"].clone()]}));

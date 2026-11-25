@@ -1,0 +1,71 @@
+{
+  "id": "restart-focus-browser",
+  "priority": "P0",
+  "title": "Quit with a browser pane focused, reopen and type: keys reach the restored pane, never the sidebar; the workspace keeps its name",
+  "why": "QA chrome-parity-v2-1 (bug 1, high, cmux17/18/24): after a restart with a browser pane focused, the window's first responder was the sidebar list (debug.focus first_responder=SidebarListView), so the person's first Return opened the sidebar row's rename field and the next typed command became the workspace's name. A person quits and reopens cmux every day; the first thing they do after is type.",
+  "source": "independent QA bug (qa-chrome-parity-v2-1.json bugs[0]); exact repro: Cmd+N, Ctrl+`, Cmd+D, Cmd+Shift+L example.com, Cmd+Q, reopen, type 'echo hi' Return, 'zzz' Return",
+  "budget_seconds": 170,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-refocus-${nonce}", "as": "left"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo left-${nonce}-$((6*7))", "enter": true, "mark": "left"},
+    {"do": "expect", "title": "the left terminal works", "since": "left", "timeout": 10,
+     "all": [{"daemon_line": "left-${nonce}-42"}, {"app_text_line": "left-${nonce}-42"}]},
+
+    {"do": "key", "key": "d", "modifiers": ["cmd"]},
+    {"do": "focused_terminal", "as": "right"},
+    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
+    {"do": "expect", "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys", "since": "browser", "timeout": 15,
+     "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}]},
+    {"do": "type", "text": "example.com", "enter": true, "mark": "loaded"},
+    {"do": "expect", "title": "before the quit: the browser pane shows example.com and has the keyboard", "since": "loaded", "timeout": 40,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_pane", "not_equals": null, "bind": "browser_pane"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.classified", "not_in": ["sidebar", "sidebarField"]}},
+       {"app_layout": {"workspace": "jr-refocus-${nonce}", "panes": 2}},
+       {"frame_text": "Example Domain"}
+     ]},
+
+    {"do": "relaunch", "how": "quit", "mark": "reopened"},
+
+    {"do": "use", "name": "left"},
+    {"do": "expect", "title": "after the reopen: the browser pane has the keyboard again, not the sidebar", "since": "reopened", "timeout": 45,
+     "all": [
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.classified", "not_in": ["sidebar", "sidebarField"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.first_responder", "not_equals": "SidebarListView"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "in": ["browserPage", "addressBar"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved_pane", "equals": "${browser_pane}"}},
+       {"app_layout": {"workspace": "jr-refocus-${nonce}", "panes": 2}},
+       {"daemon_line": "left-${nonce}-42"},
+       {"frame_text": "Example Domain"}
+     ]},
+    {"do": "type", "text": "echo hi-${nonce}", "enter": true, "mark": "first"},
+    {"do": "type", "text": "zzz${nonce}", "enter": true, "mark": "second"},
+    {"do": "expect", "title": "the two typed lines did not rename the workspace or open the sidebar's rename field", "since": "second", "timeout": 10, "settle": 2,
+     "all": [
+       {"app_layout": {"workspace": "jr-refocus-${nonce}"}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "not_in": ["sidebar", "sidebarField"]}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.appkit.classified", "not_in": ["sidebar", "sidebarField"]}},
+       {"daemon_lacks": "zzz${nonce}"},
+       {"frame_text": "jr-refocus-${nonce}"}
+     ]},
+
+    {"do": "key", "key": "left", "modifiers": ["cmd", "option"], "mark": "to-left"},
+    {"do": "expect", "title": "Cmd+Opt+Left moves the keyboard to the restored terminal on the left", "since": "to-left", "timeout": 10,
+     "all": [
+       {"app_pane": {"focused": true}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "terminal"}}
+     ]},
+    {"do": "type", "text": "echo ok-${nonce}-$((6*7))", "enter": true, "mark": "ok"},
+    {"do": "expect", "title": "the restored terminal runs the typed command", "since": "ok", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "ok-${nonce}-42"},
+       {"app_text_line": "ok-${nonce}-42"},
+       {"app_layout": {"workspace": "jr-refocus-${nonce}"}},
+       {"frame_text": "ok-${nonce}-42"}
+     ]}
+  ]
+}

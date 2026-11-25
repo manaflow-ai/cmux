@@ -373,7 +373,7 @@ class ClassifyTests(unittest.TestCase):
     def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
         # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
         # updater install, signing and feed-verification code stays high.
-        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
                    NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
                    NEXT + "CmuxNextSettings/UpdatesSettings.swift",
                    NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
@@ -391,21 +391,21 @@ class ClassifyTests(unittest.TestCase):
         # Signature verification, the feed resolver, the Sparkle driver and the install code must never
         # grade normal; only the ring above is a setting. Its tests stay low.
         updater = "Packages/macOS/CmuxUpdater/"
-        for path in ("Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift",
+        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
                      "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
-                     "Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift",
-                     "Sources/CmuxUpdaterCore/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
                      "Sources/CmuxUpdater/UpdateDriver.swift",
                      "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
                      "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
                      "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
                      "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
-                     "Sources/CmuxUpdaterCore/InstallWatchdog.swift",
+                     "Sources/CmuxUpdater/InstallWatchdog.swift",
                      "Package.swift"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(updater + path), "high")
-        self.assertEqual(self.tier(updater + "Sources/CmuxUpdaterCore/UpdateRing.swift"), "normal")
-        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterCoreTests/UpdateFeedResolverTests.swift"), "low")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
@@ -839,6 +839,9 @@ class EvidenceTests(unittest.TestCase):
         out = run("Takes back #41113: its rule reached base before its purpose split")
         self.assertIn("takes_back=false", out)
         self.assertIn("takes_back_fix=\n", out)
+        held = (ROOT / ".github/workflows/risk-tier.yml").read_text()
+        self.assertIn("TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}", held)
+        self.assertIn('echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"', held)
 
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
@@ -1328,6 +1331,11 @@ class RateLimitedPrModeTests(unittest.TestCase):
     def test_the_off_switch_turns_a_rate_limit_red_again(self):
         with self.assertRaises(risk.RateLimited):
             self.run_pr({risk.RATE_LIMIT_FAILS_ENV: "1"})
+
+    def test_the_workflow_sets_no_label_on_an_ungraded_run(self):
+        workflow = (ROOT / ".github/workflows/risk-tier.yml").read_text(encoding="utf-8")
+        step = workflow[workflow.index("- name: Set the risk label"):]
+        self.assertIn("if: steps.grade.outputs.label != ''", step[:step.index("run:")])
 
 
 class GhFailureTests(unittest.TestCase):

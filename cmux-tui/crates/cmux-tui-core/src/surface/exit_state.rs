@@ -143,8 +143,6 @@ pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
         return;
     }
     pty.dead.store(true, Ordering::Release);
-    // A dead stream is never resumed: its ring goes with the shell, not the tab.
-    pty.snapshot_position.ring.release();
     if let Some(mux) = pty.mux.upgrade() {
         mux.surface_exited(surface.id);
     }

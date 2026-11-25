@@ -50,14 +50,12 @@ struct PageSharedAssetsTests {
         // daemon's first-party WebSocket trust table. Shared assets must still resolve from
         // the sibling pages/__shared directory without granting it daemon access.
         let pages = URL(fileURLWithPath: "/fixture/pages", isDirectory: true)
-        for page in [PageDescriptor.github, PageDescriptor(id: "cmux.terminal-history", resource: "terminal-history", namespaces: [])] {
-            let root = pages.appendingPathComponent(page.resource, isDirectory: true)
-            let url = try #require(URL(string: "cmux-page://\(page.id)/__shared/runtime.js"))
-            #expect(PageSchemeHandler.fileURL(for: url, page: page, root: root)?.path
-                == pages.appendingPathComponent("__shared/runtime.js").path)
-            #expect(!PageID.isFirstParty(page.id))
-            #expect(FirstPartyPages.shippedIDs.contains(page.id))
-        }
+        let root = pages.appendingPathComponent("github", isDirectory: true)
+        let url = try #require(URL(string: "cmux-page://cmux.github/__shared/runtime.js"))
+        #expect(PageSchemeHandler.fileURL(for: url, page: .github, root: root)?.path
+            == pages.appendingPathComponent("__shared/runtime.js").path)
+        #expect(!PageID.isFirstParty("cmux.github"))
+        #expect(FirstPartyPages.shippedIDs.contains("cmux.github"))
     }
 
     @Test @MainActor func readsSharedCodeAndRefusesSymlinkEscapes() async throws {

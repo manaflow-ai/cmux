@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(OSLog)
 import OSLog
-#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "links")
 

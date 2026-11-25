@@ -189,7 +189,7 @@ public struct PermissionActionBar: View {
                     .contentShape(.rect)
             }
         }
-        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
+        .sensoryFeedback(.impact(weight: .light), trigger: taps)
     }
 
     private func style(_ option: ACPPermissionOption) -> CmuxMobileCapsuleButtonStyle.Kind {
@@ -244,7 +244,7 @@ public struct QuestionCard: View {
         .onChange(of: state) { _, new in
             if question.isPending { QuestionDraftStore.shared.save(QuestionDraft(new), for: question.id) }
         }
-        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: submitted)
+        .sensoryFeedback(.impact(weight: .light), trigger: submitted)
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
@@ -349,7 +349,7 @@ public struct QuestionCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.cmuxPressFill)
-        .cmuxMobileSensoryFeedback(.selection, trigger: chosen)
+        .sensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 

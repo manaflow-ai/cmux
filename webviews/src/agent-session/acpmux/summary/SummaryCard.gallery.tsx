@@ -263,12 +263,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 560,
   widths: { narrow: 300, normal: 360 },
-  covers: [
-    "agent-session/acpmux/summary/SummaryTasks.tsx",
-    "agent-session/acpmux/session-info/ChildSessionRows.tsx",
-    "agent-session/acpmux/summary/LiveCount.tsx",
-    "agent-session/acpmux/summary/SubagentStack.tsx",
-  ],
+  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/session-info/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
     "header-grid-before": {
@@ -334,11 +329,11 @@ export default componentEntry<Props>({
       props: { popover: true, rows: legacySubagentRows, background: background(processes.slice(0, 2)) },
     },
     "popover-subagents": {
-      note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab. Its count of what runs is the subagents' mark and the number, no word (Leo, 2026-11-23: \"running\" doesn't need text); the hover says how many run.",
+      note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",
       props: { popover: true, rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
     },
     "inline-subagents": {
-      note: "The inline column with the same live subagents: the Subagents title opens the Subagents tab beside Summary. The head counts what runs as the subagents' mark and the number, no word; waiting and failed keep theirs.",
+      note: "The inline column with the same live subagents: the Subagents title opens the Subagents tab beside Summary.",
       props: { rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
     },
     "preview-tab-row": {

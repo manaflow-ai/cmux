@@ -135,23 +135,6 @@ fn pull_requests_roll_up_with_the_repository_they_name() {
 }
 
 #[test]
-fn a_pull_requests_rollup_carries_its_cloud_compute_beside_model_spend() {
-    let l = mem();
-    let pr = "https://github.com/acme/widgets/pull/8";
-    let spend = |cost: f64, compute: f64| json!({"model": "claude-opus-5-5", "costUsd": cost, "computeCostUsd": compute});
-    turn(&l, "a", D0, 0, spend(1.0, 0.25), "claude", "claude");
-    l.note_pull_request("a", pr);
-    turn(&l, "a", D0 + 60_000, 0, spend(2.0, 0.5), "claude", "claude");
-    let reply = l.query(&all(D0, D0 + DAY - 1));
-    let prs = rollup(&reply, "pr");
-    assert_eq!(prs[0]["key"], pr);
-    // Model spend stays `costUsd`; compute is its own, so a task's cost is the two added.
-    assert_eq!(prs[0]["costUsd"], 3.0);
-    assert_eq!(prs[0]["computeCostUsd"], 0.75);
-    assert_eq!(reply.totals.compute_cost_usd, 0.75);
-}
-
-#[test]
 fn days_are_utc_and_a_range_takes_whole_days() {
     let l = mem();
     let cost = |c: f64| json!({"model": "claude-opus-5-5", "costUsd": c});

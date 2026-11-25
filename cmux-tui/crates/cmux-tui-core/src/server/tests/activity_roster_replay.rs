@@ -88,23 +88,31 @@ fn an_activity_subscriber_from_mid_replay_ends_at_the_final_live_count() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Activity subscribers are not capped by count (the old cap was 16): each is one map entry
-/// on the one shared worker thread. Open ones past 16 subscribe, and closed ones leave.
+/// The activity subscriber cap counts live subscribers only. A connection that
+/// closed is dropped from the stream when the next one subscribes, not first
+/// at the worker's next send: until then a new subscriber was refused "too
+/// many activity subscribers" although none of the counted ones was open.
 #[test]
-fn activity_subscribers_past_the_old_cap_of_16_subscribe() {
+fn closed_activity_subscribers_do_not_count_against_the_cap() {
     let mux = test_mux();
-    let mut writers = Vec::new();
-    for _ in 0..64 {
-        let (writer, outbound) = captured_writer();
+    let mut closed = Vec::new();
+    for _ in 0..16 {
+        let (writer, _outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let subscribed = handle_command(&mux, client, Command::SubscribeActivity, &writer);
-        assert!(subscribed.is_ok(), "subscriber refused: {:?}", subscribed.err());
-        writers.push((writer, outbound));
+        handle_command(&mux, client, Command::SubscribeActivity, &writer).unwrap();
+        closed.push(writer);
     }
-    for (writer, _) in &writers {
+    for writer in &closed {
         writer.close();
     }
+
     let (writer, _outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    assert!(handle_command(&mux, client, Command::SubscribeActivity, &writer).is_ok());
+    let subscribed = handle_command(&mux, client, Command::SubscribeActivity, &writer);
+
+    assert!(
+        subscribed.is_ok(),
+        "a subscriber was refused while every counted subscriber was closed: {:?}",
+        subscribed.err()
+    );
 }

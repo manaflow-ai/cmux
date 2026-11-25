@@ -21,18 +21,6 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
-        id: "presence.live.toggle",
-        group: GROUP,
-        title: t("ProfileActions", "action.presence.live.toggle", "Toggle Live"),
-        keywords: &["live", "presence", "online", "offline", "teammates", "agents", "status", "sync", "sidebar"],
-        category: "sidebar",
-        symbol: "dot.radiowaves.left.and.right",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "presence live-toggle",
-        ..Action::DEFAULT
-    },
-    Action {
         id: "browser.downloads.showFolder",
         group: GROUP,
         title: t("ProfileActions", "action.browser.downloads.showFolder", "Open Downloads Folder"),

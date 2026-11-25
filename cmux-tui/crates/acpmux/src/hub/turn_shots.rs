@@ -91,7 +91,7 @@ pub(super) fn segment(id: &str) -> Option<&str> {
     safe.then_some(id)
 }
 
-fn turn_dir(base: &Path, session: &str, turn: &str) -> Option<PathBuf> {
+pub(super) fn turn_dir(base: &Path, session: &str, turn: &str) -> Option<PathBuf> {
     Some(base.join(segment(session)?).join(segment(turn)?))
 }
 
@@ -103,7 +103,7 @@ fn workspace_key(id: &str) -> String {
 
 /// The browser host's agent socket, as a cmux terminal's client finds it: the daemon's
 /// (`CMUX_BROWSER_HOST_SOCKET`, else `bh-<digest>` beside `CMUX_TUI_SOCKET`), else the default.
-fn host_socket() -> PathBuf {
+pub(super) fn host_socket() -> PathBuf {
     let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
     if let Some(path) = env("CMUX_BROWSER_HOST_SOCKET") {
         return path.into();
@@ -180,48 +180,25 @@ fn host_call(_socket: &Path, _method: &str, _params: Value) -> Option<Value> {
     None
 }
 
-/// Captures the workspace's page (with `tab`, only that tab) into `out`: the tab's id, or none,
-/// with no file left, when it took none (or one over [`MAX_SHOT_BYTES`]). Blocking, bounded by
-/// [`CAPTURE_LIMIT`] per call.
-fn capture(
+/// Captures the workspace's page (with `tab`, only that tab) into `out`, through the host's REPL
+/// session `repl`: the tab's id and address, or none, with no file left, when it took none (or one
+/// over [`MAX_SHOT_BYTES`]). Blocking, bounded by [`CAPTURE_LIMIT`] per call. `turn_frames.rs`
+/// takes its frames with it too.
+pub(super) fn capture(
     socket: &Path,
+    repl: &str,
     base: &Path,
     workspace: &str,
     tab: Option<&str>,
     out: &Path,
-) -> Option<String> {
-    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures")
-}
-
-/// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
-/// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
-/// after. The tab's id, or none with no file left.
-pub(super) fn capture_page(
-    base: &Path,
-    workspace: &str,
-    out: &Path,
-    repl: &str,
-    label: &str,
-) -> Option<String> {
-    capture_in(&host_socket(), base, workspace, None, out, repl, label)
-}
-
-fn capture_in(
-    socket: &Path,
-    base: &Path,
-    workspace: &str,
-    tab: Option<&str>,
-    out: &Path,
-    repl: &str,
-    label: &str,
-) -> Option<String> {
+) -> Option<(String, Option<String>)> {
     if !socket.exists() {
         return None;
     }
     let params = json!({
         "session": repl,
         "engine": "cef",
-        "label": label,
+        "label": "Turn pictures",
         "cwd": base.display().to_string(),
         "code": capture_code(workspace, out, tab),
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
@@ -232,7 +209,8 @@ fn capture_in(
             let text = result.get("output")?.as_str()?;
             let marker = text.lines().find_map(|l| l.strip_prefix("TURN_SHOT "))?;
             let shown: Value = serde_json::from_str(marker).ok()?;
-            Some(shown.get("id")?.as_str()?.to_owned())
+            let url = shown.get("url").and_then(Value::as_str).map(str::to_owned);
+            Some((shown.get("id")?.as_str()?.to_owned(), url))
         });
     let kept = taken.filter(|_| {
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
@@ -245,7 +223,7 @@ fn capture_in(
 
 /// Drops a turn's pictures, and its chat's folder once that holds none, so a chat with no pair
 /// never counts toward [`KEEP_CHATS`].
-fn drop_turn(turn_dir: &Path) {
+pub(super) fn drop_turn(turn_dir: &Path) {
     let _ = crate::home_fs::remove_dir_all(turn_dir);
     if let Some(chat) = turn_dir.parent() {
         // Fails, keeping it, while another turn's pictures are in it.
@@ -288,6 +266,8 @@ pub(super) fn prune(dir: &Path, keep: usize) {
 /// Session `id`'s pictures, deleted with its chat. Blocking. Its pending pairs end first, so a
 /// capture still running finds its turn gone and leaves nothing (`turn_began`, `turn_ended`).
 pub(crate) fn remove_session(id: &str) {
+    // Its frames too (`turn_frames.rs`).
+    super::turn_frames::remove_session(id);
     let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
     pending.retain(|key, turn| {
         let keep = key.0 != id;
@@ -304,6 +284,8 @@ pub(crate) fn remove_session(id: &str) {
 
 /// A turn refused after it started: its before has no after coming.
 pub(super) fn turn_refused(session: &Session, turn: &str) {
+    // Its frames too (`turn_frames.rs`).
+    super::turn_frames::turn_refused(&session.id, turn);
     let key = (session.id.clone(), turn.to_owned());
     let known = PENDING.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&key);
     if known && let Some(dir) = turn_dir(&root(), &key.0, &key.1) {
@@ -320,6 +302,8 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
     let base = root();
     let Some(dir) = turn_dir(&base, &session.id, turn) else { return };
     let key = (session.id.clone(), turn.to_owned());
+    // The turn's frames start (`turn_frames.rs`); the before below is their first.
+    super::turn_frames::turn_began(&session.id, turn, &workspace);
     {
         let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
         // A turn that never settled (it failed) never gets its after; a settled one's after may
@@ -343,10 +327,10 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
     }
     let socket = host_socket();
     tokio::task::spawn_blocking(move || {
-        let taken = crate::home_fs::create_dirs(&dir)
-            .ok()
-            .and_then(|()| capture(&socket, &base, &workspace, None, &dir.join(BEFORE)));
-        let Some(tab) = taken else {
+        let taken = crate::home_fs::create_dirs(&dir).ok().and_then(|()| {
+            capture(&socket, REPL_SESSION, &base, &workspace, None, &dir.join(BEFORE))
+        });
+        let Some((tab, url)) = taken else {
             drop_turn(&dir);
             finish(&key);
             return;
@@ -354,8 +338,10 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
         let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
         match pending.get_mut(&key) {
             Some(turn) => {
-                turn.tab = Some(tab);
+                turn.tab = Some(tab.clone());
                 let _ = turn.phase.send_replace(Phase::Ready);
+                drop(pending);
+                super::turn_frames::start_shot(&key, &dir.join(BEFORE), &tab, url.as_deref());
             }
             // The chat was deleted or the turn refused while the before was taken: it goes too.
             None => {
@@ -375,7 +361,14 @@ pub(super) fn turn_ended(scope: &cmux_scope::Scope, session: &Session, turn: &st
             pending.ended = true;
             pending.phase.subscribe()
         });
-    let Some(mut phase) = phase else { return };
+    let Some(mut phase) = phase else {
+        // No before (no page at the start, or it failed): the frames take their own end.
+        scope.spawn_named("turn-frames-end", async move {
+            let _ =
+                tokio::task::spawn_blocking(move || super::turn_frames::end_shot(&key, None)).await;
+        });
+        return;
+    };
     let socket = host_socket();
     scope.spawn_named("turn-shots-after", async move {
         // The before is bounded by the capture limit, so this wait is too.
@@ -392,6 +385,11 @@ pub(super) fn turn_ended(scope: &cmux_scope::Scope, session: &Session, turn: &st
             _ => None,
         };
         let Some((workspace, tab)) = shown else {
+            let frames_key = key.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                super::turn_frames::end_shot(&frames_key, None);
+            })
+            .await;
             if let Some(dir) = turn_dir(&root(), &key.0, &key.1) {
                 let _ = tokio::task::spawn_blocking(move || drop_turn(&dir)).await;
             }
@@ -403,7 +401,16 @@ pub(super) fn turn_ended(scope: &cmux_scope::Scope, session: &Session, turn: &st
             if let Some(dir) = turn_dir(&base, &key.0, &key.1) {
                 // No after (the tab gone or no longer shown, or a picture too large): `settle`
                 // drops the lone before.
-                let _ = capture(&socket, &base, &workspace, Some(&tab), &dir.join(AFTER));
+                let after =
+                    capture(&socket, REPL_SESSION, &base, &workspace, Some(&tab), &dir.join(AFTER));
+                // The turn's last frame (`turn_frames.rs`), read before `settle` may drop it.
+                let after_path = dir.join(AFTER);
+                super::turn_frames::end_shot(
+                    &key,
+                    after
+                        .as_ref()
+                        .map(|(id, url)| (after_path.as_path(), id.as_str(), url.as_deref())),
+                );
                 let live =
                     PENDING.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&key);
                 // A chat deleted while the after was taken keeps nothing.

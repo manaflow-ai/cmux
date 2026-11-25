@@ -17,7 +17,6 @@ name = "cmux-vm-pool"
 path = "src/main.rs"
 
 [dependencies]
-cmux-egress.workspace = true
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }

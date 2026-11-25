@@ -18,15 +18,10 @@ import CmuxNextWakeupsTestSupport
         private var count = 0
         private var waiting: [CheckedContinuation<Void, Never>] = []
         private var released = 0
-        private var current: String
-        /// The feed's body; a test swaps it (a build's deltas get listed).
-        var xml: String {
-            get { lock.withLock { current } }
-            set { lock.withLock { current = newValue } }
-        }
+        let xml: String
         let held: Bool
         init(xml: String, held: Bool = false) {
-            self.current = xml
+            self.xml = xml
             self.held = held
         }
         var fetches: Int { lock.withLock { count } }

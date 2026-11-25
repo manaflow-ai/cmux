@@ -100,17 +100,17 @@ struct HomeSidebarSplitDividerTests {
         defer { window.close() }
         let old = split.sidebarWidth
         #if DEBUG
-        split.setWidth(HomeSidebarWidth.minimum) // the strip: a width under the full list snaps to it
+        split.setWidth(150)
         #endif
         split.layoutSubtreeIfNeeded()
         window.display()
-        #expect(split.sidebarWidth == HomeSidebarWidth.minimum)
+        #expect(split.sidebarWidth == 150)
         Self.expectOneDivider(split, notAt: old)
         // The divider's double-click: back to the standard width.
         split.resetWidth()
         split.layoutSubtreeIfNeeded()
         window.display()
         #expect(split.sidebarWidth == old)
-        Self.expectOneDivider(split, notAt: HomeSidebarWidth.minimum)
+        Self.expectOneDivider(split, notAt: 150)
     }
 }

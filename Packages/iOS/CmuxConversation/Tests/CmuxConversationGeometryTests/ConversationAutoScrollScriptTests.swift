@@ -1,9 +1,5 @@
 import CmuxConversationGeometry
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Testing
 
 /// The DEBUG lab's scripted scroll (`CMUX_UITEST_CONVERSATION_AUTOSCROLL`):

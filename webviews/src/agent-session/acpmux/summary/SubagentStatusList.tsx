@@ -30,7 +30,6 @@ import { ChildSessionRows } from "../session-info/ChildSessionRows";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { CountLine, live as liveCount, type CountPart } from "./LiveCount";
 import { AgentIdentity } from "../subagents/AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { agentTone } from "../subagents/agentTones";
@@ -81,9 +80,8 @@ export function SubagentStatusList({
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
   onShowAll?: () => void;
-  /// Overall activity counts move here when the popover has no title row (the running ones as their
-  /// mark and number, LiveCount.tsx).
-  counts?: readonly CountPart[];
+  /// Overall activity counts move here when the popover has no title row.
+  counts?: string;
   /// Opens Session Info's complete Subagents section beside the chat.
   onOpenInPane?: () => void;
   /// The other chats the agent started, after the sub-sessions.
@@ -138,17 +136,11 @@ export function SubagentStatusList({
       </li>
     );
   };
-  // The running ones are their mark and their number, no word (LiveCount.tsx).
-  const parts = counts?.length ? counts : [liveCount(live, t("summary.subagents.running", { n: live }))];
-  const shown = parts.filter((part): part is CountPart => part !== false);
-  const heading =
-    shown.length > 0 ? (
-      <>
-        {title} · <CountLine parts={shown} />
-      </>
-    ) : (
-      title
-    );
+  const heading = counts
+    ? `${title} · ${counts}`
+    : live > 0
+      ? `${title} · ${t("summary.subagents.running", { n: live })}`
+      : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">

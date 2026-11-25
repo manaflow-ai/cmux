@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
 public import Foundation
 
@@ -148,4 +147,3 @@ public actor IrxRelayCredentialAutopilot {
         }
     }
 }
-#endif

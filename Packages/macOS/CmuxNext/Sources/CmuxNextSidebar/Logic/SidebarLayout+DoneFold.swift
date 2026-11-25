@@ -15,6 +15,9 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         case automatic
         /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).
         case archived
+        /// The sidebar's one Archive section (``SidebarDoneFoldID/archive``): every archived workspace and wholly
+        /// archived group, under one "Archive (N)" row at the bottom (Lawrence 19197).
+        case archive
         /// The Projects list's own "Show N more" row past its first groups (`SidebarLayout+Recents`).
         case projects
     }
@@ -33,6 +36,9 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         self.kind = kind
         self.folder = folder
     }
+
+    /// The bottom "Archive (N)" row (`SidebarLayout+ArchiveSection`); its open state is kept with the folds'.
+    public static let archive = SidebarDoneFoldID(section: .pinned, group: nil, kind: .archive)
 
     /// The Projects list's "Show N more" row (`SidebarLayout+Recents`); its open state is kept with the other lists'.
     public static let projects = SidebarDoneFoldID(section: .pinned, group: nil, kind: .projects)
@@ -54,10 +60,9 @@ nonisolated extension SidebarLayoutOptions {
         !automatic.isEmpty && automatic.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil && sessionTree == nil
     }
 
-    /// Clears every fold a drag or an external drop unfolds: Done, Archived, Settled and Automatic. Archived rows stay
-    /// out of the sidebar (``archiveSection``): a drag never draws them back (cmux#51635).
+    /// Clears every fold a drag or an external drop unfolds: Done, Archived, the Archive, Settled and Automatic.
     mutating func unfoldsAll() {
-        (foldsDone, foldsArchived) = (false, false)
+        (foldsDone, foldsArchived, archiveSection) = (false, false, false)
         settled = []
         automatic = []
     }

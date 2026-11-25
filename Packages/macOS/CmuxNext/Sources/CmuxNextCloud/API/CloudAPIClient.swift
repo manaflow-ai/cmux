@@ -1,4 +1,3 @@
-import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
 import CmuxNextCompat
@@ -47,7 +46,7 @@ public struct CloudAPIClient: Sendable {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return CmuxEgress.session(site: "CmuxNextCloud.CloudAPIClient", configuration: configuration)
+        return URLSession(configuration: configuration)
     }()
 
     /// The team requests go to now (`X-Cmux-Team-Id`).

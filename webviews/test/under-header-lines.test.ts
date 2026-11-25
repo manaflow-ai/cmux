@@ -11,7 +11,6 @@ const none: UnderHeaderLines = {
   checkpointReview: false,
   liveChat: false,
   peerCopy: false,
-  autoSession: false,
   unavailable: false,
   watching: false,
   handoffError: false,

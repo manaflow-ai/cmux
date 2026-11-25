@@ -82,9 +82,6 @@ public final class ConversationViewController: UIViewController {
     /// A tapped link in a message: return true when the host handled it (a
     /// file preview); false, or unset, opens it with the system.
     public var onOpenLink: ((URL) -> Bool)?
-    /// Read after each send: true closes the keyboard once the message is sent (the host's
-    /// "Dismiss keyboard after sending" setting). Unset, the keyboard stays, as Messages does.
-    public var dismissesKeyboardAfterSend: (@MainActor () -> Bool)?
     /// Reply with Selection. When set, the edit menu of a bubble's selected
     /// text offers "Reply with Selection", which ends the selection and hands
     /// the host the message and the selected words; the host usually answers
@@ -391,7 +388,7 @@ public final class ConversationViewController: UIViewController {
             // is active), so the system pocket under the header takes over;
             // the header is its container (see +Background).
             collectionView.topEdgeEffect.isHidden = true
-            collectionView.topEdgeEffect.style = options.header.scrollEdge == .system && options.header.hardTopEdge ? .hard : .soft
+            collectionView.topEdgeEffect.style = .soft
             let top = UIScrollEdgeElementContainerInteraction()
             top.scrollView = collectionView
             top.edge = .top
@@ -835,11 +832,7 @@ public final class ConversationViewController: UIViewController {
         // Reduce Motion keeps this: it only ever rides the system keyboard's
         // own animation (remaining > 0), which Reduce Motion doesn't remove;
         // landing early would part the composer from the keyboard.
-        // Interruptible: without `.allowUserInteraction` UIKit drops every
-        // touch on the views this pass moves until the keyboard settles, so a
-        // tap on the field or the transcript inside the keyboard's animation
-        // did nothing (`MobileKeyboardDock.follow`, the terminal's dock).
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
             self.view.layoutIfNeeded()
         }
     }

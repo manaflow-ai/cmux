@@ -1,7 +1,4 @@
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// Opens sockets for `WireHomeSource` (one per stream connection).
 public protocol HomeWireSocketConnecting: Sendable {

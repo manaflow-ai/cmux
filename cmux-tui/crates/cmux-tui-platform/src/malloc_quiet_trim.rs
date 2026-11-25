@@ -18,9 +18,7 @@
 //! serves nothing (a CLI call) never starts it.
 //!
 //! Only glibc has `malloc_trim`: the musl builds and macOS compile this to
-//! nothing. musl's malloc never gives the pages back at all, so acpmux on Linux
-//! runs on mimalloc, which purges freed pages itself (acpmux-standalone's
-//! main.rs, RFD 0156).
+//! nothing.
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

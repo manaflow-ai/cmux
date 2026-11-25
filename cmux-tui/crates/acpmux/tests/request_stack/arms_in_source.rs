@@ -3,8 +3,7 @@
 //!
 //! An arm head is a line of the function's top `match m {` (8 spaces in) that starts with a method
 //! constant (`method::X`, `| method::X`), a string literal, a module's `METHOD` or a catalog RPC
-//! name, a module's alias of a method constant (`super::browser_workspaces::SET`), or a guard
-//! over a group of methods (`composer::handles(m)`, `queued::handles(m)`,
+//! name, or a guard over a group of methods (`composer::handles(m)`, `queued::handles(m)`,
 //! `agent_login::METHODS`, `harness_admin::METHODS`), whose members are read from their files. A
 //! head of any other form panics: teach this file the new form.
 
@@ -18,7 +17,6 @@ const AGENT_LOGIN: &str = include_str!("../../src/server/agent_login.rs");
 const HARNESS_ADMIN: &str = include_str!("../../src/server/harness_admin.rs");
 const VM_HOST: &str = include_str!("../../src/server/vm_host.rs");
 const HOST_NOTICE: &str = include_str!("../../src/server/host_notice.rs");
-const BROWSER_WORKSPACES: &str = include_str!("../../src/server/browser_workspaces.rs");
 
 /// Every method name `dispatch_request` has an arm for.
 pub fn methods() -> BTreeSet<String> {
@@ -43,19 +41,6 @@ pub fn methods() -> BTreeSet<String> {
         {
             if pattern.contains(token) {
                 found.extend(literals(&block(source, "const METHOD: &str")));
-            }
-        }
-        // A module's own alias of a method constant (`super::browser_workspaces::SET`), read from
-        // its `const NAME: &str = method::X;` line.
-        for (module, source) in [("super::browser_workspaces::", BROWSER_WORKSPACES)] {
-            for (at, _) in pattern.match_indices(module) {
-                let rest = &pattern[at + module.len()..];
-                let name: String =
-                    rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-                let declaration = format!("const {name}: &str = ");
-                if let Some(line) = source.lines().find(|line| line.contains(&declaration)) {
-                    found.extend(constant_values(line, &constants));
-                }
             }
         }
         for (token, value) in [
@@ -92,11 +77,7 @@ fn arm_heads() -> Vec<String> {
         }
         // An arm head is at 8 spaces; deeper lines are arm bodies.
         let Some(code) = line.strip_prefix("        ") else { continue };
-        // A guarded arm whose head spans lines opens its body on a line of its own: `{`.
-        if code.starts_with(' ')
-            || code == "{"
-            || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p))
-        {
+        if code.starts_with(' ') || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p)) {
             continue;
         }
         let known = ["method::", "| ", "\"", "super::", "crate::", "m if ", "name if ", "other"];

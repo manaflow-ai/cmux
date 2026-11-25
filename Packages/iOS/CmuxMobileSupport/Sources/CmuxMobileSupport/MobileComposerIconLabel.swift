@@ -1,4 +1,3 @@
-#if canImport(SwiftUI)
 public import SwiftUI
 
 /// Fixed-size circular icon label shared by mobile composer controls.
@@ -40,4 +39,3 @@ public struct MobileComposerIconLabel: View {
             .mobileGlassCircle()
     }
 }
-#endif

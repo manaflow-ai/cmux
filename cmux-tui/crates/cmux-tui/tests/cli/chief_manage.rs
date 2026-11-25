@@ -82,29 +82,6 @@ fn refused_fields(response: &Value) -> Value {
     details["extra"]["fields"].clone()
 }
 
-/// `created_by` comes from the verified caller, never from the request: the catalog does not
-/// declare it, so a forged one is dropped unread (an unknown param never refuses a request)
-/// and the stored record names the real caller.
-#[test]
-fn a_forged_created_by_is_dropped_unread() {
-    let server = HeadlessServer::start("chief-forged-created-by");
-    let mut home = Conn::open(&server.socket);
-    let forged = make(
-        &mut home,
-        "person-forged",
-        json!({"display_name": "Forged", "created_by": "agent_someone_else"}),
-    );
-    let id = forged["id"].as_str().unwrap().to_owned();
-    let db = rusqlite::Connection::open_with_flags(
-        chiefs_file(&server.state).expect("chiefs.sqlite3 in the session state"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let record: String =
-        db.query_row("SELECT record FROM chief WHERE id = ?1", [&id], |row| row.get(0)).unwrap();
-    assert!(!record.contains("agent_someone_else"), "the forged creator was stored: {record}");
-}
-
 #[test]
 fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
     let server = HeadlessServer::start("chief-manage");
@@ -140,8 +117,17 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
     assert_eq!(docs["engine"]["model"], "m1", "{docs}");
     // The full self_edit, narrowed to what the caller holds.
     assert_eq!(docs["self_edit"], json!(["avatar", "role"]), "{docs}");
-    // created_by comes from the verified caller, never from the request
-    // (`a_forged_created_by_is_dropped_unread`).
+    // created_by comes from the verified caller, never from the request:
+    // the catalog refuses the field from anyone.
+    for (conn, key) in [(&mut chief, "lead-forged"), (&mut home, "person-forged")] {
+        let forged = v2(
+            conn,
+            "chief.profile.create",
+            json!({"display_name": "Forged", "created_by": "agent_someone_else"}),
+            Some(key),
+        );
+        assert_eq!(reason(&forged), "validation.invalid", "{forged}");
+    }
     // Idempotent: the same key is the same Chief.
     let again = ok(&v2(
         &mut chief,

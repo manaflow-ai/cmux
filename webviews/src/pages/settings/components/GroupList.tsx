@@ -1,5 +1,4 @@
-import { memo, startTransition, useEffect, useState, Fragment } from "react";
-import type { SchemaRow } from "../schema";
+import { Fragment, startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
 import { APP_LANGUAGE_KEY, LanguageRelaunchRow } from "./LanguageRelaunchRow";
@@ -92,15 +91,19 @@ export function GroupList({
           <div className="rows">
             {rows.map((row) =>
               shown ? (
-                <SearchSlot
-                  key={row.key}
-                  row={row}
-                  open={shown.has(row.key)}
-                  drawn={mounted?.has(row.key) ?? true}
-                  // A row outside the filter highlights nothing, so its props stay equal and it
-                  // skips the keystroke's render.
-                  query={shown.has(row.key) ? query : undefined}
-                />
+                <div className="collapse" key={row.key} data-open={shown.has(row.key) ? "" : undefined}>
+                  <div className="collapse-body">
+                    {(mounted?.has(row.key) ?? true) && (
+                      // A row outside the filter highlights nothing, so its props stay equal and it
+                      // skips the keystroke's render.
+                      <SettingRow
+                        row={row}
+                        query={shown.has(row.key) ? query : undefined}
+                        filtered={!shown.has(row.key)}
+                      />
+                    )}
+                  </div>
+                </div>
               ) : (
                 <Fragment key={row.key}>
                   <SettingRow row={row} query={query} focused={row.key === focus} />
@@ -117,26 +120,3 @@ export function GroupList({
     );
   });
 }
-
-/**
- * A row's slot in the search results: open while the row matches, collapsed in place while it does
- * not; its editor draws once the row has matched. Its props are the row and three plain values, so a
- * keystroke draws only the slots whose match or highlight changed.
- */
-const SearchSlot = memo(function SearchSlot({
-  row,
-  open,
-  drawn,
-  query,
-}: {
-  row: SchemaRow;
-  open: boolean;
-  drawn: boolean;
-  query: string | undefined;
-}) {
-  return (
-    <div className="collapse" data-open={open ? "" : undefined}>
-      <div className="collapse-body">{drawn && <SettingRow row={row} query={query} filtered={!open} />}</div>
-    </div>
-  );
-});

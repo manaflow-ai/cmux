@@ -4,7 +4,6 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { StateMark } from "./StateMark";
 import { useNow } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
@@ -197,7 +196,7 @@ export function WorkflowSummaryRow({
                   onClick={() => setPhaseId(entry.id)}
                 >
                   <span>{entry.name || t("workflow.unassigned")}</span>
-                  <StateMark state={entry.state} label={localizedState(t, entry.state)} mark />
+                  <span>{localizedState(t, entry.state)}</span>
                 </button>
               ))}
             </div>
@@ -229,11 +228,7 @@ export function WorkflowSummaryRow({
                           </output>
                         )}
                       </span>
-                      <StateMark
-                        className="acpmux-summary-meta"
-                        state={agent.state}
-                        label={localizedState(t, agent.state)}
-                      />
+                      <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
                       {workflowDetailRequest(workflow, agent) && (
                         <button
                           type="button"

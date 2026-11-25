@@ -1,4 +1,3 @@
-#if canImport(AuthenticationServices)
 public import AuthenticationServices
 #if os(iOS)
 import UIKit
@@ -52,4 +51,3 @@ public final class AuthPresentationContextProvider: NSObject, AuthPresentationAn
         #endif
     }
 }
-#endif

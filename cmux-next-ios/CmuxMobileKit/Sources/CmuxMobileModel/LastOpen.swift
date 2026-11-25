@@ -50,13 +50,6 @@ public enum LastOpenRestore {
         return isSettled(macPhase(macID)) ? .showList : .wait
     }
 
-    /// Returns the last workspace to mark in the list when it is still known.
-    /// A stale id is ignored so a closed workspace never becomes a scroll target.
-    public static func listTarget(savedWorkspaceID: String?, workspaces: [Workspace]) -> String? {
-        guard let savedWorkspaceID, workspaces.contains(where: { $0.id == savedWorkspaceID }) else { return nil }
-        return savedWorkspaceID
-    }
-
     /// The Mac's own list (or its absence) is known: a missing workspace is gone.
     static func isSettled(_ phase: MacDataMachine.Phase) -> Bool {
         switch phase {
@@ -100,43 +93,5 @@ public final class LastOpenMemory: @unchecked Sendable {
     public static func inMemory(_ initial: LastOpenLocation? = nil) -> LastOpenMemory {
         var location = initial
         return LastOpenMemory(load: { location }, save: { location = $0 })
-    }
-}
-
-/// The workspace most recently visited, kept separately from the full launch location so
-/// backing out to the Workspaces list does not erase the workspace to mark there.
-public final class LastWorkspaceMemory: @unchecked Sendable {
-    private let lock = NSLock()
-    private let read: () -> String?
-    private let write: (String?) -> Void
-
-    public init(load: @escaping () -> String?, save: @escaping (String?) -> Void) {
-        read = load
-        write = save
-    }
-
-    public func load() -> String? { lock.withLock { read() } }
-    public func save(_ workspaceID: String?) { lock.withLock { write(workspaceID) } }
-
-    /// A workspace id under `key` in `defaults`.
-    public convenience init(defaults: UserDefaults, key: String = "cmuxMobile.lastVisitedWorkspaceID") {
-        self.init(
-            load: { defaults.string(forKey: key) },
-            save: { workspaceID in
-                if let workspaceID, !workspaceID.isEmpty {
-                    defaults.set(workspaceID, forKey: key)
-                } else {
-                    defaults.removeObject(forKey: key)
-                }
-            }
-        )
-    }
-
-    /// The app's store: survives relaunches.
-    public static let standard = LastWorkspaceMemory(defaults: .standard)
-
-    public static func inMemory(_ initial: String? = nil) -> LastWorkspaceMemory {
-        var workspaceID = initial
-        return LastWorkspaceMemory(load: { workspaceID }, save: { workspaceID = $0 })
     }
 }

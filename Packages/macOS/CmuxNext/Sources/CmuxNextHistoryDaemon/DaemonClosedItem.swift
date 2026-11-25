@@ -3,8 +3,7 @@ public import CmuxNextHistory
 
 /// How a daemon closed item reads in History and Recently Closed: its kind, its agent chat, its
 /// shown tab and text, and whether it is worth reopening. Pure; the App names it with its pages.
-public struct DaemonClosedItem {
-    public init() {}
+public enum DaemonClosedItem {
     public static func closedKind(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.Kind {
         switch item.kind {
         case .tab:

@@ -134,22 +134,18 @@ final class EventInbox: Sendable {
         state.withLock { $0.events.compactMap { $0 } }
     }
 
-    /// Takes everything buffered and clears the pending-frame flag. The lock is held for a swap of the buffer only:
-    /// the holes coalescing left are dropped after it, so the pump never waits on the main thread copying and
-    /// destroying a 4,096-event batch inside the lock (hq#8685: a hang in `drain` there).
+    /// Takes everything buffered and clears the pending-frame flag.
     func take() -> [DaemonEventEnvelope] {
-        let events = state.withLock { state -> [DaemonEventEnvelope?] in
+        state.withLock { state in
             state.framePending = false
             state.takenThrough = state.receivedThrough
             state.collapsed = false
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
             state.live = 0
-            var events: [DaemonEventEnvelope?] = []
-            swap(&events, &state.events)
-            return events
+            defer { state.events.removeAll(keepingCapacity: true) }
+            return state.events.compactMap { $0 }
         }
-        return events.compactMap { $0 }
     }
 
     /// Keeps new events from scheduling frames (during a resync).

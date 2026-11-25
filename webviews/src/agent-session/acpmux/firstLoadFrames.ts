@@ -7,8 +7,7 @@
 
 /// A transcript row in view in a painted frame: its id (`data-row-id`) and its top edge, in CSS
 /// pixels from the viewport's top.
-/// `text`: the row's words, when the reader took them.
-export type FrameRow = { id: string; top: number; text?: string };
+export type FrameRow = { id: string; top: number };
 
 /// What one painted frame showed, read from the layer on top: the chat's drawn copy while it shows
 /// (chatSnapshot/paint.ts), else the live page.

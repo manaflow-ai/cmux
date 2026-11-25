@@ -1,9 +1,5 @@
 @testable import CmuxTabsKit
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Testing
 
 struct TabZoomStateTests {

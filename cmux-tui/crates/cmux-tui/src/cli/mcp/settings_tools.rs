@@ -49,26 +49,6 @@ pub(super) const TOOLS: &[SettingTool] = &[
         operation: ResourceOperation::SettingsReset,
         description: "Alias of settings_reset: remove an agent-settable schema key's override so its default applies.",
     },
-    SettingTool {
-        name: "settings_history",
-        operation: ResourceOperation::SettingsHistory,
-        description: "List the last changes of the settings file, newest first, whoever made them (the person in Settings, the CLI, agents, a hand edit: origin file): revision, time, origin and the schema keys changed. Values are never returned. A revision is what settings_restore takes.",
-    },
-    SettingTool {
-        name: "settings_undo",
-        operation: ResourceOperation::SettingsUndo,
-        description: "Take back the newest settings change not yet undone (repeated calls walk back one change at a time). Refused when that change touched a user-only setting.",
-    },
-    SettingTool {
-        name: "settings_restore",
-        operation: ResourceOperation::SettingsRestore,
-        description: "Put the settings file back to how it was just before the change with this settings_history revision, as one change that settings_undo can take back. Refused when it would change a user-only setting.",
-    },
-    SettingTool {
-        name: "settings_reset_group",
-        operation: ResourceOperation::SettingsResetGroup,
-        description: "Reset every setting of a Settings section (appearance) or one group in it (appearance.sidebar) to its defaults in one change; other settings stay. Refused when the group sets a user-only setting.",
-    },
 ];
 
 pub(super) fn find(name: &str) -> Option<&'static SettingTool> {
@@ -77,39 +57,13 @@ pub(super) fn find(name: &str) -> Option<&'static SettingTool> {
 
 impl SettingTool {
     fn mutation(&self) -> bool {
-        matches!(
-            self.operation,
-            ResourceOperation::SettingsSet
-                | ResourceOperation::SettingsReset
-                | ResourceOperation::SettingsUndo
-                | ResourceOperation::SettingsRestore
-                | ResourceOperation::SettingsResetGroup
-        )
-    }
-
-    /// The tools that name one schema key.
-    fn keyed(&self) -> bool {
-        matches!(
-            self.operation,
-            ResourceOperation::SettingsGet
-                | ResourceOperation::SettingsSet
-                | ResourceOperation::SettingsReset
-        )
+        matches!(self.operation, ResourceOperation::SettingsSet | ResourceOperation::SettingsReset)
     }
 
     pub(super) fn descriptor_json(&self) -> Value {
         let mut properties = json!({"session": {"type": "string", "minLength": 1}});
         let mut required = Vec::new();
-        if self.operation == ResourceOperation::SettingsRestore {
-            properties.set("revision", json!({"type": "string", "pattern": "^[0-9]+$"}));
-            required.push("revision");
-        } else if self.operation == ResourceOperation::SettingsResetGroup {
-            properties
-                .set("group", json!({"type": "string", "enum": Schema::embedded().group_names()}));
-            required.push("group");
-        } else if !self.keyed() && self.operation != ResourceOperation::SettingsList {
-            // History and undo take no target.
-        } else if self.operation == ResourceOperation::SettingsList {
+        if self.operation == ResourceOperation::SettingsList {
             properties.set("section", json!({"type": "string", "minLength": 1}));
             properties.set("offset", json!({"type": "integer", "minimum": 0}));
             properties.set(
@@ -145,8 +99,7 @@ impl SettingTool {
             "inputSchema": {"type": "object", "properties": properties,
                 "required": required, "additionalProperties": false},
             "annotations": {"readOnlyHint": !self.mutation(), "destructiveHint": false,
-                "idempotentHint": self.operation != ResourceOperation::SettingsUndo,
-                "openWorldHint": false}
+                "idempotentHint": true, "openWorldHint": false}
         })
     }
 
@@ -163,9 +116,7 @@ impl SettingTool {
         for name in arguments.keys() {
             let allowed = name == "session"
                 || (listing && matches!(name.as_str(), "section" | "offset" | "limit"))
-                || (self.keyed() && name == "key")
-                || (self.operation == ResourceOperation::SettingsRestore && name == "revision")
-                || (self.operation == ResourceOperation::SettingsResetGroup && name == "group")
+                || (!listing && name == "key")
                 || (self.operation == ResourceOperation::SettingsSet && name == "value")
                 || (self.mutation() && matches!(name.as_str(), "idempotency_key" | "if_revision"));
             if !allowed {
@@ -179,7 +130,7 @@ impl SettingTool {
         {
             return Err(v2_tools::invalid("unknown settings section"));
         }
-        let row = if !self.keyed() {
+        let row = if listing {
             None
         } else {
             let key =
@@ -213,26 +164,6 @@ impl SettingTool {
         }
         if let Some(row) = row {
             params.set("key", json!(row.key));
-        }
-        if self.operation == ResourceOperation::SettingsRestore {
-            let revision = text(arguments, "revision")?
-                .filter(|revision| revision.parse::<u64>().is_ok())
-                .ok_or_else(|| {
-                    v2_tools::invalid(
-                        "revision is a settings_history revision (a u64 decimal string)",
-                    )
-                })?;
-            params.set("revision", json!(revision));
-        }
-        if self.operation == ResourceOperation::SettingsResetGroup {
-            let group = text(arguments, "group")?
-                .filter(|group| !schema.rows_in_group(group).is_empty())
-                .ok_or_else(|| {
-                    v2_tools::invalid(
-                        "group is a settings section or section.group (see the tool's enum)",
-                    )
-                })?;
-            params.set("group", json!(group));
         }
         if self.operation == ResourceOperation::SettingsSet {
             params.set(
@@ -275,9 +206,6 @@ impl SettingTool {
         if self.mutation() {
             return Ok(success(result, true));
         }
-        if self.operation == ResourceOperation::SettingsHistory {
-            return Ok(success(project_history(schema, &result), false));
-        }
         let projected = if let Some(row) = row {
             if result["key"] != row.key || result["row"]["key"] != row.key {
                 return Err(v2_tools::invalid("settings owner returned no matching schema row"));
@@ -306,44 +234,6 @@ impl SettingTool {
         };
         Ok(success(projected, false))
     }
-}
-
-/// `settings.history` for an agent: each entry's revision, time, origin and
-/// undone revision, and only the changed keys that are schema settings (or
-/// inside one); other keys name raw configuration and are left out, as are
-/// any fields the owner may add.
-fn project_history(schema: &Schema, result: &Value) -> Value {
-    let known = |key: &str| {
-        schema.row(key).is_some()
-            || schema.rows.iter().any(|row| {
-                key.strip_prefix(row.key.as_str()).is_some_and(|rest| rest.starts_with('.'))
-            })
-    };
-    let entries: Vec<Value> = result["entries"]
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|entry| {
-                    let keys: Vec<&str> = entry["keys"]
-                        .as_array()
-                        .map(|keys| {
-                            keys.iter().filter_map(Value::as_str).filter(|key| known(key)).collect()
-                        })
-                        .unwrap_or_default();
-                    let mut projected = json!({
-                        "revision": entry["revision"], "at": entry["at"],
-                        "origin": entry["origin"], "keys": keys,
-                    });
-                    if entry["undoes"].is_string() {
-                        projected.set("undoes", entry["undoes"].clone());
-                    }
-                    projected
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    json!({"entries": entries})
 }
 
 /// Metadata comes from the embedded schema, never arbitrary response fields.

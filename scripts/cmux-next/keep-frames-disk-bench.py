@@ -43,9 +43,7 @@ class RUsage(ctypes.Structure):
         ("ri_spare", ctypes.c_uint64 * 32)]
 
 
-import macos_libs  # noqa: E402
-
-_LIBC = macos_libs.library("/usr/lib/libSystem.B.dylib")
+_LIBC = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
 _LIBC.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
 _LIBC.proc_pid_rusage.restype = ctypes.c_int
 

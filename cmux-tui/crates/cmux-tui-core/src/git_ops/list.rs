@@ -22,8 +22,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::Repository;
-use super::files::{Folders, folder, spelled};
-use super::read_cache;
+use super::files::{Folders, folder, listed, spelled};
 use super::work_tree_entry::Kind;
 use crate::resource::ResourceError;
 
@@ -38,13 +37,11 @@ pub(super) fn list(
 ) -> Result<Value, ResourceError> {
     let limit = limit(fields);
     let below = folder(repository, directory, OPERATION)?;
-    // The repository's cached listing: one `ls-files` answers every folder.
-    let paths = read_cache::listed(repository, directory, &below, OPERATION)?;
-    let cut = paths.truncated();
+    let (paths, cut) = listed(repository, directory, OPERATION)?;
     // A symlink is a leaf, as git records it: following one could list a folder
     // outside the repository. Only a real folder (a submodule) is a directory.
     let mut folders = Folders::of(repository, &below);
-    let children = children(paths.iter(), |path| folders.kind(path));
+    let children = children(&paths, |path| folders.kind(path));
     let total = children.len();
     Ok(json!({
         "root": repository.root.to_string_lossy(),
@@ -153,15 +150,12 @@ struct Child {
 /// first path reached, so a child costs one or two looks, not one per path
 /// below it: listing a folder costs what it holds, not its whole subtree
 /// (`files_stress_tests`). Only paths that are gone cost a look each.
-fn children<'a>(
-    paths: impl IntoIterator<Item = &'a str>,
-    mut kind: impl FnMut(&str) -> Option<Kind>,
-) -> BTreeMap<&'a str, bool> {
+fn children(paths: &[String], mut kind: impl FnMut(&str) -> Option<Kind>) -> BTreeMap<&str, bool> {
     let mut children: BTreeMap<&str, Child> = BTreeMap::new();
     for path in paths {
         let (name, nested) = match path.split_once('/') {
             Some((name, _)) => (name, true),
-            None => (path, false),
+            None => (path.as_str(), false),
         };
         if name.is_empty() {
             continue;

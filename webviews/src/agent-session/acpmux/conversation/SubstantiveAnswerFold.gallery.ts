@@ -1,8 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts, tool calls and replies), not shipped UI.
-// An answer before a tool and a short receipt. While the turn runs, both stay visible. Once it ends,
-// the closed fold keeps only the final message in sight (Lawrence, 2026-11-19: "in collapsed,
-// literally everything but final assistant message should be collapsed"); opening it reads the
-// answer and the tool in source order, so the answer is never lost (Leo, 2026-11-13).
+// A substantive answer stays visible when a later tool is followed by a short receipt. The fold
+// keeps the work and real narration, and opening it still reveals the tool in its source order.
+// Regression: Leo, 2026-11-13, the answer and markdown table disappeared into "Worked for".
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
@@ -90,11 +89,11 @@ export default agentPaneEntry({
   variants: {
     "table-before-tool": variant(
       finished(),
-      "Finished: only the short receipt stays in sight; Worked for holds the answer, its table and the tool.",
+      "Finished: the full answer and markdown table stay above the short receipt; Worked for holds only the tool.",
     ),
     "table-before-tool-open": variant(
       finished(),
-      "Opened: the answer and its table read in place, then the socket-ready lane tool, then the receipt.",
+      "Opened: the answer remains in place and the socket-ready lane tool is revealed under the fold.",
       openWorked,
     ),
     "table-before-tool-live": {

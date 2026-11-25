@@ -7,13 +7,8 @@ import { t, text } from "../strings";
  * text, from schemas/settings/source) with Turn On and Cancel before it writes `true`. Turning one off
  * never asks. `diagnostics.shareInstallCounts` is the person's install counts choice, which the platform
  * reports to their Cloud machines as `usage_sharing` (cmuxterm-hq plans/cloud/images-per-user.md).
- * `app.sendAnonymousTelemetry` is the person's opt-in for crash reports and anonymous analytics (off by
- * default).
  */
-export const CONSENT_ROWS: ReadonlySet<string> = new Set([
-  "diagnostics.shareInstallCounts",
-  "app.sendAnonymousTelemetry",
-]);
+export const CONSENT_ROWS: ReadonlySet<string> = new Set(["diagnostics.shareInstallCounts"]);
 
 export function asksConsent(row: SchemaRow): boolean {
   return row.kind === "toggle" && CONSENT_ROWS.has(row.key) && text(row.help) !== "";

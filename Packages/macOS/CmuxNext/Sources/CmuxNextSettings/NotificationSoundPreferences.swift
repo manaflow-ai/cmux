@@ -6,7 +6,6 @@
 ///   "sound": "Glass",
 ///   "sounds": {
 ///     "volume": 0.8,
-///     "maxSeconds": 3,
 ///     "when": "unlessViewed",
 ///     "cooldownSeconds": 1.5,
 ///     "events": {"needsInput": "Ping", "error": "Basso"},
@@ -19,8 +18,6 @@
 public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     /// Master volume, 0 to 1; every level's volume is a share of it.
     public var volume: Double = Self.volumeDefault
-    /// Each sound cmux plays itself stops after this many seconds; 0 plays it to its end.
-    public var maxSeconds: Double = Self.maxSecondsDefault
     public var when: NotificationSoundTiming = Self.whenDefault
     /// After a sound, quieter or equal events wait this long before the next one plays, so many
     /// agents finishing together sound once. 0 turns it off.

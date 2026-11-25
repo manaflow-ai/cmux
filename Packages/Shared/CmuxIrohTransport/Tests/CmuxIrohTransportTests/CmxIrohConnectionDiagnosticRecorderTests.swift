@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
 import IrohLib
 import Testing
@@ -131,4 +130,3 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
         #expect(events[4].ms == UInt32(Int32.max))
     }
 }
-#endif

@@ -68,15 +68,12 @@ extension AgentPaneTransport {
 }
 
 /// The pane's own person proof (acpmux `hub/person.rs`): a connection that did not prove the
-/// person is never left to send the person's prompts as an unverified sender's (Leo, 2026-11-10:
-/// "Oh, it's turned me into an unverified sender."), and it is never narrated (Leo, 2026-11-22).
-/// A daemon that says `reprove` holds the proof until its key lands, so ``provePerson`` settles it
-/// by events and this sees only a refusal past acpmux's per-connection cap: nothing more to try.
-/// An older daemon refuses an early proof: the host enrolls this launch's key
-/// (``recoverPersonProof``) and, once that lookup ends, the pane reconnects once and the new
-/// connection proves. No clock decides any of it.
+/// person is told to the pane and recovered, never left to send the person's prompts as an
+/// unverified sender's (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). The
+/// proof is the second request of a connection only, so recovery gets the key to the daemon
+/// (``recoverPersonProof``) and then reconnects, and the new connection proves.
 extension AgentPaneTransport {
-    func personProofSettled(_ proven: Bool, connection: Int, reprove: Bool) {
+    func personProofSettled(_ proven: Bool, connection: Int) {
         guard connection == current else { return }
         personRecovery?.cancel()
         personRecovery = nil
@@ -85,17 +82,26 @@ extension AgentPaneTransport {
             personRecoveries = 0
             return
         }
-        guard !reprove, let recover = recoverPersonProof, personRecoveries < Self.personRecoveryReconnects else {
+        guard let recover = recoverPersonProof, personRecoveries < Self.personRecoveryReconnects else {
             Self.logger.error("agent pane transport: the person proof did not recover; prompts here stay unverified")
             return
         }
+        let delays = personRecoveryDelays
         // task-owner: one identity recovery per unproven connection; a new connection or a proof cancels it
-        // main-hop-allow: one host lookup, then one close
+        // main-hop-allow: a failure backoff, not frame work: at most five wakes per unproven connection,
+        // each only compares the connection and awaits the host lookup, then closes the connection once
         personRecovery = Task { @MainActor [weak self] in
-            guard await recover(), let self, !Task.isCancelled, connection == self.current else { return }
-            self.personRecoveries += 1
-            Self.logger.info("agent pane transport: person key given again; reconnecting to prove it")
-            self.close(connection: connection)
+            for delay in delays {
+                // wakeup-allow: bounded backoff while the pane is unproven (five waits at most)
+                try? await Task.sleep(for: delay)
+                guard let self, !Task.isCancelled, connection == self.current else { return }
+                guard await recover() else { continue }
+                guard !Task.isCancelled, connection == self.current else { return }
+                self.personRecoveries += 1
+                Self.logger.info("agent pane transport: person key given again; reconnecting to prove it")
+                self.close(connection: connection)
+                return
+            }
         }
     }
 }

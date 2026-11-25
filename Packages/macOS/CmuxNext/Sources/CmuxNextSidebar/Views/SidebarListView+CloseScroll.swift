@@ -101,9 +101,8 @@ extension SidebarListViewComponents {
     /// row only when the workspace is new; any other row as before.
     private func isNewToModel(_ key: SidebarRowKey) -> Bool {
         guard case let .workspace(id) = key else { return true }
-        // A spliced row is a row its set added to the model, which listed its workspace nowhere (`spliceInsertion`,
-        // `spliceEdits`).
-        if splice?.inserted.contains(key) == true { return true }
+        // A spliced row is the one row its set added to the model, which listed its workspace nowhere (`spliceInsertion`).
+        if key == splicedRow { return true }
         return !appliedSections.contains { $0.workspaces.contains { $0.id == id } }
     }
 

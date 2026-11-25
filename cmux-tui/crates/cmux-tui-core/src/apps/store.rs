@@ -86,8 +86,7 @@ const FIRST_PARTY_PUBLISHER: &str = "cmux/";
 impl Shelf {
     pub(crate) fn of(package: &Package) -> Self {
         match package.source {
-            // A git-installed app is the person's own install, like User.
-            Source::Default | Source::User | Source::Git => Self::Store,
+            Source::Default | Source::User => Self::Store,
             // A first-party STORE app is built into the same folder as the
             // samples; its `cmux/` publisher puts it on Discover (Leo,
             // 2026-11-20: "JUST ADD SHIT").
@@ -245,7 +244,7 @@ fn contributions(package: &Package) -> Vec<Contribution> {
     if let Some(widget) = m.get("implements").and_then(|i| i.get("cmux.widget/1")) {
         rows.extend(widget_contributions(widget, &name));
     }
-    rows.extend(package.palette_commands(None).iter().map(|command| Contribution {
+    rows.extend(package.palette_commands().iter().map(|command| Contribution {
         kind: "command",
         title: command.get("title").map(text).unwrap_or_default(),
     }));
@@ -426,7 +425,7 @@ fn draws_new_tab(manifest: &Value) -> bool {
     manifest.get("implements").and_then(|implements| implements.get(NEW_TAB_INTERFACE)).is_some()
 }
 
-pub(super) fn listing(package: &Package, record: Option<&Record>) -> Listing {
+fn listing(package: &Package, record: Option<&Record>) -> Listing {
     let m = &package.manifest;
     let icon = match &m["icon"] {
         Value::String(path) => Some(IconRef::Asset(path.clone())),
@@ -527,7 +526,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
 impl Supervisor {
     /// Runs one App Store op. `origin` is the request's, admitted by the A2
     /// gate on the wire.
-    pub(super) fn store_call_base(
+    pub fn store_call(
         &self,
         client: u64,
         op: &str,

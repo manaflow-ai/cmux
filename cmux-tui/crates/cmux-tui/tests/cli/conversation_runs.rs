@@ -136,31 +136,6 @@ fn conversation_run_pages_keep_timestamp_ties_across_agents() {
 }
 
 #[test]
-fn a_run_keeps_more_steps_than_the_old_cap() {
-    // The owner once refused a run's 2001st step (`run_full`).
-    let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
-    let server = HeadlessServer::start_with_config("conversation-run-many-steps", Some(&config));
-    let mut page = Ws::open(&ws_addr(&server));
-    let channel = page.create_channel("run-many-steps-channel", "release");
-    let mut home = Unix::open(&server.socket);
-    let mut chief = bound(&server, &mut home, "agent_mux");
-    let total = 2_100;
-    let batch = 50;
-    let mut last = Value::Null;
-    for start in (0..total).step_by(batch) {
-        let steps: Vec<Value> = (start..(start + batch).min(total))
-            .map(|index| json!({"id": format!("talk:{index}"), "kind": "talk", "text": "step"}))
-            .collect();
-        last = chief.request(
-            "conversation-run-append",
-            append(&channel, json!({"id": "turn:many", "status": "running"}), json!(steps)),
-        );
-    }
-    assert_eq!(last["run"]["step_count"], total, "{last}");
-    assert_eq!(last["steps"].as_array().unwrap().last().unwrap()["seq"], total, "{last}");
-}
-
-#[test]
 fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
     let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
     let server = HeadlessServer::start_with_config("conversation-runs", Some(&config));

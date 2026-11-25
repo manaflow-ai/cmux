@@ -121,10 +121,10 @@ import UIKit
         #expect(!text.contains("\u{1b}[A"))
     }
 
-    /// Through Ghostty's own encoder: a drag of two rows is two wheel
-    /// reports (line by line), and a fast one the same one report per row
-    /// (an ordinary scroll, no trackpad gain).
-    @Test func aDragIsOneReportPerRowAtAnySpeed() async throws {
+    /// TUI fast scroll, through Ghostty's own encoder: a slow drag of two
+    /// rows is two wheel reports (line by line); a fast drag of two rows is
+    /// more, like a Mac trackpad's accelerated deltas.
+    @Test func aSlowDragIsOneReportPerRowAndAFastDragMore() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
         await rig.feed("\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1006h")
@@ -133,19 +133,18 @@ import UIKit
         let at = CGPoint(x: rig.surface.gridPadding.x + 3.5 * rig.surface.cellSize.width,
                          y: rig.surface.gridPadding.y + 5.5 * row)
         var scroll = TerminalTUIScroll()
-        scroll.reset(offset: 0)
-        let slowWheel = scroll.scrolled(to: -2 * row, tracking: true)
+        scroll.began()
+        let slowWheel = scroll.moved(translationY: 2 * row, velocityY: 150)
         let slow = try #require(slowWheel)
         rig.surface.scrollWheel(at: at, deltaY: slow.dy, momentum: slow.momentum)
         let line = String(repeating: "\u{1b}[<64;4;6M", count: 2)
         #expect(await rig.text(awaiting: line) == line)
         rig.sent = Data()
-        // A fast drag is the same 1:1 (a pedestrian scroll): four rows, four reports.
-        let fastWheel = scroll.scrolled(to: -6 * row, tracking: true)
+        let fastWheel = scroll.moved(translationY: 4 * row, velocityY: 3000)
         let fast = try #require(fastWheel)
         rig.surface.scrollWheel(at: at, deltaY: fast.dy, momentum: fast.momentum)
-        let four = String(repeating: "\u{1b}[<64;4;6M", count: 4)
-        #expect(await rig.text(awaiting: four) == four)
+        let accelerated = String(repeating: "\u{1b}[<64;4;6M", count: Int(2 * TerminalTUIScroll.maximumGain))
+        #expect(await rig.text(awaiting: accelerated) == accelerated)
     }
 
     @Test func theAlternateScreenGetsArrowsByDefault() async throws {
@@ -277,9 +276,9 @@ import UIKit
         let at = CGPoint(x: rig.surface.gridPadding.x + 4.5 * rig.surface.cellSize.width,
                          y: rig.surface.gridPadding.y + 20.5 * row)
         var scroll = TerminalTUIScroll()
-        scroll.reset(offset: 0)
+        scroll.began()
         for step in 1...40 {
-            if let wheel = scroll.scrolled(to: -CGFloat(step) * row / 4, tracking: true) {
+            if let wheel = scroll.moved(translationY: CGFloat(step) * row / 4, velocityY: 150) {
                 rig.surface.scrollWheel(at: at, deltaY: wheel.dy, momentum: wheel.momentum)
             }
         }

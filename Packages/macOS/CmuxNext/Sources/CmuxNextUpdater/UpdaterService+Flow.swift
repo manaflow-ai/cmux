@@ -17,7 +17,6 @@ extension UpdaterService {
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
         if let cancelledDownloadCard { return cancelledDownloadCard }
-        if let healthCard { return healthCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -292,12 +291,6 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
                           installWhenIdleMinutes: TimeInterval? = nil) {
-        // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
-        let paused = pausesAutomaticUpdates
-        let checkAutomatically = checkAutomatically && !paused
-        let downloadAutomatically = downloadAutomatically && !paused
-        let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
-        if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }
         if let ring { follow(ring: ring) }
         installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
@@ -357,7 +350,7 @@ extension UpdaterService {
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
-        let downloads = (required || !downloadHeldForDeltas) && UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
+        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained || networkPending,
                                                                    expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by

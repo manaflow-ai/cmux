@@ -203,7 +203,7 @@ impl ConnectionSurfaceScheduler {
             Command::NewTab(params) => {
                 params.may_start_lazily(frontend_shell)
                     && !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(
-                        &origin_gate::connection_actor(mux, client),
+                        &super::origin_gate::connection_actor(mux, client),
                     )
                     && mux.lazy_tab_skips_prelaunch(params.pane)
             }

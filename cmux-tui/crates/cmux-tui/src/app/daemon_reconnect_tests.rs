@@ -48,60 +48,49 @@ fn daemon_reconnect_notice_reads_the_restart_field() {
 }
 
 #[test]
-fn daemon_reconnect_backoff_doubles_to_a_second_then_slows_and_never_ends() {
+fn daemon_reconnect_backoff_doubles_to_a_second_and_ends_at_the_window() {
     let start = Instant::now();
     let mut backoff = ReconnectBackoff::new(start, Duration::from_secs(3));
     let mut now = start;
     let mut delays = Vec::new();
-    while now < start + Duration::from_secs(3) {
-        let delay = backoff.next_delay(now);
+    while let Some(delay) = backoff.next_delay(now) {
         delays.push(delay);
         now += delay;
-        assert!(delays.len() < 100, "the quick phase never ended: {delays:?}");
+        assert!(delays.len() < 100, "the backoff never ended: {delays:?}");
     }
     let ms = |value: u64| Duration::from_millis(value);
-    // 100 + 200 + 400 + 800 + 1000 = 2500, then the last 500 ms to the window's end.
+    // 100 + 200 + 400 + 800 + 1000 = 2500, then the last 500 ms to the deadline.
     assert_eq!(delays, vec![ms(100), ms(200), ms(400), ms(800), ms(1000), ms(500)]);
     assert_eq!(now, start + Duration::from_secs(3));
-    // Past the window it keeps trying, slowly, however long it has been.
-    for hours in [0, 1, 8, 24 * 30] {
-        let at = now + ms(1) + Duration::from_secs(3600 * hours);
-        assert_eq!(backoff.next_delay(at), SLOW_DELAY, "{hours} h in");
-    }
+    assert_eq!(backoff.next_delay(now + ms(1)), None);
 }
 
-/// Leo, 2026-11-24: "let's just keep optimistically connecting and
-/// reinforcing the connection". A daemon that comes back long after the
-/// quick window (here 40 times it) still gets this client back: it never
-/// gives up and exits.
 #[test]
-fn daemon_reconnect_keeps_trying_past_the_window_until_the_daemon_is_back() {
-    let attempts = Cell::new(0u32);
-    let waited = Cell::new(Duration::ZERO);
-    // A clock that moves 1 s each time the loop reads it.
+fn daemon_reconnect_stops_trying_when_the_window_passes() {
+    let cancellation = EventCancellation::new();
+    let attempts = Cell::new(0);
+    // A clock that moves 100 ms each time the loop reads it.
     let start = Instant::now();
     let reads = Cell::new(0u32);
     let now = || {
-        let at = start + Duration::from_secs(1) * reads.get();
+        let at = start + Duration::from_millis(100) * reads.get();
         reads.set(reads.get() + 1);
         at
     };
-    let window = Duration::from_millis(250);
-    let wait = |delay| {
-        waited.set(waited.get() + delay);
-        true
-    };
-    let outcome = reconnect_until_with_wait(window, now, wait, || {
+    let outcome = reconnect_until::<()>(Duration::from_millis(250), &cancellation, now, || {
         attempts.set(attempts.get() + 1);
-        if attempts.get() < 40 {
-            anyhow::bail!("no session socket");
-        }
-        Ok(7)
+        anyhow::bail!("no session socket")
     });
-    assert_eq!(outcome, Some(ReconnectOutcome::Connected(7)));
-    assert_eq!(attempts.get(), 40);
-    // Past the first quick wait, every wait was the slow one.
-    assert!(waited.get() >= SLOW_DELAY * 38, "{:?}", waited.get());
+    assert_eq!(
+        outcome,
+        Some(ReconnectOutcome::Failed {
+            window: Duration::from_millis(250),
+            error: "no session socket".into(),
+        })
+    );
+    // Read at 100 ms (wait 100), at 200 ms (wait the last 50), at 300 ms
+    // (past the window): two attempts.
+    assert_eq!(attempts.get(), 2);
 }
 
 #[test]

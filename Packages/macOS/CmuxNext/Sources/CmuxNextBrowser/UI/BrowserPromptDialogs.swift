@@ -14,9 +14,6 @@ final class BrowserPromptDialogs {
     private var shown: (prompt: ObjectIdentifier, dialog: Int)?
     private let center: CmuxDialogCenter
 
-    /// True while a dialog of a prompt is on screen.
-    var isShowing: Bool { shown != nil }
-
     init(center: CmuxDialogCenter = .shared) {
         self.center = center
     }
@@ -86,7 +83,7 @@ final class BrowserPromptDialogs {
         }
     }
 
-    func dismissShown() {
+    private func dismissShown() {
         guard let shown else { return }
         self.shown = nil
         center.dismiss(shown.dialog)

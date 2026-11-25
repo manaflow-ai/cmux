@@ -1,8 +1,4 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Foundation
 
 /// A damped spring in SwiftUI's `spring(response:dampingFraction:)` terms.

@@ -39,9 +39,7 @@ permissions:
 
 concurrency:
   group: executor-journey-${{ github.event.pull_request.number || github.ref }}
-  # A newer push to the pull request ends the older head's journey: a machine the cancel cut off is swept by the next
-  # run, the newer head's (header). Dispatches and the daily run are never cancelled.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   journey:

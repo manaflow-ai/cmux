@@ -89,15 +89,15 @@ export default agentPaneEntry({
     "current-forty-percent-short": variant("current-forty-percent", 300, "Current New Tab policy in a short pane."),
     "thirty-percent-normal": variant("thirty-percent", 760, "Candidate: 30% of a normal New Tab/Cmd-I pane."),
     "thirty-percent-short": variant("thirty-percent", 300, "Candidate: 30% of a short New Tab/Cmd-I pane."),
-    "chosen-claude-384-normal": variant(
+    "chosen-twelve-lines-normal": variant(
       "chosen",
       760,
-      "Shipping: Claude desktop's 384 px cap bounded by 50%, normal pane.",
+      "Chosen Goldilocks policy: twelve lines bounded by 40%, normal pane.",
     ),
-    "chosen-claude-384-short": variant(
+    "chosen-twelve-lines-short": variant(
       "chosen",
       300,
-      "Shipping: Claude desktop's 384 px cap bounded by 50%, short pane.",
+      "Chosen Goldilocks policy: twelve lines bounded by 40%, short pane.",
     ),
   },
 });

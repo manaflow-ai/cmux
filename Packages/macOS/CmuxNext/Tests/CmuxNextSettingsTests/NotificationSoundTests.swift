@@ -34,7 +34,7 @@ struct NotificationSoundTests {
 
     @Test func soundsParseFromCmuxJSON() {
         let snapshot = Self.snapshot([
-            "volume": 0.8, "when": "whenInactive", "cooldownSeconds": 3, "maxSeconds": 2.5,
+            "volume": 0.8, "when": "whenInactive", "cooldownSeconds": 3,
             "events": ["needsInput": "Ping", "error": "Basso"],
             "groups": ["Agents & routing": ["sound": "Submarine", "volume": 0.5]],
             "workspaces": ["ws_1": "none"],
@@ -45,7 +45,6 @@ struct NotificationSoundTests {
         #expect(sounds.volume == 0.8)
         #expect(sounds.when == .whenInactive)
         #expect(sounds.cooldownSeconds == 3)
-        #expect(sounds.maxSeconds == 2.5)
         #expect(sounds.events == [.needsInput: "Ping", .error: "Basso"])
         #expect(sounds.groups["Agents & routing"] == NotificationSoundRule(sound: "Submarine", volume: 0.5))
         #expect(sounds.workspaces["ws_1"] == NotificationSoundRule(sound: "none"))
@@ -54,14 +53,13 @@ struct NotificationSoundTests {
 
     @Test func aBadValueKeepsItsDefaultWithADiagnostic() {
         let snapshot = Self.snapshot([
-            "volume": "loud", "when": "sometimes", "maxSeconds": 90,
+            "volume": "loud", "when": "sometimes",
             "events": ["ringing": "Ping"],
             "workspaces": ["ws_1": 3, "ws_2": ["sound": "Pop", "volume": 4]],
         ])
         let sounds = snapshot.notifications.sounds
         #expect(sounds.volume == 1)
         #expect(sounds.when == .unlessViewed)
-        #expect(sounds.maxSeconds == 30, "a duration past the longest clamps to it")
         #expect(sounds.events.isEmpty)
         #expect(sounds.workspaces["ws_1"] == nil)
         #expect(sounds.workspaces["ws_2"] == NotificationSoundRule(sound: "Pop", volume: 1), "an out-of-range volume clamps")
@@ -210,9 +208,5 @@ struct NotificationSoundTests {
         #expect(!volume.accepts(2))
         #expect(SettingsSchema.descriptor(for: ["notifications", "sounds", "when"])?.accepts("whenInactive") == true)
         #expect(SettingsSchema.descriptor(for: ["notifications", "sounds", "cooldownSeconds"]) != nil)
-        let duration = try #require(SettingsSchema.descriptor(for: ["notifications", "sounds", "maxSeconds"]))
-        #expect(duration.accepts(2.5) && duration.accepts(0))
-        #expect(!duration.accepts(-1) && !duration.accepts(31))
-        #expect(NotificationSoundPreferences().maxSeconds == 0, "by default a sound plays to its end")
     }
 }

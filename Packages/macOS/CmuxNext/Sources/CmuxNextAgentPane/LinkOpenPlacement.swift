@@ -1,4 +1,3 @@
-package import CmuxNextAgentPanePlacement
 package import CoreGraphics
 package import CmuxNextSettings
 

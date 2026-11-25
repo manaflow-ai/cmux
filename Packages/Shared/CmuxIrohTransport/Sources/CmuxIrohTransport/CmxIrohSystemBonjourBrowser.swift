@@ -1,4 +1,3 @@
-#if canImport(dnssd)
 @preconcurrency import Dispatch
 import dnssd
 import Foundation
@@ -358,4 +357,3 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         if observers.isEmpty { stopOperations() }
     }
 }
-#endif

@@ -10,13 +10,10 @@
 //
 // l10n-allow-file: the notes are text for the agent, not the person, so they are not localized.
 import type { StringKey, Translate } from "./i18n";
-import computerUseTile from "./icons/computerUseTile.png";
 import { codeSpans, type SlashCommand } from "./slashCommands";
 
 /// Computer Use's tile (the midnight cursor): the composer's @computer-use and the setup window's head.
-/// Imported, not `new URL(..., import.meta.url)`: the shipped pages inline each PNG as a data URL, and a
-/// classic (non-module) script that bundles this file cannot parse `import.meta`.
-export const COMPUTER_USE_TILE: string = computerUseTile;
+export const COMPUTER_USE_TILE = new URL("./icons/computerUseTile.png", import.meta.url).href;
 
 export type ToolMentionId = "computer-use" | "browser-use";
 

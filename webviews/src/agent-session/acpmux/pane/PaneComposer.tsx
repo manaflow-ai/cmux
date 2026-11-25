@@ -11,6 +11,7 @@ import type { useBackgroundNotice } from "../conversation/backgroundNotice";
 import type { useStopThroughReconnect } from "../stopThroughReconnect";
 import type { clientWaiter } from "../lostPrompt";
 import type { DefaultComposerChips } from "./ComposerChips";
+import type { InboxMessage } from "../conversation/inboxNotice";
 import { ShareNudge } from "../share/ShareNudge";
 import { chatOnThisMac, chatPlace } from "../chatMachine";
 import { thisMacName, type ConnectKind, type OffloadKind } from "../environments";
@@ -22,8 +23,10 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
+import { SurgeHoldRow } from "../SurgeHoldRow";
+import { surgeShows } from "../conversation/surgeHold";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -48,10 +51,6 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock, PlaceChip } from "../place/PlaceMounts";
-import { HybridChip } from "../hybrid/HybridMounts";
-import { OverloadNotice } from "../OverloadNotice";
-import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -73,11 +72,10 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, sendHeldFork, heldFork } from "../forkHold";
+import { clearHeldFork, sendHeldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
-import { AutoArrival, AutoAddingMachineLine } from "../AutoWhere";
+import { AutoArrival } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
-import type { StringKey } from "../i18n";
 import { callNative } from "../callNative";
 import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
@@ -86,7 +84,7 @@ import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrus
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
+import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -120,6 +118,10 @@ import type { UploadProgressReport, UploadResult } from "../cloudUploads";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { commandPlace } from "../commandPlace";
 
+/// The held surge's listing and a thread's posts, through the pane's own actions (SurgeHoldRow.tsx).
+const listSurgeThreads = () => callNative<unknown>("chat.inbox.threads");
+const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
+
 /// A worktree start that failed, and where (App.tsx `worktreeError`).
 type WorktreeError = {
   cwd: string;
@@ -133,8 +135,6 @@ type WorktreeError = {
 export type PaneComposerDeps = {
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
-  /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
-  hostOverload: HostOverload | undefined;
   readOnlySubagent: boolean;
   /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
   subagentRelay: ComposerRelay | undefined;
@@ -156,15 +156,12 @@ export type PaneComposerDeps = {
   };
   /// Where Auto put this page's chat (AutoArrival), or `deciding` while the daemon answers.
   autoArrival: AutoLanding | "deciding" | undefined;
-  autoAddingMachine: StringKey | undefined;
   /// The arrival line's move is offered now (the chat's own move menu offers it).
   autoArrivalMove: boolean;
   onAutoArrivalDismiss: () => void;
   /// Auto picked: the daemon decides where the Send goes first (App.tsx `autoSendGate`).
   autoSendGate: {
-    picked: boolean;
-    holds: () => boolean;
-    cloudStart: () => { autoLanding?: AutoLanding };
+    holds: (text: string) => boolean;
     once: <A extends unknown[], R>(send: (...args: A) => R) => (...args: A) => R;
   };
   cloudHint: CloudChatHintState;
@@ -239,8 +236,6 @@ export type PaneComposerDeps = {
   approvedPlanNode?: React.JSX.Element | null;
   /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
   approvedPlanAtFoot?: boolean;
-  /** A live customization's bar (customizeBar/CustomizeBar.tsx), right over the composer; null with none. */
-  customizeBarNode?: React.JSX.Element | null;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -257,8 +252,6 @@ export type PaneComposerDeps = {
   hatHandle: TrayHandleSide;
   hatPillArm: HatPillPlace;
   statusCardOpen: boolean;
-  /// The changes pill over the composer (session-info/EnvironmentCard.tsx ChangesPill), null when off.
-  changesPillNode: React.JSX.Element | null;
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
@@ -297,10 +290,6 @@ export type PaneComposerDeps = {
   clearProject(): void;
   /// A GitHub repository picked with This Mac picked: the chip's choice only, checked out when Return sends.
   deferGitHub(repo: string, candidates: string[]): void;
-  /// Drops that pick (another machine picked).
-  dropDeferredGitHub(): void;
-  /// The repository the chip names while it waits for Return.
-  pendingGitHub: string | undefined;
   /// Return on a GitHub repository chosen with This Mac picked: starts its checkout and holds the prompt, which
   /// goes once the checkout is the folder. False when the chip names no such repository.
   checkOutGitHubOnSend(): boolean;
@@ -417,7 +406,6 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
-  hostOverload,
   markDockEdge,
   readOnlySubagent,
   subagentRelay,
@@ -431,7 +419,6 @@ export function drawPaneComposer({
   showNewTab,
   composerModeRows,
   autoArrival,
-  autoAddingMachine,
   autoArrivalMove,
   onAutoArrivalDismiss,
   autoSendGate,
@@ -497,7 +484,6 @@ export function drawPaneComposer({
   goalNode,
   approvedPlanNode = null,
   approvedPlanAtFoot = false,
-  customizeBarNode = null,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -513,7 +499,6 @@ export function drawPaneComposer({
   hatPillArm,
   statusCardOpen,
   setStatusCardOpen,
-  changesPillNode,
   openImage,
   cloudStarting,
   composerDrawn,
@@ -544,8 +529,6 @@ export function drawPaneComposer({
   cloningGitHub,
   clearProject,
   deferGitHub,
-  dropDeferredGitHub,
-  pendingGitHub,
   checkOutGitHubOnSend,
   openEmptyProject,
   pickSourceProject,
@@ -655,12 +638,6 @@ export function drawPaneComposer({
     const placed = side ? commandPlace(side[1]) : undefined;
     return placed && "place" in placed && placed.place === "cloud" ? "cloud" : computerUsePlace;
   };
-  // A started chat can use native file links before its cwd arrives. On a fresh pane, the
-  // native host still verifies the destination before handing back a gesture's paths.
-  const localFileLinks =
-    !quick &&
-    !readOnlySubagent &&
-    (snapshot.summary ? chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot)) : !onOtherMachine);
   const shownComputerUseAsk = computerUseAsked === computerUsePlace ? computerUseAsk : undefined;
   return (
     (readOnlySubagent || !reviewing) && (
@@ -686,9 +663,6 @@ export function drawPaneComposer({
                   onDismiss={onAutoArrivalDismiss}
                 />
               )}
-            </Notice>
-            <Notice id="auto-adding-machine" tier="hint" when={autoAddingMachine !== undefined}>
-              {autoAddingMachine !== undefined && <AutoAddingMachineLine text={autoAddingMachine} look={AUTO_LOOK} />}
             </Notice>
             <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
               {shownComputerUseAsk && (
@@ -844,18 +818,7 @@ export function drawPaneComposer({
                 {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
               </output>
             </Notice>
-            <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
-            {!showNewTab && !quick && (
-              <MoveDock
-                session={snapshot.sessionId}
-                say={notices.transient}
-                claims={() => ({
-                  queued: snapshot.queue.length,
-                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                })}
-              />
-            )}
             {!showNewTab && (
               <ShareNudge
                 open={shareNudge.shown}
@@ -951,8 +914,17 @@ export function drawPaneComposer({
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
               step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
-        {/* No held-messages row: the count of inbox messages held without a turn is not the person's to
-            read (Leo, 2026-11-24: "it's also not useful to show this to the user"). */}
+        {/* The chat's held surge, one row however many messages its inbox holds (SurgeHoldRow.tsx). */}
+        {!showNewTab && snapshot.sessionId && (
+          <SurgeHoldRow
+            key={`surge:${snapshot.sessionId}`}
+            surge={snapshot.surge}
+            sessionId={snapshot.sessionId}
+            listThreads={listSurgeThreads}
+            readThread={readInboxThread}
+            onOpenSender={openSenderChat}
+          />
+        )}
         {!goalAtFoot && goalNode}
         {!approvedPlanAtFoot && approvedPlanNode}
         <HatQuestions
@@ -974,10 +946,7 @@ export function drawPaneComposer({
           ))}
         {goalAtFoot && goalNode}
         {approvedPlanAtFoot && approvedPlanNode}
-        {customizeBarNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
-        {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
-        {changesPillNode}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
@@ -1000,7 +969,7 @@ export function drawPaneComposer({
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
               approvedPlanNode !== null ||
-              customizeBarNode !== null ||
+              (!showNewTab && surgeShows(snapshot.surge)) ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }
@@ -1040,37 +1009,6 @@ export function drawPaneComposer({
               };
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
-            // A send made while a dropped file still attaches goes now, ahead of it, and shows as
-            // sent (composer/sendBehind.ts): only where onSend below takes it straight to the client
-            // of the chat open now (its plain path), which sends it once the file is its chip.
-            onBindSendAhead={() => {
-              const client = directClient.current;
-              const plainPath =
-                client !== undefined &&
-                Boolean(snapshot.sessionId) &&
-                client.selectedSession === snapshot.sessionId &&
-                surfaceRef.current !== "quick" &&
-                !projectDraft &&
-                !snapshot.summary?.watching &&
-                !authBlock &&
-                !cloningGitHub &&
-                !autoSendGate.picked &&
-                !(sandboxHoldsChat && !sandboxDraftMoved) &&
-                !sandboxPickedNotOffered &&
-                !trustHolds &&
-                !trustHeld.pending() &&
-                !heldFork(snapshot.sessionId) &&
-                Boolean(window.cmuxAcpmuxActions?.["chat.send"]);
-              const route = {
-                openChat: client?.selectedSession,
-                switchPending: harnessSwitch.view().intent !== undefined,
-                startsChat: Boolean(projectDraft && !snapshot.sessionId),
-                cloudStart: cloudPicked,
-                cloudWake: Boolean(cloudWakeChat && cloudRecovery.state !== "deleted"),
-                sandbox: sandboxing || sandboxPickedNotOffered || (sandboxHoldsChat && !sandboxDraftMoved),
-              };
-              return client && plainPath && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
-            }}
             transcriptFollowing={transcriptFollowing}
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
             // gesture opens the setup page; onSend checks again for a send that waited for its files.
@@ -1084,13 +1022,13 @@ export function drawPaneComposer({
               if (authBlock || cloningGitHub) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
-              if (autoSendGate.holds()) return false;
+              if (autoSendGate.holds(text)) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
               // A GitHub repository on the chip with This Mac picked: Return checks it out here first (cmux#53226).
-              if (!sandboxing && checkOutGitHubOnSend()) return false;
+              if (!cloudPicked && !sandboxing && checkOutGitHubOnSend()) return false;
               if (cloudPicked) {
                 if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
@@ -1109,7 +1047,6 @@ export function drawPaneComposer({
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
-                    ...autoSendGate.cloudStart(),
                     // The agent and model the composer shows, as the New Tab page's Cloud send names them
                     // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
                     // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
@@ -1522,7 +1459,6 @@ export function drawPaneComposer({
               // Switching away from an explicitly selected Cloud machine must not leave a stale
               // draft target that a later keystroke could wake.
               cloudDraftMachineID.current = null;
-              dropDeferredGitHub();
               rememberNewChatPlace(computer === "local" ? { kind: "local" } : { kind: "machine", peer: computer });
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
             }}
@@ -1542,7 +1478,6 @@ export function drawPaneComposer({
             sourceRepository={checkedOutGitHub}
             onCloudFolderWaiting={setCloudSourceWaiting}
             cloningRepository={cloningGitHub}
-            pendingRepository={cloningGitHub ? undefined : pendingGitHub}
             onNoProject={freshChat ? clearProject : undefined}
             // A GitHub repository picked for a new chat on this Mac: its checkout here (cloned first when
             // there is none), then the chat's worktree of it.
@@ -1552,31 +1487,6 @@ export function drawPaneComposer({
                 }
               : {})}
             onConnect={connectMachine}
-            // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
-            {...(quick || !snapshot.sessionId
-              ? {}
-              : {
-                  placeControl: (
-                    <>
-                      <PlaceChip
-                        session={snapshot.sessionId}
-                        say={notices.transient}
-                        claims={() => ({
-                          queued: snapshot.queue.length,
-                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                        })}
-                      />
-                      <HybridChip
-                        session={snapshot.sessionId}
-                        say={notices.transient}
-                        claims={() => ({
-                          queued: snapshot.queue.length,
-                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                        })}
-                      />
-                    </>
-                  ),
-                })}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
@@ -1657,9 +1567,15 @@ export function drawPaneComposer({
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
             // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
-            canRecord={localCwd !== undefined && localFileLinks}
+            canRecord={
+              localCwd !== undefined &&
+              !quick &&
+              !readOnlySubagent &&
+              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
+            }
             upload={uploadFiles}
-            localPaths={localFileLinks ? localPaths : undefined}
+            // A chat on this Mac (as Sources' + below); the host refuses any other.
+            localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
             // ⌘↩ on an empty prompt answers a waiting tagged ask's first answer (NextStepCard.tsx),
             // never while a question or permission card waits.

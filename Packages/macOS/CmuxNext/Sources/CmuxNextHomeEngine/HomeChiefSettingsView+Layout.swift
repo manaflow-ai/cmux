@@ -119,7 +119,10 @@ extension HomeChiefSettingsView {
     /// Adds a row to the Appearance section (the Chief's bubble style, its pet):
     /// a title at the leading edge and `control` at the trailing edge.
     public func addAppearanceRow(_ title: String, control: NSView) {
-        appearanceRows.add(Self.row(title, control))
+        let row = Self.row(title, control)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        appearanceRows.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: appearanceRows.widthAnchor).isActive = true
         appearanceHeader.isHidden = false
         appearanceRows.isHidden = false
         onResize()

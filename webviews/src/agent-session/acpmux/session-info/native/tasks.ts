@@ -230,8 +230,7 @@ export function tasksSection(
     id: "tasks",
     group: "running",
     title: t("summary.backgroundTasks"),
-    // The number of what runs, no word (as the page's head and Also here's count).
-    ...(runningCount > 0 ? { meta: String(runningCount), metaTone: "running" as const } : {}),
+    ...(runningCount > 0 ? { meta: t("rail.running", { count: runningCount }), metaTone: "running" as const } : {}),
     open: input.open,
     foldable: true,
     rows,
@@ -429,7 +428,12 @@ function workflowRows(
       }
     }
   };
-  // The running ones lead with no heading, as the page's WorkflowTasks.tsx: "running" needs no word.
+  if (both)
+    rows.push({
+      id: "workflows.running",
+      title: t("rail.running", { count: running.length }),
+      tone: "muted",
+    });
   running.forEach(workflow);
   if (both)
     rows.push({

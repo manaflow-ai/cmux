@@ -77,7 +77,12 @@ fn a_capture_writes_the_page_through_the_hosts_repl() {
     let socket = dir.path().join("bh.sock");
     let host = fake_host(&socket, Some(png(1)));
     let out = dir.path().join("before.png");
-    assert_eq!(capture(&socket, dir.path(), "ws_ab", None, &out).as_deref(), Some("preview"));
+    assert_eq!(
+        capture(&socket, REPL_SESSION, dir.path(), "ws_ab", None, &out)
+            .map(|(id, _)| id)
+            .as_deref(),
+        Some("preview")
+    );
     let request = host.join().unwrap();
     assert_eq!(request["method"], "browser.repl.eval");
     // The app's tabs only: never a headless browser started for a picture.
@@ -92,9 +97,12 @@ fn no_page_or_no_host_takes_no_picture() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("bh.sock");
     let out = dir.path().join("before.png");
-    assert!(capture(&socket, dir.path(), "ws_ab", None, &out).is_none(), "no host listens");
+    assert!(
+        capture(&socket, REPL_SESSION, dir.path(), "ws_ab", None, &out).is_none(),
+        "no host listens"
+    );
     let host = fake_host(&socket, None);
-    let shown = capture(&socket, dir.path(), "ws_ab", None, &out);
+    let shown = capture(&socket, REPL_SESSION, dir.path(), "ws_ab", None, &out);
     assert!(shown.is_none(), "the workspace shows no page");
     host.join().unwrap();
     assert!(!out.exists());
@@ -107,7 +115,7 @@ fn a_picture_over_the_cap_is_not_kept() {
     let socket = dir.path().join("bh.sock");
     let host = fake_host(&socket, Some(vec![1; MAX_SHOT_BYTES + 1]));
     let out = dir.path().join("after.png");
-    assert!(capture(&socket, dir.path(), "ws_ab", None, &out).is_none());
+    assert!(capture(&socket, REPL_SESSION, dir.path(), "ws_ab", None, &out).is_none());
     host.join().unwrap();
     assert!(!out.exists(), "the disk cap holds");
 }

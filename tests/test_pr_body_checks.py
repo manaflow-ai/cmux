@@ -39,12 +39,12 @@ DESIGN = "design-spec"
 PERF = "perf-section"
 CLOUD = "cloud-backend"
 
-CAPTURE_STEP = "capture"
-
-# event -> the checks that run on it. A push runs them in pr-checks.yml's advisory job (CI v2 step 6,
-# second cut; tests/test_pr_checks_base_only.py), so this workflow takes only edits and labels.
+# event -> the checks that run on it
 EVENTS = {
+    ("synchronize", None): {CAPTURE, DESIGN, PERF, CLOUD},
+    ("opened", None): {CAPTURE, DESIGN, PERF, CLOUD},
     ("edited", None): {CAPTURE, DESIGN, PERF, CLOUD},
+    ("ready_for_review", None): {CAPTURE, DESIGN, PERF, CLOUD},
     ("labeled", "media-tour"): {CAPTURE},
     ("unlabeled", "media-tour-mac"): {CAPTURE},
     ("labeled", "perf"): {PERF},
@@ -69,9 +69,7 @@ def advisory_steps(action: str, label: str | None) -> set[str]:
     if not runs(STEPS[ADVISORY]["if"], action, label):
         return set()
     flag = label if action in ("labeled", "unlabeled") else None
-    # The table's advisory job also holds pr-checks.yml's steps; this workflow names its own with --only.
-    only = set(re.search(r'only=\(--only "([^"]+)"\)', STEPS[ADVISORY]["run"]).group(1).split())
-    return set(ci_steps.route(TABLE, None, flag).get("advisory", [])) & only
+    return set(ci_steps.route(TABLE, None, flag).get("advisory", []))
 
 
 class BodyChecksTests(unittest.TestCase):
@@ -82,10 +80,7 @@ class BodyChecksTests(unittest.TestCase):
                     self.assertEqual(want, set(), "the job skipped an event a check reads")
                     continue
                 got = advisory_steps(action, label)
-                # The table's capture step on a base that has it; the old workflow step on one that does not.
-                self.assertEqual(CAPTURE_STEP in got, runs(STEPS[CAPTURE]["if"], action, label))
-                if CAPTURE_STEP in got:
-                    got.discard(CAPTURE_STEP)
+                if runs(STEPS[CAPTURE]["if"], action, label):
                     got.add(CAPTURE)
                 self.assertEqual(got, want)
         self.assertIn('--label "$LABEL"', STEPS[ADVISORY]["run"])
@@ -95,8 +90,6 @@ class BodyChecksTests(unittest.TestCase):
         # Capture and perf fall back to the files API; design spec and cloud backend skip.
         self.assertTrue(runs(STEPS[CAPTURE]["if"], "synchronize", None, listed=False))
         self.assertIn("gh api --paginate", STEPS[CAPTURE]["run"])
-        self.assertIn("gh api --paginate", TABLE.steps[CAPTURE_STEP].run)
-        self.assertIn('[ "${CAPTURE_LISTED:-}" != true ]', TABLE.steps[CAPTURE_STEP].run)
         self.assertIn("gh api --paginate", TABLE.steps[PERF].run)
         for name in (DESIGN, CLOUD):
             self.assertIn('if [ "${PATHS_LISTED:-}" != true ]', TABLE.steps[name].run)
@@ -105,14 +98,12 @@ class BodyChecksTests(unittest.TestCase):
         self.assertEqual(env["PATHS_LISTED"], "${{ steps.paths.outputs.listed }}")
         self.assertEqual(env["TREE_LISTED"], "${{ steps.tree.outputs.listed }}")
 
-    def test_only_the_old_capture_step_can_fail_the_job(self):
+    def test_only_the_capture_check_can_fail_the_job(self):
         self.assertNotIn("continue-on-error", JOB)
         self.assertNotIn("continue-on-error", STEPS[CAPTURE])
         self.assertIs(STEPS[ADVISORY].get("continue-on-error"), True)
         self.assertIn("timeout-minutes", STEPS[ADVISORY])
-        # A base whose table has the capture step runs it there, advisory.
-        self.assertIn("^\\[step\\.capture\\]", STEPS[CAPTURE]["run"])
-        for name in (CAPTURE_STEP, DESIGN, PERF, CLOUD):
+        for name in (DESIGN, PERF, CLOUD):
             with self.subTest(step=name):
                 step = TABLE.steps[name]
                 self.assertEqual((step.blocks, step.job, step.klass), (False, "advisory", "idle"))
@@ -133,7 +124,7 @@ class BodyChecksTests(unittest.TestCase):
 
     def test_the_checks_run_from_the_base_branch(self):
         checkout = JOB["steps"][0]["with"]
-        self.assertEqual(checkout["ref"], "refs/heads/${{ github.event.pull_request.base.ref }}")
+        self.assertEqual(checkout["ref"], "${{ github.event.pull_request.base.ref }}")
         self.assertFalse(checkout["persist-credentials"])
         wanted = {"scripts/ci/pr_capture_check.py", "scripts/cmux-next/media/path_map.py",
                   "scripts/ci/pr_design_spec_check.py", ".github/design-surfaces.json",
@@ -144,7 +135,8 @@ class BodyChecksTests(unittest.TestCase):
     def test_it_runs_on_drafts_and_every_old_trigger(self):
         on = WORKFLOW.get(True, WORKFLOW.get("on"))["pull_request"]
         self.assertEqual(on["branches"], ["feat-cmux-next"])
-        self.assertEqual(set(on["types"]), {"edited", "labeled", "unlabeled"})
+        self.assertEqual(set(on["types"]), {"opened", "synchronize", "reopened", "edited", "labeled", "unlabeled",
+                                             "ready_for_review"})
         self.assertNotIn("draft", str(JOB))
 
 

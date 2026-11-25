@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(OSLog)
-import OSLog
-#endif
+import os
 
 /// Redacted auth diagnostics, shared by the token stores and sign-in flows.
 ///

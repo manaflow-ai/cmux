@@ -1,13 +1,5 @@
 export type DiffCommentSide = "additions" | "deletions";
 
-export type DiffCommentReply = {
-  id: string;
-  author: "reviewer" | "agent";
-  text: string;
-  createdAt: string;
-  sentIn?: string;
-};
-
 export type DiffCommentRecord = {
   id: string;
   filePath: string; // exactly fileName(item.fileDiff) for the item it belongs to
@@ -20,11 +12,6 @@ export type DiffCommentRecord = {
   submissionText?: string; // precomputed text block consumed by the native pending pool
   createdAt: string; // ISO8601
   updatedAt: string;
-  replies?: DiffCommentReply[];
-  resolved?: boolean;
-  resolvedAt?: string;
-  sentIn?: string;
-  resolveSent?: boolean;
 };
 
 export type DiffCommentSaveInput = Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt"> & {

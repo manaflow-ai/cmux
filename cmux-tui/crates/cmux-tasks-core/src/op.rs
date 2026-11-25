@@ -133,11 +133,13 @@ impl Op {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskRef {
     pub task: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskCreate {
     pub id: String,
     pub title: String,
@@ -165,6 +167,7 @@ pub struct TaskCreate {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskUpdate {
     pub task: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +204,7 @@ pub struct TaskUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskMove {
     pub task: String,
     /// The task that should precede it (none = first).
@@ -212,6 +216,7 @@ pub struct TaskMove {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskDelegate {
     pub task: String,
     /// Client-chosen `asess_…` id.
@@ -230,17 +235,20 @@ pub struct TaskDelegate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionRef {
     pub session: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionClaim {
     pub session: String,
     pub host: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionAttach {
     pub session: String,
     pub acp_session: String,
@@ -251,6 +259,7 @@ pub struct SessionAttach {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionUpdate {
     pub session: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -263,6 +272,7 @@ pub struct SessionUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommentAdd {
     pub id: String,
     pub task: String,
@@ -272,6 +282,7 @@ pub struct CommentAdd {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommentUpdate {
     pub comment: String,
     pub body: String,
@@ -279,11 +290,13 @@ pub struct CommentUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommentRef {
     pub comment: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelationAdd {
     pub id: String,
     pub kind: RelationKind,
@@ -292,11 +305,13 @@ pub struct RelationAdd {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelationRef {
     pub relation: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LabelCreate {
     pub id: String,
     pub name: String,
@@ -305,6 +320,7 @@ pub struct LabelCreate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LabelUpdate {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -314,11 +330,13 @@ pub struct LabelUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LabelRef {
     pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatusCreate {
     pub id: String,
     pub name: String,
@@ -330,6 +348,7 @@ pub struct StatusCreate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatusUpdate {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -341,6 +360,7 @@ pub struct StatusUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatusDelete {
     pub status: String,
     /// Tasks in the deleted status move here in the same commit.
@@ -348,6 +368,7 @@ pub struct StatusDelete {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectCreate {
     pub id: String,
     pub name: String,
@@ -356,6 +377,7 @@ pub struct ProjectCreate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectUpdate {
     pub project: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -365,11 +387,13 @@ pub struct ProjectUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectRef {
     pub project: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SettingsUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_prefix: Option<String>,

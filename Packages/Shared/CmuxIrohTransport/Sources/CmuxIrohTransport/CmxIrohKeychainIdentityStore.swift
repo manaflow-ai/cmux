@@ -1,4 +1,3 @@
-#if canImport(Security)
 public import Foundation
 import Security
 
@@ -138,4 +137,3 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 import Network
 
@@ -98,8 +97,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
 
     /// The channel opened: connect to the VNC server and pipe server bytes back.
     private func bridge(_ link: VNCPeerLink) {
-        CmuxEgress.allowNamed(targetHost)   // the VNC host the person shares
-        let tcp = CmuxEgress.connection(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort) ?? 5900, using: .tcp, site: "CmuxVNCWebRTC.VNCWebRTCHost")
+        let tcp = NWConnection(host: NWEndpoint.Host(targetHost), port: NWEndpoint.Port(rawValue: targetPort) ?? 5900, using: .tcp)
         guard lock.withLock({ () -> Bool in
             guard current?.link === link else { return false }
             current?.tcp = tcp

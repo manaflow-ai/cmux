@@ -29,7 +29,6 @@
 mod god_chat;
 #[cfg(test)]
 mod ingest;
-#[cfg(test)]
 mod outbox;
 mod reconnect;
 mod store;

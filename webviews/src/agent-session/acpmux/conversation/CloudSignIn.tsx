@@ -118,7 +118,6 @@ export function CloudSignIn({
   prompt,
   keyOnly = false,
   gateway = false,
-  another = false,
   actionsRef,
 }: {
   signIn: SignIn;
@@ -129,9 +128,6 @@ export function CloudSignIn({
   /// The machine's team has cmux's gateway (cloudAgentLogin.ts `offersGateway`): Use cmux's gateway
   /// is offered beside the others.
   gateway?: boolean;
-  /// The account is out of usage or turned off (cmux#55066): signing in is with another account, and
-  /// its buttons are outlined, as Use another agent leads the card.
-  another?: boolean;
   actionsRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
@@ -406,11 +402,11 @@ export function CloudSignIn({
           {offersPage && pageLabel && (
             <button
               type="button"
-              className={another ? "cv-turn-auth-action" : "cv-turn-auth-action cv-turn-error__primary"}
+              className="cv-turn-auth-action cv-turn-error__primary"
               disabled={stage.at !== "idle"}
               onClick={start}
             >
-              {another ? t("turn.failure.signInAnotherAccount") : t(pageLabel)}
+              {t(pageLabel)}
             </button>
           )}
           {offersKey && (
@@ -421,7 +417,7 @@ export function CloudSignIn({
               className={
                 offersPage
                   ? "cv-turn-error__offer-link"
-                  : keyOnly || another
+                  : keyOnly
                     ? "cv-turn-auth-action"
                     : "cv-turn-auth-action cv-turn-error__primary"
               }

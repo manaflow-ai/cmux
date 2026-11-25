@@ -1,4 +1,3 @@
-#if canImport(Security)
 public import Foundation
 import Security
 
@@ -76,4 +75,3 @@ public struct DeviceCaptureNamespace: Sendable {
         return names
     }
 }
-#endif

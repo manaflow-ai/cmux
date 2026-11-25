@@ -225,15 +225,13 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 impl Store {
-    /// The default root: `$CMUX_AUTOMATIONS_DIR`, else `~/.config/cmux/automations`
-    /// (`~/.config/cmux-next/automations` on macOS, where `cmux` is cmux Classic's).
+    /// The default root: `$CMUX_AUTOMATIONS_DIR`, else `~/.config/cmux/automations`.
     pub fn default_root() -> Option<PathBuf> {
         if let Some(dir) = std::env::var_os("CMUX_AUTOMATIONS_DIR").filter(|d| !d.is_empty()) {
             return Some(PathBuf::from(dir));
         }
         let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
-        let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
-        Some(PathBuf::from(home).join(".config").join(dir).join("automations"))
+        Some(PathBuf::from(home).join(".config/cmux/automations"))
     }
 
     /// Open (and make) the store at `root`.

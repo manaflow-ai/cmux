@@ -1,6 +1,5 @@
 @testable import CmuxNextCloud
 @testable import CmuxNextRemote
-import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -172,35 +171,6 @@ struct SSHMachineSecretsTests {
         }
         await stopping.value
         #expect(!pty.isRunning)
-    }
-
-    /// ssh's exit closes the run's two pipes with no stop, even while a grandchild (a ControlPersist master)
-    /// still holds ssh's stdout: 100 runs a delivery never closed leave the app's pipe count where it was
-    /// (cmuxterm-hq#8747). Before the fix each run kept its stdin write end and stdout read end: 200 pipes.
-    @Test func sshsExitClosesTheRunsPipesWithoutAStop() async throws {
-        let baseline = try #require(OpenDescriptors.current())
-        var runs: [SSHPTYRun] = []
-        var homes: [URL] = []
-        defer { for home in homes { try? FileManager.default.removeItem(at: home) } }
-        for _ in 0..<100 {
-            let run = try Self.standIn("sleep 20 &\necho ready\n")
-            runs.append(run.run)
-            homes.append(run.home)
-            _ = try await run.run.waitFor("ready", seconds: 10)
-        }
-        // The drain grace after each exit, then at most 10 s for the closes to land.
-        let deadline = ContinuousClock.now + .seconds(12)
-        var left = Int.max
-        while ContinuousClock.now < deadline {
-            left = (OpenDescriptors.current()?.pipes ?? Int.max) - baseline.pipes
-            if left <= 0 { break }
-            try await Task.sleep(for: .milliseconds(200))
-        }
-        print("SSHMachineSecretsTests: SSHPTYRun x100 never stopped: \(left) pipes left open (baseline \(baseline.pipes))")
-        #expect(left <= 60, "100 ssh runs that exited left \(left) pipes open")
-        // A stop after the exit closed the ends returns at once and closes nothing twice.
-        for run in runs { await run.stop() }
-        #expect(runs.allSatisfy { !$0.isRunning })
     }
 
     // MARK: Helpers

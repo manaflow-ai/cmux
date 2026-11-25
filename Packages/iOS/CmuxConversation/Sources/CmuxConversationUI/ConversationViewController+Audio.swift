@@ -255,7 +255,7 @@ final class ConversationAudioComposer {
                 }
                 self.startTask = nil
                 self.startDisplayLink()
-                ConversationHaptics.impact(.light)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 self.run(.recorderStarted)
             } catch {
                 guard let self, self.recorder === recorder, !(error is CancellationError) else { return }

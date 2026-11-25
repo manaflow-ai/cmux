@@ -13,5 +13,6 @@ workspace = true
 [dependencies]
 cmux-cloud-wire.workspace = true
 cmux-terminal-sizing.workspace = true
-# The `catch-up` service's request and reply (src/catch_up/service.rs).
+
+[dev-dependencies]
 serde_json.workspace = true

@@ -36,12 +36,7 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
-  // Frame callbacks get the clock the page reads (`performance.now`), as a browser's do. jsdom stamps
-  // them on its window's own clock, which starts when the JSDOM is made, after this file's imports:
-  // the glide's start (scrollMotion.ts runScroll) then read seconds ahead of its frames, and on a
-  // loaded runner the jump had not moved when the test looked (job 138405547914: 5014, not 5588).
-  requestAnimationFrame: (callback: FrameRequestCallback) =>
-    dom.window.requestAnimationFrame(() => callback(performance.now())),
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };

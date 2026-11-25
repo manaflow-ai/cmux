@@ -27,10 +27,9 @@ pub use crate::agent_tools::TOOLS_ANSWER_ENV;
 pub const FIELD: &str = "cmuxTools";
 
 /// The answer a `session/new` brought from the daemon that forwarded it: only over a peer
-/// daemon's own connection (`ConnAuth::peer_daemon`), or a start the hub relayed from a stamped
-/// daemon (`ConnAuth::MeshControl`; `mesh_relay.rs` drops it from a start of no daemon).
+/// daemon's own connection (`ConnAuth::peer_daemon`).
 pub fn asked(auth: crate::server::ConnAuth, params: &Value) -> Option<&'static str> {
-    if !auth.peer_daemon() && auth != crate::server::ConnAuth::MeshControl {
+    if !auth.peer_daemon() {
         return None;
     }
     // A peer daemon forwarding for a Web client of its own (`via: web`): that client's request,

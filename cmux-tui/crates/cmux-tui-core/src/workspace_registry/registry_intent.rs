@@ -29,7 +29,7 @@ pub(crate) enum RegistryIntent {
     /// creation group (`Mux::commit_created_views_projection`).
     EffectGroup(Vec<EffectCommitIntent>),
     Terminal(TerminalCommitIntent),
-    Workspace(Box<WorkspaceCommitIntent>),
+    Workspace(WorkspaceCommitIntent),
 }
 
 /// The writer's (or a local transaction's) answer for one intent.

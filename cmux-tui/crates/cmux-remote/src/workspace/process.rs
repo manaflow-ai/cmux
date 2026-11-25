@@ -31,8 +31,6 @@ use super::ClientScope;
 use super::path::UnixWorkspaceDirectory;
 use super::path::WorkspaceRoot;
 
-/// Measured: each running process holds a child, its pipes or PTY, and an output log of up to
-/// PROCESS_EVENT_BYTES (4 MiB): 256 MiB of output at most for 64.
 const MAX_PROCESSES: usize = 64;
 const MAX_PTY_PROCESSES: usize = 16;
 // Keep one interactive RPC below one carrier frame after JSON/base64 framing.
@@ -42,8 +40,6 @@ const MAX_PROCESS_WRITE_BYTES: usize = 32 * 1024;
 const PROCESS_EVENT_CAPACITY: usize = 512;
 const PROCESS_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const PROCESS_BROADCAST_CAPACITY: usize = 64;
-/// Measured: each reservation makes its process's output log (up to PROCESS_EVENT_BYTES, 4 MiB)
-/// before the spawn, and an unspawned one holds it: 1 GiB at most for 256.
 const MAX_PROCESS_RESERVATIONS: usize = 256;
 const MAX_COMPLETED_PROCESSES: usize = 64;
 const MAX_REMEMBERED_WRITE_IDS: usize = 4_096;

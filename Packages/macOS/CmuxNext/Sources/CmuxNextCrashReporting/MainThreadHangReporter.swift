@@ -56,11 +56,7 @@ public final class MainThreadHangReporter: Sendable {
         let admitted = budget.withLock { $0.admit(durationNanos: 0, nowNanos: now) }
         summary?.record(.hang(sent: admitted))
         guard admitted else { return false }
-        // One proc_pidinfo call on this (watchdog) thread, never main; it also logs a pipe count over budget.
-        let descriptors = OpenDescriptors.current()
-        OpenDescriptors.noteBudget(descriptors)
-        sink(MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads,
-                                 openDescriptors: descriptors?.total, openPipes: descriptors?.pipes))
+        sink(MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads))
         return true
     }
 }

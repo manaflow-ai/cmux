@@ -8,13 +8,11 @@ export function cloudClientGrantRequired(
   return /^(1|true|yes|on)$/i.test(env[CLOUD_CLIENT_GRANT_ENV]?.trim() ?? "");
 }
 
-/** The immutable listener mode baked into a machine. A row or image without
- * the marker is client-grant unless the caller names the compatibility mode:
- * the direct listener requires a client grant off loopback, and only call
- * sites reading rows created before the marker shipped pass "trusted-carrier". */
+/** The immutable listener mode baked into a machine. Rows created before the
+ * marker shipped are trusted-carrier compatibility machines. */
 export function cloudRemoteAuthMode(
   metadata: Record<string, unknown> | null | undefined,
-  fallback: CloudRemoteAuthMode = "client-grant",
+  fallback: CloudRemoteAuthMode = "trusted-carrier",
 ): CloudRemoteAuthMode {
   const value = metadata?.[CLOUD_REMOTE_AUTH_METADATA_KEY];
   return value === "client-grant" || value === "trusted-carrier" ? value : fallback;

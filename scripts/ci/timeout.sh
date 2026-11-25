@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# tooling-steps runs: nothing tracked (GNU timeout or gtimeout; the command is "$@", its caller's)
 # timeout [--kill-after=DURATION] DURATION COMMAND [ARG...]: GNU timeout(1) for every CI host, a Mac included.
 #
 # Why (2026-11-11): macOS ships no `timeout`. scripts/ci/bun-install.sh called it bare, so tooling-tests passed on a

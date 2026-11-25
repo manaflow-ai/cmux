@@ -1,4 +1,3 @@
-#if canImport(Security)
 public import Foundation
 import Security
 
@@ -78,4 +77,3 @@ public struct DeviceKeychain: Sendable {
         return access
     }
 }
-#endif

@@ -26,9 +26,7 @@
           "preset_approval_decision"
         ],
         "eventStream": true,
-        "visible": true,
-        "attending": true,
-        "quietHidden": true
+        "visible": true
       }
     },
     {
@@ -57,9 +55,7 @@
           "preset_approval_decision"
         ],
         "eventStream": true,
-        "visible": true,
-        "attending": true,
-        "quietHidden": true
+        "visible": true
       }
     },
     {
@@ -80,9 +76,7 @@
           "subsession"
         ],
         "eventStream": true,
-        "visible": false,
-        "attending": true,
-        "quietHidden": true
+        "visible": false
       }
     },
     {
@@ -111,9 +105,7 @@
           "preset_approval_decision"
         ],
         "eventStream": true,
-        "visible": true,
-        "attending": true,
-        "quietHidden": true
+        "visible": true
       }
     },
     {
@@ -134,8 +126,7 @@
           "usage_limits",
           "usage_update"
         ],
-        "visible": true,
-        "attending": true
+        "visible": true
       }
     }
   ]

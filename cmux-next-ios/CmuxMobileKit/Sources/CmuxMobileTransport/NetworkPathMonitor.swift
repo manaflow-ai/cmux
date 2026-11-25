@@ -2,9 +2,7 @@
 import CmuxMobileLinkFFI
 #endif
 import Foundation
-#if canImport(Network)
 import Network
-#endif
 
 /// What the device's network did, reduced to what matters to a live link.
 public enum NetworkPathEvent: Equatable, Sendable {
@@ -44,7 +42,6 @@ public struct NetworkPathFilter: Sendable {
     }
 }
 
-#if canImport(Network)
 /// Watches the device's network with `NWPathMonitor`.
 public final class NetworkPathMonitor: @unchecked Sendable {
     public let events: AsyncStream<NetworkPathEvent>
@@ -85,4 +82,3 @@ public final class NetworkPathMonitor: @unchecked Sendable {
 private final class FilterBox: @unchecked Sendable {
     var filter = NetworkPathFilter()
 }
-#endif

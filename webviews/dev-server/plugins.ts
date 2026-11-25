@@ -78,8 +78,6 @@ import {
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
-import { refreshNow } from "./refreshNow";
-import { tailwindOnNewClasses } from "./tailwindOnNewClasses";
 import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
@@ -107,8 +105,6 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
-    tailwindOnNewClasses(),
-    refreshNow(),
     perfLintOnSave(),
   ];
 }

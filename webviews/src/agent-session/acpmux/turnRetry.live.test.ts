@@ -137,15 +137,15 @@ test("the line says what is wrong, the retry's count and the harness's error", (
     count: 'turn.live.retry.attempt{"attempt":7,"max":10}',
     error: "503 server error",
   });
-  expect(retryParts(translate, { attempt: 2, errorStatus: 529 }).label).toBe("capacity.live");
+  expect(retryParts(translate, { attempt: 2, errorStatus: 529 }).label).toBe("turn.live.retry.busy");
   expect(retryParts(translate, { error: "rate_limit" })).toEqual({
-    label: "capacity.live",
+    label: "turn.live.retry.busy",
     count: "turn.live.retry.retrying",
-    detail: "rate limit",
+    error: "rate limit",
   });
   // Claude's status-less error codes carry a trailing "_error".
-  expect(retryParts(translate, { error: "rate_limit_error" }).label).toBe("capacity.live");
-  expect(retryParts(translate, { error: "overloaded_error" }).label).toBe("capacity.live");
+  expect(retryParts(translate, { error: "rate_limit_error" }).label).toBe("turn.live.retry.busy");
+  expect(retryParts(translate, { error: "overloaded_error" }).label).toBe("turn.live.retry.busy");
   expect(retryParts(translate, { error: "server_error" }).label).toBe("turn.live.retry.unreachable");
 });
 

@@ -1,4 +1,3 @@
-import CmuxEgress
 import CmuxNextCompat
 public import Foundation
 
@@ -69,7 +68,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubClient", configuration: configuration)
+        return URLSession(configuration: configuration)
     }()
 
     // MARK: Account
@@ -95,12 +94,7 @@ public actor DeviceHubClient {
 
     private func exchangeStackToken() async throws -> DeviceHubAccountSession {
         let stack: String
-        let tokens = self.tokens
-        // A token read that never answers held every hub call behind it (the account exchange is shared); bound it.
-        do { stack = try await DeviceHub.within(.seconds(30), what: "the account token") { try await tokens.stackAccessToken() } } catch let error as DeviceHubError {
-            if case .transport = error { throw error }
-            throw DeviceHubError.notSignedIn
-        } catch { throw DeviceHubError.notSignedIn }
+        do { stack = try await tokens.stackAccessToken() } catch { throw DeviceHubError.notSignedIn }
         var request = URLRequest(url: url("/v1/auth/stack"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

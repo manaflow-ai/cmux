@@ -1,0 +1,49 @@
+{
+  "id": "pane-divider-drag",
+  "priority": "P0",
+  "title": "Drag the divider between two panes: both panes resize, both PTYs get the new sizes",
+  "why": "A person resizes panes by dragging the divider. Both terminals must refit (one wider, one narrower) and both PTYs must follow, or one side wraps at the old width or leaves a blank strip.",
+  "source": "window life: pane divider drag (holistic-quality.md 1)",
+  "budget_seconds": 75,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-divider"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "left"},
+    {"do": "window_place", "title": "set-up: the window at 70% x 70% of the screen", "fraction": [0.05, 0.05, 0.7, 0.7]},
+    {"do": "key", "title": "Cmd-D", "key": "d", "modifiers": ["cmd"]},
+    {"do": "adopt_pane", "as": "right"},
+    {"do": "neutral_prompt"},
+    {"do": "expect", "title": "two fitted panes side by side", "timeout": 10,
+     "all": [{"pane_frame": {"pane": "right", "right_of": "left"}}, {"grid_fits": {"pane": "left"}}, {"grid_fits": {"pane": "right"}}]},
+    {"do": "remember", "as": "left0", "pane": "left"},
+    {"do": "remember", "as": "right0", "pane": "right"},
+
+    {"do": "divider_drag", "title": "drag the divider 200 points left", "between": ["left", "right"], "by": -200, "events": 30, "mark": "drag"},
+    {"do": "expect", "title": "the left pane is 200 points narrower, the right one 200 wider; both fitted", "since": "drag", "timeout": 10,
+     "all": [
+       {"pane_frame": {"pane": "left", "vs": "left0", "dw": -200, "tol_points": 30}},
+       {"pane_frame": {"pane": "right", "vs": "right0", "dw": 200, "tol_points": 30}},
+       {"grid_fits": {"pane": "left", "vs": "left0", "cols": "narrower", "rows": "same"}},
+       {"grid_fits": {"pane": "right", "vs": "right0", "cols": "wider", "rows": "same"}},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "echo right-${nonce} $(stty size)", "enter": true, "mark": "typed-right"},
+    {"do": "expect", "title": "the right PTY has the wider grid", "since": "typed-right", "timeout": 10,
+     "all": [
+       {"pty_size": {"tag": "right-${nonce}", "pane": "right"}},
+       {"daemon_prompt": true},
+       {"app_text_contains": "right-${nonce} "},
+       {"pane_frame_text": "right-${nonce}"}
+     ]},
+    {"do": "use_pane", "pane": "left", "click": true, "title": "click into the left pane"},
+    {"do": "type", "text": "echo left-${nonce} $(stty size)", "enter": true, "mark": "typed-left"},
+    {"do": "expect", "title": "the left PTY has the narrower grid", "since": "typed-left", "timeout": 10,
+     "all": [
+       {"pty_size": {"tag": "left-${nonce}", "pane": "left"}},
+       {"daemon_prompt": true},
+       {"app_text_contains": "left-${nonce} "},
+       {"pane_frame_text": "left-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

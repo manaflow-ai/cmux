@@ -35,11 +35,9 @@ import sys
 # marked.min.js is inlined into the webviews app's agent-session.html; the design, type and motion
 # scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
 # makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
-# sparse checkout given these inputs had no file for it, 2026-11-22); the acpmux protocol IR is what
-# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
+# sparse checkout given these inputs had no file for it, 2026-11-22).
 INPUTS = [
     "webviews",
-    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/settings",
     "schemas/design-scale/design-scale.json",
     "schemas/type-scale/type-scale.json",

@@ -51,6 +51,7 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { SavePromptButton } from "./SavePromptButton";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
@@ -66,7 +67,7 @@ import {
   sentImageWidth,
   sentImageSize,
 } from "./userBubbleModel";
-import { readLinkedImage } from "../chips/host";
+import { callChipHost } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
 
@@ -108,6 +109,8 @@ export function UserBubble({
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
+  /// What Save as Prompt keeps: the prompt as it went (its skills as `/$name`), else its text.
+  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
@@ -311,6 +314,7 @@ export function UserBubble({
               ((actions) =>
                 pending(actions, {
                   fork: forkButton,
+                  save: <SavePromptButton text={resend} />,
                 }))
             }
           >
@@ -336,6 +340,7 @@ export function UserBubble({
               {forkButton}
               <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
+              <SavePromptButton text={resend} />
             </MessageFooterRow>
           </UserFooter>
         )}
@@ -416,10 +421,8 @@ export const SentImage = memo(function SentImage({
   image,
   read,
   fallback = null,
-  path,
 }: {
   image: PromptImage;
-  path?: string;
   /// Reads the image by its id (a dataURL), when acpmux does not keep it (`SentLinkedImage`).
   read?: (id: string) => Promise<string | undefined>;
   /// What draws when the image cannot be read or decoded; nothing by default.
@@ -503,11 +506,7 @@ export const SentImage = memo(function SentImage({
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}
       aria-label={label || t("image.view")}
-      onClick={() => {
-        if (path && shown.thumbnail) {
-          void readLinkedImage(path).then((full) => openImage(full ?? src, label, path));
-        } else openImage(src, label, path);
-      }}
+      onClick={() => openImage(src, label)}
     >
       {thumbnail}
     </button>
@@ -542,13 +541,15 @@ function SentLinkedImage({
 }) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
-  const read = useCallback(() => readLinkedImage(path), [path]);
+  const read = useCallback(async () => {
+    const reply = (await callChipHost("image.load", { src: path })) as { src?: unknown } | undefined;
+    return typeof reply?.src === "string" && reply.src.startsWith("data:image/") ? reply.src : undefined;
+  }, [path]);
   if (scope?.host !== undefined || readOnly) return <>{chip}</>;
   return (
     <SentImage
       image={{ id: `file:${path}`, mimeType: mimeType || "image/png", name, ...(source ? { source } : {}) }}
       read={read}
-      path={path}
       fallback={chip}
     />
   );

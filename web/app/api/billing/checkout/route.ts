@@ -1,7 +1,6 @@
 import type { StackServerApp } from "@hexclave/next";
 import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import type Stripe from "stripe";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
@@ -47,7 +46,6 @@ import {
   hasExistingPersonalSubscription,
 } from "../../../../services/billing/personalSwitchRoute";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
-import { checkoutIdempotencyKey } from "../../../../services/billing/checkoutIdempotency";
 import {
   checkoutAttributionFromRequest,
   checkoutAttributionMetadata,
@@ -396,7 +394,7 @@ async function stripePersonalCheckout(
       ...checkoutAttributionMetadata(attribution),
     };
 
-    const params: Stripe.Checkout.SessionCreateParams = {
+    const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
@@ -420,11 +418,6 @@ async function stripePersonalCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
-    };
-    // Two requests that both passed the subscription check above share one
-    // session instead of opening two.
-    const session = await stripe().checkout.sessions.create(params, {
-      idempotencyKey: checkoutIdempotencyKey({ scope: "user", subjectId: stackUserId, plan, interval, params }),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
@@ -543,7 +536,7 @@ async function stripeTeamCheckout(
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
     const memberCount = await checkoutTeamSeatCount(team);
-    const params: Stripe.Checkout.SessionCreateParams = {
+    const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
@@ -565,9 +558,6 @@ async function stripeTeamCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
-    };
-    const session = await stripe().checkout.sessions.create(params, {
-      idempotencyKey: checkoutIdempotencyKey({ scope: "team", subjectId: resolvedTeamId, plan: "team", interval, params }),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");

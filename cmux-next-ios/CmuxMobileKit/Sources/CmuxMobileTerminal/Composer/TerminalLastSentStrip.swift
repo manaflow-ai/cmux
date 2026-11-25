@@ -44,11 +44,11 @@ struct TerminalLastSentStrip: View {
     var body: some View {
         ZStack {
             if let text = model.lastSentStripText {
-                Self.Strip(text: text, style: style, look: TerminalPillLook(theme: model.hostTheme)) {
+                Self.Strip(text: text, style: style) {
                     taps += 1
                     model.jumpToLastSent()
                 }
-                .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
+                .sensoryFeedback(.impact(weight: .light), trigger: taps)
                 .transition(.opacity.combined(with: .offset(y: -8)))
             }
         }
@@ -60,16 +60,13 @@ struct TerminalLastSentStrip: View {
     struct Strip: View {
         let text: String
         let style: Style
-        /// The terminal theme's colors over glass (Jump to bottom's look).
-        /// The gallery's: the phone's stock terminal (black, light gray text).
-        var look = TerminalPillLook(background: .black, ink: Color(white: 0xE6 / 255))
         let action: () -> Void
 
         var body: some View {
             Button(action: action) { label }
-                // The theme over non-interactive glass, as Jump to bottom:
-                // interactive glass's own touch handling left dead spots in
-                // the drawn pill (Leo, 2026-11-23).
+                // A solid fill, no blur, as Jump to bottom (Leo, 2026-11-23:
+                // "dont add blur there"): interactive glass's own touch
+                // handling left dead spots in the drawn pill.
                 .buttonStyle(.cmuxPressFillInLabel)
                 .accessibilityLabel("Jump to last sent: \(text)")
                 .accessibilityIdentifier("terminal.lastSentStrip")
@@ -86,11 +83,13 @@ struct TerminalLastSentStrip: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .frame(height: TerminalLastSentStrip.pillHeight)
                 .frame(maxWidth: TerminalLastSentStrip.pillMaxWidth)
                 .fixedSize(horizontal: true, vertical: false)
-                .terminalPillChrome(look, in: Capsule())
+                .cmuxMobilePressBackground(TerminalJumpToBottomRow.pillFill, in: .capsule)
+                .overlay { Capsule().strokeBorder(TerminalJumpToBottomRow.pillEdge, lineWidth: 0.5) }
                 // The capsule as drawn; the target reaches 8 pt past it on
                 // each side and down into the page, to `hitHeight` (past
                 // Apple's 44 pt: HIG, Accessibility).
@@ -111,11 +110,10 @@ struct TerminalLastSentStrip: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(look.ink)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity, minHeight: TerminalLastSentStrip.hitHeight)
-                .cmuxMobilePressBackground(look.background.opacity(TerminalPillLook.fillOpacity), in: .rect)
-                .glassEffect(.regular.tint(look.background.opacity(TerminalPillLook.tintOpacity)), in: .rect)
+                .cmuxMobilePressBackground(TerminalJumpToBottomRow.pillFill, in: .rect)
                 .overlay(alignment: .bottom) { Divider() }
                 .contentShape(.rect)
             case .edge:

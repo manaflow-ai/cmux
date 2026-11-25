@@ -33,7 +33,7 @@ import Testing
         view.mouseDown(with: event(.leftMouseDown, NSPoint(x: first.midX, y: first.midY)))
         view.mouseDragged(with: event(.leftMouseDragged, NSPoint(x: first.midX + 12, y: first.midY)))
         let drag = try #require(view.dotDrag, "the press and move start a dot drag")
-        let contents = try #require(drag.dots[1]?.contents as AnyObject?)
+        let contents = try #require(drag.dots[1].contents as AnyObject?)
         #expect(CFGetTypeID(contents) == CGImage.typeID, "a dot snapshot is a rendered image")
         let bitmap = NSBitmapImageRep(cgImage: unsafeDowncast(contents, to: CGImage.self))
         view.mouseUp(with: event(.leftMouseUp, NSPoint(x: first.midX + 12, y: first.midY - 200)))

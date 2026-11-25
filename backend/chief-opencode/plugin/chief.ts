@@ -95,16 +95,6 @@ In a channel you act on your own: answer when the message is for you or fits you
 channel message is not for you and needs nothing from you, answer exactly ${NO_REPLY} and nothing is
 posted. Never answer ${NO_REPLY} in a direct message.`
 
-/**
- * What a Chief checks at the start and end of each turn, the last block of every wake's prompt (never in the cached system
- * prompt). A copy of Native/OptChat/chief-kernel/src/turn_checks.md (the plugin image ships this folder alone);
- * backend/apps/api/test-node/turn-checks.test.ts fails when the two differ.
- */
-export const TURN_CHECKS = `Before your first move: name the whole space this request is one case of and start all of it now, in parallel, with helpers and idle machines. Never offer, ask leave or wait for what you can do yourself: do it.
-Ask why it happened. If it happened before or can recur, fix the class and add what prevents it (a test, a tool, a design change); a pause, guard or workaround is a patch, and you say so.
-Treat every limit (a quota, a vendor, a wait, missing access) as a question: why does it exist, and can we remove it or build our own? Take the real thing (the person's own app, a machine or tool you have) over a probe or proxy.
-Before any report: line one says fixed at the cause or patched. Write the person's likely next message ("why not all of them", "why not now", "why did it happen at all") and start that work before you send. Every wait has a waker and a deadline.`
-
 /** Base, then "## This Chief" and "## Added instructions" (lower priority than the base). Stable text: it caches. */
 export const systemPrompt = (c: Initialized["chief"]): string => {
   const me = [`Name: ${c.name}`, c.role?.trim() ? `Role: ${c.role.trim()}` : "", c.personality?.trim() ? `Personality: ${c.personality.trim()}` : ""].filter(Boolean)

@@ -111,7 +111,7 @@ import Testing
     @MainActor
     final class Events {
         private var loaded: [Int] = []
-        private(set) var changedCount = 0
+        private var changed = 0
         private var waiters: [(check: () -> Bool, done: CheckedContinuation<Void, Never>)] = []
 
         init(_ hub: AcpmuxHub) {
@@ -119,7 +119,7 @@ import Testing
                 guard let self else { return }
                 switch event {
                 case .sessionsLoaded(let sessions): self.loaded.append(sessions.count)
-                case .sessionChanged: self.changedCount += 1
+                case .sessionChanged: self.changed += 1
                 default: break
                 }
                 let ready = self.waiters.filter { $0.check() }
@@ -141,7 +141,7 @@ import Testing
 
         /// Waits until `count` `session_changed` notices were applied.
         func told(_ count: Int) async {
-            await wait { self.changedCount >= count }
+            await wait { self.changed >= count }
         }
     }
 
@@ -183,19 +183,6 @@ import Testing
         #expect(hub.sessions["s160"] == nil)
         #expect(hub.sessions.count == 249)
         await bound.value
-    }
-
-    @Test func equalSessionNoticeDoesNotEmitAnotherRowUpdate() async throws {
-        let mac = HeldPagesChannel(watch: #"{"sessions":[\#(Self.row("s1"))]}"#, pages: [:])
-        defer { mac.release() }
-        let hub = AcpmuxHub()
-        let events = Events(hub)
-        await hub.bind(mac)
-        #expect(hub.sessions["s1"] != nil)
-        mac.notify("_acpmux/session_changed", #"{"session":\#(Self.row("s1")),"kind":"updated"}"#)
-        try await Task.sleep(for: .milliseconds(50))
-        print("SILENT_DELTA session_equal before=1 after=\(events.changedCount)")
-        #expect(events.changedCount == 0)
     }
 
     /// An older acpmux answers the watch whole, with no cursor: one request, as before.

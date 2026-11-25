@@ -1,0 +1,40 @@
+{
+  "id": "app-life-settings-live",
+  "priority": "P0",
+  "title": "A settings change applies live: terminal.fontSize in cmux-next.json resizes the open terminal's text, and back",
+  "why": "People change the font size in the settings file and expect the open terminals to follow without a restart. The text must grow (bigger cells, fewer columns in the daemon's grid), stay readable and keep its content, and go back when the setting is removed.",
+  "source": "app life (holistic-quality.md 1): settings change applied live (font size)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-settings", "as": "shell"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo font-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {"do": "expect", "title": "the shell answers at the default size", "since": "typed", "timeout": 10,
+     "all": [{"daemon_line": "font-${nonce}-42"}, {"app_text_line": "font-${nonce}-42"}]},
+    {"do": "remember_value", "source": "app_cell_height", "name": "cell"},
+    {"do": "remember_value", "source": "daemon_cols", "name": "cols"},
+
+    {"do": "settings_file", "set": {"terminal": {"fontSize": 26}}, "mark": "bigger"},
+    {"do": "expect", "title": "the open terminal's text grows within 3 s, its grid shrinks in the daemon, its text stays", "since": "bigger", "within": 3, "timeout": 10,
+     "all": [
+       {"app_rpc": {"method": "settings.get", "params": {"key": "terminal.fontSize"}, "path": "value", "equals": 26}},
+       {"app_grid": {"cell_height_gt": "${cell}"}},
+       {"daemon_grid": {"cols_lt": "${cols}"}},
+       {"app_text_line": "font-${nonce}-42"},
+       {"daemon_line": "font-${nonce}-42"},
+       {"frame_text": "font-${nonce}-42"}
+     ]},
+    {"do": "type", "text": "echo big-${nonce}-$((6*7))", "enter": true, "mark": "big"},
+    {"do": "expect", "title": "the shell still takes input at the new size", "since": "big", "within": 3, "timeout": 10,
+     "all": [{"daemon_line": "big-${nonce}-42"}, {"app_text_line": "big-${nonce}-42"}, {"frame_text": "big-${nonce}-42"}]},
+
+    {"do": "settings_file", "unset": ["terminal.fontSize"], "mark": "reset"},
+    {"do": "expect", "title": "removing the setting brings the default size back", "since": "reset", "within": 3, "timeout": 10,
+     "all": [
+       {"app_grid": {"cell_height_equals": "${cell}"}},
+       {"daemon_grid": {"cols_equals": "${cols}"}},
+       {"app_text_line": "big-${nonce}-42"},
+       {"frame_text": "big-${nonce}-42"}
+     ]}
+  ]
+}

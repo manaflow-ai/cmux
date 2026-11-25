@@ -26,7 +26,6 @@
 // and motion off never move the chase (x stays 0), so this draws nothing.
 import { motionMode } from "../../../ui/motion/motionMode";
 import { LIVE_THINKING } from "./turns";
-import { keyframeKinds } from "./keyframeKinds";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
 
@@ -122,7 +121,8 @@ function reachAbove(rows: Pinned, px: number): void {
 /// Ends the clip animations `playing` on a row (Web Animations override its inline clip). O(its own).
 function dropClipGlides(playing: readonly Animation[]) {
   for (const animation of playing) {
-    if (keyframeKinds(animation.effect).clips) animation.cancel();
+    const effect = animation.effect as KeyframeEffect | null;
+    if (effect?.getKeyframes?.().some((frame) => "clipPath" in frame)) animation.cancel();
   }
 }
 
@@ -251,7 +251,8 @@ function translating(row: HTMLElement): Animation[] {
 function translatingOf(animations: readonly Animation[]): Animation[] {
   return animations.filter((animation) => {
     if (animation.playState === "finished" || animation.playState === "idle") return false;
-    return keyframeKinds(animation.effect).translates;
+    const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
+    return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
   });
 }
 

@@ -2,15 +2,7 @@
 // the active row (`activeIndex`), so `aria-activedescendant` never names a missing element, and the
 // list scrolls to the active row when it changes. Each row gets `aria-posinset`/`aria-setsize` from
 // the caller's renderRow (it receives the index and the absolute count).
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEventHandler,
-  type ReactNode,
-} from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
@@ -41,9 +33,6 @@ export interface VirtualListProps {
   scrollParent?: string;
   /** Fade overflowing rows on this list's own viewport. */
   fade?: boolean;
-  /** A list that takes the keyboard itself (DrillList under a key style): -1, and its keys. */
-  tabIndex?: number;
-  onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 }
 
 /** The active result can change without changing its numeric index (a filtered folder). */
@@ -74,8 +63,6 @@ export function VirtualList({
   scrollParent,
   fade = false,
   measureRows = false,
-  tabIndex,
-  onKeyDown,
   itemKey,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -153,7 +140,6 @@ export function VirtualList({
   return (
     // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
     // ui.css (the agent pane) otherwise places the rows against the page and draws them over it.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- `role` is the caller's (a listbox)
     <div
       ref={mounted}
       id={id}
@@ -161,8 +147,6 @@ export function VirtualList({
       style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
-      tabIndex={tabIndex}
-      onKeyDown={onKeyDown}
     >
       <div
         ref={space}

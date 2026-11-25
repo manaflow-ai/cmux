@@ -15,7 +15,6 @@ export function AgentIdentity({
   fallback = "agent.session",
   fallbackNode,
   glyphSize,
-  plain = false,
   className,
   style,
 }: {
@@ -26,14 +25,11 @@ export function AgentIdentity({
   fallbackNode?: ReactNode;
   /// A badged sender's stroke glyph size (SenderIcon.tsx `glyphSize`).
   glyphSize?: number;
-  /// The mark alone whatever the Sender Badge setting: no session badge over it (the composer hat;
-  /// Leo 2026-11-23 on the hat's rows, a colored badge on every Claude mark: "weird and bad and unncessary"). The tone still colors a fallback glyph.
-  plain?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
   const look = useSenderIconLook();
-  if (!plain && look.badge !== "none" && tone !== undefined)
+  if (look.badge !== "none" && tone !== undefined)
     return (
       <SenderIcon
         harness={harness}

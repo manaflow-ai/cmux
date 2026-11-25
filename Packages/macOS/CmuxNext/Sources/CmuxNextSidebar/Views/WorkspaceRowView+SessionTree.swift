@@ -21,7 +21,7 @@ extension WorkspaceRowView {
         keycap.configure(isShowingPlaceholder ? nil : shown.keycap)
         treeFold = isShowingPlaceholder ? nil : shown.treeFold
         treeFoldSlot.made.map(applyTreeFold)
-        rollUp.configure(isShowingPlaceholder ? nil : shown.drawnRollUp)
+        rollUp.configure(isShowingPlaceholder ? nil : shown.rollUp)
     }
 
     func tintSessionTree() {

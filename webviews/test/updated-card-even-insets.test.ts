@@ -83,13 +83,7 @@ await requireBrowserLane("updated-card-even-insets.test.ts", async () => {
        flushSync(() => root.render(createElement(UpdatedCard, { data, strings: createStrings(table), actions, closeButton: false, glass: false } as any)));
      };`,
   );
-  const built = await Bun.build({
-    entrypoints: [entry],
-    target: "browser",
-    format: "iife",
-    // A classic script has no import.meta: modules the card reaches (toolMentions.ts, #53425) read import.meta.url.
-    define: { "import.meta.url": JSON.stringify("http://127.0.0.1/") },
-  });
+  const built = await Bun.build({ entrypoints: [entry], target: "browser", format: "iife" });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
   const output = built.outputs.find((artifact) => artifact.kind === "entry-point" && artifact.path.endsWith(".js"));
@@ -133,18 +127,12 @@ await requireBrowserLane("updated-card-even-insets.test.ts", async () => {
             const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
             const card = rect(".wn-card");
             const title = rect(".wn-card-title");
-            const noteElement = document.querySelector(".wn-card-note")!;
-            const note = noteElement.getBoundingClientRect();
-            // The note's box reaches its descenders' depth under the baseline (WebKit clips an ellipsized
-            // line to it): its bottom padding, which a negative margin takes back out of the layout.
-            const noteStyle = getComputedStyle(noteElement);
-            const descender = parseFloat(noteStyle.paddingBottom);
+            const note = rect(".wn-card-note");
             return {
               height: card.height,
               top: title.top - card.top,
-              bottom: card.bottom - (note.bottom - descender),
+              bottom: card.bottom - note.bottom,
               side: title.left - card.left,
-              descender: descender / parseFloat(noteStyle.fontSize),
             };
           });
           await page.close();
@@ -157,8 +145,6 @@ await requireBrowserLane("updated-card-even-insets.test.ts", async () => {
             Math.abs(got.bottom - got.side),
             `the room under the note's baseline: ${JSON.stringify(got)}`,
           ).toBeLessThanOrEqual(0.5);
-          // "Agent" drew its g cut at the baseline: SF's descenders reach about 0.22 em.
-          expect(got.descender, `the note's room for descenders: ${JSON.stringify(got)}`).toBeGreaterThanOrEqual(0.25);
         });
       }
     });

@@ -22,15 +22,6 @@ fn now_ms() -> u64 {
     u64::try_from(since.as_millis()).unwrap()
 }
 
-#[cfg(unix)]
-#[tokio::test(start_paused = true)]
-async fn renew_hook_inbox_deadline_leaves_ownership_unknown() {
-    let start = tokio::time::Instant::now();
-    let result = connected_inbox_is(std::process::id(), std::future::pending()).await;
-    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
-    assert_eq!(start.elapsed(), IO_TIMEOUT);
-}
-
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn an_entry_names_a_sender_only_while_its_process_is_the_one_that_wrote_it() {

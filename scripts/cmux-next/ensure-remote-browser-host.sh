@@ -19,7 +19,7 @@
 # Environment:
 #   CMUX_NEXT_RB_HOST_PIN         pin file (default: the one beside this script)
 #   CMUX_NEXT_RB_HOST_CACHE_DIR   cache root (default <cef-cache-root>/remote-browser-host)
-#   CMUX_CEF_STORE_URL            fleet controller URL (no default; see store_url)
+#   CMUX_CEF_STORE_URL            fleet controller (default http://100.89.225.106:18765)
 #   CMUX_RB_HOST_NO_STORE=1, CMUX_RB_HOST_NO_R2=1   skip a source
 set -euo pipefail
 
@@ -93,27 +93,8 @@ fetch_store() {
   if (( traced )); then set -x; fi
   return "$status"
 }
-# The controller artifact store's address. No address is built in: CMUX_CEF_STORE_URL, else the
-# fleet's CMUX_CI_CONTROLLER, else the fleet client's configured controller
-# (CMUX_FLEET_CLIENT_CONFIG, default ~/.local/share/cmux-fleet-client/client.json), else a
-# CMUX_CEF_STORE_URL line in CMUX_CEF_R2_ENV_FILE (default ~/.secrets/cmux-cef.env). With none the
-# store is skipped, as on any machine off the tailnet.
-store_url() {
-  local url="${CMUX_CEF_STORE_URL:-${CMUX_CI_CONTROLLER:-}}" file
-  if [[ -z "$url" ]]; then
-    file="${CMUX_FLEET_CLIENT_CONFIG:-$HOME/.local/share/cmux-fleet-client/client.json}"
-    [[ -r "$file" ]] && url="$(/usr/bin/python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("controller") or "")' "$file" 2>/dev/null || true)"
-  fi
-  if [[ -z "$url" ]]; then
-    file="${CMUX_CEF_R2_ENV_FILE:-$HOME/.secrets/cmux-cef.env}"
-    [[ -r "$file" ]] && url="$(sed -n -E "s/^(export )?CMUX_CEF_STORE_URL=[\"']?([^\"' ]*).*/\2/p" "$file" 2>/dev/null | tail -n 1)"
-  fi
-  printf '%s' "$url"
-}
 store_download() {
-  local controller signed
-  controller="$(store_url)"
-  [[ -n "$controller" ]] || return 1
+  local controller="${CMUX_CEF_STORE_URL:-http://100.89.225.106:18765}" signed
   signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
       -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
     /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"

@@ -19,7 +19,6 @@ public nonisolated struct ActionTargetChoices: Sendable, Hashable {
         return kind
     }
 
-#if canImport(AppKit)
     /// The argument a choices submenu picks, its values and the checked one:
     /// an enumeration or suggested string first, else a listed target kind.
     @MainActor
@@ -37,5 +36,4 @@ public nonisolated struct ActionTargetChoices: Sendable, Hashable {
               let listed = registry.targetChoices?(descriptor.id, kind, target) else { return nil }
         return (argument, listed.cases, listed.current)
     }
-#endif
 }

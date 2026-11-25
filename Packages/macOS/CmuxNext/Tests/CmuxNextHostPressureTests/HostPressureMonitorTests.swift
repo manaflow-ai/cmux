@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
 import os
-#endif
 @testable import CmuxNextHostPressure
 import Testing
 

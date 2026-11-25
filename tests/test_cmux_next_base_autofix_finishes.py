@@ -455,10 +455,9 @@ class BaseAutofixFinishes(unittest.TestCase):
         # 2026-10-21: a push to feat-cmux-next added a test target without the graph (Tier routing red on
         # every PR) and the graph landed 90 minutes later: autofix, which made it, needed the Mac exports
         # job, 12-15 minutes in the owned queue and 15-26 running, and two of those runs' repairs were
-        # held. The graph is made on Linux from the manifest alone, so its own job needs only the batch
-        # window (one Linux read, cmux#49308), never the Mac exports.
+        # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
         job = DOC["jobs"]["target-graph"]
-        self.assertIn(job.get("needs", "window"), ("window", ["window"]))
+        self.assertNotIn("needs", job)
         cells = workflow_jobs.runs_on_cells(job)
         self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
         self.assertTrue(cells)
@@ -650,9 +649,6 @@ else:
         condition = re.sub(r"\s+", " ", str(step.get("if")))
         self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", condition)
         self.assertIn("needs.pushed-exports.outputs.deferred != 'true'", condition)
-        # A run its batch window held (cmux#49308) skips autofix, so it uploads no marker and "since" passes it.
-        self.assertIn("window", autofix["needs"])
-        self.assertIn("needs.window.outputs.run == 'true'", re.sub(r"\s+", " ", str(autofix["if"])))
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]

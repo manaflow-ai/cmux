@@ -170,7 +170,7 @@ export function repeatsTitle(title: string, detail: string): boolean {
 }
 
 /** A build's notes without the generic What's New entry (``isGenericWhatsNewEntry``). */
-export function withoutGenericEntry(notes: ReleaseNotes): ReleaseNotes {
+function withoutGenericEntry(notes: ReleaseNotes): ReleaseNotes {
   const document = notes.whatsNew;
   if (!document?.entries.some(isGenericWhatsNewEntry)) return notes;
   return { ...notes, whatsNew: { ...document, entries: document.entries.filter((e) => !isGenericWhatsNewEntry(e)) } };

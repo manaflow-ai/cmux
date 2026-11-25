@@ -70,17 +70,10 @@ class ConfiguredRootTests(unittest.TestCase):
             self.assertTrue((Path(tmp) / "node-products" / "objects").is_dir())
 
 
-# Upper bound on a test's waiter threads registering or finishing. Event waits
-# return as soon as the threads get there; the bound only decides when a stuck
-# run fails, so it is generous for a loaded 2-core runner.
-REGISTRATION_BOUND_SECONDS = 30
-
-
 class NodeProductCacheTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-
         self.root = Path(self.temp.name) / "cache"
         self.store = cache.Store(self.root)
         self.contract = {"tree": "tree-a", "xcode": "Xcode 26", "environment": {"A": "B"}}
@@ -99,15 +92,6 @@ class NodeProductCacheTests(unittest.TestCase):
             producer_run_id=456,
         )
         self.provider_created_at = "2026-09-21T09:00:00Z"
-
-    def _join_before_teardown(self, threads):
-        # Cleanups run last-in first-out: these joins run before the temp dir is
-        # removed, so a failed assertion cannot leave waiters writing into a
-        # deleted store (the FileNotFoundError noise on cmux#55833's red run).
-        def join():
-            for thread in threads:
-                thread.join(REGISTRATION_BOUND_SECONDS)
-        self.addCleanup(join)
 
     def _write_archive(self, path, contract, revision):
         reuse = {"contract": contract, "revision": revision, "run_id": "456", "run_attempt": "1"}
@@ -343,11 +327,7 @@ class NodeProductCacheTests(unittest.TestCase):
             with mock.patch.object(cache, "_wait_for_fill_signal", side_effect=wait_for_signal):
                 for thread in threads:
                     thread.start()
-                self._join_before_teardown(threads)
-                self.assertTrue(
-                    waiters_registered.wait(REGISTRATION_BOUND_SECONDS),
-                    "fan-out waiters never registered",
-                )
+                self.assertTrue(waiters_registered.wait(2), "fan-out waiters never registered")
                 fill = json.loads(self.store.fill(self.identity.key()).read_text())
                 self.assertEqual(len(fill["waiters"]), len(consumer_destinations))
 
@@ -363,7 +343,7 @@ class NodeProductCacheTests(unittest.TestCase):
                 self.assertEqual(published["status"], "published")
 
                 for thread in threads:
-                    thread.join(REGISTRATION_BOUND_SECONDS)
+                    thread.join(3)
                     self.assertFalse(thread.is_alive())
 
             for result, destination in zip(results, consumer_destinations):
@@ -1046,9 +1026,8 @@ class NodeProductCacheTests(unittest.TestCase):
         ):
             for thread in threads:
                 thread.start()
-            self._join_before_teardown(threads)
             self.assertTrue(
-                all_registered.wait(REGISTRATION_BOUND_SECONDS),
+                all_registered.wait(3),
                 "all waiter registrations must exist before peer publication",
             )
 
@@ -1109,7 +1088,7 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertEqual(published["status"], "published", published)
 
         for thread in threads:
-            thread.join(REGISTRATION_BOUND_SECONDS)
+            thread.join(3)
             self.assertFalse(thread.is_alive())
         self.assertEqual(len(fetch_calls), 1)
         self.assertTrue(all(result["hit"] for result in waiter_results))

@@ -25,10 +25,6 @@ is reachable."). FAKE_CLAUDE_IGNORE_SWITCH=1 models a Claude Code that renamed o
 switch: messaging stays on whatever `CLAUDE_CODE_HARBOR_KITE` says. A logged call has its tool
 result as `output`.
 
-FAKE_AUTO_RESULTS=1 also writes each call's stream-json lines as Claude Code does: the assistant's
-`tool_use` before the hooks fire, and the user's `tool_result` after (a `Read` returns the file's
-text, a `Bash` its stdout; a denied call is an error result with the reason).
-
 A prompt "peer-hold: <JSON>" writes Claude Code's `system/peer_message_hold` line with the JSON's
 fields (`state`, `message_uuid`, `from`, `from_name`, `cause`, `outcome`, `lane`) and ends the turn.
 """
@@ -230,19 +226,9 @@ def native_message(tool, tool_input):
     return json.dumps({"success": False, "message": "No agent named '%s' is reachable." % to})
 
 
-RESULTS = os.environ.get("FAKE_AUTO_RESULTS") == "1"
-
-
 def run(tool, tool_input, cwd):
     if tool in ("ListAgents", "SendMessage"):
         return native_message(tool, tool_input)
-    if RESULTS and tool == "Read":
-        with open(tool_input["file_path"]) as f:
-            return "".join("%6d\t%s" % (n, l) for n, l in enumerate(f, 1))
-    if RESULTS and tool == "Bash":
-        return subprocess.run(["sh", "-c", tool_input.get("command", "")], cwd=cwd,
-                              stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              check=False).stdout
     if tool == "Bash":
         subprocess.run(["sh", "-c", tool_input.get("command", "")], cwd=cwd, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
@@ -262,19 +248,9 @@ def turn(text):
                 runs, reason = False, "No such tool available: ListAgents"
                 del GATE_MS[:]
             else:
-                if RESULTS:
-                    send({"type": "assistant", "session_id": SESSION, "parent_tool_use_id": None,
-                          "message": {"id": "msg_auto_%d" % i, "role": "assistant", "content": [
-                              {"type": "tool_use", "id": "toolu_auto_%d" % i, "name": tool,
-                               "input": tool_input}]}})
                 runs, reason = judge(tool, tool_input, "toolu_auto_%d" % i, cwd)
             if runs:
                 output = run(tool, tool_input, cwd)
-            if RESULTS and not (tool == "ListAgents" and not MESSAGING):
-                send({"type": "user", "session_id": SESSION, "parent_tool_use_id": None,
-                      "message": {"role": "user", "content": [
-                          {"type": "tool_result", "tool_use_id": "toolu_auto_%d" % i,
-                           "content": output if runs else reason, "is_error": not runs}]}})
             record = {"tool": tool, "input": tool_input, "ran": runs, "reason": reason,
                       "output": output, "hookMs": list(GATE_MS)}
             lines.append(json.dumps(record))

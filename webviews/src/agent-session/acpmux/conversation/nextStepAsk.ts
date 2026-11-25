@@ -8,14 +8,11 @@
 // so the reading is strict: a card only where the agent really asked one tagged question with
 // answers to click, and never for ordinary prose.
 
-import type { CustomizeRun } from "./customizeRun";
 import { quoteMarkdown } from "./selectionReplyModel";
 
 /// One answer button: what it sends as the person's reply, and the pane's own words for it when the
 /// card made the answer up (Yes and Not now for a yes-or-no question), which it draws instead.
-/// An answer the agent's wrap-up gave as `{label, run}` carries its `run`: a click runs
-/// `cmux customize` (customizeRun.ts) instead of sending the label.
-export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow"; run?: CustomizeRun };
+export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow" };
 
 export type NextStepAsk = {
   /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up

@@ -54,19 +54,10 @@ impl Mux {
         // lock (R-DAEMON-STATE stage S1, mux/sizing_fast_path.rs).
         if self.control_clients.input_lane.on() && surface.skips_sizing_note(client) {
             self.activity.note_user_input();
-            self.arm_echo(surface);
             return;
         }
         if self.note_terminal_activity_of(surface, client, None).is_some() {
             self.activity.note_user_input();
-            self.arm_echo(surface);
-        }
-    }
-
-    /// The terminal's next output is the echo of this input (server/activity.rs `ECHO_CAPABILITY`).
-    fn arm_echo(&self, surface: &Surface) {
-        if let Some(runtime) = surface.terminal_runtime_id() {
-            self.activity.arm_echo(runtime);
         }
     }
 

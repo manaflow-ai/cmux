@@ -1,4 +1,3 @@
-#if canImport(dnssd)
 import Darwin
 @preconcurrency import Dispatch
 import dnssd
@@ -252,4 +251,3 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
         }
     }
 }
-#endif

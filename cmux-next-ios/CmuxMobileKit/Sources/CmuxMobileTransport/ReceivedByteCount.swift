@@ -1,9 +1,7 @@
 // DEBUG and Demo builds only: the energy bench's received-bytes counter.
 #if DEBUG
 import Foundation
-#if canImport(OSLog)
 import OSLog
-#endif
 
 /// The bytes this app has received for its terminals, for the energy bench
 /// (`scripts/ci/cmux-next-ios-sim.sh energy`, its `Received B/s` column).

@@ -20,10 +20,6 @@ public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
     public var pins = PaletteRankingSetting.pinsDefault
     /// Whether the palette learns from what the person runs (`palette.searchHistory`, default on).
     public var remembersSearches = PaletteRankingSetting.searchHistoryDefault
-    /// `experiments.paletteV2` (Settings > Advanced > Experiments): the palette v2 look, `off` by default.
-    public var paletteV2 = CmuxConfigSnapshot.paletteV2Default
-    /// `experiments.palettePreview`: the palette's detail pane and action pill, off by default.
-    public var palettePreview = CmuxConfigSnapshot.palettePreviewDefault
 
     /// The setting in `root` (the file's whole JSON).
     public init(_ root: JSONValue) {
@@ -37,8 +33,5 @@ public nonisolated struct PaletteRankingSetting: Sendable, Hashable {
             pins = items.compactMap { $0.stringValue }.filter { !$0.isEmpty && seen.insert($0).inserted }
         }
         if case .bool(let on) = root.value(at: Self.searchHistoryPath) { remembersSearches = on }
-        if let look = root.value(at: CmuxConfigSnapshot.paletteV2Path)?.stringValue,
-           CmuxConfigSnapshot.paletteV2Values.contains(look) { paletteV2 = look }
-        if case .bool(let on) = root.value(at: CmuxConfigSnapshot.palettePreviewPath) { palettePreview = on }
     }
 }

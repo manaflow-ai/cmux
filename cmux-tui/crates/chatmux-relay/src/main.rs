@@ -652,14 +652,8 @@ async fn main() {
         Some(Command::Pair) | None => {}
     }
 
-    let http = match cmux_egress::client("chatmux_relay") {
-        Ok(http) => http,
-        Err(error) => {
-            eprintln!("could not build the HTTP client: {error}");
-            return;
-        }
-    };
-    let runtime = Runtime { backend, web_base, config_path, interactive, http };
+    let runtime =
+        Runtime { backend, web_base, config_path, interactive, http: reqwest::Client::new() };
 
     if parsed.managed_mode {
         let now = std::time::SystemTime::now()

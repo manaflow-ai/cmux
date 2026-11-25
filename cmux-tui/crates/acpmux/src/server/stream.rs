@@ -68,7 +68,7 @@ pub(super) async fn serve_stream(
         Origin::Local,
         ConnAuth::LocalSocket,
         peer,
-        super::Transport::LocalStream { provisioner },
+        provisioner,
         socket_peer,
         None,
         None,

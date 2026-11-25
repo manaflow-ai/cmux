@@ -85,8 +85,6 @@ export interface EditorSettings extends Required<Omit<LanguageOverride, "rulers"
   accessibilitySupport: AccessibilitySupport;
   toolbar: boolean;
   statusBar: boolean;
-  /** `editor.vimMode`: vim's Normal, Insert and Visual modes (monaco-vim, loaded only when on). */
-  vimMode: boolean;
   languages: Record<string, LanguageOverride>;
 }
 
@@ -140,7 +138,6 @@ export const EDITOR_DEFAULTS: EditorSettings = {
   accessibilitySupport: "auto",
   toolbar: true,
   statusBar: true,
-  vimMode: false,
   languages: {},
 };
 
@@ -222,7 +219,7 @@ const enabled = (value: unknown): boolean | undefined =>
  * `quickSuggestions`, `wordBasedSuggestions`, `acceptSuggestionOnEnter`, `emptySelectionClipboard`,
  * `find.seedSearchStringFromSelection`, `trimTrailingWhitespace`, `insertFinalNewline`, `formatOnSave`,
  * `autoSave`, `autoSaveDelay`, `largeFileThreshold`, `accessibilitySupport`, `toolbar`, `statusBar`,
- * `vimMode`, `keybindings`, `languages.<id>`.
+ * `keybindings`, `languages.<id>`.
  */
 export function resolveEditorSettings(section: unknown): EditorSettings {
   const root = object(section);
@@ -337,7 +334,6 @@ export function resolveEditorSettings(section: unknown): EditorSettings {
     accessibilitySupport: oneOf(root.accessibilitySupport, ["auto", "on", "off"] as const) ?? d.accessibilitySupport,
     toolbar: bool(root.toolbar) ?? d.toolbar,
     statusBar: bool(root.statusBar) ?? d.statusBar,
-    vimMode: bool(root.vimMode) ?? d.vimMode,
     languages,
   };
 }

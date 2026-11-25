@@ -340,14 +340,7 @@ def payload(args):
         # The machine copy is the Cloud machine channel's own build: never a Linux release, and only
         # this run's build of it names its checksums.
         fail("--machine-path is for the cloud-machine payload of --binaries-dir")
-    if args.target and release:
-        fail("--target is for the cloud-machine payload: a Linux release names every target")
-    if args.target and set(args.target) - set(TARGETS):
-        fail(f"--target names {sorted(set(args.target) - set(TARGETS))}, not one of {list(TARGETS)}")
-    # --target: a payload of some targets only. point-machine-channel-early points the channel from
-    # the x86_64 build alone, and a second point of the same commit adds aarch64
-    # (web-ota-pointer.py newer's completes rule).
-    args.targets = LINUX_RELEASE_TARGETS if release else tuple(t for t in TARGETS if not args.target or t in args.target)
+    args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
     args.names = LINUX_RELEASE_NAMES if release else NAMES
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -452,8 +445,6 @@ def main(argv):
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
     p.add_argument("--min-sequence", type=int, default=0,
                    help="--purpose linux-release: the lowest sequence to sign (the channel's current one + 1)")
-    p.add_argument("--target", action="append", choices=TARGETS,
-                   help="--purpose cloud-machine: sign only this target (repeat for more); default every target")
     p.add_argument("--machine-path", action="store_true",
                    help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     p.add_argument("--tree-key", help="--purpose linux-release: name the tree's copies, cmux-tui/tree/<key>/")

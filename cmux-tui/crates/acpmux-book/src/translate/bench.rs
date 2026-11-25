@@ -246,7 +246,27 @@ fn god_vs_small() {
         let small = child(harness, 40);
         let god = child(harness, count);
         assert!(god[1] >= bytes, "the god shape must actually translate the specified bytes");
-        // The lines before the bounds: a red row keeps its numbers in the v2 home.
+        for (label, i, bound) in [
+            ("steady best p95", 2, 1.2),
+            ("steady all p95", 3, if small[2].max(god[2]) < 100_000 { 2.0 } else { 1.2 }),
+            ("cold best p95", 4, 1.2),
+            ("cold all p95", 5, if small[4].max(god[4]) < 100_000 { 2.0 } else { 1.2 }),
+        ] {
+            let ratio = god[i] as f64 / small[i] as f64;
+            println!(
+                "{label}: small={} ns god={} ns ratio={ratio:.3} gate={bound}",
+                small[i], god[i]
+            );
+            assert!(ratio <= bound, "{label}: {ratio} exceeds {bound}");
+        }
+        assert!(god[6] * 1024 < 64_000_000);
+        let rss_ratio = god[6] as f64 / small[6] as f64;
+        println!(
+            "peak RSS: small={} KiB god={} KiB ratio={rss_ratio:.3} gate=1.2",
+            small[6], god[6]
+        );
+        assert!(rss_ratio <= 1.2, "peak RSS: {rss_ratio} exceeds 1.2");
+        assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
         if harness == "claude"
             && let Ok(path) = std::env::var("V2_GATE_OUT")
         {
@@ -276,26 +296,5 @@ fn god_vs_small() {
                 .and_then(|mut file| std::io::Write::write_all(&mut file, lines.as_bytes()))
                 .unwrap();
         }
-        for (label, i, bound) in [
-            ("steady best p95", 2, 1.2),
-            ("steady all p95", 3, if small[2].max(god[2]) < 100_000 { 2.0 } else { 1.2 }),
-            ("cold best p95", 4, 1.2),
-            ("cold all p95", 5, if small[4].max(god[4]) < 100_000 { 2.0 } else { 1.2 }),
-        ] {
-            let ratio = god[i] as f64 / small[i] as f64;
-            println!(
-                "{label}: small={} ns god={} ns ratio={ratio:.3} gate={bound}",
-                small[i], god[i]
-            );
-            assert!(ratio <= bound, "{label}: {ratio} exceeds {bound}");
-        }
-        assert!(god[6] * 1024 < 64_000_000);
-        let rss_ratio = god[6] as f64 / small[6] as f64;
-        println!(
-            "peak RSS: small={} KiB god={} KiB ratio={rss_ratio:.3} gate=1.2",
-            small[6], god[6]
-        );
-        assert!(rss_ratio <= 1.2, "peak RSS: {rss_ratio} exceeds 1.2");
-        assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
     }
 }
