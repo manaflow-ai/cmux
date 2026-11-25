@@ -626,3 +626,74 @@ fn measure_fill_past_a_seed_that_lacks_the_blobs() {
     });
     println!("fetch_ms 4 at once: {duress:?}");
 }
+
+/// A stand-in seed index: answers each connection by the next step of `steps` (`None` holds the
+/// connection past the try's bound, as the slow index does), the last step repeating. Returns its
+/// URL and the count of requests it read.
+fn beat_index(steps: Vec<Option<u16>>) -> (String, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1/seeds/heartbeat", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(0));
+    let counter = Arc::clone(&seen);
+    std::thread::spawn(move || {
+        for (n, stream) in listener.incoming().enumerate() {
+            let Ok(mut stream) = stream else { continue };
+            let step = steps[n.min(steps.len() - 1)];
+            *counter.lock().unwrap() += 1;
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                match step {
+                    None => std::thread::sleep(Duration::from_secs(3)),
+                    Some(code) => {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 {code} X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        );
+                    }
+                }
+            });
+        }
+    });
+    (url, seen)
+}
+
+fn beat_client() -> reqwest::blocking::Client {
+    reqwest::blocking::Client::builder().pool_max_idle_per_host(0).build().unwrap()
+}
+
+const TEST_POLICY: BeatPolicy = BeatPolicy {
+    attempt: Duration::from_millis(300),
+    period: Duration::from_secs(5),
+    backoff: Duration::from_millis(50),
+};
+
+#[test]
+fn a_slow_or_failing_index_is_retried_within_the_same_beat() {
+    // A try past its bound, then a 503, then the index takes it: one beat, three tries.
+    let (url, seen) = beat_index(vec![None, Some(503), Some(200)]);
+    let start = Instant::now();
+    let tries = post_beat(&beat_client(), &url, None, b"{}", TEST_POLICY, start);
+    assert_eq!(tries, Ok(3));
+    assert_eq!(*seen.lock().unwrap(), 3);
+    assert!(start.elapsed() < TEST_POLICY.period);
+}
+
+#[test]
+fn a_refused_beat_is_not_retried() {
+    let (url, seen) = beat_index(vec![Some(401)]);
+    let result = post_beat(&beat_client(), &url, None, b"{}", TEST_POLICY, Instant::now());
+    assert!(result.is_err_and(|error| error.contains("401")));
+    assert_eq!(*seen.lock().unwrap(), 1);
+}
+
+#[test]
+fn retries_stop_when_the_next_beat_is_due() {
+    let policy = BeatPolicy { period: Duration::from_secs(1), ..TEST_POLICY };
+    let (url, seen) = beat_index(vec![Some(503)]);
+    let start = Instant::now();
+    let result = post_beat(&beat_client(), &url, None, b"{}", policy, start);
+    assert!(result.is_err_and(|error| error.contains("503")));
+    assert!(*seen.lock().unwrap() >= 3, "retried within the beat");
+    assert!(start.elapsed() < policy.period + Duration::from_millis(500));
+}
