@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 61748603bd46887f7c2596ece6acce4c5352a51eb9cf71ec1940c7849a3fd264. */
+/* cmux-tui mux protocol 12, IR 1dba07405011386b50267446dead2a0ab558c2e078db9eb328896e058e4e9b81. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "61748603bd46887f7c2596ece6acce4c5352a51eb9cf71ec1940c7849a3fd264" as const;
+export const SDK_IR_SHA256 = "1dba07405011386b50267446dead2a0ab558c2e078db9eb328896e058e4e9b81" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -120,6 +120,10 @@ export const COMMAND_METADATA = {
       "resume_generation": {
         "since": null,
         "capability": "terminal-resume-v1"
+      },
+      "resume_max_bytes": {
+        "since": null,
+        "capability": "terminal-resume-bounded-v1"
       },
       "resume_offset": {
         "since": null,
@@ -1808,6 +1812,10 @@ export const COMMAND_METADATA = {
       "limit": {
         "since": 12,
         "capability": "list-workspaces-limit-v1"
+      },
+      "since": {
+        "since": null,
+        "capability": "workspace-list-delta-v1"
       }
     },
     "stream": null,
@@ -8970,6 +8978,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ListWorkspacesSince": {
+    "additional_properties": false,
+    "fields": {
+      "epoch": {
+        "constraints": [
+          "Opaque; the epoch of the last reply applied (\"\" when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "constraints": [
+          "The seq of the last reply applied (0 when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "LivePane": {
     "additional_properties": false,
     "fields": {
@@ -16001,6 +16037,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "Tree": {
     "additional_properties": false,
     "fields": {
+      "changed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Workspace"
+          },
+          "kind": "array"
+        }
+      },
+      "delta": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "epoch": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "generation": {
         "capability": "workspace-registry-v1",
         "nullable": false,
@@ -16024,6 +16099,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "order": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta, when the order of the workspaces changed: every id, in the tree's order."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -16041,6 +16131,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "removed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: the ids of the workspaces no longer in the tree."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "seq": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "terminal_revision": {
@@ -16823,6 +16940,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "resume_max_bytes": {
+          "capability": "terminal-resume-bounded-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "resume_offset": {
@@ -23834,6 +23961,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "since": {
+          "capability": "workspace-list-delta-v1",
+          "constraints": [
+            "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ListWorkspacesSince"
           }
         }
       },

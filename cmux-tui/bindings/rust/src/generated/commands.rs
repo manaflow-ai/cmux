@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 61748603bd46887f7c2596ece6acce4c5352a51eb9cf71ec1940c7849a3fd264.
+// cmux-tui mux protocol 12, IR 1dba07405011386b50267446dead2a0ab558c2e078db9eb328896e058e4e9b81.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -88,6 +88,8 @@ pub struct AttachSurfaceRequest {
     pub replay_history_start: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub resume_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_max_bytes: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub resume_offset: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2277,6 +2279,8 @@ pub struct ListWorkspacesRequest {
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<T::ListWorkspacesSince>,
 }
 
 #[rustfmt::skip]
@@ -4604,6 +4608,9 @@ impl CmuxClient {
         if !request.resume_generation.is_missing() {
             self.require_capability_field("attach-surface", "terminal-resume-v1")?;
         }
+        if !request.resume_max_bytes.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-bounded-v1")?;
+        }
         if !request.resume_offset.is_missing() {
             self.require_capability_field("attach-surface", "terminal-resume-v1")?;
         }
@@ -5320,6 +5327,9 @@ impl CmuxClient {
         if !request.limit.is_missing() {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
+        if !request.since.is_missing() {
+            self.require_capability_field("list-workspaces", "workspace-list-delta-v1")?;
         }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }

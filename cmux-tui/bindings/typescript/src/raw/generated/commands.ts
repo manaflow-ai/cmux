@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 61748603bd46887f7c2596ece6acce4c5352a51eb9cf71ec1940c7849a3fd264. */
+/* cmux-tui mux protocol 12, IR 1dba07405011386b50267446dead2a0ab558c2e078db9eb328896e058e4e9b81. */
 
 
 import type * as T from "./types.js";
@@ -71,6 +71,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "replay_history_rows"?: (number) | null;
   "replay_history_start"?: (bigint) | null;
   "resume_generation"?: (string) | null;
+  "resume_max_bytes"?: (bigint) | null;
   "resume_offset"?: (bigint) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
@@ -1582,6 +1583,7 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
+  "since"?: (T.ListWorkspacesSince) | null;
 }
 export type ListWorkspacesResult = T.Tree;
 
