@@ -365,7 +365,7 @@ pub(crate) fn fetch(
     };
     let scratch = tempfile::tempdir().context("cannot make a scratch folder")?;
     let mut fetched = 0;
-    for pushed in &tip.bundles[start..] {
+    for pushed in tip.bundles.iter().skip(start) {
         let path = scratch.path().join("turn.bundle");
         if !store.get(&pushed.key, &path)? {
             bail!("{} is missing from the workspace remote", pushed.key);
@@ -535,7 +535,10 @@ fn parse(args: &[String]) -> Option<(String, Vec<(String, String)>)> {
     let known = ["--local", "--folder", "--workspace", "--base", "--store-dir", "--repo"];
     let flags = rest
         .chunks(2)
-        .map(|pair| known.contains(&pair[0].as_str()).then(|| (pair[0].clone(), pair[1].clone())))
+        .map(|pair| match pair {
+            [flag, value] => known.contains(&flag.as_str()).then(|| (flag.clone(), value.clone())),
+            _ => None,
+        })
         .collect::<Option<Vec<_>>>()?;
     Some((action.clone(), flags))
 }
