@@ -165,11 +165,11 @@ public struct SkeletonList: View {
     /// Where a `.plainList` row's bars start: the list's text column.
     static func plainTextLeading(_ size: DynamicTypeSize) -> CGFloat { CmuxMobileListColumn.plain(size).text }
     /// Each `.plainList` row's insets, as the Workspaces cells' (`WorkspacesCollection.margins`).
-    static let plainRowInsets = EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20)
+    static let plainRowInsets = CmuxMobileListRowMetrics.insets
     /// A `.plainList` row's text block's least height (`WorkspaceRow`'s, with its status line).
-    static let plainRowMinHeight: CGFloat = 40
+    static let plainRowMinHeight = CmuxMobileListRowMetrics.minHeight
     /// The plain list's hairline ends this far from the trailing edge.
-    static let plainSeparatorTrailing: CGFloat = 16
+    static let plainSeparatorTrailing = CmuxMobileListRowMetrics.separatorTrailing
     /// Title widths, row by row, so the rows do not read as one repeated stamp.
     static let plainTitleWidths: [CGFloat] = [0.5, 0.62, 0.42, 0.56, 0.47, 0.6]
     static let plainStatusWidths: [CGFloat] = [0.72, 0.58, 0.66, 0.5, 0.7, 0.62]
@@ -211,16 +211,16 @@ public struct SkeletonList: View {
         HStack(spacing: 12) {
             if let leadingSquare {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(theme.colors.surfaceRaised)
+                    .fill(Color.cmuxMobileContentFill(.inset))
                     .frame(width: leadingSquare, height: leadingSquare)
             }
             GeometryReader { proxy in
                 VStack(alignment: .leading, spacing: 8) {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(theme.colors.surfaceRaised)
+                        .fill(Color.cmuxMobileContentFill(.inset))
                         .frame(width: proxy.size.width * 0.6, height: 14)
                     RoundedRectangle(cornerRadius: 5.5, style: .continuous)
-                        .fill(theme.colors.surfaceRaised)
+                        .fill(Color.cmuxMobileContentFill(.inset))
                         .frame(width: proxy.size.width * 0.4, height: 11)
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
@@ -238,7 +238,7 @@ public struct SkeletonList: View {
         let insets = Self.plainRowInsets
         return GeometryReader { proxy in
             let width = max(0, proxy.size.width - leading - insets.trailing)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: CmuxMobileListRowMetrics.lineSpacing) {
                 HStack(spacing: 8) {
                     bar(font: theme.type.rowTitle.weight(.semibold), fraction: 0.55,
                         width: width * Self.plainTitleWidths[index % Self.plainTitleWidths.count])
@@ -285,7 +285,7 @@ public struct SkeletonList: View {
                 GeometryReader { line in
                     let height = max(8, line.size.height * fraction)
                     RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                        .fill(theme.colors.surfaceRaised)
+                        .fill(Color.cmuxMobileContentFill(.inset))
                         .frame(width: width, height: height)
                         .frame(maxHeight: .infinity, alignment: .center)
                 }
@@ -462,7 +462,7 @@ private struct ToastHost: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .frame(minHeight: 36)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .offset(y: -12)))
                 .id(value.id)
