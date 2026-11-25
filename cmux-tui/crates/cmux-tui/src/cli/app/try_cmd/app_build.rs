@@ -580,13 +580,6 @@ pub(super) fn is_try(app: &Path) -> bool {
     info_plist(app).is_ok_and(|plist| plist.contains_key(MARKER))
 }
 
-/// The receipt's `commit` of the try the app runs, from its marker.
-pub(super) fn try_commit(app: &Path) -> Option<String> {
-    let plist = info_plist(app).ok()?;
-    let marker = plist.get(MARKER)?.as_dictionary()?;
-    marker.get("commit")?.as_string().map(str::to_owned)
-}
-
 /// Reads `value`'s `original` path as the receipt names it.
 pub(super) fn receipt_original(value: &Value) -> Option<PathBuf> {
     value.get_nonempty_str("original").map(PathBuf::from)
