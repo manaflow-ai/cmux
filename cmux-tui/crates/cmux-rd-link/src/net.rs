@@ -29,9 +29,11 @@ use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::io;
-use std::mem::size_of_val;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
-use std::os::fd::{AsRawFd, RawFd};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
+#[cfg(unix)]
+use std::os::fd::RawFd;
+#[cfg(windows)]
+use std::os::windows::io::RawSocket;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -62,9 +64,16 @@ mod media_queue;
 mod no_path;
 #[path = "socket.rs"]
 mod socket;
+#[cfg(unix)]
+#[path = "net_unix.rs"]
+mod sys;
+#[cfg(windows)]
+#[path = "net_windows.rs"]
+mod sys;
 
 use media_queue::{MediaFrame, MediaQueue};
 use socket::send_to_observed;
+use sys::{Wake, grow_udp_buffers, interface_addresses, mark_interactive_video, wait_readable};
 
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
@@ -296,8 +305,8 @@ pub struct Net {
     departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
-    command_wake: Arc<Pipe>,
-    event_wake: Pipe,
+    command_wake: Arc<Wake>,
+    event_wake: Arc<Wake>,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
     media_queue: Arc<Mutex<MediaQueue>>,
@@ -309,7 +318,7 @@ pub struct Net {
 #[derive(Clone)]
 pub struct NetSender {
     commands: mpsc::Sender<Command>,
-    command_wake: Arc<Pipe>,
+    command_wake: Arc<Wake>,
     media: mpsc::SyncSender<QueuedMedia>,
 }
 
@@ -338,85 +347,6 @@ impl NetSender {
     }
 }
 
-/// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
-struct Pipe {
-    read: RawFd,
-    write: RawFd,
-}
-
-impl Pipe {
-    fn new() -> io::Result<Self> {
-        let mut fds = [0; 2];
-        // SAFETY: pipe(2) fills the two-element array we own.
-        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        for fd in fds {
-            // SAFETY: fcntl on descriptors we just created.
-            unsafe {
-                libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK);
-                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-            }
-        }
-        Ok(Self { read: fds[0], write: fds[1] })
-    }
-
-    fn wake(&self) {
-        // SAFETY: one byte from a local to our write end; a full pipe already holds a wake-up.
-        unsafe { libc::write(self.write, [1u8].as_ptr().cast(), 1) };
-    }
-
-    fn drain(&self) {
-        let mut scratch = [0u8; 64];
-        // SAFETY: reads into a local buffer from our non-blocking read end.
-        while unsafe { libc::read(self.read, scratch.as_mut_ptr().cast(), scratch.len()) } > 0 {}
-    }
-}
-
-impl Drop for Pipe {
-    fn drop(&mut self) {
-        // SAFETY: closing the two descriptors this value owns, once.
-        unsafe {
-            libc::close(self.read);
-            libc::close(self.write);
-        }
-    }
-}
-
-/// Every non-loopback address of this machine's up interfaces.
-fn interface_addresses() -> Vec<IpAddr> {
-    let mut out = Vec::new();
-    let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
-    // SAFETY: getifaddrs allocates a list we walk read-only and free once.
-    unsafe {
-        if libc::getifaddrs(&mut head) != 0 {
-            return out;
-        }
-        let mut cursor = head;
-        while !cursor.is_null() {
-            let entry = &*cursor;
-            cursor = entry.ifa_next;
-            if entry.ifa_addr.is_null() || entry.ifa_flags & (libc::IFF_UP as u32) == 0 {
-                continue;
-            }
-            let ip = match i32::from((*entry.ifa_addr).sa_family) {
-                libc::AF_INET => {
-                    let sin = &*(entry.ifa_addr as *const libc::sockaddr_in);
-                    IpAddr::V4(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)))
-                }
-                _ => continue,
-            };
-            if !ip.is_loopback() && !ip.is_unspecified() {
-                out.push(ip);
-            }
-        }
-        libc::freeifaddrs(head);
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
 /// A candidate kind's slot in the driver's counts: host, srflx, relay.
 fn kind_index(kind: CandidateKind) -> usize {
     match kind {
@@ -433,6 +363,7 @@ fn now_us(start: Instant) -> u64 {
 /// A clock that keeps counting while the machine sleeps, unlike `Instant`
 /// (macOS: `CLOCK_MONOTONIC` counts sleep, `Instant` reads uptime; Linux:
 /// `CLOCK_BOOTTIME`). Only its differences matter ([`SleepWatch`]).
+#[cfg(unix)]
 fn with_sleep_us() -> u64 {
     #[cfg(target_vendor = "apple")]
     const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
@@ -447,23 +378,12 @@ fn with_sleep_us() -> u64 {
         + u64::try_from(ts.tv_nsec).unwrap_or_default() / 1_000
 }
 
-/// Grow both queues so a keyframe burst is not dropped before the driver can
-/// read it. The kernel may cap the request; the default is still useful on
-/// platforms that accept the larger value.
-fn grow_udp_buffers(socket: &UdpSocket) {
-    for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
-        // SAFETY: the descriptor is open for the borrow of `socket`, and the
-        // option value points at a live integer of the length passed.
-        unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                option,
-                (&UDP_BUFFER_SIZE as *const i32).cast(),
-                size_of_val(&UDP_BUFFER_SIZE) as libc::socklen_t,
-            );
-        }
-    }
+/// Windows: `GetTickCount64` keeps counting through sleep and hibernation; its
+/// 10-16 ms tick is far finer than the gaps [`SleepWatch`] looks for.
+#[cfg(windows)]
+fn with_sleep_us() -> u64 {
+    // SAFETY: GetTickCount64 takes no arguments and cannot fail.
+    unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() }.saturating_mul(1000)
 }
 
 /// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
@@ -479,32 +399,6 @@ fn keep_awake_us() -> Option<u64> {
         Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
         None => Some(crate::endpoint::KEEP_AWAKE_US),
     }
-}
-
-/// Apple platforms: the socket's traffic is interactive video
-/// (`SO_NET_SERVICE_TYPE` = `NET_SERVICE_TYPE_VI`, the class video calls use),
-/// so Wi-Fi sends it in the video access category and the system treats the
-/// flow as latency sensitive. Best effort: a refusal changes nothing else.
-fn mark_interactive_video(socket: &UdpSocket) {
-    #[cfg(target_vendor = "apple")]
-    {
-        // <sys/socket.h>; the libc crate does not export them.
-        const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
-        const NET_SERVICE_TYPE_VI: libc::c_int = 3;
-        // SAFETY: the descriptor is open for the borrow of `socket`, and the
-        // option value points at a live integer of the length passed.
-        unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_SOCKET,
-                SO_NET_SERVICE_TYPE,
-                (&NET_SERVICE_TYPE_VI as *const libc::c_int).cast(),
-                size_of_val(&NET_SERVICE_TYPE_VI) as libc::socklen_t,
-            );
-        }
-    }
-    #[cfg(not(target_vendor = "apple"))]
-    let _ = socket;
 }
 
 impl Net {
@@ -526,8 +420,8 @@ impl Net {
         let departure_overflows = Arc::new(AtomicU64::new(0));
         let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
         let (media_tx, media_rx) = mpsc::sync_channel(256);
-        let command_wake = Arc::new(Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?);
-        let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
+        let command_wake = Arc::new(Wake::new().map_err(|e| LinkError::Io(e.to_string()))?);
+        let event_wake = Arc::new(Wake::new().map_err(|e| LinkError::Io(e.to_string()))?);
         let mut driver = Driver {
             media: media_rx,
             barriers: Vec::new(),
@@ -539,9 +433,9 @@ impl Net {
             commands: command_rx,
             media_queue: Arc::clone(&media_queue),
             pending_datagrams: VecDeque::new(),
-            command_fd: command_wake.read,
+            command_wake: Arc::clone(&command_wake),
             events: event_tx,
-            event_fd: event_wake.write,
+            event_wake: Arc::clone(&event_wake),
             stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
@@ -610,8 +504,23 @@ impl Net {
     }
 
     /// Readable when events are waiting ([`Net::events`]).
+    #[cfg(unix)]
     pub fn event_fd(&self) -> RawFd {
-        self.event_wake.read
+        self.event_wake.raw()
+    }
+
+    /// Readable when events are waiting ([`Net::events`]).
+    #[cfg(windows)]
+    pub fn event_socket(&self) -> RawSocket {
+        self.event_wake.raw()
+    }
+
+    /// Blocks until events are waiting or `timeout` passes (`None`: until events).
+    /// Portable form of polling [`Net::event_fd`] for callers without a loop of their own.
+    pub fn wait(&self, timeout: Option<Duration>) {
+        let ms =
+            timeout.map_or(-1, |t| i32::try_from(t.as_micros().div_ceil(1000)).unwrap_or(i32::MAX));
+        wait_readable(&[self.event_wake.raw()], ms);
     }
 
     /// Every event waiting now (clears the wake-up).
@@ -769,9 +678,9 @@ struct Driver {
     media_queue: Arc<Mutex<MediaQueue>>,
     /// Protected one-datagram sends received before the Noise link is ready.
     pending_datagrams: VecDeque<Vec<u8>>,
-    command_fd: RawFd,
+    command_wake: Arc<Wake>,
     events: mpsc::Sender<NetEvent>,
-    event_fd: RawFd,
+    event_wake: Arc<Wake>,
     stun: Vec<StunQuery>,
     /// `Net::add_stun_later`'s servers, until they resolve.
     stun_later: Option<Later<SocketAddr>>,
@@ -902,9 +811,7 @@ impl Driver {
 
     fn send_event(&self, event: NetEvent) {
         if self.events.send(event).is_ok() {
-            // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
-            // which joins this thread before closing it).
-            unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+            self.event_wake.wake();
         }
     }
 
@@ -1194,18 +1101,9 @@ impl Driver {
                     let _ = barrier.send(());
                 }
             }
-            let mut fds = [
-                libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: self.command_fd, events: libc::POLLIN, revents: 0 },
-            ];
             let timeout = self.deadline_ms(now);
-            // SAFETY: fds is a valid array of pollfd for its length.
-            unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
-            let mut scratch = [0u8; 64];
-            // SAFETY: drains our own non-blocking command pipe into a local buffer.
-            while unsafe { libc::read(self.command_fd, scratch.as_mut_ptr().cast(), scratch.len()) }
-                > 0
-            {}
+            wait_readable(&[sys::raw(&self.socket), self.command_wake.raw()], timeout);
+            self.command_wake.drain();
             let now = now_us(self.start);
             self.watch_wake(now);
             while let Ok(command) = self.commands.try_recv() {
@@ -1304,8 +1202,7 @@ impl Driver {
             self.drain_media(now)?;
             if std::mem::take(&mut self.departure_wake) {
                 // One wake per driver turn, not a syscall per media datagram.
-                // SAFETY: one byte to the nonblocking event pipe owned by Net.
-                unsafe { libc::write(self.event_fd, [1u8].as_ptr().cast(), 1) };
+                self.event_wake.wake();
             }
         }
     }
@@ -1327,5 +1224,23 @@ mod media_handoff_tests {
         assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
         let queued = QueuedMedia { queued_at: at, datagram: vec![2] };
         assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
+    }
+
+    /// The wake-up both platforms wait on: idle, pending after wakes, idle again once drained.
+    #[test]
+    fn wake_is_readable_only_while_pending() {
+        let wake = Wake::new().unwrap();
+        let idle = Instant::now();
+        wait_readable(&[wake.raw()], 50);
+        assert!(idle.elapsed() >= Duration::from_millis(40), "idle wake was readable");
+        wake.wake();
+        wake.wake();
+        let pending = Instant::now();
+        wait_readable(&[wake.raw()], 5_000);
+        assert!(pending.elapsed() < Duration::from_secs(4), "pending wake never became readable");
+        wake.drain();
+        let drained = Instant::now();
+        wait_readable(&[wake.raw()], 50);
+        assert!(drained.elapsed() >= Duration::from_millis(40), "drained wake stayed readable");
     }
 }

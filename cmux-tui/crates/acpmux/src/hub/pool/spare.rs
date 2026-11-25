@@ -85,6 +85,35 @@ pub(super) fn remember(list: &mut Vec<Remembered>, entry: Remembered) {
     list.push(entry);
 }
 
+/// `list` after a reserve in `folder` (`Hub::spare_home_shapes`): each of `given` remembered in
+/// `folder` as used at `now_ms`, and each remembered shape in another home chat's folder under
+/// `home` moved to `folder`, keeping its use time (so it ages out as it did).
+pub(super) fn home_shapes(
+    list: &mut Vec<Remembered>,
+    home: &Path,
+    folder: &Path,
+    given: Vec<super::reserved::HomeShape>,
+    now_ms: u64,
+) {
+    for r in list.iter_mut() {
+        if r.cwd != folder && super::reserved::is_home_chat_folder(home, &r.cwd) {
+            r.cwd = folder.to_path_buf();
+        }
+    }
+    for s in given {
+        remember(
+            list,
+            Remembered {
+                harness: s.harness,
+                preset: s.preset,
+                cwd: folder.to_path_buf(),
+                model: s.model,
+                used_at_ms: now_ms,
+            },
+        );
+    }
+}
+
 /// The remembered shapes still recent at `now_ms`.
 pub(super) fn recent(list: &[Remembered], now_ms: u64) -> Vec<Remembered> {
     let window = u64::try_from(RECENT.as_millis()).unwrap_or(u64::MAX);
@@ -99,6 +128,20 @@ pub(super) fn missing(
     has_spare: impl Fn(&str) -> bool,
 ) -> Vec<Remembered> {
     recent(list, now_ms).into_iter().filter(|r| !has_spare(&r.harness)).collect()
+}
+
+/// The person's recent shapes in this machine's `pool-spares.json` (`acpmux spare-shapes`):
+/// newest first, at most 4, folders left out. One reader with the Mac app's (cmux-cloud-start-core
+/// `spare_shapes`, which builds the Cloud machine's `warm-home --shape` command from them).
+pub fn person_spare_shapes() -> Vec<Value> {
+    cmux_cloud_start_core::spare_shapes::read(
+        &crate::config::home(),
+        now_ms(),
+        std::env::var(cmux_cloud_start_core::spare_shapes::SWITCH).ok().as_deref(),
+    )
+    .into_iter()
+    .filter_map(|s| serde_json::to_value(s).ok())
+    .collect()
 }
 
 fn read_file(path: &Path) -> Vec<Remembered> {
@@ -159,6 +202,19 @@ impl Hub {
             if !hub.spare_enabled().await {
                 return;
             }
+            let mut entry = entry;
+            // A home chat took its reserved folder: its harness's spare waits in the next one,
+            // which the next home chat takes (`reserved.rs`, personal spares).
+            if crate::config::spare_personal_enabled()
+                && let Some(home) = dirs::home_dir()
+                && super::reserved::is_home_chat_folder(&home, &entry.cwd)
+                && let Ok(Some(next)) = tokio::task::spawn_blocking(move || {
+                    super::reserved::ensure_folder_serial(&home)
+                })
+                .await
+            {
+                entry.cwd = next;
+            }
             let harness = entry.harness.clone();
             let h = hub.clone();
             let Ok(list) =
@@ -183,6 +239,53 @@ impl Hub {
             Ok(spec) => self.pool_want(Role::Spare, spec).await,
             Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
         }
+    }
+
+    /// Personal spares in the reserved home `folder` (`reserved.rs`): `given` (the person's
+    /// harnesses and models, from the app) are remembered there, and every recent remembered
+    /// shape still in an earlier home chat's folder under `home` moves there; then each wants
+    /// its spare, but the one of the reserved entry's own key (`reserved`), which is warm
+    /// already. Returns the keys wanted.
+    pub(super) async fn spare_home_shapes(
+        self: &Arc<Self>,
+        home: &Path,
+        folder: &Path,
+        reserved: &PoolKey,
+        given: Vec<super::reserved::HomeShape>,
+    ) -> Vec<PoolKey> {
+        if !self.spare_enabled().await {
+            return Vec::new();
+        }
+        let h = self.clone();
+        let (home, at) = (home.to_path_buf(), folder.to_path_buf());
+        let list = tokio::task::spawn_blocking(move || {
+            h.spares_with(|l| home_shapes(l, &home, &at, given, now_ms()))
+        })
+        .await
+        .unwrap_or_default();
+        let mut wanted = Vec::new();
+        for r in recent(&list, now_ms()).into_iter().filter(|r| r.cwd == folder) {
+            let Remembered { harness, preset, cwd, model, .. } = r;
+            match self
+                .pool_spec_in(
+                    Some(harness.clone()),
+                    preset,
+                    cwd,
+                    Some(model),
+                    &PrewarmShape::default(),
+                )
+                .await
+            {
+                Ok(spec) if &spec.key == reserved => {}
+                Ok(spec) => {
+                    tracing::info!(%harness, "a personal spare starts in the reserved home folder");
+                    wanted.push(spec.key.clone());
+                    self.pool_want(Role::Spare, spec).await;
+                }
+                Err(e) => tracing::debug!(%harness, "no personal spare: {}", e.message),
+            }
+        }
+        wanted
     }
 
     /// Daemon start, once startup is done: a spare for each harness used in the last week, in the
