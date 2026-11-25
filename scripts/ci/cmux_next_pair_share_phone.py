@@ -137,6 +137,50 @@ def screen_sharing_page_state(nodes, name=None, device_id=None):
     return text
 
 
+# The viewer's cards and alerts, by title, as fixed words (cmux-next-ios ScreenSharingPage).
+_VIEWER_TITLES = (
+    ("Connecting to {}…", "connecting"),
+    ("Waiting for {}", "waiting for approval"),
+    ("Starting the screen…", "starting the screen"),
+    ("Reconnecting to {}…", "reconnecting"),
+    ("{} declined", "declined"),
+    ("{} doesn't allow this iPhone", "refused: no permission"),
+    ("{} allows View Only", "refused: view only"),
+    ("{} is offline", "refused: offline"),
+    ("{} isn't sharing its screen", "refused: not shared"),
+    ("{} isn't one of your devices", "refused: not found"),
+    ("Couldn't reach {}", "refused: other"),
+    ("Sharing ended", "ended"),
+    ("Couldn't share {}", "share problem"),
+)
+_VIEWER_DETAILS = (
+    ("didn't turn on sharing", "no sharing before the deadline"),
+    ("isn't available yet", "no share carrier"),
+    ("The device hub could not start the session", "hub refused the session"),
+    ("stopped sharing", "host stopped"),
+    ("turned off Share This Mac", "sharing off"),
+    ("went offline", "peer offline"),
+    ("Nobody answered", "expired"),
+    ("connection to", "connection dropped"),
+)
+
+
+def viewer_state(nodes, name=""):
+    """What the phone showed instead of a frame: the viewer card or alert, the views present, the
+    rd/1 status capsule and meter line, all as fixed words or numbers, never free text."""
+    labels = [str(node.get("AXLabel", "")) for node in nodes]
+    identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
+    cards = [word for title, word in _VIEWER_TITLES if title.format(name) in labels]
+    details = [word for text, word in _VIEWER_DETAILS if any(text in label for label in labels)]
+    views = [view for view in ("screen.view", "screen.stats", "browser.stream", "browser.meter", "macScreen.status",
+                               "macScreen.close", "screenSharing.page") if view in identifiers]
+    meter = next((RD_METER_LINE.search(label).group(0) for label in labels if RD_METER_LINE.search(label)), "none")
+    text = f"viewer: {', '.join(cards) or 'no card'}"
+    if details:
+        text += f" ({', '.join(details)})"
+    return text + f"; views: {', '.join(views) or 'none'}; meter: {meter}"
+
+
 class PairSharePhone(ScreenProofPhone):
     """Drive the phone's real Settings > Screen Sharing flow."""
 
@@ -199,13 +243,18 @@ class PairSharePhone(ScreenProofPhone):
         meter = self.ui.find(lambda node: RD_METER_LINE.search(str(node.get("AXLabel", ""))) is not None)
         return str(meter[0].get("AXLabel", "")) if meter else ""
 
-    def wait_frame(self, timeout=60):
+    def wait_frame(self, timeout=60, name=""):
         deadline = time.monotonic() + timeout
+        fps_seen = False
         while time.monotonic() < deadline:
-            if positive_fps(self.stats()) and self.live_frame("share-frame"):
+            fps = positive_fps(self.stats())
+            fps_seen = fps_seen or bool(fps)
+            if fps and self.live_frame("share-frame"):
                 return self.screenshots / "share-frame.png"
             time.sleep(1)
-        raise PairShareFailure("phone did not receive a decoded Mac frame")
+        state = viewer_state(self.ui.find(lambda node: True), name)
+        raise PairShareFailure("phone did not receive a decoded Mac frame ("
+                               f"{state}; frame rate above zero seen: {fps_seen})")
 
     def screen_view(self):
         """WebRTC draws into screen.view; rd/1 (the Mac app closed) into browser.stream."""

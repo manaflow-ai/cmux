@@ -606,7 +606,10 @@ def run_pair(a, note, share):
                         raise RuntimeError("the simulator did not report signing this Share request")
                     host.admission(cursor, signed[1].group(1))
                     share.pass_step()
-                    phone.wait_frame(timeout=60)
+                    try:
+                        phone.wait_frame(timeout=60, name=target["deviceName"])
+                    except RuntimeError as error:
+                        raise RuntimeError(f"{error}; {host.summary()}") from error
                     share.pass_step()
                     probe_input.verify_click(phone.tap_center())
                     share.pass_step()

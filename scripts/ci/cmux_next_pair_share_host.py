@@ -49,6 +49,17 @@ class TaggedShareHost:
             raise RuntimeError("acpmux share-host status has no share-host status record")
         return status
 
+    def summary(self):
+        """The share host's state as booleans and a count, for a failed share check's note."""
+        try:
+            status = self._status()
+        except RuntimeError as error:
+            return f"share host: {error}"
+        sessions = status.get("sessions")
+        count = len(sessions) if isinstance(sessions, (list, dict)) else sessions if isinstance(sessions, int) else "?"
+        return (f"share host: sharing {status.get('sharing')}, app attached {status.get('appAttached')}, "
+                f"sessions {count}")
+
     def prepare(self):
         """Before quitting the app, wait for its normal signed-in machine enrollment."""
         deadline = time.monotonic() + 90

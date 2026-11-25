@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 from cmux_next_pair_share_host import TaggedShareHost, share_without_asking_off
-from cmux_next_pair_share_phone import PairShareFailure, PairSharePhone, screen_sharing_page_state
+from cmux_next_pair_share_phone import PairShareFailure, PairSharePhone, screen_sharing_page_state, viewer_state
 from cmux_next_screen_sharing_proof import positive_fps
 
 
@@ -143,3 +143,18 @@ class MacRowTests(unittest.TestCase):
                 patch("cmux_next_pair_share_phone.time.sleep"):
             with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0; wanted "):
                 phone.request_share("rig", "abc-1")
+
+
+class ViewerStateTests(unittest.TestCase):
+    def test_a_share_problem_alert_names_its_fixed_reason(self):
+        nodes = [{"AXIdentifier": "screenSharing.page"},
+                 {"AXLabel": "Couldn't share Rig Mac"},
+                 {"AXLabel": "Rig Mac didn't turn on sharing. Check that cmux is open on it and signed in to your account."}]
+        self.assertEqual(viewer_state(nodes, "Rig Mac"),
+                         "viewer: share problem (no sharing before the deadline); views: screenSharing.page; meter: none")
+
+    def test_an_rd_viewer_reports_its_views_and_meter_without_free_text(self):
+        nodes = [{"AXIdentifier": "browser.stream"}, {"AXIdentifier": "macScreen.status", "AXLabel": "secret words"},
+                 {"AXLabel": "0 fps · 0 kbps · 0×0 · lan"}]
+        self.assertEqual(viewer_state(nodes, "Rig Mac"),
+                         "viewer: no card; views: browser.stream, macScreen.status; meter: 0 fps · 0 kbps")
