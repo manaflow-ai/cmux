@@ -106,35 +106,6 @@ def sparse_file(path, size):
             f.write(bytes([mark]) * 4096)
 
 
-def mac_workspace(app, sock, home):
-    """A terminal workspace on the Mac, made by its bundled CLI (`cmux workspace create`, as
-    relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
-    cli = os.path.join(app, "Contents/Resources/bin/cmux")
-    env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
-    # The app starts its terminal daemon with TMPDIR set to the user's Darwin temp folder
-    # (DaemonLauncher.userTemporaryDirectory), so its socket is TEMP/cmux-tui-UID/SESSION.sock. Without the same
-    # TMPDIR the CLI looked under /tmp and found "no cmux session is running" (run 45551555308).
-    try:
-        temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
-                              stdin=subprocess.DEVNULL, timeout=10).stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
-        temp = ""
-    if temp:
-        env["TMPDIR"] = temp
-    try:
-        done = subprocess.run([cli, "--json", "--app-socket", sock, "workspace", "create", "--name", "pair-e2e"],
-                              env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
-        lines = [line for line in done.stdout.splitlines() if line.strip()]
-        made = json.loads(lines[-1]) if lines else {}
-    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        return f"NOT created ({type(error).__name__})"
-    made = made.get("result", made) if isinstance(made, dict) else {}
-    ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
-    if not ws:
-        return f"NOT created (exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
-    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'}"
-
-
 def has_attach_leg():
     """Whether this ref's app has the DEBUG demo step `live-attach` (DemoDriver.swift)."""
     path = os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DemoDriver.swift")
@@ -146,7 +117,64 @@ ATTACH_NAME = "cmux-attach-e2e.mov"
 ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
 
 
-def attach_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
+def mac_workspace(app, sock, home, session=None, rpc=None):
+    """A terminal workspace on the Mac: "created <id8>, terminal <id8> (how)", or why not.
+
+    First the app's own control socket, `action.run newTab` (New Workspace, with its terminal): the app's daemon
+    makes it, wherever its owner listens. The
+    CLI (`cmux workspace create`) guessed that socket and missed it: the app runs its owner with a per-build
+    CMUX_TUI_STATE_DIR and CMUX_TUI_RUNTIME_SCOPE (DaemonLauncher), so neither TEMP/cmux-tui-UID/SESSION.sock
+    nor /tmp's was there, and `daemon ensure` then started a second daemon the phone never saw (run
+    45624760704 attempt 2: ids came back, the phone found no terminal). The CLI stays as the fallback."""
+    def workspaces():
+        topo = (rpc("snapshot.get").get("topology") or {}) if rpc else {}
+        return [w for w in topo.get("workspaces") or [] if isinstance(w, dict)]
+
+    if rpc:
+        before = {w.get("id") for w in workspaces()}
+        # `newTab` is the catalog's New Workspace (cmd-N, cmux-action-catalog workspace.rs) and starts its
+        # terminal; `newSurface` only adds a tab to the current workspace, which on a fresh app is its home, and
+        # the phone files a `kind` "home" workspace under homeWorkspaces, never its Workspaces list (DaemonTree),
+        # so the demos found no terminal (run 45646323695). Only a new, non-home workspace counts.
+        asked = rpc("action.run", {"action": "newTab", "args": {"name": "pair-e2e"}}, timeout=60)
+        fresh = wait_for(lambda: next((w for w in workspaces()
+                                       if w.get("id") not in before and w.get("kind") != "home"), None), 30, every=1)
+        if fresh:
+            return f"created {str(fresh.get('id'))[:8]} ({len(workspaces())} in the app's topology; app newTab)"
+        why = redact(json.dumps(asked))[-200:]
+    else:
+        why = "no app socket"
+
+    cli = os.path.join(app, "Contents/Resources/bin/cmux")
+    env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
+    # The app starts its terminal daemon with TMPDIR set to the user's Darwin temp folder
+    # (DaemonLauncher.userTemporaryDirectory); without the same TMPDIR the CLI looked under /tmp (run 45551555308).
+    try:
+        temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        temp = ""
+    if temp:
+        env["TMPDIR"] = temp
+    try:
+        # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`).
+        named = ["--session", session] if session else []
+        done = subprocess.run([cli, "--json", "--app-socket", sock, *named, "workspace", "create", "--name", "pair-e2e"],
+                              env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        lines = [line for line in done.stdout.splitlines() if line.strip()]
+        made = json.loads(lines[-1]) if lines else {}
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return f"NOT created (app newTab: {why}; CLI {type(error).__name__})"
+    # Daemon verbs answer {"value": {...}}, agents verbs {"result": {...}} (relaunch_restore_check.unwrap).
+    if isinstance(made, dict):
+        made = next((made[k] for k in ("value", "result") if isinstance(made.get(k), dict)), made)
+    ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
+    if not ws:
+        return f"NOT created (app newTab: {why}; CLI exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newTab: {why})"
+
+
+def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
     """A picked 8 GiB video in the paired Mac's first terminal composer (DEBUG demo `live-attach`)
     shows progress on its tile while it uploads to the real Mac's hostd, then is removed mid-send
     and text is sent at once. Screens at each step; passes on the app's own step lines. Link speed
@@ -588,7 +616,12 @@ def main():
             phone_env["SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC"] = mac_id
             # A new tag's Mac opens with no workspace, so the phone's live-terminal and live-attach
             # demos found "no terminal" (run 45538405955): one terminal workspace for them to open.
-            note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir)}")
+            sessions = (rpc("snapshot.get").get("topology") or {}).get("sessions") or []
+            home_session = next((s.get("session_name") for s in sessions
+                                 if isinstance(s, dict) and s.get("home") is True), None)
+            note(f"- Mac terminal workspace: "
+                 f"{mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir, home_session, rpc)}"
+                 f" (home session {home_session or 'not reported'})")
 
         # ---- the phone ------------------------------------------------------
         # A new install, setup marked done (the account's preferences are the live keys until the
