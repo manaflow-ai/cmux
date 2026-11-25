@@ -20,7 +20,17 @@ fn checked_in(name: &str) -> &'static str {
 #[test]
 fn checked_in_schema_matches_the_catalog() {
     for (name, text) in files(Schema::embedded()) {
-        assert!(text == checked_in(name), "docs/mdm/{name} is stale");
+        let want = checked_in(name);
+        if text != want {
+            let line = text.lines().zip(want.lines()).position(|(a, b)| a != b);
+            let at = line.unwrap_or_else(|| text.lines().count().min(want.lines().count()));
+            panic!(
+                "docs/mdm/{name} is stale at line {}: got {:?}, want {:?}",
+                at + 1,
+                text.lines().nth(at),
+                want.lines().nth(at)
+            );
+        }
     }
 }
 
