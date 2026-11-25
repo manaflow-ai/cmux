@@ -387,16 +387,24 @@ CUA_DRIVER = next((c for c in ("/Applications/CuaDriver.app/Contents/MacOS/cua-d
                    if os.path.exists(c)), None)
 
 
-def cua(tool, args):
-    """One CuaDriver call through the host's daemon (under the login's own home, not the step's HOME)."""
+def cua(tool, args, text_ok=False):
+    """One CuaDriver call through the host's daemon (under the login's own home, not the step's HOME). `text_ok`: a
+    reply in text (not JSON) comes back as {"raw": text}, else as an error."""
     if not CUA_DRIVER:
         return {"error": "no cua-driver"}
     import pwd
     try:
         done = subprocess.run([CUA_DRIVER, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60,
                               env=dict(os.environ, HOME=pwd.getpwuid(os.getuid()).pw_dir))
-        return json.loads(done.stdout) if done.stdout.strip() else {"error": done.stderr[-300:]}
-    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        if not done.stdout.strip():
+            return {"error": done.stderr[-300:]}
+        try:
+            return json.loads(done.stdout)
+        except ValueError:
+            if text_ok:
+                return {"raw": done.stdout[:400]}  # a tool that answers in text (drag: "✅ Posted drag to pid ...")
+            return {"error": f"not JSON: {done.stdout[:200]}"}
+    except (OSError, subprocess.TimeoutExpired) as error:
         return {"error": repr(error)}
 
 
@@ -1744,7 +1752,7 @@ def check_chaos_resize(tab, pane):
                  "duration_ms": ms, "steps": max(2, steps)}
             if window_id:
                 q["window_id"] = window_id
-            reply = cua("drag", q)
+            reply = cua("drag", q, text_ok=True)
             done.append(json.dumps(reply, ensure_ascii=False)[:160])
         return {"route": "cua", "strokes": len(done), "refused": sum("Posted drag" not in d for d in done),
                 "first_reply": done[0] if done else None}
@@ -1801,6 +1809,11 @@ def check_chaos_resize(tab, pane):
             if not resized:
                 row(False, f"chaos_resize.{key}", dict(summary, note="the drag made no resize step: it did not reach "
                                                        "the window's edge or the divider (not a result)"))
+                continue
+            if route == "cua":
+                # Proof that real pid-posted pointer drags move the divider; each stroke is its own cua-driver call (about
+                # 2 s apart), so the frame numbers are mostly the idle gaps between strokes, not a judgement.
+                row("INFO", f"chaos_resize.{key}", dict(summary, note="frames include the gaps between strokes"))
                 continue
             row(p95 <= 1.5 * refresh and worst <= 50, f"chaos_resize.{key}",
                 dict(summary, pass_if="app frame p95 <= 1.5 refresh and max <= 50 ms in each of 3 chaotic drags"))
@@ -1859,7 +1872,7 @@ def check_pane_zoom(tab, pane):
     within LAG_MS of the pane; unzoomed, the view is back to its first frame within 1 pt and the page fits it."""
     before = page_view(pane)
     if not before:
-        row("INFO", "pane_zoom", {"note": "no in-tree page view"})
+        pane_zoom_whole(tab, pane)
         return
     record("pane_zoom", 8)
     action("tab.focus", target=f"tab:{tab}")
@@ -1891,6 +1904,49 @@ def check_pane_zoom(tab, pane):
             {"bug": 14, "before": before, "final": final, "shown_page_views": len(shown), "clean": clean,
              "viewport": viewport, "lag_ms": result["lag_ms"], "glitches": zoom_glitch(result["vp"]),
              "pass_if": "zoom: area >= 1.3x; unzoom: back within 1 pt; one page view, no panel/page window, page fits <= 100 ms"})
+
+
+def pane_frame(pane, layers=None):
+    """The pane's frame in window points from the bottom left (its overlay ring's frame, debug.layers planes), either
+    in-tree mode."""
+    for plane in (layers or main_layers()).get("planes") or []:
+        for ring in plane.get("rings") or []:
+            if ring.get("pane") == pane:
+                return ring.get("frame_in_window")
+    return None
+
+
+def pane_zoom_whole(tab, pane):
+    """Either mode, from the pane's own frame (no page view needed, so in-tree off too): zoomed, the pane takes at
+    least 1.3x its area and nothing masks its host where its old rect was not (the zoomed pane stayed dark left of its
+    old edge, ON and OFF, 2026-11-24: a StripClipMaskLayer on its PaneHostView); unzoomed, it is back within 1 pt."""
+    before = pane_frame(pane)
+    if not before:
+        row("INFO", "pane_zoom", {"note": "no pane frame (debug.layers planes)"})
+        return
+    record("pane_zoom", 8)
+    action("tab.focus", target=f"tab:{tab}")
+    time.sleep(0.3)  # test harness: focus lands
+    for direction in ("zoom", "unzoom"):
+        rpc("debug.key", {"key": "return", "modifiers": ["command", "shift"]})
+        time.sleep(1.5)  # test harness: the zoom's motion ends
+        final = pane_frame(pane)
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"pane-{direction}.png")})
+        masked = []
+        if direction == "zoom" and final:
+            height = content_height()
+            probes = {}
+            for name, x in (("left_of_old", (final[0] + before[0]) / 2), ("inside_old", before[0] + before[2] / 2)):
+                probes[name] = rpc("debug.views_at", {"x": x, "y": height - (final[1] + final[3] / 2)})
+                masked += [[name, v.get("class"), v.get("frame")] for v in (probes[name] or {}).get("views") or []
+                           if v.get("mask") and v.get("class") in ("PaneHostView", "PaneOverlayView")]
+            RAW["pane_zoom_views_at"] = probes
+            sized = final[2] * final[3] >= 1.3 * before[2] * before[3]
+        else:
+            sized = bool(final) and all(abs(a - b) <= FIT_PX for a, b in zip(final, before))
+        row(sized and not masked, f"pane_zoom.{direction}",
+            {"bug": 14, "in_tree": opts.in_tree, "pane_before": before, "pane_final": final, "masked": masked,
+             "pass_if": "zoom: pane area >= 1.3x and no mask on its host or overlay; unzoom: back within 1 pt"})
 
 
 def check_popup_float(tab, pane):
