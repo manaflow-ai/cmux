@@ -12,7 +12,7 @@
 //! `git status` there sees it unchanged, not deleted, and no byte of it ever leaves the Mac (RFD
 //! 0007, "Tracked files the skip rules keep home").
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Read as _;
 
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,15 @@ pub enum Kind {
     File,
     Dir,
     Link,
+}
+
+/// Whether names that differ only in case occupy one source filesystem name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    /// Mac filesystems used for shared folders fold case.
+    Insensitive,
+    /// Git checkouts on Linux preserve case.
+    Sensitive,
 }
 
 /// One path of the folder.
@@ -88,6 +97,7 @@ struct Node {
     mtime_ns: i64,
     link: Option<String>,
     children: BTreeMap<String, Node>,
+    folded_names: BTreeMap<String, String>,
 }
 
 impl Manifest {
@@ -95,6 +105,11 @@ impl Manifest {
     /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, and an
     /// item below a file or a link.
     pub fn build(root_mtime_ns: i64, items: Vec<Item>) -> anyhow::Result<Self> {
+        Self::build_with(root_mtime_ns, items, Case::Insensitive)
+    }
+
+    /// Builds a manifest with the source filesystem's case policy.
+    pub fn build_with(root_mtime_ns: i64, items: Vec<Item>, case: Case) -> anyhow::Result<Self> {
         let mut root =
             Node { kind: Some(Kind::Dir), mode: 0o755, mtime_ns: root_mtime_ns, ..Node::default() };
         for item in items {
@@ -102,6 +117,9 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
+                if case == Case::Insensitive {
+                    ensure_case_unique(&mut at.folded_names, name, &item.path)?;
+                }
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -118,6 +136,9 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
+            if case == Case::Insensitive {
+                ensure_case_unique(&mut at.folded_names, last, &item.path)?;
+            }
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
@@ -329,6 +350,7 @@ impl Manifest {
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
             let mut before: Option<&Entry> = None;
+            let mut folded = BTreeSet::new();
             for ((child, seen), node) in seen
                 .iter_mut()
                 .enumerate()
@@ -345,6 +367,10 @@ impl Manifest {
                         "entry {index}'s children are not sorted"
                     );
                 }
+                anyhow::ensure!(
+                    folded.insert(node.name.to_lowercase()),
+                    "entry {index}'s children collide by case"
+                );
                 before = Some(node);
             }
         }
@@ -374,6 +400,19 @@ fn entry(name: String, parent: u32, node: Node) -> Entry {
         children: 0,
         link: node.link,
     }
+}
+
+fn ensure_case_unique(
+    used: &mut BTreeMap<String, String>,
+    name: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    let folded = name.to_lowercase();
+    anyhow::ensure!(
+        used.insert(folded, name.to_owned()).is_none(),
+        "{path} collides by case with another path"
+    );
+    Ok(())
 }
 
 fn split(path: &str) -> anyhow::Result<Vec<&str>> {

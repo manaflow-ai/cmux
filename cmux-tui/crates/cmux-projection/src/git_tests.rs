@@ -170,7 +170,7 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
     }
     // SAFETY: getuid and getgid cannot fail.
     let owner = unsafe { (libc::getuid(), libc::getgid()) };
-    let index = index_bytes(&projection.index, owner.0, owner.1).unwrap();
+    let index = index_bytes(&projection.index, ObjectFormat::Sha1, owner.0, owner.1).unwrap();
     Worktree::write(&git_dir, "projected", &at, &commit, &index, &projection.real_dirs).unwrap();
     let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
     let state = dir.path().join("state");
@@ -210,7 +210,7 @@ fn git_reads_the_written_index_as_the_commit() {
     let (_dir, git_dir, commit) = repo();
     let mut book = Book::default();
     let projection = project(&git_dir, &commit, &mut book, 5_000_000_000);
-    let bytes = index_bytes(&projection.index, 1000, 1000).unwrap();
+    let bytes = index_bytes(&projection.index, ObjectFormat::Sha1, 1000, 1000).unwrap();
     let index = git_dir.join("index");
     std::fs::write(&index, bytes).unwrap();
     let work = git_dir.parent().unwrap();
@@ -263,7 +263,8 @@ fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
         .filter(|item| item.path.starts_with("crate/"))
         .collect();
     let index = dir.path().join("sparse-index");
-    std::fs::write(&index, index_bytes_sparse(&kept, &skipped, 0, 0).unwrap()).unwrap();
+    std::fs::write(&index, index_bytes_sparse(&kept, &skipped, ObjectFormat::Sha1, 0, 0).unwrap())
+        .unwrap();
     let git = |args: &[&str]| {
         let out = Command::new("git")
             .arg("--git-dir")
