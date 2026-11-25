@@ -1,5 +1,5 @@
 //! Part of `Hub`; see `hub/mod.rs`. Opt-in team usage sharing (`cmux-usage-share`): while
-//! `diagnostics.usageSharing` is on (or `CMUX_USAGE_SHARING=on`), every turn's end spools one
+//! `diagnostics.usageSharing` is on and its notice acknowledged (`diagnostics.usageSharingNoticeAck`), every turn's end spools one
 //! `turn` record (its harness, model, wall time, token counts, tool calls, cost, outcome, and the
 //! hashed ids of its session, repository and machine), and the daemon uploads the spool to the
 //! person's team on cmux-platform (`usage_share_upload.rs`). Off records nothing.

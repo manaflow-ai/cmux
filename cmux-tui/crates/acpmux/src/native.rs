@@ -34,6 +34,14 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         "claude" => {
             // ~/.claude/projects/<cwd-with-dashes>/<session-id>.jsonl
             let root = home.join(".claude").join("projects");
+            // The file under the chat's own folder's name is the one its agent reads and
+            // writes: when it is there it is the chat's, and no other folder's copy of the
+            // id (one the chat left behind in a folder it ran in before) goes with it. It
+            // also spares a snapshot the walk of every project.
+            let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
+            if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
+                return vec![("claude-project".to_owned(), own)];
+            }
             for p in walk(&root, 2) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -270,6 +278,34 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
     restore_in_with(bundle, meta, home, false)
 }
 
+/// [`restore`] of a copy that is the chat (Auto mode's Cloud copy, `hub/auto_import.rs`): a
+/// file here that holds other bytes is replaced, whatever it holds, since the chat's log here
+/// was replaced the same way. The file that was here stays beside it under
+/// [`REPLACED_SUFFIX`].
+pub fn restore_replacing(bundle: &Path, meta: &SessionMeta) -> Result<usize> {
+    restore_replacing_in(bundle, meta, &dirs::home_dir().unwrap_or_default())
+}
+
+/// [`restore_replacing`] under the home folder `home`.
+pub fn restore_replacing_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usize> {
+    restore_as(bundle, meta, home, Placing::Replace)
+}
+
+/// The name a replaced agent file is kept under, after its own: no agent reads a file of this
+/// ending as a session.
+pub const REPLACED_SUFFIX: &str = ".before-cloud-copy";
+
+/// What a restore does with a file the home folder holds already, and how it puts a new one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Placing {
+    /// Overwritten only when it is a shorter start of the bundled one; a new file is copied.
+    Copy,
+    /// [`Placing::Copy`], and a new file is a link to the bundle's.
+    Link,
+    /// Overwritten unless it holds the same bytes.
+    Replace,
+}
+
 /// [`restore_in`]; `link`: [`restore_linked`].
 pub fn restore_in_with(
     bundle: &Path,
@@ -277,6 +313,11 @@ pub fn restore_in_with(
     home: &Path,
     link: bool,
 ) -> Result<usize> {
+    restore_as(bundle, meta, home, if link { Placing::Link } else { Placing::Copy })
+}
+
+fn restore_as(bundle: &Path, meta: &SessionMeta, home: &Path, placing: Placing) -> Result<usize> {
+    let link = placing == Placing::Link;
     let native = bundle.join("native");
     if !native.is_dir() {
         return Ok(0);
@@ -300,9 +341,13 @@ pub fn restore_in_with(
             let target = home.join(target);
             if target.exists() {
                 // A chat back on a machine it ran on: this machine's copy is the start of the
-                // log the chat kept writing elsewhere. Any other copy is left as it is.
+                // log the chat kept writing elsewhere. Any other copy is left as it is, unless
+                // the bundle is the chat (`Placing::Replace`).
                 if !is_strict_prefix(&target, &file)? {
-                    continue;
+                    if placing != Placing::Replace || same_bytes(&target, &file)? {
+                        continue;
+                    }
+                    keep_replaced(&target)?;
                 }
                 replace_with(&file, &target)?;
                 n += 1;
@@ -329,6 +374,22 @@ fn is_strict_prefix(old: &Path, new: &Path) -> Result<bool> {
     }
     let (a, b) = (std::fs::read(old)?, std::fs::read(new)?);
     Ok(b.starts_with(&a))
+}
+
+/// Whether two files hold the same bytes.
+fn same_bytes(a: &Path, b: &Path) -> Result<bool> {
+    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    Ok(std::fs::read(a)? == std::fs::read(b)?)
+}
+
+/// Keeps the file at `target` beside itself under [`REPLACED_SUFFIX`], in place of any kept
+/// before: what this machine's agent wrote after the chat's last copy left.
+fn keep_replaced(target: &Path) -> Result<()> {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(REPLACED_SUFFIX);
+    replace_with(target, &target.with_file_name(name))
 }
 
 /// Puts a copy of `src` at `target` in one rename, so the agent never reads a half-written file.

@@ -12,8 +12,6 @@ import { FindReveal, type ChatFind } from "../conversation/chatFind";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { type TranscriptNeedsYou } from "../needsYou/JumpPill";
-import { SubagentOfRow } from "../subagents/SubagentGroup";
-import { SUBAGENT_OF_HEIGHT } from "../rows/SubagentOfPillRow";
 import { UnreadBanner } from "../conversation/SinceDivider";
 import { topZoneOffset } from "../overlayLayout";
 // The jump pair's styles, before JumpButtons' own (the order VirtualTranscript.tsx loaded them in).
@@ -88,9 +86,8 @@ export type TranscriptShellDeps = {
   jumpButton: boolean;
   behind: boolean;
   dockSpace: number;
-  pinnedPill: AcpmuxRow | undefined;
+  corner: React.ReactNode | undefined;
   dockHoles: string;
-  pinAt: { top: number; pad: number };
   topInset: number;
   showMinimap: boolean;
   rows: readonly AcpmuxRow[];
@@ -141,7 +138,7 @@ export type TranscriptShellDeps = {
 };
 
 /// The transcript's drawn tree around its rows: the scroller, the two minimaps, Find's bar, the spacer that holds the
-/// stand-ins and the mounted row frames (`drawRowFrames`), and over it the pinned pill, the unread banner and the jump
+/// stand-ins and the mounted row frames (`drawRowFrames`), and over it a subagent view's corner, the unread banner and the jump
 /// buttons. A plain render function TranscriptView calls inline as its return, so React sees the same element tree
 /// (no component boundary of its own); it holds no state and reads only `deps`.
 export function drawTranscriptShell({
@@ -162,9 +159,8 @@ export function drawTranscriptShell({
   jumpButton,
   behind,
   dockSpace,
-  pinnedPill,
+  corner,
   dockHoles,
-  pinAt,
   topInset,
   showMinimap,
   rows,
@@ -250,9 +246,6 @@ export function drawTranscriptShell({
             // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
             // scroll a row into view above it.
             data-docked={dockSpace > 0 || undefined}
-            // A subagent's view keeps its "Subagent of" pill pinned over the top (pinnedPill below): rows
-            // pass out of sight under it.
-            data-pinned-top={pinnedPill ? "" : undefined}
             // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end
             // of the chat, deeper the farther the view is from it. Non-inherited (conversation.css), so a
             // scroll restyles the scroller alone.
@@ -264,7 +257,6 @@ export function drawTranscriptShell({
                   : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
                 ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
                 ...(dockHoles ? { "--acpmux-dock-holes": dockHoles } : {}),
-                ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
                 // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
                 ...LIVE_STEP_VARS,
               } as React.CSSProperties
@@ -369,24 +361,22 @@ export function drawTranscriptShell({
               {afterLatest}
             </div>
           )}
-          {pinnedPill && (
-            // Lucas, 2026-11-06: "the "subagent of ..." text on the subagent page is sticky and always at the
-            // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
-            <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
-              <SubagentOfRow row={pinnedPill} />
+          {corner && (
+            // The top end corner (overlayLayout.ts `viewCorner`): a subagent view's close and Resume,
+            // over the rows, so its first row rests where a chat's does (Leo, 2026-11-22: "we should
+            // align things better").
+            <div className="acpmux-view-corner" data-zone="top-end" style={{ top: clearTop }}>
+              {corner}
             </div>
           )}
           {sinceKey !== undefined && onJumpToSince && sinceRow?.since && (
             // The top-start zone (overlayLayout.ts): what is new arrives where the eye settles, under
-            // the clear line and under a pinned "Subagent of" pill.
+            // the clear line.
             <div
               className="acpmux-over-top"
               data-zone="top-start"
               style={{
-                top: topZoneOffset({
-                  clearTop,
-                  pinnedBottom: pinnedPill ? Math.max(pinAt.top + topInset, clearTop) + SUBAGENT_OF_HEIGHT : undefined,
-                }),
+                top: topZoneOffset({ clearTop }),
               }}
             >
               <UnreadBanner

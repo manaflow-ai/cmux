@@ -22,6 +22,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextMacScreen
+import CmuxNextScreenshots
 import CmuxNextDaemonRecovery
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -224,6 +225,10 @@ final class AppServices {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
+    /// The spaces-switcher capture fixture stays alive for the driver's later light/dark stills.
+    var spacesSwitcherFixture: SpacesSwitcherCaptureState?
+    /// Serializes Spaces fixture setup and teardown across concurrent debug scene calls.
+    var spacesSwitcherLifecycleBusy = false
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
         let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
@@ -243,7 +248,7 @@ final class AppServices {
         RestartToUpdatePaletteRows(staged: { [weak self] in self?.updater.restartableUpdate.map { ($0.title, $0.version) } }).install(into: palette, registry: registry)
         return palette
     }()  // first read in init (no IUO)
-    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages)  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages, images: launchImages) { [weak self] in self?.madeAgentTabs?.existingView($0) }  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
     let presentation = ContentPresentationScheduler()
@@ -313,7 +318,7 @@ final class AppServices {
             guard let self, let tab = daemon.store.tab(terminalResource: ResourceID(rawValue: id)) ?? daemon.store.tab(terminal: TerminalID(rawValue: id)),
                   let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
             return (tab.id, host)
-        })
+        }, place: { [weak self] in self?.cmuxRemote.sendComputerUsePreview(session: $0, update: $1) }, controls: { [weak self] in self?.settings?.snapshot.previewFeatures == true })
         // A chat's page made after its agent started using an app gets the card then.
         agentTabs.onTabSession = { [weak router] in router?.replayChats() }
         return router
@@ -325,7 +330,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.client.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client, lookGlyph: { [weak self] in self?.settings?.fileRoot.value(at: ThinkingGlyphSetting().configPath) }) { [weak self] in self?.apps.client.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -569,7 +574,7 @@ final class AppServices {
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
-    let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
+    let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared, originDirectory: BuildStatePaths.current.originFaviconsCache)
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
@@ -625,7 +630,8 @@ final class AppServices {
         // Before the updater's What's New tracker writes its record: an install that ran before
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
         AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
-        updater = UpdaterService(work: work)
+        let crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun); self.crashRecovery = crashRecovery
+        updater = UpdaterService(pausesAutomaticUpdates: AutomaticUpdatePause.app && !crashRecovery.recovery.isSafeRestart, work: work) // a restart loop still fetches its fix
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork, symbolOverride: NSImage.packOverride)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
@@ -638,7 +644,6 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, activeLook: activeLook)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
@@ -671,14 +676,14 @@ final class AppServices {
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in
-            self?.home.releaseTabView(key)
+            self?.home.releaseTabView(key); self?.previews.pictures.forget(key)  // and its kept pane pictures
             self?.madeAgentTabs?.releaseIfGone(key)
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
         cache.pageFrames = BrowserPageFrames(beside: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        cache.pageFrames?.prefetch(on: work) // read off the main thread while windows restore
+        if let read = cache.pageFrames?.prefetch(on: work) { Task { [weak cache] in await read.value; cache?.phonePictures?.heldChanged() } } // read off the main thread while windows restore; then the phones get the cards of tabs not shown since the relaunch (task-owner: one read; ends on its own)
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
@@ -790,6 +795,7 @@ final class AppServices {
         }
         _ = dragSession  // built here, as before
         _ = previews  // built here, as before
+        cache.onConceal = { [weak self] key in self?.previews.chats.willLeaveScreen(key) }  // its last picture (#51768)
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self); keyRouter.creationInputCoordinator.drop(closing: workspace.screens.flatMap(\.panes)) }

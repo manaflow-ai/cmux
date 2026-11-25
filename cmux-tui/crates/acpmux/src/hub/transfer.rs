@@ -19,6 +19,15 @@ pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 /// copied hash to, `{"native/<label>/<path>": {length, sha256}}` (`export_grown`).
 pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
 
+/// [`Hub::import_into`]'s `(live, guarded, replace_durable, defer_finalize, staged)`.
+pub(super) type ImportOptions<'a> = (
+    Live,
+    Option<super::transfer_guard::GuardedImport<'a>>,
+    bool,
+    bool,
+    Option<&'a transfer_out::transfer_precopy::StagedPrefix>,
+);
+
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
     std::fs::read(marker)
@@ -128,66 +137,18 @@ impl Hub {
         };
         super::prompt_images::bundle_images(&images, &dir)?;
         crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
-        let native = crate::native::locate(&meta);
-        let harness = self.export_harness_state(&meta, &dir)?;
+        // The agent's own files (`transfer_agent_files.rs`), which an Auto snapshot carries too.
+        let files = self.export_agent_files(&meta, &dir, dest, grown)?;
         let mut manifest = json!({
             "schema": "acpmux.bundle.v1",
             "id": meta.id,
             "eventCount": event_count,
             "lastSeq": meta.last_seq,
-            "native": [],
-            "harness": harness,
+            "native": files.native,
+            "harness": files.harness,
         });
         if let Some(after) = after {
             manifest.set("afterSeq", json!(after));
-        }
-        let mut copied = Vec::new();
-        if !native.is_empty() {
-            crate::home_fs::create_dirs(dir.join("native"))?;
-            let home = dirs::home_dir().unwrap_or_default();
-            let mut digests = serde_json::Map::new();
-            for (label, src) in native {
-                let fast = grown.and_then(|(prepared, held)| {
-                    let rel = crate::native::grow_into_from(
-                        &src,
-                        prepared,
-                        &dir.join("native"),
-                        &label,
-                        &home,
-                    );
-                    let rel = rel
-                        .inspect_err(|e| tracing::debug!("native file not grown: {e:#}"))
-                        .ok()??;
-                    let at = format!("native/{rel}");
-                    if let Some(digest) = held.get(&at) {
-                        digests.insert(at, digest.clone());
-                    }
-                    Some(rel)
-                });
-                let rel = match fast {
-                    Some(rel) => Ok(rel),
-                    None => crate::native::copy_into(&src, &dir.join("native"), &label),
-                };
-                if let Ok(rel) = rel {
-                    copied.push(json!({"label": label, "path": rel, "source": src}));
-                }
-            }
-            if !digests.is_empty() {
-                let digests = Value::Object(digests).to_string();
-                crate::home_fs::write(dest.join(NATIVE_DIGESTS), digests)?;
-            }
-        }
-        // OpenCode keeps its sessions in a database: the session goes as its export. A failed
-        // export still moves the chat, which then resumes from this log only.
-        match crate::native::export_opencode(&meta, &dir.join("native")) {
-            Ok(Some(rel)) => {
-                copied.push(json!({"label": crate::native::OPENCODE_EXPORT, "path": rel}))
-            }
-            Ok(None) => {}
-            Err(e) => tracing::warn!(session = %meta.id, "opencode session not bundled: {e:#}"),
-        }
-        if !copied.is_empty() {
-            manifest.set("native", Value::Array(copied));
         }
         crate::home_fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
         Ok(dir)
@@ -198,7 +159,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None, false, false, None).await
+        self.import_into(bundle, name, Live::No, None, false, false, None).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -210,12 +171,57 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
         staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
     ) -> Result<Arc<Session>, RpcError> {
+        self.import_into_held(
+            bundle,
+            name,
+            live,
+            guarded,
+            replace_durable,
+            defer_finalize,
+            staged,
+            false,
+        )
+        .await
+    }
+
+    /// `import_into`; a `hold`ing one (Auto's, `auto_import.rs`) is published frozen by Auto and
+    /// stays so with no gap: it does not end the freeze when it is done. Whoever asked frees it
+    /// when the holder loop accepts the import (`auto_hold.rs` `auto_activate`).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn import_into_held(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+        live: Live,
+        guarded: Option<super::transfer_guard::GuardedImport<'_>>,
+        replace_durable: bool,
+        defer_finalize: bool,
+        staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
+        hold: bool,
+    ) -> Result<Arc<Session>, RpcError> {
+        let (the_chat, plain) = (false, (live, guarded, replace_durable, defer_finalize, staged));
+        self.import_placing(bundle, name, plain, the_chat, hold).await
+    }
+
+    /// [`Self::import_into`] with its `(live, guarded, replace_durable, defer_finalize, staged)`.
+    /// `the_chat`: the bundle is the chat itself (Auto mode's Cloud copy, `auto_import.rs`), so
+    /// an agent file here that holds other bytes is replaced (`native::restore_replacing`).
+    pub(super) async fn import_placing(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+        plain: ImportOptions<'_>,
+        the_chat: bool,
+        hold: bool,
+    ) -> Result<Arc<Session>, RpcError> {
+        let (live, guarded, replace_durable, defer_finalize, staged) = plain;
+        let mut steps = transfer_out::transfer_live::MoveSteps::new("import");
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
@@ -337,8 +343,10 @@ impl Hub {
         meta.created_by = None;
         // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
         super::races::settle_imported(&mut meta.races);
+        steps.step("meta");
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
+        steps.step("harness_prepare");
         if let Err(e) = self.store.save(&meta) {
             let _ = self.abort_harness_state(&meta);
             return Err(RpcError::internal(e.to_string()));
@@ -346,13 +354,18 @@ impl Hub {
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
         let control = guarded.map(|g| g.guard.control);
-        let last = match self.copy_bundle_events(bundle, &meta.id, control, staged) {
+        // A whole bundle's records are the chat's whole history: copied off the runtime's
+        // workers, so the daemon's other chats answer meanwhile (`qos::off_worker`, cmux#54461).
+        let copied =
+            crate::qos::off_worker(|| self.copy_bundle_events(bundle, &meta.id, control, staged));
+        let last = match copied {
             Ok(last) => last,
             Err(e) => {
                 self.drop_failed_import(&meta);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
+        steps.step("events");
         if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
             self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
@@ -360,10 +373,25 @@ impl Hub {
         let restored = match guarded {
             // A history-later move's receive bundle is read by nothing after its finish: its
             // transcript becomes the home folder's file by a link, not a copy under the freeze.
+            // A move's receive bundle (`live`) is read by nothing after its finish either, which
+            // removes it: its transcripts are linked too, not copied under the freeze (a Claude
+            // chat's is 1.6 GB of a 7 GB chat; cmux#54461).
             None if staged.is_some_and(|s| s.history_later) => {
-                crate::native::restore_linked(bundle, &meta).unwrap_or_default()
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
             }
-            None => crate::native::restore(bundle, &meta).unwrap_or_default(),
+            // Auto mode's Cloud copy is the chat itself: its files replace the ones here.
+            None if the_chat => {
+                crate::qos::off_worker(|| crate::native::restore_replacing(bundle, &meta))
+                    .unwrap_or_default()
+            }
+            None if matches!(live, Live::Moved(_)) => {
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
+            }
+            None => {
+                crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
+            }
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
             Some(g) => {
@@ -379,6 +407,7 @@ impl Hub {
                 }
             }
         };
+        steps.step("native");
         // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
         // kept leaves the chat showing that image as missing, as a pruned one does.
         if let Err(e) = super::prompt_images::restore_images(bundle) {
@@ -389,8 +418,10 @@ impl Hub {
         if let Err(e) = crate::native::import_opencode(bundle, &meta) {
             tracing::warn!(session = %meta.id, "opencode session not imported: {e:#}");
         }
+        steps.step("images");
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
+        steps.step("make_session");
         // Its copied log may hold the source's move: unknown until its own `imported` receipt
         // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -401,7 +432,12 @@ impl Hub {
             // The copied log may end in transcript records: say it may have.
             meta.transcript_seq = last;
         }
-        if live {
+        if let Live::Moved(credential) = live {
+            // The login the move brought is the chat's before its queue runs (`end_move` below):
+            // the turn it continues starts signed in. Held in memory only, as `session/new`'s.
+            if let Some(credential) = credential {
+                *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = Some(credential);
+            }
             self.restore_queue(&session);
             // A bundle from a daemon that wrote none moves the chat without them.
             if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
@@ -412,18 +448,22 @@ impl Hub {
             }
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
+            steps.step("queue");
         }
         // Published frozen: it is not this daemon's chat until its own receipt is logged (a
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
         // the source's move, not one of this daemon's.
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(transfer_out::IMPORTING.to_owned());
+            Some(if hold { super::AUTO_AWAY } else { transfer_out::IMPORTING }.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
+        steps.step("subagent_retries");
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.update_live_session_index(&session);
+        steps.step("publish");
         // A session that came may be another row's parent: every closed row is built again.
         self.session_came(&session);
+        steps.step("session_came");
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
@@ -442,9 +482,14 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal("import: could not durably record imported"));
         }
+        steps.step("imported_receipt");
         // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
-        self.end_move(&session);
+        if !hold {
+            self.end_move(&session);
+        }
+        steps.step("end_move");
         self.save_meta(&session);
+        steps.step("save_meta");
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();
             let _ = self.kill(&session, true).await;
@@ -595,7 +640,7 @@ impl Hub {
         }
     }
 
-    fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
+    pub(super) fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
         if meta.harness != "cmux-harness" {
             return Ok(Value::Null);
         }
@@ -932,6 +977,13 @@ impl Hub {
     }
 }
 
+/// Whether an import is a chat moved here (`transfer_in.rs`), which keeps its queue, composers
+/// and the owner's login its move brought (`agent_credentials.rs`), or a plain import.
+pub(super) enum Live {
+    No,
+    Moved(Option<crate::agent_credentials::AgentCredential>),
+}
+
 #[cfg(test)]
 #[path = "fork_reference_export_tests.rs"]
 mod fork_reference_export_tests;
@@ -940,5 +992,250 @@ mod fork_reference_export_tests;
 mod import_publish_tests;
 
 #[cfg(test)]
-#[path = "transfer_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    /// A durable replacement (`transfer_in.rs`) moved the chat's store aside before its import,
+    /// which failed: the import leaves no marker, so the move can be tried again on this daemon.
+    #[tokio::test]
+    async fn a_failed_durable_replacement_leaves_no_recovery_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let profile = crate::config::HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "durable",
+            "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": "agent-0002",
+            "status": "idle", "createdAt": 1, "updatedAt": 1,
+        });
+        let backup = dir.join("sessions").join(format!(".{id}.replacement-backup"));
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("session.json"), meta.to_string()).unwrap();
+        let bundle = dir.join("bundle");
+        std::fs::create_dir_all(bundle.join("events")).unwrap();
+        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+        std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
+        let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
+        for attempt in ["first", "retry"] {
+            let failed =
+                hub.import_into(&bundle, None, Live::Moved(None), None, true, true, None).await;
+            let failed = failed.err().map(|e| e.message);
+            assert!(
+                failed.as_deref().is_some_and(|m| m.starts_with("import events")),
+                "{attempt}: {failed:?}"
+            );
+            assert!(!marker.exists(), "{attempt} left its recovery marker");
+        }
+        assert!(backup.join("session.json").exists(), "the moved-aside store is the receive's");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn harness_hub(dir: &Path) -> Arc<Hub> {
+        let profile = crate::config::HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.store.mode = crate::config::StoreMode::Local;
+        Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir).unwrap())
+    }
+
+    fn harness_meta(id: &str, agent: &str) -> Value {
+        json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "durable",
+            "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": agent,
+            "status": "idle", "createdAt": 1, "updatedAt": 1,
+        })
+    }
+
+    /// Review of #25676: a marker write that fails before its rename takes its temporary file
+    /// with it, so the next write of that marker (a retry's) is not refused as occupied.
+    #[test]
+    fn a_failed_marker_write_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let marker = dir.join(".agent-0004.durable-transfer-state");
+        // A non-empty directory where the marker goes: the rename fails.
+        std::fs::create_dir_all(marker.join("in-the-way")).unwrap();
+        let written = write_json_atomic(&marker, &json!({"phase": "staged"}));
+        assert!(written.is_err(), "the rename onto a directory went through");
+        let tmp = dir.join(".agent-0004.durable-transfer-state.importing");
+        assert!(!tmp.exists(), "the failed write left its temporary file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review of #25676: a prepared marker that is renamed into place before the directory sync
+    /// fails is this import's own, so the failed preparation does not leave it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_prepared_marker_whose_directory_sync_fails_does_not_stay() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0005")).unwrap();
+        // Write and search but no read: the marker is written and renamed, the sync's open fails.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o300)).unwrap();
+        if std::fs::read_dir(&root).is_ok() {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("skipped: this user reads a directory without its read bit");
+            return;
+        }
+        let prepared = hub.prepare_harness_state(&meta, false);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(prepared.is_err(), "the directory sync went through");
+        let marker = root.join(".agent-0005.durable-transfer-state");
+        assert!(!marker.exists(), "the failed preparation left its marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 105 of #25676: a sweep on this daemon (another import's failed finalize) that read a
+    /// failed import's marker finishes with it before that import's own rollback and its retry
+    /// run, so it never removes the store and marker the retry made.
+    #[tokio::test]
+    async fn a_sweep_never_removes_a_retry_made_after_it_read_the_old_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0009")).unwrap();
+        // The failed import: its store and its prepared marker.
+        hub.store.save(&meta).unwrap();
+        hub.prepare_harness_state(&meta, false).unwrap();
+        let (h, m) = (hub.clone(), meta.clone());
+        let retry = std::sync::Mutex::new(Some(move || {
+            h.drop_failed_import(&m);
+            h.store.save(&m).unwrap();
+            h.prepare_harness_state(&m, false).unwrap();
+        }));
+        let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
+        let spawned = writer.clone();
+        let hook = super::super::transfer_in::on_sweep_pause(move |agent| {
+            if agent != "agent-0009" {
+                return;
+            }
+            let Some(retry) = retry.lock().unwrap().take() else { return };
+            let (done, finished) = std::sync::mpsc::channel();
+            *spawned.lock().unwrap() = Some(std::thread::spawn(move || {
+                retry();
+                let _ = done.send(());
+            }));
+            let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
+        });
+        hub.recover_staged_replacements();
+        // The sweep on this thread read the failed import's marker, and only that one.
+        assert_eq!(hook.reached(), ["agent-0009"]);
+        drop(hook);
+        let handle = writer.lock().unwrap().take();
+        handle.expect("the sweep never read the marker").join().unwrap();
+        assert!(
+            root.join(&id).join("session.json").exists(),
+            "the sweep removed the retry's store"
+        );
+        let marker = root.join(".agent-0009.durable-transfer-state");
+        assert!(marker.exists(), "the sweep removed the retry's marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 104 of #25676: a failed staged import whose store stays for recovery keeps no open
+    /// log writer, so after a recovery on this daemon removes that store, a retry's events land
+    /// in the new log on disk, not in the removed one.
+    #[tokio::test]
+    async fn a_retry_after_a_kept_failed_import_is_recovered_writes_its_log() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0008")).unwrap();
+        let record = |seq: u64, kind: &str| -> EventRecord {
+            serde_json::from_value(
+                json!({"seq": seq, "at": 0, "dir": "mux", "kind": kind, "msg": {}}),
+            )
+            .unwrap()
+        };
+        // The failed import wrote its store and some of its events (`copy_bundle_events`).
+        hub.store.save(&meta).unwrap();
+        hub.store.append(&id, &record(1, "first-attempt")).unwrap();
+        let marker = root.join(".agent-0008.durable-transfer-state");
+        let staged = json!({
+            "agentId": "agent-0008", "outerId": id, "replaceDurable": false, "phase": "staged",
+            "transferId": "t-0008", "piFilename": "agent-0008.jsonl",
+            "journalDirWasPresent": false, "hadJournal": false, "hadPi": false,
+        });
+        std::fs::write(&marker, staged.to_string()).unwrap();
+        hub.drop_failed_import(&meta);
+        // Another import's failed finalize sweeps on this daemon (`import_into`).
+        hub.recover_staged_replacements();
+        assert!(!marker.exists(), "the sweep left the failed import's marker");
+        // The retry.
+        hub.store.save(&meta).unwrap();
+        hub.store.append(&id, &record(1, "retry")).unwrap();
+        let mut kinds = Vec::new();
+        let _ = hub.store.scan(&id, 0, &mut |e: EventRecord| {
+            kinds.push(e.kind);
+            true
+        });
+        assert_eq!(kinds, ["retry"], "the retry's event is not in its log on disk");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 102 of #25676: an import that failed once its durable state was staged is never
+    /// loaded as a chat, even when its rollback cannot finish. Its marker and store wait for the
+    /// next start, whose sweep rolls it back as far as it can and loads nothing of it.
+    #[tokio::test]
+    async fn a_staged_import_that_failed_is_not_loaded_at_the_next_start() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        std::fs::create_dir_all(root.join(&id)).unwrap();
+        let owner = harness_meta(&id, "agent-0006");
+        std::fs::write(root.join(&id).join("session.json"), owner.to_string()).unwrap();
+        let journal_dir = root.join("agent-0006");
+        // The journal's path is a non-empty directory: its backup cannot be renamed back.
+        std::fs::create_dir_all(journal_dir.join("journal.ndjson").join("in-the-way")).unwrap();
+        std::fs::write(journal_dir.join("journal.ndjson.transfer-backup"), "before\n").unwrap();
+        let marker = root.join(".agent-0006.durable-transfer-state");
+        let staged = json!({
+            "agentId": "agent-0006", "outerId": id, "replaceDurable": false, "phase": "staged",
+            "transferId": "t-0006", "piFilename": "agent-0006.jsonl",
+            "journalDirWasPresent": true, "hadJournal": true, "hadPi": false,
+        });
+        std::fs::write(&marker, staged.to_string()).unwrap();
+        let meta: SessionMeta = serde_json::from_value(owner).unwrap();
+        hub.drop_failed_import(&meta);
+        // The daemon's shutdown seal: the journal's lock passes to the next start.
+        hub.seal();
+        drop(hub);
+        let restarted = harness_hub(&dir);
+        let loaded = restarted.sessions.lock().unwrap().contains_key(&id);
+        assert!(!loaded, "the failed import loaded as a chat at the next start");
+        assert!(!marker.exists(), "the next start left the failed import's marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

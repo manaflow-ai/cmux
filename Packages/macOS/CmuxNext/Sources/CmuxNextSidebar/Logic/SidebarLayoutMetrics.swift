@@ -225,12 +225,13 @@ nonisolated extension SidebarLayoutOptions {
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
         if let parent = parentTitles[ws.id], WorkspaceRowContent.sameTitle(ws.title, parent) { content.subagentOf = parent }
-        // The chat's subagents under its name (Claude desktop's Code tab): rows while open in the session tree, one
-        // stacked line while folded, nothing with the tree off. A parent of subagents only gets the tree's chevron too;
+        // The chat's subagents under its name (Claude desktop's Code tab): rows while open in the session tree; folded or
+        // with the tree off no line, only the failed ones on the title line's failed mark. A parent of subagents only gets the tree's chevron too;
         // the layout's tree pass keeps a chevron of its own (a parent of sessions) over this one.
         if !workspacesAsTabs, let subagents = ws.subagents {
             let folded = sessionTree?.collapsed.contains(ws.id) == true && filterMatches == nil
             content.subagents = SidebarSubagentStrip.make(subagents, tree: sessionTree != nil, folded: folded, look: subagentLook)
+            if content.subagents == nil { content.subagentsFailed = SidebarSubagentStrip.failedCount(subagents) }
             if sessionTree != nil, !subagents.items.isEmpty, subagentLook != .stack {
                 content.treeFold = folded ? .collapsed : .expanded
             }

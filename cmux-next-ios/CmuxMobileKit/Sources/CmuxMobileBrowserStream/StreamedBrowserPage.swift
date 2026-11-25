@@ -11,8 +11,9 @@ public struct StreamedBrowserPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
-    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown dimmed
-    /// under "Loading browser session…" until the first frame decodes, never once it is live.
+    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown at full
+    /// strength, with no waiting words over it, until the first frame decodes; never once it is
+    /// live (Leo, 2026-11-24: no greying, no "suspended in a state of connection limbo").
     var lastKnown: CGImage?
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
@@ -61,16 +62,16 @@ public struct StreamedBrowserPage: View {
                                    height: geo.size.width * CGFloat(lastKnown.height) / CGFloat(max(1, lastKnown.width)))
                             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                             .clipped()
-                            .opacity(0.55)
                     }
                     .background(Color(uiColor: .systemBackground))
                     .padding(.top, insets.top)
                     .padding(.bottom, insets.bottom)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+                } else {
+                    status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
                 }
-                status(String(localized: "Loading browser session…"))
-                    .placeholderBound("browser.stream.loading", .milliseconds(2000))
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -270,10 +271,9 @@ struct StreamedBrowserOverlay: View {
     }
 }
 
-/// The grid card: the last frame, else a globe (an iPhone for a simulator tab).
+/// The grid card: the last frame, else the tab's last-known picture, else the page's background.
 public struct StreamedBrowserCard: View {
     let model: StreamedBrowserModel
-    let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
     /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
@@ -283,10 +283,9 @@ public struct StreamedBrowserCard: View {
     /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
     let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false,
+    public init(model: StreamedBrowserModel, fit: Bool = false,
                 insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
         self.model = model
-        self.placeholder = placeholder
         self.fit = fit
         self.insets = insets
         self.lastKnown = lastKnown
@@ -311,13 +310,8 @@ public struct StreamedBrowserCard: View {
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
                 }
-            } else {
-                Image(systemName: placeholder)
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .placeholderBound("tabgrid.stream.icon", .milliseconds(1000))
             }
+            // No frame yet: the page's background, never a stand-in glyph.
         }
     }
 }

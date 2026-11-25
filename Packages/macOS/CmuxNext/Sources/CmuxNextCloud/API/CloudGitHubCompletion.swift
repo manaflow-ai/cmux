@@ -80,8 +80,18 @@ public struct CloudGitHubCompletion: Equatable, Sendable {
         return team
     }
 
-    /// The same key the console's callback sends, so a completion that page also sent is one completion.
-    public var idempotencyKey: String { "complete:" + String(state.suffix(40)) }
+    /// The same key the console's callback sends (dashboard `integrationCompletionKey`): the state and the exact params
+    /// GitHub gave. The same redirect again replays; another redirect of the same state (a code-less update redirect,
+    /// then the one with a code, or a new installation id) is its own completion. Keyed on the state alone, that second
+    /// one was refused for good as `idempotency.conflict` (#55104). FNV-1a 64 of the params: the code is never in a key.
+    public var idempotencyKey: String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in "\(code ?? "")\n\(installationID ?? "")\n\(setupAction ?? "")".utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+        }
+        let hex = String(hash, radix: 16)
+        return "complete:" + String(state.suffix(40)) + ":" + String(repeating: "0", count: 16 - hex.count) + hex
+    }
 
     /// `integration.complete`'s params: the state and what GitHub gave.
     public var params: [String: String] {

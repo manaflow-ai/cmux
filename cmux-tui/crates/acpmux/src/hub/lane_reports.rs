@@ -422,6 +422,14 @@ fn state(summary: &Value) -> String {
     if last.get("status").and_then(Value::as_str) == Some("failed") {
         let error = last.get("errorText").and_then(Value::as_str).unwrap_or("the turn failed");
         let paused = if summary["queuePaused"] == true { "; its queue is paused" } else { "" };
+        // A cut turn acpmux continues by itself is paused, not blocked: its parent need not
+        // act (`pause_state.rs`).
+        if let Some(state @ super::pause_state::PauseState::Paused { .. }) =
+            super::pause_state::of_row(summary)
+        {
+            let line = super::pause_state::short_line(&state);
+            return format!("{line} ({}){paused}", short_text(error, 120));
+        }
         return format!("blocked: {}{paused}", short_text(error, 160));
     }
     if summary["queuePaused"] == true {
@@ -660,6 +668,24 @@ impl Hub {
         } else {
             self.lane_turns().subagents.remove(&(session.id.clone(), turn));
         }
+        self.lane_send(&session.id);
+    }
+
+    /// `session`'s cut turn will not be continued after all (its retries ran out, or a chat past
+    /// its context window could not compact): its turn's report went out saying it was paused,
+    /// so its parent hears now that it is stranded and needs a prompt or `acpmux retry`
+    /// (`pause_state.rs`). Leo, 2026-11-24: "do they get stranded!?"
+    pub(super) fn lane_stranded(self: &Arc<Self>, session: &Arc<Session>) {
+        if !self.lane_links(|links| links.contains_key(&session.id)) {
+            return;
+        }
+        let turn = session.meta().turn_count;
+        let report = self.capture_report(session, turn, false, None);
+        self.lane_links(|links| {
+            if let Some(l) = links.get_mut(&session.id) {
+                l.ready = Some(replace_ready_seen(report, l.ready.take(), &l.prs));
+            }
+        });
         self.lane_send(&session.id);
     }
 

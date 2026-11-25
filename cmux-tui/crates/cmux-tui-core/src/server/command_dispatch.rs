@@ -257,14 +257,19 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit, after } => cmd_workspaces::list_workspaces(
-            mux,
-            client,
-            writer.lines_written(),
-            known.as_ref(),
-            limit,
-            after,
-        ),
+        Command::ListWorkspaces { known, limit, after, since } => match since {
+            Some(since) => {
+                cmd_workspaces::list_workspaces_delta(mux, client, writer.lines_written(), &since)
+            }
+            None => cmd_workspaces::list_workspaces(
+                mux,
+                client,
+                writer.lines_written(),
+                known.as_ref(),
+                limit,
+                after,
+            ),
+        },
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }

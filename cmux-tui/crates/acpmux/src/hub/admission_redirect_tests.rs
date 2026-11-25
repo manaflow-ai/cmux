@@ -1,7 +1,19 @@
 use super::*;
 
 fn ask(redirect: bool, person: bool, local: bool, peers: bool) -> Ask<'static> {
-    Ask { force: false, can_force: true, person, name: None, who: "test", local, peers, redirect }
+    Ask {
+        force: false,
+        can_force: true,
+        person,
+        name: None,
+        who: "test",
+        local,
+        peers,
+        redirect,
+        auto: false,
+        waiting: None,
+        harness: None,
+    }
 }
 
 #[test]

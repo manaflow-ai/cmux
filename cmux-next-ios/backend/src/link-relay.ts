@@ -2,27 +2,10 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { FIRST_GRANT, MIB, RELAY_CLOSE } from "./relay-access.ts"
 import { checkFrame, RELAY_FRAME_MAX, withPeer } from "./relay-frame.ts"
+import { HoldQueue, parseHoldFrame } from "./relay-hold.ts"
 import { APP_PING, APP_PONG, userHubName, uuidToBytes } from "./team-hub.ts"
 
-/**
- * The link's WebSocket relay (PROTOCOL.md "WebSocket relay", API 0.17.0): the last way a WireGuard link reaches
- * its peer when neither plain UDP nor a TURN server gets through, as on a network that lets only cmux's own
- * domains, or only HTTP inside TLS, out. One object per link session, named by the owner key, build space and
- * session id (`relayRoomName`), never a client value. The Worker admits a socket only for a device the owner's
- * hub bound to that session at its first signal and that presents its own relay ticket (TeamHub `relayPeer`),
- * and tells this object the device, its peer, the owner key and the build space in headers no client can set
- * (the object is reached only through the Worker). Each MiB relayed is first granted by the owner's hub
- * (`relayBudget`, one budget across all of the user's sessions). The hub closes the live sockets when the session
- * ends, a device or the account is removed (`closeAll`), and the kill switch closes them at their next frame.
- *
- * It carries relay frames (`relay-frame.ts`) of kind `datagrams` from one party's socket to the other's, with the
- * frame's peer id set to the sender's device id, and reads nothing else: the datagrams are WireGuard ciphertext,
- * end to end between the phone and the Mac. Hibernating WebSockets, tagged by device id, so a quiet session (a
- * link that settled on a direct path) costs nothing; the application ping is answered without waking it. It keeps
- * no storage.
- */
-export const relayRoomName = (ownerKey: string, space: string, sessionId: string) =>
-  `${space ? `${space}|` : ""}relay:${ownerKey}:${sessionId}`
+export { relayRoomName } from "./placement.ts"
 
 /** Selected when a client offers it (never the bearer entry). */
 export const RELAY_SUBPROTOCOL = "cmux-relay.v1"
@@ -64,6 +47,28 @@ interface RelayAttachment {
 
 type Bucket = { t: number; at: number }
 
+/**
+ * The link's WebSocket relay (PROTOCOL.md "WebSocket relay", API 0.17.0): the last way a WireGuard link reaches
+ * its peer when neither plain UDP nor a TURN server gets through, as on a network that lets only cmux's own
+ * domains, or only HTTP inside TLS, out. One object per link session, named by the owner key, build space and
+ * session id (`relayRoomName`), never a client value. The Worker admits a socket only for a device the owner's
+ * hub bound to that session at its first signal and that presents its own relay ticket (TeamHub `relayPeer`),
+ * and tells this object the device, its peer, the owner key and the build space in headers no client can set
+ * (the object is reached only through the Worker). Each MiB relayed is first granted by the owner's hub
+ * (`relayBudget`, one budget across all of the user's sessions). The hub closes the live sockets when the session
+ * ends, a device or the account is removed (`closeAll`), and the kill switch closes them at their next frame.
+ *
+ * It carries relay frames (`relay-frame.ts`) of kind `datagrams` from one party's socket to the other's, with the
+ * frame's peer id set to the sender's device id, and reads nothing else: the datagrams are WireGuard ciphertext,
+ * end to end between the phone and the Mac. Hibernating WebSockets, tagged by device id, so a quiet session (a
+ * link that settled on a direct path) costs nothing; the application ping is answered without waking it. It keeps
+ * no storage, except the relay-held send queue's sealed items when `LINK_RELAY_HOLD=on` (RFD 0142 R8,
+ * `relay-hold.ts`): bounded, expiring in 10 minutes, and never readable here.
+ *
+ * Prewarmed (RFD 0142 C4, PROTOCOL.md "Relay placement"): the hub creates and places this object when it forwards
+ * the session's first `wg-init` (`/prewarm`, no socket), so a later join finds it made and placed instead of
+ * paying for creation and a cold start while a link waits on its last path.
+ */
 export class LinkRelay extends DurableObject<Env> {
   private readonly buckets = new WeakMap<WebSocket, { frames: Bucket; bytes: Bucket }>()
   private readonly notices = new WeakMap<WebSocket, Map<string, number>>()
@@ -79,15 +84,26 @@ export class LinkRelay extends DurableObject<Env> {
   private deniedUntil = 0
   private asking: Promise<void> | undefined
   private waiting = 0
+  private readonly holds: HoldQueue
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+    this.holds = new HoldQueue(ctx.storage)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(APP_PING, APP_PONG))
   }
 
+  /** When this instance last took a prewarm (diagnostics and tests: in memory, a wake forgets it). */
+  prewarmedAt: number | undefined
+
   override async fetch(req: Request): Promise<Response> {
+    const path = new URL(req.url).pathname
+    // The hub's prewarm: reaching the object created and placed it; nothing else to do. No socket, no storage.
+    if (path === "/prewarm") {
+      this.prewarmedAt = Date.now()
+      return new Response(null, { status: 204 })
+    }
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket upgrade", { status: 426 })
-    if (new URL(req.url).pathname === "/netcheck") return this.netcheck(req)
+    if (path === "/netcheck") return this.netcheck(req)
     const device = req.headers.get("x-cmux-relay-device") ?? ""
     const peer = req.headers.get("x-cmux-relay-peer") ?? ""
     const owner = req.headers.get("x-cmux-relay-owner") ?? ""
@@ -108,6 +124,7 @@ export class LinkRelay extends DurableObject<Env> {
     const other = this.socketOf(peer)
     server.send(JSON.stringify({ type: "joined", peer: other !== undefined }))
     if (other) other.send(JSON.stringify({ type: "peer", online: true }))
+    if (this.holdOn()) await this.drainHeld(server, device)
     const headers = new Headers()
     if (req.headers.get("x-cmux-relay-subprotocol")) headers.set("sec-websocket-protocol", RELAY_SUBPROTOCOL)
     return new Response(null, { status: 101, webSocket: client, headers })
@@ -144,8 +161,8 @@ export class LinkRelay extends DurableObject<Env> {
       } catch {}
       return
     }
-    // Text frames carry nothing (the ping is answered before it reaches here).
-    if (typeof message === "string") return
+    // Text frames carry nothing (the ping is answered before it reaches here), except the relay-held send queue's.
+    if (typeof message === "string") return this.holdText(ws, message)
     if (message.byteLength > RELAY_FRAME_MAX) return this.notice(ws, "error", { type: "error", code: "too_large" })
     if (!this.take(ws, message.byteLength)) return
     const bytes = new Uint8Array(message)
@@ -162,6 +179,60 @@ export class LinkRelay extends DurableObject<Env> {
       target.send(withPeer(bytes, uuidToBytes(att.device)))
     } catch {
       this.notice(ws, "peer", { type: "peer", online: false })
+    }
+  }
+
+  override async alarm(): Promise<void> {
+    await this.holds.onAlarm(Date.now())
+  }
+
+  private holdOn(): boolean {
+    return this.env.LINK_RELAY_HOLD === "on"
+  }
+
+  /**
+   * A `hold` or `held_ack` text frame (RFD 0142 R8). A hold is acked at once, kept, and handed to the peer now if
+   * it is joined, else when it joins; the peer's `held_ack` deletes it and tells the sender `delivered`.
+   */
+  private async holdText(ws: WebSocket, text: string): Promise<void> {
+    const parsed = parseHoldFrame(text)
+    if (parsed === null) return
+    const att = this.attachment(ws)
+    if (!att) return
+    if (parsed === "bad") return this.notice(ws, "hold_bad", { type: "hold_refused", code: "bad" })
+    if (!this.holdOn()) {
+      if (parsed.type === "hold") ws.send(JSON.stringify({ type: "hold_refused", id: parsed.id, code: "off" }))
+      return
+    }
+    if (!this.take(ws, text.length)) return
+    const now = Date.now()
+    if (parsed.type === "held_ack") {
+      const from = await this.holds.ack(att.device, parsed.id, now)
+      if (from) {
+        try {
+          this.socketOf(from)?.send(JSON.stringify({ type: "delivered", id: parsed.id }))
+        } catch {}
+      }
+      return
+    }
+    const answer = await this.holds.hold(att.device, att.peer, parsed.id, parsed.sealed, now)
+    try {
+      ws.send(JSON.stringify(answer))
+    } catch {}
+    if (answer.type !== "held" || answer.delivered) return
+    const target = this.socketOf(att.peer)
+    if (target) await this.drainHeld(target, att.peer, parsed.id)
+  }
+
+  /** Hand `device` everything held for it, oldest first (again on every join: delivery is at least once). */
+  private async drainHeld(ws: WebSocket, device: string, only?: string) {
+    for (const item of await this.holds.items(device)) {
+      if (only !== undefined && item.id !== only) continue
+      try {
+        ws.send(JSON.stringify({ type: "held_item", id: item.id, from: item.from, sealed: item.sealed, at: item.at, expiresAt: item.expiresAt }))
+      } catch {
+        return
+      }
     }
   }
 

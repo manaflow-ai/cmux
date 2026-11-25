@@ -93,6 +93,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
     "model_rewrite",
     "model_reroute",
+    // A sustained overload moved the chat to a smaller model, or back
+    // (`auto_resume/capacity_failover.rs`).
+    "capacity_failover",
+    "capacity_restored",
     "forked",
     "imported",
     "session_offer",

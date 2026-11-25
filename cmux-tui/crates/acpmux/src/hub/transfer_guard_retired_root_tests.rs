@@ -33,7 +33,7 @@ async fn a_guarded_move_without_its_agent_file_retires_the_old_root() {
         "status": "idle", "createdAt": 1, "updatedAt": 1,
     });
     std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-    let guard = Guard { control: Control::Peer, roots: vec![work] };
+    let guard = Guard { control: Control::Peer, roots: vec![work], owner: false };
     let (meta, taken) = hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
     assert!(!taken);
     assert_eq!(meta.agent_session_id, None, "no agent file: the agent starts fresh");
