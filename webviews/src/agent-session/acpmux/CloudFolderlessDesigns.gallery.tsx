@@ -61,7 +61,7 @@ export default componentEntry<CloudFolderlessDesignsProps>({
       props: { ...base, design: "menu-note" },
     },
     "menu-note-open": {
-      note: "The same, folder menu open: No folder is checked, Add folder… and the projects still pick a folder; nothing sits under the actions.",
+      note: "With no folder selected, Add project… sits below the project choices.",
       props: { ...base, design: "menu-note" },
       play: openFolderMenu,
     },

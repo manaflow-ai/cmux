@@ -116,7 +116,7 @@ describe("session flow", () => {
     const free = await setup();
     const f = await approvedSession(free.host, free.viewer);
     expect(f.vt.ice).toEqual([]);
-    expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [] });
+    expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [], relay: "free" });
 
     const paidSub = `pro-${crypto.randomUUID()}`;
     billingPlans.set(paidSub, { subscriptionPlanId: "pro" });

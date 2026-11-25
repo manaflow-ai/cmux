@@ -40,7 +40,15 @@ export type ScriptedTurn =
   | "steer-tools"
   | "thought-text"
   | ArrivalTurn
-  | ToggleTurn;
+  | ToggleTurn
+  | FoldStreamTurn;
+
+/// The fold-stream turn (stream-follow-smooth.test.ts; Leo, 2026-11-22: "the animation or whatever for
+/// when im at the bottom and the text is streaming to be a bit jarring ... esp in tandem with how
+/// aggressively we're folding claude code chats"): a long Claude reply at Claude's cadence with two
+/// runs of tool calls between its segments, a call that prints, and the turn's end folding its work.
+export const FOLD_STREAM_TURN = "fold-stream";
+export type FoldStreamTurn = typeof FOLD_STREAM_TURN;
 
 /// The turn-transition turns, in the order of Leo's words.
 export const TRANSITION_TURNS = ["text-tool", "burst-thought", "tool-group", "steer-tools", "thought-text"] as const;
@@ -162,7 +170,12 @@ export async function playScriptedTurn(
     if (done) put({ id, at, kind: "assistant", text: source, streaming: false });
     emit();
   };
-  if (isToggle(scenario)) {
+  if (scenario === FOLD_STREAM_TURN) {
+    step("prompt");
+    show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
+    await wait(300);
+    await playFoldStream({ put, emit, stream, step, show, wait });
+  } else if (isToggle(scenario)) {
     step("prompt");
     show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
     await wait(300);
@@ -337,6 +350,64 @@ async function playToggle(
     act(click.action);
   }
   await streaming;
+}
+
+/// The fold-stream turn: three segments of a reply, each streamed at the run's cadence, with a run of
+/// reads between the first two and a run with a printing shell call between the last two. Each call
+/// starts (a line above the live line), runs, finishes, and the next one joins its row.
+async function playFoldStream({ put, emit, stream, step, wait }: TransitionParts): Promise<void> {
+  const paragraphs = REPLY.split("\n\n");
+  const runCalls = async (row: string, at: number, calls: [string, string][], first: number) => {
+    const items: NonNullable<AcpmuxRow["items"]> = [];
+    for (const [offset, [title, kind]] of calls.entries()) {
+      const index = first + offset;
+      step(`${row}-call-${offset + 1}`);
+      const call =
+        kind === "execute"
+          ? { ...printingCall("in_progress"), tool: { ...printingCall("in_progress").tool, id: `call-${index}` } }
+          : toolItem(index, title, kind, "in_progress");
+      items.push(call);
+      put(activityRow(row, at, [...items]));
+      emit();
+      await wait(220);
+      items[offset] =
+        kind === "execute"
+          ? { ...printingCall("completed"), tool: { ...printingCall("completed").tool, id: `call-${index}` } }
+          : toolItem(index, title, kind, "completed");
+      put(activityRow(row, at, [...items]));
+      emit();
+      await wait(90);
+    }
+  };
+  const segment = async (id: string, at: number, text: string) => {
+    step(`${id}-stream`);
+    await stream(id, at, text, false);
+    put({ id, at, kind: "assistant", text, streaming: false });
+    emit();
+  };
+  await segment(SCRIPTED_ANSWER_ID, 100_001, paragraphs.slice(0, 2).join("\n\n"));
+  await runCalls(
+    "live-run-1",
+    100_002,
+    [
+      ["Read relay.ts", "read"],
+      ["Grep reconnect", "search"],
+      ["Read retry.ts", "read"],
+    ],
+    0,
+  );
+  await segment(`${SCRIPTED_ANSWER_ID}-2`, 100_010, paragraphs.slice(2, 4).join("\n\n"));
+  await runCalls(
+    "live-run-2",
+    100_011,
+    [
+      ["rg -n reconnect src", "execute"],
+      ["Read socket.ts", "read"],
+    ],
+    3,
+  );
+  step(`${SCRIPTED_ANSWER_ID}-3-stream`);
+  await stream(`${SCRIPTED_ANSWER_ID}-3`, 100_020, paragraphs.slice(4, 9).join("\n\n"), false);
 }
 
 async function playTransition(

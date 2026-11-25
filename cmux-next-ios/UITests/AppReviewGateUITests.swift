@@ -169,7 +169,9 @@ final class AppReviewGateUITests: XCTestCase {
     /// shows.
     @MainActor
     func testChiefOpensAndAMessageSendsWithAReply() throws {
-        var app = launch(arguments: ["-cmux-mobile-tab", "home"])
+        // The reviewer has not agreed to Chief's AI sharing yet (5.1.2(i)): the first send asks.
+        let unasked = ["-cmuxMobile.chief.aiSharingConsent", "NO"]
+        var app = launch(arguments: ["-cmux-mobile-tab", "home"] + unasked)
         defer { app.terminate() }
         let chief = element("home.chief", in: app)
         let macChief = element("home.chief.mac", in: app)
@@ -181,7 +183,7 @@ final class AppReviewGateUITests: XCTestCase {
             // the conversation itself from its own launch.
             gateNote("chief-from-home-unjudged", "Home listed no Chief row, so Chief was opened with -cmux-mobile-demo chief-open")
             app.terminate()
-            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"])
+            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"] + unasked)
         }
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Chief must open with a message box; on screen: \(onScreen(app))")
         capture("chief-01-open", app)
@@ -200,6 +202,21 @@ final class AppReviewGateUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Chief must have a Send button")
         XCTAssertTrue(send.isEnabled, "Send must be enabled with a draft")
         send.tap()
+        // 5.1.2(i): before anything goes to an AI provider, Chief names the providers and
+        // asks; Agree and Send sends the draft.
+        let consent = app.alerts.firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 5),
+                      "the first send to Chief must ask to share with the AI providers (5.1.2(i)); on screen: \(onScreen(app))")
+        if consent.exists {
+            let text = consent.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
+            XCTAssertTrue(text.contains("Anthropic") && text.contains("OpenAI"),
+                          "the AI sharing question must name the providers (5.1.2(i)); it says: \(text)")
+            capture("chief-01b-ai-consent", app)
+            let agree = consent.buttons["Agree and Send"]
+            XCTAssertTrue(agree.exists, "the AI sharing question must offer Agree and Send; buttons: \(consent.buttons.allElementsBoundByIndex.map(\.label))")
+            XCTAssertTrue(consent.buttons["Not Now"].exists, "the AI sharing question must offer Not Now")
+            if agree.exists { agree.tap() }
+        }
         capture("chief-02-sent", app)
         let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 10),

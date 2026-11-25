@@ -1740,6 +1740,7 @@ mod tests {
                 generation,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;
@@ -1823,6 +1824,7 @@ mod tests {
                 generation: 7,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2087,6 +2089,7 @@ mod tests {
                 generation,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2288,6 +2291,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2319,6 +2323,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2351,6 +2356,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2392,6 +2398,7 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
+                inline: false,
             },
         )
         .await;

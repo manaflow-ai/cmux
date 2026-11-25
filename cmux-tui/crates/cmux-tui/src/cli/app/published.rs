@@ -15,7 +15,9 @@ use cmux_apps::platform::PlatformClient;
 #[cfg(unix)]
 use cmux_apps::publish::Host;
 #[cfg(unix)]
-use cmux_apps::system::{AgentSocket, GitCli, LoopbackProbe, RealFs, RealProcs, SystemClock};
+use cmux_apps::system::{
+    AgentSocket, GitCli, HeadlessCapture, LoopbackProbe, RealFs, RealProcs, SystemClock,
+};
 
 use super::super::{GlobalArgs, OutputMode};
 
@@ -60,6 +62,8 @@ pub(super) fn run(global: &GlobalArgs, parsed: &Parsed) -> i32 {
         probe: &LoopbackProbe,
         platform: &platform,
         listeners: &agent,
+        // A first frame renders in a fresh headless profile, as the publisher.
+        capture: &HeadlessCapture { browser: None },
         apps_root,
         parent_env: std::env::vars().collect(),
     };

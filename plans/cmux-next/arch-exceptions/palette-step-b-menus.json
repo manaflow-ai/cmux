@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 360,
+  "why": "Palette step B (cmux#45625's 18 catalog rows and cmux#46165's 7): handlers for the rows of hand-built menus (downloads, back/forward entries, extension rows, update-card snooze, remote quality, the browser More menu's and tab bar's Show in Toolbar/Tab Bar pins, the update notice's buttons and the tip card's mute rows) and the menu routing that runs them. Each binding needs AppActionContext, BrowserDownloadList, BrowserPageRequests, the CEF extension store, the history page service, PaneToolbar or SidebarCardFeed, all App-only types, so no lower package can hold them; the rows, titles and arguments live in the Rust catalog. The new bindings sit in the existing toolbar, pane toolbar, extension, remote and update handler files (no new App files or types). Raised to 360 when feat-cmux-next was merged in (2026-11-21): base's More menu builder plus the PR's Show in Toolbar routing.",
+  "author": "palette-step-b lane (claude opus)",
+  "owner": "palette-all-actions lane",
+  "receipt": "Review (claude opus subagent a91d925ece3a10d15): SHIP at c5d78e4a50e1c640a8283d22f8418e818cf3325e",
+  "expiry": "2026-12-20"
+}

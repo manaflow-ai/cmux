@@ -192,13 +192,13 @@ extension AppServices {
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
-        macScreenPages.registerControl(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
+        macScreenPages.registerControl(on: router) { [weak self] record, key in self.map { $0.openDebugMacScreen(record, pane: key, byPerson: false) } ?? "no pane" }
     }
 
     var cmuxRemoteActions: CmuxRemoteActionEnvironment {
-        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub },
-                                    window: { [weak self] in self?.windows.active?.window },
-                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting { [weak self] in self?.settings })
+        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub }, window: { [weak self] in self?.windows.active?.window },
+                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting({ [weak self] in self?.settings },
+                                    ownJoin: CmuxRemoteOwnJoin(last: { [weak self] in self?.joinConsent.ownsJoin(self?.cloud.auth) ?? false }, now: { [weak self] in await self?.joinConsent.readOwnJoin(self?.cloud.auth) ?? false })))
     }
 
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
@@ -253,7 +253,7 @@ extension AppServices {
     /// `debug.device_hub` (DEV builds).
     func registerDeviceHubDebug(on router: ControlRouter?) {
         macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
-            self?.openDebugMacScreen(record, pane: key, byPerson: true) ?? "no pane"
+            self.map { $0.openDebugMacScreen(record, pane: key, byPerson: true) } ?? "no pane"
         }
     }
 

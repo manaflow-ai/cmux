@@ -18,7 +18,9 @@ have none): the Cloud machine channel (`cmux-cloud-machine-update`, scripts/ci/c
 and the Linux release files (`cmux-linux-release`: cmux-tui/<commit>/release.json and
 cmux-tui/channels/linux-<channel>.json). `verify --purpose` refuses a payload of any other purpose, and
 for a Linux release file checks its shape: the version, every URL under
-https://files.cmux.com/cmux-tui/<commit>/, and `expires_at`. Every Linux release payload carries
+https://files.cmux.com/cmux-tui/<commit>/ (or, for a file that names a `tree_key`,
+https://files.cmux.com/cmux-tui/tree/<tree_key>/: the tree's own release.json, a shared-tree commit's
+alias of it, and a channel pointer at a tree), and `expires_at`. Every Linux release payload carries
 `expires_at`, but only a channel pointer is held to it: the per-commit release.json is reached by an
 explicit version and stays valid (`--allow-expired`).
 
@@ -34,6 +36,8 @@ Usage:
       exit 0 when CURRENT is a signed file of the same build (all but published_at and expires_at, and
       for a Linux release file sequence and version, equal), 1 otherwise: a write-once file someone
       published with other contents
+      [--same-tree]  also ignore commit and committed_at, and require the same tree_key: the write-once
+      tree/<key>/release.json, which any commit of the tree may find already written
   web-ota-pointer.py sequence --pointer CURRENT --keys KEYS --channel C
       print the Linux release file's sequence (the stamp in its version for a phase-1 file), 0 when none
       verifies; newer refuses a Linux release pointer that would not raise it
@@ -60,10 +64,14 @@ ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 SKIP = 3
 # The Linux release files (scripts/ci/cmux-machine-channel.py payload --purpose linux-release).
 LINUX_RELEASE = "cmux-linux-release"
+# The Cloud machine channel's files (scripts/ci/cmux-machine-channel.py PURPOSE).
+MACHINE_UPDATE = "cmux-cloud-machine-update"
 FILES = "https://files.cmux.com/cmux-tui/"
 # The fields a re-sign of one build changes; same-build ignores them.
 SIGNING_TIME_FIELDS = ("published_at", "expires_at")
 LINUX_RELEASE_SIGNING_FIELDS = ("sequence", "version")
+# `same-build --same-tree`: the commit of a tree file is whichever commit of the tree signed it first.
+TREE_COMMIT_FIELDS = ("commit", "committed_at")
 # `newer --tree-key`: a published file of the same source tree is kept only while it has this long
 # to live (the Cloud machine file lives 30 days, cmux-machine-channel.py LIFETIME).
 TREE_KEEP_MIN_SECONDS = 7 * 24 * 3600
@@ -242,6 +250,28 @@ LINUX_RELEASE_NAMES = ("cmux-tui", "cmux-tui-hook", "cmux-tui-acpmux", "cmux-tui
                        "cmux-tui-agent-screen-detection")
 
 
+def completes(new, current):
+    """True when NEW is CURRENT's commit with more targets and the same bytes (sha256) for every
+    binary of every target CURRENT names: a Cloud machine file that adds the aarch64 build to the
+    x86_64-only one of the same commit. Only the bytes count, never the URL: an x86_64 machine on the
+    published file finds nothing new to download."""
+    if new.get("purpose") != MACHINE_UPDATE or current.get("purpose") != MACHINE_UPDATE:
+        return False
+    if new.get("commit") != current.get("commit"):
+        return False
+    new_targets, current_targets = new.get("targets"), current.get("targets")
+    if not isinstance(new_targets, dict) or not isinstance(current_targets, dict):
+        return False
+    if not set(current_targets) < set(new_targets):
+        return False
+    def shas(entry):
+        if not isinstance(entry, dict):
+            return None
+        return {name: binary.get("sha256") if isinstance(binary, dict) else None for name, binary in entry.items()}
+    return all(shas(current_targets[target]) is not None and shas(new_targets[target]) == shas(current_targets[target])
+               for target in current_targets)
+
+
 def release_sequence(value):
     """A verified Linux release payload's publish order: its `sequence`, or for a phase-1 file the stamp
     in its version (check_linux_release holds the two to that form)."""
@@ -283,14 +313,24 @@ def check_linux_release(path, value):
         missing = [name for name in ("cmux-tui", "cmux-tui-hook") if not isinstance(files, dict) or name not in files]
         if missing:
             raise Refused(f"{path}: target {target} has no {' or '.join(missing)}")
-    prefix = f"{FILES}{commit}/"
+    # A tree file (tree/<key>/release.json), an alias of it (a commit that shares the tree) and a channel
+    # pointer at a tree name the tree's key; their URLs are the tree's copies. A per-commit file of a commit
+    # that built its own publication has none, and its URLs are under its commit.
+    if "tree_key" in value:
+        tree_key = value["tree_key"]
+        if not isinstance(tree_key, str) or not re.fullmatch(r"[0-9a-f]{40}", tree_key):
+            raise Refused(f"{path}: bad tree_key {tree_key!r}")
+        prefix = f"{FILES}tree/{tree_key}/"
+    else:
+        prefix = f"{FILES}{commit}/"
     for target, files in targets.items():
         if not isinstance(files, dict) or not files:
             raise Refused(f"{path}: target {target!r} names no files")
         for name, entry in files.items():
             url = entry.get("url") if isinstance(entry, dict) else None
-            # A URL under the commit's own publication, one plain file name below it (as check_binary
-            # in cmux-tui/crates/cmux-host/src/updater/channel.rs): never another host or commit.
+            # A URL under the commit's own publication (or the tree's it names), one plain file name below
+            # it (as check_binary in cmux-tui/crates/cmux-host/src/updater/channel.rs): never another host,
+            # commit or tree.
             rest = url[len(prefix):] if isinstance(url, str) and url.startswith(prefix) else ""
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", rest):
                 raise Refused(f"{path}: {target} {name}: the url {url!r} is not under {prefix}")
@@ -329,9 +369,11 @@ def main(argv):
     q.add_argument("--pointer", required=True)
     q.add_argument("--keys", required=True)
     q.add_argument("--channel", required=True)
-    b =sub.add_parser("same-build")
+    b = sub.add_parser("same-build")
     for name in ("--pointer", "--current", "--keys"):
         b.add_argument(name, required=True)
+    b.add_argument("--same-tree", action="store_true",
+                   help="CURRENT is tree/<key>/release.json: any commit of NEW's tree_key with the same files")
     args = parser.parse_args(argv[1:])
     try:
         return run(args)
@@ -364,6 +406,14 @@ def run(args):
         except Refused as error:
             # A pointer no trusted key covers (a rotated key, a broken upload) is replaced.
             print(f"replacing the published pointer: {error}", file=sys.stderr)
+            return 0
+        # The same commit's file with more targets completes the published one: the Cloud machine channel
+        # is pointed first from the x86_64 leg alone (point-machine-channel-early), then from both Linux
+        # legs (point-machine-channel-early-linux). It moves only when every target the published file
+        # names keeps its bytes, so an aarch64 machine gets its build and no x86_64 machine updates twice.
+        if completes(new, current):
+            print(f"the published pointer ({current['commit'][:12]}) names {sorted(current['targets'])}; "
+                  f"this file adds {sorted(set(new['targets']) - set(current['targets']))}", file=sys.stderr)
             return 0
         # Same key: nothing to move. An older commit never replaces a newer one (two runs that
         # finish out of order).
@@ -408,6 +458,12 @@ def run(args):
         current = verified_payload(args.current, keys, purpose=purpose, check_expiry=False)
         # A Linux release file's sequence and the version that carries it are the signing run's too.
         skip = SIGNING_TIME_FIELDS + (LINUX_RELEASE_SIGNING_FIELDS if purpose == LINUX_RELEASE else ())
+        if args.same_tree:
+            # tree/<key>/release.json: written once by the first commit of the tree to sign it. A later
+            # commit of the same tree (its alias) keeps it when it names the same files.
+            if purpose != LINUX_RELEASE or not new.get("tree_key") or new.get("tree_key") != current.get("tree_key"):
+                fail(f"{args.current} is not a release file of tree {new.get('tree_key')!r}")
+            skip += TREE_COMMIT_FIELDS
         build = lambda value: {k: v for k, v in value.items() if k not in skip}
         if build(new) != build(current):
             changed = sorted(k for k in set(new) | set(current)

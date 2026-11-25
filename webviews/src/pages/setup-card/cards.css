@@ -224,14 +224,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 4px 0;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
 }
 .hm-pills[data-shape="chip"] {
   flex-direction: row;
   flex-wrap: wrap;
   /* One row: a chip that wraps is left out, so the row's height never depends on its width. */
-  max-height: calc(26px + 8px);
+  max-height: calc(var(--ds-control-compact) + var(--ds-space-2));
   overflow: hidden;
 }
 .hm-pills__item {
@@ -241,12 +241,12 @@
 .hm-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   box-sizing: border-box;
   min-width: 120px;
   max-width: 100%;
-  height: 28px;
-  padding: 0 12px;
+  height: var(--ds-control-row);
+  padding: 0 var(--ds-space-3);
   border: 1px solid color-mix(in srgb, var(--cmux-text-secondary) 32%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--cmux-hover) 55%, transparent);
@@ -260,15 +260,15 @@
 }
 .hm-pills[data-shape="twoLine"] .hm-pill {
   height: auto;
-  padding: 8px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--ds-radius-2xl);
   background: var(--cmux-hover);
 }
 .hm-pills[data-shape="chip"] .hm-pill {
-  height: 24px;
+  height: var(--ds-control-compact);
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-2);
   border: 0;
   background: var(--cmux-hover);
   font-size: var(--text-detail);
@@ -311,7 +311,7 @@
 .hm-link-preview__body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-2);
   width: 300px;
 }
 .hm-link-preview__title {
@@ -346,7 +346,7 @@
 .hm-link-preview__thumbnail {
   width: 100%;
   aspect-ratio: 2 / 1;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   object-fit: cover;
   background: var(--cmux-hover);
 }

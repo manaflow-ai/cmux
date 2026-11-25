@@ -27,6 +27,17 @@
 // Each fallback completion this process records is added to both cached sums
 // so a burst inside one instance stops at the cap.
 //
+// Parallel requests: a Messages request is admitted only if the team's spend,
+// what its requests in flight in this process hold, and this request's own
+// upper bound (fallbackReservationCents: its bytes as input plus max_tokens
+// of output, at list price) fit the cap, and likewise the taste plans' daily
+// budget. The bound is held until the request settles (complete, error,
+// client cancel, stream break), then swapped in one tick for the charge, so N
+// parallel requests in one instance cannot pass the cap. Across instances
+// nothing is shared: each instance can still admit up to the team's whole
+// remaining cap from a sum up to SPEND_TTL_MS old, so the bound there is the
+// instance count times the cap, inside one cache window.
+//
 // The plan (cmux#51317, services/billing/cloudIntro.ts there): the $1 pass and
 // the free week are written on the buyer's Stack sign-in record as
 // `cmuxNextPlan` with `cmuxNextPlanEndsAt`, never into `cloud_vms`'
@@ -46,6 +57,7 @@ import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { cloudVms, coderouterClaudeAccounts } from "../../db/schema";
 import { getStackServerApp } from "../../app/lib/stack";
 import { withStackDeadline } from "../teams/stack";
+import { estimateApiEquivalent } from "./apiEquivalentPricing";
 import { defaultClickHouseDependencies, query, type ClickHouseDependencies } from "./clickhouse";
 
 export const FALLBACK_ACCOUNT_ENV = "CODEROUTER_CLAUDE_FALLBACK_ACCOUNT_ID";
@@ -197,7 +209,73 @@ export type ClaudeFallbackSpend = {
   todayCents(accountId: string, signal?: AbortSignal): Promise<number | null>;
   /** Adds a completion this process just recorded to the cached sums. */
   note(teamId: string, accountId: string, cents: number): void;
+  /**
+   * Admits one request against the cap, or refuses it: synchronous, so the
+   * check and the hold cannot interleave with another request's.
+   */
+  admit(request: FallbackAdmitRequest): FallbackAdmission;
+  /** Cents held by requests in flight in this process (team, and today's shared budget). */
+  inFlightCents(teamId: string, accountId: string): { readonly team: number; readonly today: number };
 };
+
+export type FallbackAdmitRequest = {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly capCents: number;
+  /** The team's spend the caller read; the cached sum is used when it is larger. */
+  readonly spentCents: number;
+  /** Today's shared spend the caller read; null when the plan does not draw on the shared budget. */
+  readonly todayCents: number | null;
+  /** The request's upper bound (fallbackReservationCents). */
+  readonly cents: number;
+};
+
+/**
+ * A request's hold on the cap, from admission until it settles. `release`
+ * drops it from the in-flight sums; the real (or estimated) charge is noted
+ * just before, in the same tick. Idempotent.
+ */
+export type FallbackReservation = { readonly cents: number; release(): void };
+
+export type FallbackAdmission =
+  | { readonly kind: "held"; readonly reservation: FallbackReservation }
+  | { readonly kind: "refused"; readonly reason: FallbackRefusal };
+
+/**
+ * A hold that outlives any real request (the runtime lost the body without
+ * cancelling it) is dropped, so a lost stream cannot refuse its team for the
+ * life of the process. Well past the longest stream the router serves.
+ */
+export const RESERVATION_MAX_MS = 30 * 60_000;
+/** A request that names no readable max_tokens is held for Sonnet's largest output. */
+export const RESERVATION_DEFAULT_OUTPUT_TOKENS = 64_000;
+/** Request bytes per input token for the hold; the same ratio the cut-short estimate uses. */
+const RESERVATION_BYTES_PER_INPUT_TOKEN = 4;
+
+/**
+ * The most a Messages request can cost, in list-price cents: its bytes as
+ * uncached input plus max_tokens of output, at the requested model's price
+ * (an unknown model at UNPRICED_USD_PER_TOKEN). Cache reads cost a tenth of
+ * input, so agent turns, which are mostly cache reads, stay well under it.
+ */
+export function fallbackReservationCents(request: {
+  readonly model: string | null;
+  readonly bytes: number;
+  readonly maxTokens: number | null;
+}): number {
+  const inputTokens = Math.ceil(Math.max(0, request.bytes) / RESERVATION_BYTES_PER_INPUT_TOKEN);
+  const outputTokens = request.maxTokens ?? RESERVATION_DEFAULT_OUTPUT_TOKENS;
+  const estimate = estimateApiEquivalent({
+    model: request.model ?? "",
+    inputTokens,
+    cachedInputTokens: 0,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+  });
+  return (estimate.usd + estimate.unpricedTokens * UNPRICED_USD_PER_TOKEN) * 100;
+}
+
+type HeldSum = { cents: number; count: number };
 
 const SUMS_SQL = `
   sum(api_equivalent_usd) AS usd,
@@ -270,6 +348,29 @@ export function createClaudeFallbackSpend(options: {
     return merged;
   }
 
+  // In-flight holds, per team and per (account, UTC day). An entry leaves the
+  // map when its last hold settles, so no float residue builds up.
+  const held = new Map<string, HeldSum>();
+  const heldCents = (key: string) => held.get(key)?.cents ?? 0;
+  const addHeld = (key: string, cents: number) => {
+    const sum = held.get(key);
+    if (sum) {
+      sum.cents += cents;
+      sum.count += 1;
+    } else {
+      held.set(key, { cents, count: 1 });
+    }
+  };
+  const dropHeld = (key: string, cents: number) => {
+    const sum = held.get(key);
+    if (!sum) return;
+    sum.count -= 1;
+    sum.cents -= cents;
+    if (sum.count <= 0) held.delete(key);
+  };
+  const teamHeldKey = (teamId: string, accountId: string) => `t\x00${accountId}\x00${teamId}`;
+  const dayHeldKey = (accountId: string, day: string) => `d\x00${accountId}\x00${day}`;
+
   return {
     teamCents: (teamId, accountId, signal) =>
       cached(teams, `${accountId}\x00${teamId}`, () => readTeam(teamId, accountId, signal)),
@@ -280,6 +381,41 @@ export function createClaudeFallbackSpend(options: {
       if (team) team.cents += cents;
       const day = today.get(accountId);
       if (day && day.day === utcDay()) day.cents += cents;
+    },
+    admit(request) {
+      const { teamId, accountId, capCents, cents } = request;
+      // Spend only grows: a completion settled since the caller's read is in
+      // the cached sum, not in the caller's number, and no longer in flight.
+      const day = utcDay();
+      const cachedTeam = teams.get(`${accountId}\x00${teamId}`)?.cents ?? 0;
+      const spent = Math.max(request.spentCents, cachedTeam);
+      const teamKey = teamHeldKey(teamId, accountId);
+      if (spent + heldCents(teamKey) + cents > capCents) return { kind: "refused", reason: "included_usage_used_up" };
+      let dayKey: string | null = null;
+      if (request.todayCents !== null) {
+        const cachedDay = today.get(accountId);
+        const spentToday = Math.max(request.todayCents, cachedDay && cachedDay.day === day ? cachedDay.cents : 0);
+        dayKey = dayHeldKey(accountId, day);
+        if (spentToday + heldCents(dayKey) + cents > GLOBAL_DAILY_BUDGET_CENTS) {
+          return { kind: "refused", reason: "included_daily_budget_reached" };
+        }
+      }
+      addHeld(teamKey, cents);
+      if (dayKey) addHeld(dayKey, cents);
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        clearTimeout(expiry);
+        dropHeld(teamKey, cents);
+        if (dayKey) dropHeld(dayKey, cents);
+      };
+      const expiry = setTimeout(release, RESERVATION_MAX_MS);
+      (expiry as { unref?: () => void }).unref?.();
+      return { kind: "held", reservation: { cents, release } };
+    },
+    inFlightCents(teamId, accountId) {
+      return { team: heldCents(teamHeldKey(teamId, accountId)), today: heldCents(dayHeldKey(accountId, utcDay())) };
     },
   };
 }
@@ -307,12 +443,20 @@ export type FallbackDecision<Row> =
     readonly row: Row;
     readonly spentCents: number;
     readonly capCents: number;
+    /** Held when the caller asked for one (`reserveCents`); the caller must release it. */
+    readonly reservation?: FallbackReservation;
   };
 
 /**
  * Whether the house route serves this caller, decided before anything is
  * forwarded. `model` reads the requested model (`null` when unreadable); it
  * is absent for a request that names none (the model list).
+ * `reserveCents` is the request's upper bound (fallbackReservationCents):
+ * given, the request is admitted only if its team's spend, what is in flight
+ * for that team in this process and the bound together fit the cap (and the
+ * shared daily budget for the taste plan), and the bound is held until the
+ * caller releases it. Absent (a free call or an availability check), only
+ * the spend is checked.
  * Only called once the caller's own account list came back empty.
  */
 export async function decideClaudeFallback<Row extends { readonly id: string }>(
@@ -320,6 +464,7 @@ export async function decideClaudeFallback<Row extends { readonly id: string }>(
   caller: FallbackCaller,
   model: (() => string | null) | undefined,
   signal?: AbortSignal,
+  reserveCents?: () => number,
 ): Promise<FallbackDecision<Row>> {
   if (!dependencies) return { kind: "none" };
   const config = dependencies.config();
@@ -336,14 +481,35 @@ export async function decideClaudeFallback<Row extends { readonly id: string }>(
   const spentCents = await dependencies.spend.teamCents(caller.teamId, config.accountId, signal);
   if (spentCents === null) return { kind: "unavailable" };
   if (spentCents >= capCents) return { kind: "refused", reason: "included_usage_used_up" };
+  let todayCents: number | null = null;
   if (planId && GLOBAL_BUDGET_PLANS.has(planId.trim().toLowerCase())) {
-    const todayCents = await dependencies.spend.todayCents(config.accountId, signal);
+    todayCents = await dependencies.spend.todayCents(config.accountId, signal);
     if (todayCents === null) return { kind: "unavailable" };
     if (todayCents >= GLOBAL_DAILY_BUDGET_CENTS) return { kind: "refused", reason: "included_daily_budget_reached" };
   }
   const row = await dependencies.loadAccount(config.accountId, signal);
   if (!row || row.id.toLowerCase() !== config.accountId) return { kind: "none" };
-  return { kind: "row", row, spentCents, capCents };
+  if (!reserveCents) return { kind: "row", row, spentCents, capCents };
+  // After the last read: the check and the hold run in one tick.
+  const admission = admitFallback(dependencies.spend, reserveCents, { teamId: caller.teamId, accountId: config.accountId, capCents, spentCents, todayCents });
+  if (admission.kind !== "held") return admission;
+  return { kind: "row", row, spentCents, capCents, reservation: admission.reservation };
+}
+
+/** A bound that cannot be computed, or is not a positive number, refuses (fail closed). */
+function admitFallback(
+  spend: ClaudeFallbackSpend,
+  reserveCents: () => number,
+  request: Omit<FallbackAdmitRequest, "cents">,
+): FallbackAdmission | { readonly kind: "unavailable" } {
+  let cents: number;
+  try {
+    cents = reserveCents();
+  } catch {
+    return { kind: "unavailable" };
+  }
+  if (!Number.isFinite(cents) || cents <= 0) return { kind: "unavailable" };
+  return spend.admit({ ...request, cents });
 }
 
 export const defaultClaudeFallbackSpend = createClaudeFallbackSpend();
@@ -400,12 +566,25 @@ export function includedUsageNotice(included: { readonly spentCents: number; rea
 
 /** The requested model of an Anthropic Messages body, or null when unreadable. */
 export function requestedModel(bytes: Uint8Array | null): string | null {
-  if (!bytes || bytes.byteLength === 0) return null;
+  return requestedFields(bytes).model;
+}
+
+/**
+ * The fields the house route prices a Messages body by: its model and its
+ * max_tokens (a positive integer, else null), each null when unreadable.
+ */
+export function requestedFields(bytes: Uint8Array | null): { readonly model: string | null; readonly maxTokens: number | null } {
+  const none = { model: null, maxTokens: null };
+  if (!bytes || bytes.byteLength === 0) return none;
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    const model = parsed && typeof parsed === "object" ? (parsed as { model?: unknown }).model : undefined;
-    return typeof model === "string" ? model : null;
+    if (!parsed || typeof parsed !== "object") return none;
+    const { model, max_tokens: maxTokens } = parsed as { model?: unknown; max_tokens?: unknown };
+    return {
+      model: typeof model === "string" ? model : null,
+      maxTokens: typeof maxTokens === "number" && Number.isSafeInteger(maxTokens) && maxTokens > 0 ? maxTokens : null,
+    };
   } catch {
-    return null;
+    return none;
   }
 }
