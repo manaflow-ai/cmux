@@ -141,13 +141,18 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
+  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { newChatFolder } from "../startFolderModel";
@@ -219,6 +224,7 @@ export type PaneSnapshotArgs = {
   setPastWaitsForTrust: React.Dispatch<React.SetStateAction<boolean>>;
   setMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setLocalMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setAutoCloudStartKey: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCloudMachineID: React.Dispatch<React.SetStateAction<string | undefined>>;
   cloudMachineIDRef: React.RefObject<string | undefined>;
   setCloudRepositoryAvailable: React.Dispatch<React.SetStateAction<boolean>>;
@@ -367,11 +373,11 @@ export type PaneSnapshotArgs = {
   cancelRetry: React.RefObject<(() => void) | undefined>;
   setAcpmuxRestartOffered: React.Dispatch<React.SetStateAction<boolean>>;
   restartGate: AcpmuxRestartGate;
-  setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
-  setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setLinkDown: React.Dispatch<React.SetStateAction<boolean>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  /// The handshake loop stopped (hostRetry.ts `hostRetryStep`): the line offers Restart agent service.
+  setHostGaveUp: React.Dispatch<React.SetStateAction<boolean>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -404,6 +410,7 @@ export function paneSnapshotEffect({
   setMachineName,
   setLocalMachineName,
   setCloudMachineID,
+  setAutoCloudStartKey,
   cloudMachineIDRef,
   setCloudRepositoryAvailable,
   setCloudChatIdentity,
@@ -510,10 +517,9 @@ export function paneSnapshotEffect({
   cancelRetry,
   setAcpmuxRestartOffered,
   restartGate,
-  setWaitingSince,
-  setRestartUnavailable,
-  setRelinkingSince,
+  setLinkDown,
   setHostTroubleSince,
+  setHostGaveUp,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -837,6 +843,8 @@ export function paneSnapshotEffect({
         runMode: () => automationCompose.current?.runMode(),
         setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
         cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+        blocked: () => automationCompose.current?.blocked?.(),
+        runPlace: () => automationCompose.current?.runPlace?.() ?? {},
       },
     },
   });
@@ -867,6 +875,11 @@ export function paneSnapshotEffect({
   /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
   let troubleSince: number | undefined;
   let connecting = false;
+  /// The loop stopped (hostRetry.ts `hostRetryStep`): no timer asks again; an event does
+  /// (`HOST_WAKE_EVENTS`), as does the line's Retry.
+  let stopped = false;
+  /// The host's `acpmux-daemon-answered` already asked once in this stop (hostRetry.ts `hostWakeAsks`).
+  let answerSpent = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
   // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
@@ -927,8 +940,6 @@ export function paneSnapshotEffect({
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
       acpWire.lifecycle("handshake", { reconnect });
-      setWaitingSince(Date.now());
-      setRestartUnavailable(false);
       const answered = await callNative<{
         protocolVersion: number;
         transport?: string;
@@ -973,6 +984,7 @@ export function paneSnapshotEffect({
         pickCloud?: unknown;
         /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
         cloudStartHandoff?: unknown;
+        autoCloudStartKey?: string;
         model?: unknown;
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -992,6 +1004,7 @@ export function paneSnapshotEffect({
       }
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
+      if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
       setCloudTeamMachine(host.cloudTeamMachine === true);
       const turnRewind =
         Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
@@ -1251,16 +1264,31 @@ export function paneSnapshotEffect({
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
-          // Quiet while it comes back: one quiet "Reconnecting…" line (HostRecoveringLine) until
-          // the handshakes fail past the deadline, then the waiting line or the failure.
+          // A drop alone says nothing: its reconnect usually lands. Only a failed attempt marks
+          // the link down (`linkDown`, the quiet chip).
           failingSince = Date.now();
-          setRelinkingSince(failingSince);
           troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
           setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
           const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
+          // Bounded: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is not asked
+          // again on a timer; the line says so with Retry, and an event asks again (`stopped`).
+          const step = lostRetryStep({
+            troubleForMs: failingSince - troubleSince,
+            upForMs: failingSince - connectedAt,
+            waitMs: lost.wait,
+          });
+          if (step.kind === "stop") {
+            stopped = true;
+            setHostGaveUp(true);
+            const failure = new Error("The agent service keeps closing this chat's connection.");
+            setHostError(failure.message);
+            setHostFailure(failure);
+            setHostErrorShown(true);
+            return;
+          }
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
           retryDelay = lost.next;
         },
@@ -1361,8 +1389,11 @@ export function paneSnapshotEffect({
       // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
       setHostError(undefined);
       setHostErrorShown(false);
+      stopped = false;
+      answerSpent = false;
+      setHostGaveUp(false);
       failingSince = undefined;
-      setRelinkingSince(undefined);
+      setLinkDown(false);
       setHostRestoring(undefined);
       setAcpmuxRestartOffered(false);
       catalogClientId.current += 1;
@@ -1769,8 +1800,12 @@ export function paneSnapshotEffect({
           }
           return client.editQueued(String(promptId), change);
         },
-        "chat.secret": ({ secretId, value }) =>
-          client.secret(String(secretId), typeof value === "string" ? value : undefined),
+        "chat.secret": ({ secretId, value, keepAs }) =>
+          client.secret(
+            String(secretId),
+            typeof value === "string" ? value : undefined,
+            typeof keepAs === "string" ? keepAs : undefined,
+          ),
         "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
           client.permission(
             String(permissionId),
@@ -2870,7 +2905,11 @@ export function paneSnapshotEffect({
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
-        setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
+        const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
+        setHostRestoring(restoring);
+        // The transport's word that the link is down: any failed attempt but a planned restart's
+        // (an update's handoff, a start under way), which ends when the restarted daemon answers.
+        if (restoring || !hostPlannedRestart(error)) setLinkDown(true);
         failingSince ??= Date.now();
         troubleSince ??= failingSince;
         setHostTroubleSince(troubleSince);
@@ -2886,8 +2925,14 @@ export function paneSnapshotEffect({
         // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
         // in flight asks again itself when it ends.
         // A reply too large to send is the same at every ask: only the line's Retry asks again.
-        if (!tooLarge && restartGate.mayAsk()) {
-          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
+        // Bounded (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
+        // stops; the line says why with Retry, and an event asks again (`stopped`).
+        const step = hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
+        // A chat too large to open gets the same reply at every ask: only the line's Retry asks again.
+        stopped = step.kind === "stop" && !tooLarge;
+        setHostGaveUp(stopped);
+        if (step.kind === "retry" && restartGate.mayAsk()) {
+          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
             retryDelay,
             reconnect || recovering,
@@ -2901,7 +2946,6 @@ export function paneSnapshotEffect({
       }
     } finally {
       connecting = false;
-      setWaitingSince(undefined);
       // The Retry this attempt ran for (`retryNow`) has its answer.
       setRetryQueued(false);
       if (retryPending) {
@@ -2938,9 +2982,22 @@ export function paneSnapshotEffect({
     retryPending = true;
     setRetryQueued(true);
   };
+  // A stopped loop asks once more on an event, never on a tick: the window shown or focused again,
+  // the network back, or the host's word that its agent service changed.
+  const wake = (event: Event) => {
+    if (cancelled || !restartGate.mayAsk()) return;
+    const hidden = document.visibilityState === "hidden";
+    if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
+    answerSpent = event.type === "acpmux-daemon-answered";
+    void connectHost();
+  };
+  for (const name of HOST_WAKE_EVENTS.document) document.addEventListener(name, wake);
+  for (const name of HOST_WAKE_EVENTS.window) window.addEventListener(name, wake);
   void connectHost();
   return () => {
     cancelled = true;
+    for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
+    for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
     window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     harnessSwitch.disconnect();
     setStartModeSource(undefined);
