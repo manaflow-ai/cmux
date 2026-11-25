@@ -10,6 +10,8 @@ pub mod folder;
 pub mod ledger;
 pub mod login;
 pub mod pin;
+pub mod place;
+pub mod priority;
 pub mod progress;
 pub mod seed;
 pub mod targets;
