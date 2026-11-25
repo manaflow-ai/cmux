@@ -44,7 +44,12 @@ public final class LayoutShiftProbe {
     private final class Ticker: NSObject {
         weak var probe: LayoutShiftProbe?
         init(_ probe: LayoutShiftProbe) { self.probe = probe }
-        @objc func tick() { MainActor.assumeIsolated { probe?.tick() } }
+        @objc func tick() {
+            // Capture the probe (main-actor, so Sendable), not this non-Sendable Ticker: Xcode 26.6 refuses
+            // "sending 'self' risks causing data races" for the closure that captured self.
+            let probe = probe
+            MainActor.assumeIsolated { probe?.tick() }
+        }
     }
 }
 
