@@ -19,10 +19,13 @@ import { backgroundReactionLook } from "../agent-session/acpmux/conversation/bac
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
+import { composerFooterFacts } from "../agent-session/acpmux/composerFooterFacts.experiment";
+import { composerMachineAtRest } from "../agent-session/acpmux/composerMachineAtRest.experiment";
 import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
+import { chatgptSignedInLook } from "../pages/shared/signIn/chatgptSignedIn.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
@@ -205,6 +208,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartQuietLook,
   cloudProgressLook,
   cloudStartAskLook,
+  chatgptSignedInLook,
   startRecoveryLook,
   agentStartLook,
   composerUnpop,
@@ -251,6 +255,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerControlsAnchor,
   cloudStartComposerLook,
+  composerFooterFacts,
+  composerMachineAtRest,
   cloudStartJustGo,
   cmuxLinkLook,
   sentPasteJoin,

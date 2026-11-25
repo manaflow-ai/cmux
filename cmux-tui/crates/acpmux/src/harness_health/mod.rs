@@ -184,6 +184,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "opencode" => "opencode auth login",
         // Cursor's CLI prints one cursor.com sign-in link (`agent_login`'s Cursor).
         "cursor" => "cursor-agent login",
+        "antigravity" => "agy acp --login",
         // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
