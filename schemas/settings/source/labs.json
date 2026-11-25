@@ -274,6 +274,59 @@
           ]
         },
         {
+          "key": "labs.commentThreads",
+          "name": "commentThreads",
+          "note": "Opt-in comment threads from the browser pane and terminal selections (goal all-surface-comments-round-trip): a design mode card's Send, and Comment… on a terminal selection, save the comment on the session host and send it in a threaded diff.comments.send (diff-comments-threads-v1), so the agent's reply comes back into the same thread. Off by default: the browser card sends as a chip and Comment… on a terminal selection stays unavailable, as before. Off while Leo's UI merge hold stands (2026-11-24, ask-82b08b7ed7).",
+          "title": {
+            "key": "settings.labs.commentThreads",
+            "text": "Comment Threads in Browser and Terminal"
+          },
+          "help": {
+            "key": "settings.labs.commentThreads.help",
+            "text": "Send browser and terminal comments to the chat as threads that show the agent's reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "comment",
+            "comments",
+            "thread",
+            "threads",
+            "browser",
+            "terminal",
+            "design",
+            "reply",
+            "agent"
+          ]
+        },
+        {
+          "key": "labs.previousBuild",
+          "name": "previousBuild",
+          "note": "Opt-in \"Go back to previous build\" row on Settings > Updates (UpdaterService+PreviousBuild, `cmux app use previous`): shows the build this Mac kept before the last update and offers to reinstall it. Off by default; off hides the row. Leo 2026-11-21: \"agents being able to just say \\\"actually let's go back to this other version :)\\\" and/or the user should be able to easily access it too\".",
+          "title": {
+            "key": "settings.labs.previousBuild",
+            "text": "Go Back to Previous Build"
+          },
+          "help": {
+            "key": "settings.labs.previousBuild.help",
+            "text": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "update",
+            "updates",
+            "rollback",
+            "previous",
+            "build",
+            "version",
+            "go back",
+            "downgrade"
+          ]
+        },
+        {
           "key": "labs.hostsSidebar",
           "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {
@@ -294,6 +347,29 @@
             "remote",
             "add",
             "terminal"
+          ]
+        },
+        {
+          "key": "labs.connectionsUpcoming",
+          "note": "Settings > Integrations > Connections also lists Slack and the Google servers (Gmail, Calendar, Drive, Docs, Sheets), which say Not set up until cmux's client for each is registered on the platform (cmux-tui cli/mcp_servers.rs `upcoming`). Off by default: the catalog shows only the servers a person can connect today. A connected one always shows.",
+          "title": {
+            "key": "settings.labs.connectionsUpcoming",
+            "text": "Upcoming Connections"
+          },
+          "help": {
+            "key": "settings.labs.connectionsUpcoming.help",
+            "text": "Lists Slack and Google in Connections before they can be connected."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "connections",
+            "integrations",
+            "slack",
+            "google",
+            "gmail",
+            "mcp"
           ]
         }
       ]

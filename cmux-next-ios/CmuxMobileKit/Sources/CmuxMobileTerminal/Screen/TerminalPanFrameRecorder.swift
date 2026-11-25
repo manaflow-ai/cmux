@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import Foundation
 import QuartzCore
 
 /// Times every display frame of one pan of the terminal, in every build (Release too), and
@@ -31,6 +32,11 @@ final class TerminalPanFrameRecorder {
     /// Terminal output arrived: counted only while a pan records.
     func output(_ bytes: Int) {
         if token != nil { tally.output(bytes) }
+    }
+
+    /// A frame was presented with `bytes` of session output parsed: kept only while a pan records.
+    func painted(_ bytes: Int) {
+        if token != nil { tally.painted(bytes, at: ProcessInfo.processInfo.systemUptime) }
     }
 
     /// Ends the pan, if one records (of `kind`, when given), and hands it over.

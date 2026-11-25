@@ -20,6 +20,13 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var buttons: [CmuxDialogButton]
     /// PNG or TIFF data for an icon (extension prompts); nil draws none.
     public var icon: Data?
+    /// Whether the card leads with an icon (the spec's, else the app's): false for a card whose title says what it
+    /// is (Add Machine), so no column sits empty beside its fields (Leo: "a symbol making space for ABSOLUTLEY NOTHING").
+    public var leadsWithIcon: Bool
+    /// What the card would otherwise say in a line under its title (what it does, a caveat): an info circle beside
+    /// the title shows it on hover, so the card reads as one title and its fields (Leo: "THERE ARE HOVERS AND
+    /// QUESTION MARK CIRCLES AND INFO CIRCLES"). Nil: no circle.
+    public var info: String?
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
     /// Where the buttons and check boxes go.
@@ -51,8 +58,8 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     }
 
     public init(usesTransientMaterial: Bool = false, title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard,
-                error: String? = nil) {
+                buttons: [CmuxDialogButton], icon: Data? = nil, leadsWithIcon: Bool = true, info: String? = nil,
+                identifier: String? = nil, layout: Layout = .standard, error: String? = nil) {
         self.usesTransientMaterial = usesTransientMaterial
         self.title = title
         self.lines = lines
@@ -60,6 +67,8 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.fields = fields
         self.buttons = buttons
         self.icon = icon
+        self.leadsWithIcon = leadsWithIcon
+        self.info = info
         self.identifier = identifier
         self.layout = layout
         self.error = error

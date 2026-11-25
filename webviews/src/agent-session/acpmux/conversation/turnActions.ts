@@ -6,11 +6,12 @@ export type TakeBack = "back" | "refused" | "failed";
 
 /// The sent prompt row's Retry and Fork (UserBubble.tsx), each null where that row would not offer
 /// it, handed to a waiting steer's queue row so the two rows draw the same buttons (PendingSteer.tsx).
-export type QueuedActions = { retry?: ReactNode; fork?: ReactNode; save?: ReactNode };
+export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
 
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
+import type { AnswerBlock } from "../subagents/restart";
 import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
@@ -89,6 +90,8 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// Why `answer` is absent (subagents/restart.ts `answerBlock`): the card says it in its last row.
+  answerBlock?: AnswerBlock;
   /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask
   /// quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
   asker?: string;
