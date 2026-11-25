@@ -19,6 +19,12 @@
 //!   into one chat while others stream) and `_acpmux/sessions` (`ls_ms`), and reads the daemon's
 //!   RSS and its zombie children. A `window` line per `PUBLISHED_BENCH_SOAK_WINDOW_SECS` (default
 //!   the duration / 8, at most an hour) shows drift; the end line has the whole run.
+//!   No soak: the run ticks the session's time forward (Leo, 2026-11-10: "And I fucking hate
+//!   soaks, by the way."). A paced calibration (`PUBLISHED_BENCH_SOAK_CALIBRATE_SECS`, default
+//!   30) measures the turns a second of the paced session ends, then the chats run back to back
+//!   and every probe, window and the end come at the turn counts the paced session reaches at
+//!   those seconds, so the 8 h session's turns run in minutes. The row's `wall_s` and `speedup`
+//!   say how long it took; `PUBLISHED_BENCH_SOAK_TICKED=0` is the wall-time run.
 //!
 //! Each prints `PUBLISHED-BENCH <json>` lines (schema `cmux.published-bench.v1`), which
 //! `scripts/measure/published-benches-linux.sh` collects with the move and build numbers.
@@ -40,6 +46,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "PUBLISHED_BENCH_SOAK_LOAD",
     "PUBLISHED_BENCH_SOAK_PROBE_SECS",
     "PUBLISHED_BENCH_SOAK_WINDOW_SECS",
+    "PUBLISHED_BENCH_SOAK_TICKED",
+    "PUBLISHED_BENCH_SOAK_CALIBRATE_SECS",
 ]);
 
 use serde_json::{Value, json};
@@ -396,19 +404,26 @@ fn fork() {
 fn soak() {
     let secs = knob("PUBLISHED_BENCH_SOAK_SECS", 120);
     let load = knob("PUBLISHED_BENCH_SOAK_LOAD", 8);
-    let probe_every = Duration::from_secs(knob("PUBLISHED_BENCH_SOAK_PROBE_SECS", 5).max(1));
-    let window =
-        Duration::from_secs(knob("PUBLISHED_BENCH_SOAK_WINDOW_SECS", (secs / 8).clamp(10, 3600)));
+    let probe_every = knob("PUBLISHED_BENCH_SOAK_PROBE_SECS", 5).max(1) as f64;
+    let window = knob("PUBLISHED_BENCH_SOAK_WINDOW_SECS", (secs / 8).clamp(10, 3600)) as f64;
+    // Ticked (the default): the session's clock is its turns, not the wall. A paced calibration
+    // (the wall run's own pacing) gives the turns a second of that session; then the loaders run
+    // back to back and every probe, window and the end fire at the turn counts the paced run
+    // would reach at those seconds. `PUBLISHED_BENCH_SOAK_TICKED=0` is the old wall-time run.
+    let ticked = knob("PUBLISHED_BENCH_SOAK_TICKED", 1) != 0;
+    let calibrate = Duration::from_secs(knob("PUBLISHED_BENCH_SOAK_CALIBRATE_SECS", 30).max(1));
     let bench = Bench::new("amx-pubsoak");
     let (daemon, _) = bench.start();
     let pid = daemon.pid();
     let stop = Arc::new(AtomicBool::new(false));
+    let paced = Arc::new(AtomicBool::new(true));
     let turns = Arc::new(AtomicU64::new(0));
     let turn_errors = Arc::new(AtomicU64::new(0));
     let mut threads = Vec::new();
     for n in 0..load {
         let (socket, work) = (bench.socket.clone(), bench.work.clone());
-        let (stop, turns, turn_errors) = (stop.clone(), turns.clone(), turn_errors.clone());
+        let (stop, paced, turns, turn_errors) =
+            (stop.clone(), paced.clone(), turns.clone(), turn_errors.clone());
         threads.push(std::thread::spawn(move || {
             let mut rpc = Rpc::connect(&socket);
             let id = rpc.new_session(&work);
@@ -427,22 +442,43 @@ fn soak() {
                     }
                 }
                 turns.fetch_add(1, Ordering::Relaxed);
-                std::thread::sleep(Duration::from_millis(250 + n * 10));
+                if paced.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(250 + n * 10));
+                }
             }
         }));
     }
     let mut probe = Rpc::connect(&bench.socket);
     let idle = probe.new_session(&bench.work);
     probe.prompt(&idle, "warm", Instant::now());
+    // Turns a second of the paced session: measured, in ticked mode, over `calibrate`.
+    let rate = if ticked {
+        let (from, at) = (turns.load(Ordering::Relaxed), Instant::now());
+        std::thread::sleep(calibrate);
+        let rate = (turns.load(Ordering::Relaxed) - from) as f64 / at.elapsed().as_secs_f64();
+        assert!(rate > 0.0, "no turn ended in the {}s paced calibration", calibrate.as_secs());
+        paced.store(false, Ordering::Relaxed);
+        rate
+    } else {
+        0.0
+    };
     let (rss_start, _) = rss_mb(pid);
     let started = Instant::now();
+    let turns_at_start = turns.load(Ordering::Relaxed);
+    // The session's seconds so far: the wall's, or (ticked) its turns at the paced rate.
+    let now = || {
+        if ticked {
+            (turns.load(Ordering::Relaxed) - turns_at_start) as f64 / rate
+        } else {
+            started.elapsed().as_secs_f64()
+        }
+    };
     let (mut input, mut ls) = (Vec::new(), Vec::new());
     let (mut w_input, mut w_ls) = (Vec::new(), Vec::new());
     let (mut rss_max, mut zombies_max, mut children_max) = (rss_start, 0u64, 0u64);
-    let mut window_start = Instant::now();
+    let (mut next_probe, mut next_window) = (0.0f64, window);
     let mut i = 0u64;
-    while started.elapsed() < Duration::from_secs(secs) {
-        let tick = Instant::now();
+    while now() < secs as f64 {
         let first = ms(probe.prompt(&idle, &format!("probe {i}"), Instant::now()));
         let from = Instant::now();
         probe.call("_acpmux/sessions", json!({}));
@@ -457,34 +493,55 @@ fn soak() {
         zombies_max = zombies_max.max(zombie);
         children_max = children_max.max(live);
         i += 1;
-        if window_start.elapsed() >= window {
+        if now() >= next_window {
             emit(
                 "soak-window",
-                json!({"elapsed_s": started.elapsed().as_secs(), "input_ms": stats(&w_input),
-                       "ls_ms": stats(&w_ls), "rss_mb": rss, "children": live, "zombies": zombie,
-                       "turns": turns.load(Ordering::Relaxed)}),
+                json!({"elapsed_s": now().round() as u64, "wall_s": started.elapsed().as_secs(),
+                       "input_ms": stats(&w_input), "ls_ms": stats(&w_ls), "rss_mb": rss,
+                       "children": live, "zombies": zombie, "turns": turns.load(Ordering::Relaxed)}),
             );
             w_input.clear();
             w_ls.clear();
-            window_start = Instant::now();
+            next_window += window;
         }
-        if let Some(rest) = probe_every.checked_sub(tick.elapsed()) {
-            std::thread::sleep(rest);
+        next_probe += probe_every;
+        // Wait for the session's next probe second: the wall's, or the turns that reach it.
+        while now() < next_probe.min(secs as f64) {
+            std::thread::sleep(if ticked {
+                Duration::from_millis(2)
+            } else {
+                Duration::from_secs_f64((next_probe - now()).clamp(0.001, probe_every))
+            });
         }
     }
+    let wall = started.elapsed().as_secs_f64();
+    let simulated = now();
     let (rss_end, rss_hwm) = rss_mb(pid);
     stop.store(true, Ordering::Relaxed);
     for t in threads {
         let _ = t.join();
     }
+    let what = if ticked {
+        format!(
+            "{load} chats streaming turns of 50 x 200 B, ticked: the turns of {secs} s of the paced session ({rate:.1} turns/s, 250 ms between a chat's turns, calibrated over {} s) back to back; a probe prompt on an idle chat to its first chunk every {probe_every} s of that session",
+            calibrate.as_secs()
+        )
+    } else {
+        format!(
+            "{load} chats streaming turns of 50 x 200 B for {secs} s; a probe prompt on an idle chat to its first chunk every {probe_every} s"
+        )
+    };
     emit(
         "soak",
-        json!({"what": format!("{load} chats streaming turns of 50 x 200 B for {secs} s; a probe prompt on an idle chat to its first chunk every {} s", probe_every.as_secs()),
-               "duration_s": started.elapsed().as_secs(), "load_chats": load,
+        json!({"what": what, "mode": if ticked { "ticked" } else { "wall" },
+               "duration_s": simulated.round() as u64, "wall_s": (wall * 10.0).round() / 10.0,
+               "speedup": ((simulated / wall.max(0.001)) * 10.0).round() / 10.0,
+               "paced_turns_per_s": (rate * 10.0).round() / 10.0, "load_chats": load,
                "input_ms": stats(&input), "ls_ms": stats(&ls),
                "rss_mb": {"start": rss_start, "end": rss_end, "max_sampled": rss_max, "hwm": rss_hwm},
                "children_max": children_max, "zombies_max": zombies_max,
-               "turns": turns.load(Ordering::Relaxed), "turn_errors": turn_errors.load(Ordering::Relaxed)}),
+               "turns": turns.load(Ordering::Relaxed) - turns_at_start,
+               "turn_errors": turn_errors.load(Ordering::Relaxed)}),
     );
     drop(probe);
     daemon.stop();

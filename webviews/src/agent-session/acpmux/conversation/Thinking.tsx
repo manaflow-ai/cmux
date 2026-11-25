@@ -365,7 +365,7 @@ function arriveMs(node: Element): number {
 
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
-/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
 /// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
@@ -615,34 +615,37 @@ export function Thinking({
   // 39 seconds").
   const waitFrom = waitAt === undefined ? stateChanged : Math.max(waitAt, stateChanged ?? waitAt);
   const decorative = thinkingNow && !silent;
+  const idleLabel = compacting
+    ? t(
+        liveCompaction?.reason === "account_switch"
+          ? "compaction.runningAccountSwitch"
+          : liveCompaction?.reason === CACHE_EXPIRY_REASON
+            ? "compaction.runningCacheExpiry"
+            : "turn.live.compacting",
+      )
+    : waitsOnAgents
+      ? subagentsLabel(t, liveAgents, liveAgentNames)
+      : writing
+        ? t("turn.live.writing")
+        : silent
+          ? waitingLabel(t, liveWait)
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")));
   const label =
     doing === undefined
-      ? compacting
-        ? t(
-            liveCompaction?.reason === "account_switch"
-              ? "compaction.runningAccountSwitch"
-              : liveCompaction?.reason === CACHE_EXPIRY_REASON
-                ? "compaction.runningCacheExpiry"
-                : "turn.live.compacting",
-          )
-        : waitsOnAgents
-          ? subagentsLabel(t, liveAgents, liveAgentNames)
-          : writing
-            ? t("turn.live.writing")
-            : silent
-              ? waitingLabel(t, liveWait)
-              : (turnVerb ??
-                (statusVerbConfig.mode === "custom"
-                  ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
-                  : t("thinking")))
+      ? idleLabel
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
           ? doing
-            ? t(done ? "tools.ranCommand" : "tools.runningCommand", { command: doing })
+            ? done
+              ? t("tools.ranCommand", { command: doing })
+              : doing
             : draft
               ? t("tools.writingCommand")
-              : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
+              : done
+                ? t("tools.ranUnnamed")
+                : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.

@@ -78,6 +78,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
+    /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
+    /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
+    @ObservationIgnored var onPaintReport: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
@@ -655,6 +658,7 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            onPaintReport?()
             let reloadWaiters = reloadPaintWaiters
             for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
             // The chat on screen is the live one: acpmux's settled view, or the page's attach to the chat
