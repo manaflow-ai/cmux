@@ -791,6 +791,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
+        let (head, rest) = makeEvents(holdHead: false)
+        assert(head.isEmpty)
+        return rest
+    }
+
+    /// The kept replay as the head, applied by the store in its init so a kept chat's first
+    /// frame has its turns (before, the store took them one main-actor hop later and the first
+    /// frame could be "Loading chat…").
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        makeEvents(holdHead: true)
+    }
+
+    private func makeEvents(holdHead: Bool) -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        var head: [AgentSessionEvent] = []
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // Flushing can exhaust the cache: decide whether to resync afterwards.
         flushOpenChunk()
@@ -798,7 +812,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let hub else {
                 continuation.yield(.clientError("Reconnect to load this chat."))
                 continuation.finish()
-                return stream
+                return (head, stream)
             }
             let source = hub.source(sessionID: sessionID, summary: summary)
             let upstream = source.events()
@@ -808,13 +822,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
-            return stream
+            return (head, stream)
         }
         // A reader made after the attach caught up starts current in the same batch.
-        if !replay.events.isEmpty {
-            continuation.yield(.batch(attached ? replay.events + [.historyLoading(false)] : replay.events))
-        } else if attached {
-            continuation.yield(.historyLoading(false))
+        let first: AgentSessionEvent? = !replay.events.isEmpty
+            ? .batch(attached ? replay.events + [.historyLoading(false)] : replay.events)
+            : attached ? .historyLoading(false) : nil
+        if let first {
+            if holdHead { head = [first] } else { continuation.yield(first) }
         }
         let id = UUID()
         continuations[id] = continuation
@@ -825,7 +840,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 self?.readerLeft()
             }
         }
-        return stream
+        return (head, stream)
     }
 
     /// A reader's stream ended (its chat closed, or ``dropKept()`` ended it): with no reader left,
@@ -2002,6 +2017,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     // What is before the first prompt belongs to an older turn: it comes with
                     // that turn's page, never twice.
                     out.page.removeFirst(first)
+                } else if let opener = out.result["turnOpener"], Self.isPrompt(opener),
+                          let seq = opener["seq"]?.numberValue {
+                    // acpmux read the turn's prompt with the page (cmux-tui
+                    // `requests/turn_opener.rs`): the page has its turn with no read of its own.
+                    // An older Mac sends none (or null when its read found none): the read below.
+                    out.page = [opener] + out.page
+                    out.earlier = seq > 1
                 } else if let oldest = out.page.first?["seq"]?.numberValue {
                     // The page is inside one turn longer than itself (a long run): its prompt
                     // alone is read, so the page has a turn to go in. Without it the chat

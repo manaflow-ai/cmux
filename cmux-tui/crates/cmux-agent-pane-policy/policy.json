@@ -110,7 +110,7 @@
     "_acpmux/peer_snapshot": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/peer_reconnect": {"params": ["name", "wait"], "acpmux": []},
     "_acpmux/retry": {"params": ["sessionId", "subagentId"], "acpmux": []},
-    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], "acpmux": []},
+    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "quietHidden", "waitLogs", "settled", "hold", "afterSeq"], "acpmux": []},
     "_acpmux/detach": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/view": {"params": ["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"], "acpmux": []},
     "_acpmux/seen": {"params": ["sessionId", "seq"], "acpmux": []},
