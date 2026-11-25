@@ -13,7 +13,7 @@
   grid-template-rows: 32px 26px 34px minmax(0, 1fr) 24px 34px 28px;
   height: min(374px, 74vh);
   min-height: 260px;
-  padding: 12px;
+  padding: 16px;
   box-sizing: border-box;
   color: var(--agent-text);
   font-family: var(--font-ui); font-size: var(--text-body); line-height: var(--text-body--line-height);
