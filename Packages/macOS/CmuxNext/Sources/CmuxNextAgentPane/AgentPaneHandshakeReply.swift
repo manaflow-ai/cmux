@@ -50,6 +50,7 @@ enum AgentPaneHandshakeReply {
                 if seed.showsHarnesses { handshake.harnesses = true }
                 if seed.picksCloud { handshake.pickCloud = true }
                 handshake.cloudStartHandoff = seed.cloudStartHandoff
+                handshake.autoCloudStartKey = seed.autoCloudStartKey
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload
@@ -134,6 +135,9 @@ enum AgentPaneHandshakeReply {
             // The web pane shows nothing while a daemon starts or restarts and its retries can
             // outlast it (``AgentPaneHostError/isTransient``); a refusal they cannot is said at once.
             if (error as? AgentPaneHostError)?.isTransient == true { details["reconnecting"] = true }
+            // A restart the host carries out (an update's handoff, a start under way): the page's
+            // link is not down, so it shows no chip (webviews hostRetry.ts `hostPlannedRestart`).
+            if (error as? AgentPaneHostError)?.isPlannedRestart == true { details["handoff"] = true }
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
             // A daemon another binary runs holds this app's socket: the page offers Restart acpmux
@@ -163,17 +167,4 @@ enum AgentPaneHandshakeReply {
         guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
         model.acpmuxRestartOffered = nil
         return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
-    }
-
-    /// `acpmux.restartStuck`: the waiting line's "Restart agent service", while the page's
-    /// handshake waits for this app's acpmux. The person decides; the app never restarts a daemon
-    /// that is only slow on its own (rule R5). Page script cannot make a gesture, and the host
-    /// stops a daemon only while a lookup waits on it. Answers `{stopped}`; the page then asks for
-    /// a handshake again, which starts a new daemon.
-    static func restartStuckAcpmux(in model: AgentPaneModel) async -> [String: Any] {
-        guard model.transport.gestures.consume() else {
-            return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
-        }
-        return AgentPaneReply.success(["stopped": await model.host.restartStuckAcpmux(sessionId: model.sessionId)])
-    }
-}
+    }}

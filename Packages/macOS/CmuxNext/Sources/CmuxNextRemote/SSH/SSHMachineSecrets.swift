@@ -151,7 +151,6 @@ final class SSHPTYRun: Sendable {
         self.changes = changes
         let exit = ExitSignal()
         self.exit = exit
-        process.terminationHandler = { _ in exit.fire() }
         input = stdinPipe.fileHandleForWriting.fileDescriptor
         // A write after ssh ended fails with EPIPE instead of signalling the app.
         _ = fcntl(input, F_SETNOSIGPIPE, 1)
@@ -174,7 +173,48 @@ final class SSHPTYRun: Sendable {
             changed.yield()
         }
         running = Mutex(Running(process: process, stdin: stdinPipe, stdout: stdoutPipe))
-        try running.withLock { try $0.process.run() }
+        // ssh's exit ends the run's pipes too, not only a ``stop()``: a delivery that never calls close (a
+        // throw between start and close, a caller that dropped the link) left both pipes open for the app's
+        // life, and an ssh ControlPersist master inherits stdout, so no end of file ever came either
+        // (cmuxterm-hq#8747, the NIGHTLY that held ~2,000 pipes).
+        // Holds the run (not weak) until ssh exits, so a dropped run still closes its ends; clearing the
+        // handler then breaks process -> handler -> run.
+        let ended: @Sendable (Process) -> Void = { [self] finished in
+            finished.terminationHandler = nil
+            exit.fire()
+            // The shared drain grace; the ends close here, under the lock, not by ChildOutputEnds itself.
+            ChildOutputEnds.closeAfterExit(reading: []) {
+                self.closeEnds()
+                changed.finish()
+            }
+        }
+        OpenDescriptors.noteBudgetSoon()
+        do {
+            try running.withLock { running in
+                running.process.terminationHandler = ended
+                try running.process.run()
+            }
+        } catch {
+            running.withLock { running in
+                running.process.terminationHandler = nil
+                running.stopped = true
+                ChildOutputEnds.closeNow(pipes: [running.stdin, running.stdout])
+            }
+            throw error
+        }
+    }
+
+    /// Closes both of this app's pipe ends once, under the lock that ``type(_:seconds:)`` writes under, so
+    /// no write reaches a descriptor number the close freed for something else. Returns whether this call
+    /// closed them (false once a stop or an earlier exit did).
+    @discardableResult
+    private func closeEnds() -> Bool {
+        running.withLock { running in
+            guard !running.stopped else { return false }
+            running.stopped = true
+            ChildOutputEnds.closeNow(reading: [running.stdout.fileHandleForReading], writing: [running.stdin.fileHandleForWriting])
+            return true
+        }
     }
 
     /// The output so far once it matches `pattern`; throws when the run ends first or `seconds` pass.
@@ -206,12 +246,18 @@ final class SSHPTYRun: Sendable {
             guard let base = raw.baseAddress else { return true }
             var offset = 0
             while offset < raw.count {
-                guard !Task.isCancelled, !self.running.withLock({ $0.stopped }) else { return false }
-                // concurrency-allow: @concurrent, and the descriptor is O_NONBLOCK with a poll deadline: never the main thread, never unbounded
-                let wrote = Darwin.write(fd, base + offset, raw.count - offset)
+                guard !Task.isCancelled else { return false }
+                // Under the lock a close takes: once stopped (a stop, or ssh's exit closing the ends) the
+                // descriptor number may belong to something else, so no write after it.
+                let (wrote, error) = self.running.withLock { running -> (Int, Int32) in
+                    guard !running.stopped else { return (0, EPIPE) }
+                    // concurrency-allow: @concurrent, and the descriptor is O_NONBLOCK with a poll deadline: never the main thread, never unbounded
+                    let wrote = Darwin.write(fd, base + offset, raw.count - offset)
+                    return (wrote, wrote < 0 ? errno : 0)
+                }
                 if wrote > 0 { offset += wrote; continue }
-                guard wrote < 0, errno == EINTR || errno == EAGAIN else { return false }
-                if errno == EINTR { continue }
+                guard wrote < 0, error == EINTR || error == EAGAIN else { return false }
+                if error == EINTR { continue }
                 // Full: wait for room in slices of at most a second, so a stop or a cancel is seen soon.
                 let left = deadline - ContinuousClock.now
                 guard left > .zero else { return false }
@@ -239,7 +285,8 @@ final class SSHPTYRun: Sendable {
             if running.process.isRunning { running.process.terminate() }
             return (running.process, running.stdout.fileHandleForReading)
         }
-        guard let first else { return }
+        // Already stopped, or ssh exited and its ends closed: still return only once ssh has exited.
+        guard let first else { await exit.ended(); return }
         let pid = first.process.processIdentifier
         // Its own task, so a cancelled delivery still ends ssh: no stopped run leaves an ssh, its pipes or
         // the machine's pty behind. An ssh still running 3 s after the hang-up is killed.

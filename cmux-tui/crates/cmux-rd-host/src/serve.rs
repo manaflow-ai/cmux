@@ -396,6 +396,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     match crate::desktop::displays(&display) {
         Ok((sizes, current, ids)) => say(AppLine {
             displays: Some(sizes),
+            // The windows the viewer may share one of (the setup line's `window`).
+            windows: Some(crate::desktop::windows()),
             current: Some(current),
             display_ids: (!ids.is_empty()).then_some(ids),
             ..AppLine::default()
@@ -498,11 +500,17 @@ fn session_cfg(
     // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
     // one cap, the congestion controller's `max_bps`.
     let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
-    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
-    let start_kbps = crate::serve_wish::start_kbps(
-        opts.num_or("start-kbps", default_start_kbps(None, None, None, max_kbps))?,
-        max_kbps,
-    );
+    // `--pin-kbps N` (bench builds) holds the controller at N: start, floor and ceiling.
+    let pin_kbps = crate::host::pin_kbps(opts)?;
+    let max_kbps =
+        pin_kbps.unwrap_or_else(|| crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps));
+    let start_kbps = match pin_kbps {
+        Some(pin) => pin,
+        None => crate::serve_wish::start_kbps(
+            opts.num_or("start-kbps", default_start_kbps(None, None, None, max_kbps))?,
+            max_kbps,
+        ),
+    };
     Ok(SessionCfg {
         display,
         display_pick: setup.display.clone(),
@@ -511,6 +519,7 @@ fn session_cfg(
         encode_profile,
         start_kbps,
         max_kbps,
+        pin_kbps,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
@@ -700,13 +709,16 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
-    cfg.start_kbps = crate::serve_wish::start_kbps(
-        opts.num_or(
-            "start-kbps",
-            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
-        )?,
-        cfg.max_kbps,
-    );
+    // A pinned rate (`--pin-kbps`) keeps its start; else the path sets it.
+    if cfg.pin_kbps.is_none() {
+        cfg.start_kbps = crate::serve_wish::start_kbps(
+            opts.num_or(
+                "start-kbps",
+                default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
+            )?,
+            cfg.max_kbps,
+        );
+    }
     // Enough frames in flight to cover the path's round trip, at least two: the next
     // frame encodes while the last one waits for its acknowledgement.
     cfg.frames_in_flight = carrier
