@@ -76,7 +76,7 @@ fn the_palette_matches_the_per_row_options() {
 
 #[test]
 fn a_pending_value_is_the_palette_s_current_one() {
-    let key = "terminal.cursorStyle";
+    let key = "editor.cursorStyle";
     let pending = rows(json!({
         "root": {}, "keys": [key], "palette": {"current": {key: "underline"}},
     }));
