@@ -161,6 +161,10 @@ impl LocalStore {
                 return Err(e);
             }
             let before = seg.written.fetch_add(line.len() as u64, Ordering::AcqRel);
+            // Counted over the whole log, not this segment: the segments before this one each
+            // hold about `segment_bytes`, so a store whose segments are smaller than a mark, or
+            // no multiple of one, still passes every mark.
+            let before = u64::from(seg.index).saturating_mul(self.segment_bytes) + before;
             *grown = before / GROWN_EVERY != (before + line.len() as u64) / GROWN_EVERY;
             return Ok(());
         }
