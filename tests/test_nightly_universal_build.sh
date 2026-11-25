@@ -69,8 +69,8 @@ if ! grep -Fq 'cron: "17 */6 * * *"' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq 'cron: "17 * * * *"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must publish once daily at 08:47 UTC"
+if ! grep -Fq 'cron: "2,17,32,47 * * * *"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must publish main on the 15-minute tick"
   exit 1
 fi
 
@@ -79,9 +79,9 @@ if ! awk '
   in_push && /^  [a-zA-Z0-9_-]+:/ { in_push=0 }
   in_push && /^    branches:/ { saw_branches=1 }
   in_push && /^      - main$/ { saw_main=1 }
-  END { exit !(saw_branches && saw_main) }
+  END { exit !(saw_branches && !saw_main) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: every push to main must trigger a Nightly publication attempt"
+  echo "FAIL: a push to main must start no Nightly run; the 15-minute tick publishes main"
   exit 1
 fi
 
@@ -157,7 +157,7 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   exit 1
 fi
 
-if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *')" "$WORKFLOW_FILE"; then
+if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *')" "$WORKFLOW_FILE"; then
   echo "FAIL: manual runs and the daily publish schedule must sign, notarize, and publish Nightly"
   exit 1
 fi
@@ -933,7 +933,7 @@ job_if() {
     in_job && /^    if: / { print; exit }
   ' "$WORKFLOW_FILE"
 }
-PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '17 * * * *')"
+PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *')"
 if [ "$(job_if build-nightly-app)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'\"" ] \
