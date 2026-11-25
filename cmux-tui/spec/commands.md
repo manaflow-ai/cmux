@@ -386,7 +386,7 @@ build with a later time, never back to an older one.
 The conversations-only remote `identify` remains restricted to `app`, `protocol`
 and `capabilities`.
 
-With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
+With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, at once when a connection that wrote a native frontend projection closes (the app quit, crashed or was killed) and on `flush-launch-snapshot` (`launch-snapshot-flush-v1`), and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
@@ -1696,6 +1696,38 @@ object{frontend:string,scope:string,subject_key:string,schema_version:uint32,pro
 
 Missing projections return revision/schema `0` and `projection:null`.
 Documents larger than 1 MiB are rejected.
+
+### flush-launch-snapshot
+
+| Field | Value |
+| --- | --- |
+| name | `flush-launch-snapshot` |
+| status | implemented |
+| since | protocol 12 |
+| capability | `launch-snapshot-flush-v1` |
+
+Writes the launch snapshot (`launch-snapshot-v1`, see `identify`) now, with no
+settle, max delay or byte-budget wait, and answers once it landed or after 1 s.
+A relaunch on the same daemon then draws the frontend's last save in its first
+frame and not the write before it. The daemon does the same on its own when a
+connection that wrote a native frontend projection (any `put-frontend-projection`
+frontend but `resource-api`) closes, which covers a quit, a force quit, a crash
+and a kill of the app with no request; this command is for a client that wants
+the answer. Every other change keeps the settled timing. One request is one
+write; the file is not rewritten when it already holds the same state.
+
+Params: none.
+
+Result:
+
+```text
+object{flushed:boolean}
+```
+
+`flushed` is true when the file holds the session's state as of the request
+(written now, or already the same); false when the session has no launch
+snapshot writer (no durable registry), the write failed, or the wait passed
+(the write still happens).
 
 ### journal-frontend-event
 

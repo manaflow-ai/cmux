@@ -441,6 +441,7 @@
       "feed-local-list",
       "feed-local-read",
       "float-pane",
+      "flush-launch-snapshot",
       "focus-direction",
       "focus-pane",
       "forget-session",

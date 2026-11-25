@@ -11,5 +11,5 @@ description = "Loopback URLs a dev server prints, the TCP connect that confirms 
 workspace = true
 
 [dependencies]
-regex.workspace = true
+regex-automata.workspace = true
 url.workspace = true
