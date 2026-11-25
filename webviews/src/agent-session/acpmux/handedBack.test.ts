@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test } from "vitest";
 import { noteHandedBack, onHandedBackRecorded, promptRecorded, withoutHandedBack } from "./handedBack";
 
 const heard: string[] = [];

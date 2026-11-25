@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { heldReason, queueSummary, uniqueById } from "./composerQueueModel";
+import { heldReason } from "./composerQueueModel";
 
 describe("heldReason", () => {
   test("a held prompt waits on the person (trust) or on nothing they can do (wait)", () => {
@@ -11,6 +11,8 @@ describe("heldReason", () => {
     expect(heldReason({ waking: true })).toBeUndefined();
   });
 });
+
+import { queueSummary, uniqueById } from "./composerQueueModel";
 
 describe("uniqueById", () => {
   test("a prompt listed twice draws once, at its first place", () => {
