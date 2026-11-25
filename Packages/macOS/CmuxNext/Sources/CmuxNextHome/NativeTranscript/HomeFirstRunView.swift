@@ -119,6 +119,14 @@ final class HomeFirstRunView: NSView {
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 6
+        // The stack is sized by frame (`layout()`), and it is still at its zero frame when the
+        // engine first solves the parts' fixed widths and heights: with required edges every new
+        // Home logged three or more "Unable to simultaneously satisfy constraints" on the main
+        // thread (hero, starters and Switching card against a 0 x 0 stack). Just below required
+        // the zero-size pass clips instead; 999 still beats the fitting-size compression, so
+        // `fittingSize` and the resting column are the same.
+        stack.setClippingResistancePriority(.init(999), for: .horizontal)
+        stack.setClippingResistancePriority(.init(999), for: .vertical)
         arrange()
         addSubview(stack)
         setAccessibilityElement(false)
