@@ -66,7 +66,6 @@ export const CUSTOMIZATIONS: readonly Customization[] = [
     line: "The message box is a capsule, like the send pop.",
     author: "Leo",
     source: { kind: "preference" },
-    conflictsWith: "compact",
   },
   {
     id: "blocks",
@@ -88,6 +87,7 @@ export const CUSTOMIZATIONS: readonly Customization[] = [
     line: "A sidebar chip listing the unmerged code in this build.",
     author: "Leo",
     source: { kind: "pr", number: 52934, merged: false },
+    conflictsWith: "compact",
   },
 ];
 

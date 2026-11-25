@@ -5,12 +5,38 @@
   gap: var(--ds-space-3);
   color: var(--ds-color-fg);
   font: inherit;
+  container: studio / inline-size;
 }
+/* The header holds the trial too (Revert and Keep take the Try button's slot), so starting or ending
+   a trial tints it and moves nothing below it. */
 .studio-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--ds-space-3);
+  min-height: 48px;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-card);
+  background: var(--ds-surface-card);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-header[data-trying] {
+  background: color-mix(in oklab, var(--ds-color-accent) 14%, var(--ds-surface-card));
+}
+.studio-header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.studio-header-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-header-actions {
+  display: flex;
+  flex: none;
+  gap: var(--ds-space-2);
 }
 .studio-header h2,
 .studio-detail h3,
@@ -42,6 +68,7 @@
   color: var(--ds-color-on-accent);
 }
 .studio-switch {
+  display: block;
   flex: none;
   width: 32px;
   height: 20px;
@@ -83,18 +110,6 @@
   background: color-mix(in oklab, var(--ds-color-accent) 18%, transparent);
   color: var(--ds-color-accent);
 }
-.studio-trial {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--ds-radius-card);
-  background: color-mix(in oklab, var(--ds-color-accent) 14%, var(--ds-surface-card));
-}
-.studio-trial span {
-  flex: 1;
-}
-
 /* The live preview: a small cmux window. Every customization is one class on it. */
 .mini-cmux {
   --mini-accent: var(--ds-color-accent);
@@ -122,6 +137,10 @@
 .mini-cmux-thumb .mini-sidebar {
   padding: var(--ds-space-1);
 }
+.mini-sidebar {
+  container: mini-sidebar / inline-size;
+  flex: none;
+}
 .mini-row {
   aspect-ratio: 8 / 1;
   border-radius: var(--ds-radius-sm);
@@ -143,6 +162,13 @@
 .mini-cmux-thumb .mini-chip {
   font-size: 0;
   aspect-ratio: 10 / 1;
+}
+/* A sidebar too narrow for the chip's words draws it as a bar: never half a word. */
+@container mini-sidebar (width < 64px) {
+  .mini-chip {
+    font-size: 0;
+    aspect-ratio: 6 / 1;
+  }
 }
 .mini-main {
   display: flex;
@@ -262,6 +288,25 @@
   }
 }
 
+/* The part a picture is about, outlined: a thumbnail of a capsule composer or a tighter sidebar is
+   otherwise the same grey window as its neighbour. */
+.mini-cmux[data-focus="round"] .mini-composer,
+.mini-cmux[data-focus="blocks"] .mini-bubble-new,
+.mini-cmux[data-focus="compact"] .mini-sidebar,
+.mini-cmux[data-focus="glass"] .mini-sidebar,
+.mini-cmux[data-focus="standup"] .mini-chip,
+.mini-cmux[data-focus="yours"] .mini-welcome,
+.mini-cmux[data-focus="ember"] .mini-row-on {
+  outline: 1px solid var(--mini-accent);
+  outline-offset: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mini-cmux.fx-motion,
+  .mini-cmux.fx-blocks .mini-bubble-new {
+    animation: none;
+  }
+}
+
 .studio-before-after {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -305,12 +350,12 @@
 }
 .studio-setups-shelf {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: var(--ds-space-2);
 }
 .studio-setup-card {
   display: grid;
-  grid-template-columns: 96px 1fr auto;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--ds-space-2);
   padding: var(--ds-space-2);
@@ -353,6 +398,9 @@
   border: 1px solid var(--ds-surface-card-line);
   border-radius: var(--ds-radius-card);
   background: var(--ds-surface-card);
+  position: sticky;
+  top: var(--ds-space-3);
+  align-self: start;
 }
 .studio-detail p {
   margin: 0;
@@ -373,37 +421,61 @@
 .studio-manager-head {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1);
-  padding-bottom: var(--ds-space-2);
+  gap: var(--ds-space-2);
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
+}
+/* The setups as one segmented track, the same shape as Settings' segmented toggles. */
+.studio-track {
+  display: flex;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-surface-inset);
 }
 .studio-segment {
   height: var(--ds-control-compact);
   padding: 0 var(--ds-space-2);
-  border: 1px solid var(--ds-surface-control-line);
-  border-radius: 999px;
+  border: none;
+  border-radius: calc(var(--ds-radius-control) - var(--grid-half-step));
   background: transparent;
-  color: inherit;
+  color: var(--cmux-text-secondary);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 .studio-segment[aria-pressed="true"] {
-  background: var(--ds-color-accent);
-  border-color: transparent;
-  color: var(--ds-color-on-accent);
+  background: var(--ds-surface-card);
+  color: var(--ds-color-fg);
+}
+/* "Custom" keeps its width when hidden, so the head does not shift as switches flip. */
+.studio-custom:not([data-shown]) {
+  visibility: hidden;
 }
 .studio-manager ul,
 .studio-setups ul {
+  display: flex;
+  flex-direction: column;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.studio-manager li,
-.studio-setups li {
+.studio-row {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  padding: var(--ds-space-2) 0;
-  border-bottom: 1px solid var(--ds-color-separator);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: none;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-row:hover,
+li[data-peeked] > .studio-row {
+  background: var(--ds-surface-hover);
 }
 .studio-manager-text {
   display: flex;
@@ -411,10 +483,23 @@
   flex-direction: column;
   min-width: 0;
 }
+.studio-manager-text .studio-card-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .studio-manager-preview {
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-2);
+  position: sticky;
+  top: var(--ds-space-3);
+  align-self: start;
+}
+.studio-peek-name {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
 }
 
 /* Setups. */
@@ -429,9 +514,10 @@
   gap: var(--ds-space-2);
 }
 .studio-person {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--ds-space-2);
   padding: var(--ds-space-2);
   border: 1px solid var(--ds-surface-card-line);
   border-radius: var(--ds-radius-card);
@@ -441,8 +527,22 @@
   text-align: left;
   cursor: pointer;
 }
+.studio-person .mini-cmux {
+  grid-row: 1 / span 2;
+}
+.studio-person strong {
+  align-self: end;
+}
+.studio-person .studio-muted {
+  align-self: start;
+  font-size: 12px;
+}
 .studio-person-picked {
   border-color: var(--ds-color-accent);
+}
+.studio-setups-body > .mini-cmux {
+  position: sticky;
+  top: var(--ds-space-3);
 }
 .studio-setups-body {
   display: grid;
@@ -458,4 +558,25 @@
 .studio-actions {
   display: flex;
   gap: var(--ds-space-2);
+}
+
+/* A pane narrower than two columns: the live window goes on top and the list under it, each the
+   pane's full width, instead of two columns that fold their text a word a line. */
+@container studio (width < 600px) {
+  .studio-store,
+  .studio-manager,
+  .studio-setups-body,
+  .studio-setups-people {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-manager-preview,
+  .studio-setups-body > .mini-cmux,
+  .studio-detail {
+    position: static;
+    order: -1;
+  }
+  .studio-manager-preview .studio-before-after,
+  .studio-peek-name {
+    display: none;
+  }
 }

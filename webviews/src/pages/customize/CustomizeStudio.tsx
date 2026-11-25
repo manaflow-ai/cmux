@@ -21,16 +21,25 @@ import {
 export type StudioLayout = "store" | "manager" | "setups";
 
 /** A small cmux window: a sidebar of sessions, a chat with two messages and a composer. */
-export function MiniCmux({ on, size = "large" }: { on: ReadonlySet<Effect>; size?: "large" | "thumb" }) {
+export function MiniCmux({
+  on,
+  size = "large",
+  focus,
+}: {
+  on: ReadonlySet<Effect>;
+  size?: "large" | "thumb";
+  /** The customization this picture is about: the part it changes is outlined. */
+  focus?: Effect;
+}) {
   const classes = ["mini-cmux", `mini-cmux-${size}`, ...[...on].map((effect) => `fx-${effect}`)];
   return (
-    <div className={classes.join(" ")} aria-hidden="true">
+    <div className={classes.join(" ")} data-focus={focus} aria-hidden="true">
       <div className="mini-sidebar">
         <span className="mini-row mini-row-on" />
         <span className="mini-row" />
         <span className="mini-row" />
         <span className="mini-row" />
-        {on.has("standup") && <span className="mini-chip">3 PRs in build</span>}
+        {on.has("standup") && <span className="mini-chip">3 PRs</span>}
       </div>
       <div className="mini-main">
         <div className="mini-titlebar" />
@@ -55,14 +64,64 @@ function BeforeAfter({ base, id }: { base: ReadonlySet<Effect>; id: Effect }) {
   return (
     <div className="studio-before-after">
       <figure>
-        <MiniCmux on={without} size="thumb" />
+        <MiniCmux on={without} size="thumb" focus={id} />
         <figcaption>Before</figcaption>
       </figure>
       <figure>
-        <MiniCmux on={withIt} size="thumb" />
+        <MiniCmux on={withIt} size="thumb" focus={id} />
         <figcaption>After</figcaption>
       </figure>
     </div>
+  );
+}
+
+/** The track alone, for a row that is itself the switch button. */
+function sameSet(a: ReadonlySet<Effect>, b: readonly Effect[]) {
+  return a.size === b.length && b.every((id) => a.has(id));
+}
+
+function SwitchTrack({ on }: { on: boolean }) {
+  return <span className={on ? "studio-switch studio-switch-on" : "studio-switch"} />;
+}
+
+/** One customization as one button: the whole row flips it, so a fast pointer cannot miss. */
+function SwitchRow({
+  item,
+  on,
+  prefix,
+  line,
+  onChange,
+  onPeek,
+  peeked,
+}: {
+  item: Customization;
+  on: boolean;
+  prefix?: string;
+  line?: string;
+  onChange: (next: boolean) => void;
+  onPeek?: () => void;
+  peeked?: boolean;
+}) {
+  return (
+    <li data-customization={item.id} data-peeked={peeked || undefined}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        className="studio-row"
+        onClick={() => onChange(!on)}
+        onPointerEnter={onPeek}
+        onFocus={onPeek}
+      >
+        <span className="studio-manager-text">
+          <span className="studio-card-name">
+            {prefix ? `${prefix} ${item.name}` : item.name} <SourcePill item={item} />
+          </span>
+          <span className="studio-card-line">{line ?? item.line}</span>
+        </span>
+        <SwitchTrack on={on} />
+      </button>
+    </li>
   );
 }
 
@@ -86,27 +145,12 @@ function SourcePill({ item }: { item: Customization }) {
   );
 }
 
-/** The bar a trial shows: what is being tried, and Keep or Revert (the macOS display-change pattern). */
-function TrialBar({ setup, onKeep, onRevert }: { setup: Setup; onKeep: () => void; onRevert: () => void }) {
-  return (
-    <div className="studio-trial" role="status">
-      <span>
-        Trying <strong>{setup.name}</strong>. It reverts when you quit unless you keep it.
-      </span>
-      <button type="button" className="studio-button" onClick={onRevert}>
-        Revert
-      </button>
-      <button type="button" className="studio-button studio-button-primary" onClick={onKeep}>
-        Keep
-      </button>
-    </div>
-  );
-}
-
 type StudioState = {
   on: Set<Effect>;
   kept: Set<Effect>;
   trying: Setup | null;
+  /** Counts keeps, reverts and tries: a layout that froze a comparison re-reads it when this moves. */
+  epoch: number;
 };
 
 function useStudio(initial: { on: readonly Effect[]; trying?: string }) {
@@ -116,6 +160,7 @@ function useStudio(initial: { on: readonly Effect[]; trying?: string }) {
     on: trying ? new Set(trying.on) : start,
     kept: start,
     trying,
+    epoch: 0,
   });
   return {
     ...state,
@@ -126,9 +171,15 @@ function useStudio(initial: { on: readonly Effect[]; trying?: string }) {
         else on.delete(id);
         return { ...before, on, kept: before.trying ? before.kept : on };
       }),
-    tryOn: (setup: Setup) => setState((before) => ({ ...before, on: new Set(setup.on), trying: setup })),
-    keep: () => setState((before) => ({ ...before, kept: before.on, trying: null })),
-    revert: () => setState((before) => ({ ...before, on: before.kept, trying: null })),
+    tryOn: (setup: Setup) =>
+      setState((before) => ({
+        ...before,
+        on: new Set(setup.on),
+        trying: setup,
+        epoch: before.epoch + 1,
+      })),
+    keep: () => setState((before) => ({ ...before, kept: before.on, trying: null, epoch: before.epoch + 1 })),
+    revert: () => setState((before) => ({ ...before, on: before.kept, trying: null, epoch: before.epoch + 1 })),
   };
 }
 
@@ -166,7 +217,7 @@ function StoreLayout({ studio, selected: initialSelected }: { studio: Studio; se
               data-customization={entry.id}
               onClick={() => setSelected(entry.id)}
             >
-              <MiniCmux on={new Set([entry.id])} size="thumb" />
+              <MiniCmux on={new Set([entry.id])} size="thumb" focus={entry.id} />
               <span className="studio-card-name">
                 {entry.name}
                 {studio.on.has(entry.id) && <span className="studio-on-dot" aria-label="On" />}
@@ -189,7 +240,7 @@ function StoreLayout({ studio, selected: initialSelected }: { studio: Studio; se
         <p>{item.line}</p>
         <BeforeAfter base={studio.on} id={item.id} />
         <h4>Live</h4>
-        <MiniCmux on={studio.on} />
+        <MiniCmux on={studio.on} focus={item.id} />
       </aside>
     </div>
   );
@@ -200,60 +251,54 @@ function StoreLayout({ studio, selected: initialSelected }: { studio: Studio; se
  * managers' load order and conflict lines). */
 function ManagerLayout({ studio }: { studio: Studio }) {
   const conflicts = liveConflicts(studio.on);
-  const [peek, setPeek] = useState<Effect | null>(null);
+  // The row last pointed at or focused. It is never cleared, so its before/after keeps its place
+  // and a pointer flicked across the list swaps pictures without moving anything.
+  const [peek, setPeek] = useState<Effect>(CUSTOMIZATIONS[0]!.id);
+  const current = SETUPS.find((setup) => sameSet(studio.on, setup.on));
   return (
     <div className="studio-manager">
       <div className="studio-manager-list">
         <div className="studio-manager-head">
           <span className="studio-muted">Setup</span>
-          {SETUPS.map((setup) => (
-            <button
-              key={setup.id}
-              type="button"
-              className="studio-segment"
-              data-setup={setup.id}
-              aria-pressed={studio.trying?.id === setup.id}
-              onClick={() => studio.tryOn(setup)}
-            >
-              {setup.name}
-            </button>
-          ))}
+          <div className="studio-track" role="group" aria-label="Setup">
+            {SETUPS.map((setup) => (
+              <button
+                key={setup.id}
+                type="button"
+                className="studio-segment"
+                data-setup={setup.id}
+                aria-pressed={current?.id === setup.id}
+                onClick={() => studio.tryOn(setup)}
+              >
+                {setup.name}
+              </button>
+            ))}
+          </div>
+          <span className="studio-muted studio-custom" data-shown={current ? undefined : ""}>
+            Custom
+          </span>
         </div>
         <ul>
           {CUSTOMIZATIONS.map((item) => {
             const lost = conflicts.find((conflict) => conflict.loser === item.id);
             return (
-              <li
+              <SwitchRow
                 key={item.id}
-                data-customization={item.id}
-                onMouseEnter={() => setPeek(item.id)}
-                onMouseLeave={() => setPeek(null)}
-              >
-                <div className="studio-manager-text">
-                  <span className="studio-card-name">
-                    {item.name} <SourcePill item={item} />
-                  </span>
-                  <span className="studio-card-line">
-                    {lost ? `${byId(lost.winner).name} wins: both set the sidebar.` : item.line}
-                  </span>
-                </div>
-                <Switch
-                  on={studio.on.has(item.id)}
-                  label={item.name}
-                  onChange={(next) => studio.toggle(item.id, next)}
-                />
-              </li>
+                item={item}
+                on={studio.on.has(item.id)}
+                line={lost ? `${byId(lost.winner).name} wins: both change the sidebar.` : undefined}
+                onChange={(next) => studio.toggle(item.id, next)}
+                onPeek={() => setPeek(item.id)}
+                peeked={peek === item.id}
+              />
             );
           })}
         </ul>
       </div>
       <div className="studio-manager-preview">
-        <MiniCmux on={studio.on} />
-        {peek ? (
-          <BeforeAfter base={studio.on} id={peek} />
-        ) : (
-          <p className="studio-muted">Point at a row to see its before and after.</p>
-        )}
+        <MiniCmux on={studio.on} focus={peek} />
+        <BeforeAfter base={studio.on} id={peek} />
+        <p className="studio-muted studio-peek-name">{byId(peek).name}, without and with</p>
       </div>
     </div>
   );
@@ -262,8 +307,16 @@ function ManagerLayout({ studio }: { studio: Studio }) {
 /** Setups: people first. Pick whose setup to look at; it lists what it would change from yours, each
  * line a switch, over the live window of the result (Arc's spaces, VS Code's profile import). */
 function SetupsLayout({ studio, initialSetup }: { studio: Studio; initialSetup: string }) {
-  const [picked, setPicked] = useState(SETUPS.find((setup) => setup.id === initialSetup) ?? SETUPS[1]!);
-  const changes = diff(studio.kept, picked);
+  const [view, setView] = useState(() => ({
+    picked: SETUPS.find((setup) => setup.id === initialSetup) ?? SETUPS[1]!,
+    yours: studio.kept as ReadonlySet<Effect>,
+    epoch: studio.epoch,
+  }));
+  // A keep or a revert changes what "yours" is; a flipped switch does not, so no row moves under the pointer.
+  if (view.epoch !== studio.epoch) setView({ ...view, yours: studio.kept, epoch: studio.epoch });
+  const picked = view.picked;
+  const setPicked = (setup: Setup) => setView({ picked: setup, yours: studio.kept, epoch: studio.epoch });
+  const changes = diff(view.yours, picked);
   return (
     <div className="studio-setups">
       <div className="studio-setups-people">
@@ -277,7 +330,9 @@ function SetupsLayout({ studio, initialSetup }: { studio: Studio; initialSetup: 
           >
             <MiniCmux on={new Set(setup.on)} size="thumb" />
             <strong>{setup.name}</strong>
-            <span className="studio-muted">{setup.on.length} customizations</span>
+            <span className="studio-muted">
+              {setup.on.length === 0 ? setup.line : `${setup.on.length} customizations`}
+            </span>
           </button>
         ))}
       </div>
@@ -289,17 +344,14 @@ function SetupsLayout({ studio, initialSetup }: { studio: Studio; initialSetup: 
           )}
           <ul>
             {[...changes.adds, ...changes.removes].map((id) => {
-              const item = byId(id);
               return (
-                <li key={id} data-customization={id}>
-                  <div className="studio-manager-text">
-                    <span className="studio-card-name">
-                      {changes.adds.includes(id) ? "Adds" : "Removes"} {item.name} <SourcePill item={item} />
-                    </span>
-                    <span className="studio-card-line">{item.line}</span>
-                  </div>
-                  <Switch on={studio.on.has(id)} label={item.name} onChange={(next) => studio.toggle(id, next)} />
-                </li>
+                <SwitchRow
+                  key={id}
+                  item={byId(id)}
+                  prefix={changes.adds.includes(id) ? "Adds" : "Removes"}
+                  on={studio.on.has(id)}
+                  onChange={(next) => studio.toggle(id, next)}
+                />
               );
             })}
           </ul>
@@ -332,23 +384,47 @@ export function CustomizeStudio({
   const studio = useStudio({ on, trying });
   return (
     <div className="customize-studio" data-layout={layout}>
-      <header className="studio-header">
-        <div>
+      <header className="studio-header" data-trying={studio.trying ? "" : undefined}>
+        <div className="studio-header-text">
           <h2>Customize</h2>
-          <span className="studio-muted">
-            {studio.on.size} of {CUSTOMIZATIONS.length} on · changes show live, nothing is saved until you keep it
+          <span className="studio-muted" role="status">
+            {studio.trying ? (
+              <>
+                Trying <strong>{studio.trying.name}</strong> · reverts when you quit unless you keep it
+              </>
+            ) : (
+              `${studio.on.size} of ${CUSTOMIZATIONS.length} on · changes show live`
+            )}
           </span>
         </div>
-        <button
-          type="button"
-          className="studio-button studio-button-primary"
-          data-action="try-leo"
-          onClick={() => studio.tryOn(SETUPS.find((setup) => setup.id === "leo")!)}
-        >
-          Try Leo's setup
-        </button>
+        {/* One slot, one height: Try, or the trial's Revert and Keep (the macOS display-change pattern). */}
+        <div className="studio-header-actions">
+          {studio.trying ? (
+            <>
+              <button type="button" className="studio-button" data-action="revert" onClick={studio.revert}>
+                Revert
+              </button>
+              <button
+                type="button"
+                className="studio-button studio-button-primary"
+                data-action="keep"
+                onClick={studio.keep}
+              >
+                Keep
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="studio-button studio-button-primary"
+              data-action="try-leo"
+              onClick={() => studio.tryOn(SETUPS.find((setup) => setup.id === "leo")!)}
+            >
+              Try Leo's setup
+            </button>
+          )}
+        </div>
       </header>
-      {studio.trying && <TrialBar setup={studio.trying} onKeep={studio.keep} onRevert={studio.revert} />}
       {layout === "store" && <StoreLayout studio={studio} selected={selected} />}
       {layout === "manager" && <ManagerLayout studio={studio} />}
       {layout === "setups" && <SetupsLayout studio={studio} initialSetup={trying ?? "leo"} />}
