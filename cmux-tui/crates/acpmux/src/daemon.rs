@@ -34,6 +34,7 @@ mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+pub(crate) use app_orphan::in_dev_bundle;
 #[cfg(unix)]
 pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
@@ -61,6 +62,8 @@ mod home_watch;
 #[cfg(unix)]
 pub(crate) mod listener_handover;
 mod managed_unit;
+// A take-over start yields to a successor of its own build (`daemon/take_over_yield.rs`).
+mod take_over_yield;
 use managed_unit::managed_unit_connect_with;
 mod notify;
 pub(crate) use crate::daemon_parts::first_run_listen;
@@ -270,7 +273,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // `diagnostics.shareInstallCounts`, and never calls the platform for a person who never did.
     crate::install_share::start();
     // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
-    // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
+    // person turns on `diagnostics.usageSharing` and acknowledges the notice
+    // (`diagnostics.usageSharingNoticeAck`). One record per turn: counts, times and hashed
     // ids, never prompt, tool or file text.
     let _ = cmux_usage_share::install(&home(), Some(crate::hand::pair::hostname()));
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
@@ -308,6 +312,17 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         match acquire_daemon_lock(&lock, opts.take_over).await {
             Ok(lock) => Ok(Some(lock)),
             Err(e) => {
+                // A take-over start whose home a daemon of its own build already serves: nothing to
+                // hand over; it answers its launcher with that daemon and exits.
+                if let Some(served) = e.downcast_ref::<take_over_yield::ServedByThisBuild>() {
+                    tracing::info!(
+                        "{served}; this take-over start exits without asking it to hand over"
+                    );
+                    if let Some(fd) = opts.ready_fd {
+                        write_ready(fd, &served.ready);
+                    }
+                    return Ok(None);
+                }
                 // The command that started this daemon waits for the holder (`connect`).
                 if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
                     // The app launches `daemon run` directly, without `start_and_connect`.
@@ -730,6 +745,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
+        // A delivery that ends failed bounces to its sender (`hub/dead_letters.rs`).
+        hub.start_bounces();
         crate::hub::register::load_registered();
         // Whatever the rename did: a rename that failed leaves the copied outbox in place, and
         // none of it is this machine's to deliver.
@@ -1192,13 +1209,27 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "worker-lag-canary",
         crate::gauges::worker_lag_canary(crate::gauges::worker_lag()),
     );
+    // Supervised: a panic starts the loop again (`crate::supervise`).
     #[cfg(target_os = "linux")]
-    tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud hand-off", &hub.fatal.clone(), move || {
+            cloud_handoff::handoff_loop(hub.clone())
+        });
+    }
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
     let _usage_upload =
         hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
     #[cfg(target_os = "linux")]
-    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud activity", &hub.fatal.clone(), move || {
+            cloud_activity::activity_loop(hub.clone())
+        });
+    }
+    // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`). It asks the Cloud once for
+    // the person's Auto chats this laptop does not have, then nothing until a chat has Auto on.
+    let _auto_session = crate::auto_session::laptop::start(hub.clone());
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1700,9 +1731,14 @@ fn managed_by_acpmux_unit() -> bool {
 /// (`exe_swap.rs`) and the installer starts another. Asking only the first holder left the
 /// later start waiting forever on the one that won (`take_over_under_load`, 2026-11-20).
 async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<DaemonLock> {
-    let supervised = take_over || managed_by_acpmux_unit();
+    let unit = managed_by_acpmux_unit();
+    let supervised = take_over || unit;
     // The holder this start has asked, by its pid (`None`: a pid the lock file did not name).
     let mut asked: Option<Option<u32>> = None;
+    // When this start began waiting: a holder of its own build whose hub started since is a
+    // successor of the same update (`daemon/take_over_yield.rs`). A unit's daemon never yields:
+    // it must own the home, or the unit is left failed while a detached daemon serves it.
+    let yields_since = (!unit).then(crate::store::now_ms);
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
@@ -1727,7 +1763,7 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
                 #[cfg(not(unix))]
                 let holder = None;
                 if asked != Some(holder)
-                    && let Some(answered) = take_over_holder(&socket_path()).await
+                    && let Some(answered) = take_over_holder(&socket_path(), yields_since).await?
                     // What answered is the holder (or the lock named none): asked. Another
                     // daemon answering for a holder still starting is not; ask again.
                     && (holder.is_none() || answered == holder)
@@ -1751,14 +1787,19 @@ const HOLDER_LOOK: Duration = Duration::from_secs(1);
 /// as `acpmux daemon shutdown` sends it, once its status names this home and socket. Best
 /// effort: a holder that does not answer, or one that is already stopping, is waited out by the
 /// caller. The pid that answered its status, or `None` when nothing answered (a holder still
-/// starting has no socket yet): the caller asks again.
-async fn take_over_holder(socket: &std::path::Path) -> Option<Option<u32>> {
+/// starting has no socket yet): the caller asks again. With `yields_since` (when a start that may
+/// yield began waiting), a holder of this home that runs this build and started since is not asked:
+/// the error [`take_over_yield::ServedByThisBuild`] says so.
+async fn take_over_holder(
+    socket: &std::path::Path,
+    yields_since: Option<u64>,
+) -> Result<Option<Option<u32>>> {
     // Client::connect and request finish promptly on a closed socket. If the
     // peer is alive but busy, keep the handover request alive until it answers.
-    let Ok(client) = crate::client::Client::connect(socket).await else { return None };
+    let Ok(client) = crate::client::Client::connect(socket).await else { return Ok(None) };
     let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
     else {
-        return None;
+        return Ok(None);
     };
     let same = |key: &str, want: &std::path::Path| {
         status
@@ -1768,7 +1809,15 @@ async fn take_over_holder(socket: &std::path::Path) -> Option<Option<u32>> {
     };
     let pid = status.get("pid").and_then(serde_json::Value::as_u64).map(|p| p as u32);
     if !same("home", &home()) || !same("socket", socket) {
-        return Some(pid);
+        return Ok(Some(pid));
+    }
+    if yields_since.is_some_and(|since| {
+        take_over_yield::serves_this_start(&status, crate::hub::build(), since)
+    }) {
+        return Err(take_over_yield::ServedByThisBuild {
+            ready: take_over_yield::ready_line(&status),
+        }
+        .into());
     }
     tracing::info!(pid, "another daemon of this home serves its socket; asking it to hand over");
     // Its listeners too, by descriptor, so the listen queue never closes
@@ -1795,7 +1844,7 @@ async fn take_over_holder(socket: &std::path::Path) -> Option<Option<u32>> {
     }
     #[cfg(not(unix))]
     let _ = answer;
-    Some(pid)
+    Ok(Some(pid))
 }
 
 fn random_token() -> Result<String> {

@@ -26,13 +26,17 @@ extension PaletteController {
     /// Reads the user's aliases and pins (cmux.json), with the built-in aliases, into the searcher. A change ranks the empty
     /// query again: the last rank kept for the next open was ranked with the old pins.
     private func applyRankSettings() {
-        let settings = (sources.rankSettings?() ?? PaletteRankSettings()).addingBuiltInAliases()
+        var settings = (sources.rankSettings?() ?? PaletteRankSettings()).addingBuiltInAliases()
+        // The experiments change the look, not the rank: flipping one never ranks the empty query again.
+        let experiments = sources.experiments?() ?? settings.experiments
+        settings.experiments = PaletteExperiments()
         let changed = model.searcher.rankSettings.withLock { current in
             defer { current = settings }
             return current != settings
         }
         if changed { model.frecencyRevision += 1 }
         model.remembersSearches = settings.remembersSearches
+        if model.experiments != experiments { model.experiments = experiments }
     }
 
     /// The scope a run of `id` opens (`PaletteScopeDescriptor.openAction`): Toggle Setting opens

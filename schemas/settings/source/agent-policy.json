@@ -30,7 +30,23 @@
     {
       "agent": "settable",
       "keys": [
+        "customize.checklist.done",
+        "customize.checklist.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "shortcuts.showModifierHoldHints"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which keys lists and the code editor answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it.",
+      "keys": [
+        "app.keyStyle",
+        "app.shortcutLayout",
+        "editor.vimMode"
       ]
     },
     {
@@ -101,6 +117,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "appearance.metrics.spaceButtonSpacing",
         "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
@@ -285,6 +302,8 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.wallpaperLighting",
+        "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
@@ -313,6 +332,8 @@
         "ui.reducedBackgrounds",
         "appearance.agentGlow",
         "appearance.experimentalControls",
+        "appearance.glassControls",
+        "appearance.settingsBetaChips",
         "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
@@ -322,6 +343,7 @@
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
         "appearance.fontSmoothing",
+        "appearance.appFont",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.liquidGlass",
@@ -428,6 +450,8 @@
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
+        "sidebar.showLiveToggle",
+        "presence.live",
         "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
@@ -522,16 +546,27 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.appFontChrome",
         "experiments.composerButtonsVisible",
         "experiments.composerV2",
+        "experiments.paletteV2",
+        "experiments.palettePreview",
         "experiments.hoverLook",
         "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
+        "experiments.composerCustomizer",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.foldSummaryCounts",
+        "experiments.terminalHistoryFind",
+        "experiments.terminalHistory",
+        "experiments.quietConnect",
+        "experiments.threadMinimapRestReveal",
+        "experiments.forum"
       ]
     },
     {
@@ -834,6 +869,8 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "agentPane.display.chatListStatusPills",
+        "agentPane.display.headerBreadcrumb",
         "agentPane.display.pinnedPlan",
         "agentPane.display.environmentCard",
         "agentPane.display.changesPill",
@@ -868,6 +905,8 @@
         "agentPane.display.thinking.shimmerPeriod",
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
+        "agentPane.display.thinking.glyph",
+        "agentPane.display.thinking.glyphSize",
         "agentPane.display.harnessPlacement",
         "agentPane.display.modelChipIcon",
         "agentPane.display.queueing",
@@ -974,6 +1013,7 @@
         "agentPane.showDictation",
         "agentPane.dictationSource",
         "agentPane.spellChecking",
+        "agentPane.composerVimKeys",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
       ]
@@ -988,6 +1028,29 @@
         "home.bubbleColors.sentText",
         "home.bubbleColors.received",
         "home.bubbleColors.receivedText"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Menu and popover look (theme files and look packs set them); looks only, ends no work.",
+      "keys": [
+        "appearance.menu.cornerRadius",
+        "appearance.menu.borderOpacity",
+        "appearance.menu.shadow",
+        "appearance.menu.fill",
+        "appearance.menu.padding",
+        "appearance.menu.highlightRadius",
+        "appearance.menu.rowHeight",
+        "appearance.menu.shortcuts",
+        "appearance.menu.sectionLabel",
+        "appearance.menu.separator",
+        "appearance.menu.destructiveInk",
+        "appearance.menu.submenu",
+        "appearance.menu.subtitle",
+        "appearance.popover.padding",
+        "appearance.popover.header",
+        "appearance.popover.progressHeight",
+        "appearance.popover.progressFill"
       ]
     },
     {
@@ -1552,6 +1615,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous analytics: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
@@ -1708,7 +1778,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
@@ -1720,10 +1791,14 @@
     },
     {
       "agent": "userOnly",
-      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "why": "Compacting on a timer or before a cold wake, and batching the person's chats' wakes, spends their usage (one model call each) and delays delivery: their call.",
       "keys": [
         "agents.cacheCompact.enabled",
-        "agents.cacheCompact.minContextPercent"
+        "agents.cacheCompact.minContextPercent",
+        "agents.cacheCompact.minContextTokens",
+        "agents.coldWake.enabled",
+        "agents.coldWake.compact",
+        "agents.coldWake.compactAboveTokens"
       ]
     },
     {
@@ -1960,6 +2035,20 @@
       "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
       "keys": [
         "agentPane.savedPrompts"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Tailnet join preferences are user-controlled and exposed through Settings, CLI and MCP. Authentication keys are entered only for a join action and are never stored here.",
+      "keys": [
+        "tailnet.join.enabled",
+        "tailnet.join.loginServer",
+        "tailnet.join.hostname",
+        "tailnet.join.tags",
+        "tailnet.join.ssh",
+        "tailnet.join.ephemeral",
+        "tailnet.join.servePorts",
+        "tailnet.join.autoJoinNewVMs"
       ]
     }
   ]
