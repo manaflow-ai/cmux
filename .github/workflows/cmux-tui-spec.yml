@@ -109,6 +109,7 @@ on:
       - "web/public/tui/install-static.sh"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "web/services/vms/drivers/linuxRelease.ts"
+      - "web/app/globals.css"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_call:
