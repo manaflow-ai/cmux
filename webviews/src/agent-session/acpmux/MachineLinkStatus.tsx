@@ -25,6 +25,28 @@ export function linkWords(link: PeerLink, t: Translate): string {
   }
 }
 
+/// Redials a chat's machine link that is down on its own, on the shared backoff (autoRetry.ts), so
+/// neither the machine row nor the composer status dot draws a Reconnect button (Leo, 2026-11-22:
+/// "vacuous decisions like that should be just done"). A stuck link (a refused sign-in, an update)
+/// is a person's to fix and is not redialed.
+export function useLinkRedial(link: PeerLink | null, onReconnect?: (link: PeerLink) => Promise<unknown> | void) {
+  // The link a redial was asked for: in flight until it answers or the link moves on its own
+  // (another state or machine), whichever comes first.
+  const [pressed, setPressed] = useState<string>();
+  const downAt =
+    link && link.link === "offline" && !link.stuck && onReconnect ? `${link.machine}\n${link.link}` : undefined;
+  useAutoRetry(
+    downAt,
+    () => {
+      if (!link || !downAt || !onReconnect) return;
+      setPressed(downAt);
+      const settle = () => setPressed((current) => (current === downAt ? undefined : current));
+      Promise.resolve(onReconnect(link)).then(settle, settle);
+    },
+    { busy: downAt !== undefined && pressed === downAt },
+  );
+}
+
 /// The link of the machine a chat on another machine runs on, in the composer's quiet row (Leo,
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,
 /// but now it's remote"). Connected is the dot alone, and so is a link connecting or reconnecting on
@@ -51,21 +73,7 @@ export function MachineLinkStatus({
   onReconnect?(link: PeerLink): Promise<unknown> | void;
 }) {
   const t = useT();
-  // The link a redial was asked for: in flight until it answers or the link moves on its own
-  // (another state or machine), whichever comes first.
-  const [pressed, setPressed] = useState<string>();
-  const downAt =
-    link && link.link === "offline" && !link.stuck && onReconnect ? `${link.machine}\n${link.link}` : undefined;
-  useAutoRetry(
-    downAt,
-    () => {
-      if (!link || !downAt || !onReconnect) return;
-      setPressed(downAt);
-      const settle = () => setPressed((current) => (current === downAt ? undefined : current));
-      Promise.resolve(onReconnect(link)).then(settle, settle);
-    },
-    { busy: downAt !== undefined && pressed === downAt },
-  );
+  useLinkRedial(link, onReconnect);
   // A link that is not up and needs no person stays the plain dot until it has been down past the
   // bound (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): a drop that
   // heals within it draws nothing, one that lasts is said once, here. A refused sign-in or an update
