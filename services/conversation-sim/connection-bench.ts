@@ -35,11 +35,13 @@ export type ConnectionBenchSummary = {
     idempotentSend: { pass: boolean };
     historyRead: { pass: boolean };
   };
+  failureReason?: string;
   pass: boolean;
 };
 
 type Frame = { id?: number; method?: string; params?: any; result?: any; error?: { message: string } };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const REQUEST_TIMEOUT_MS = 5_000;
 
 export function percentile(values: number[], fraction: number): number {
   if (!values.length) return 0;
@@ -57,6 +59,7 @@ export function summarize(
     duplicateEvents: number;
     idempotentSend: boolean;
     historyRecovered: boolean;
+    failureReason?: string;
   },
 ): ConnectionBenchSummary {
   const p50 = percentile(observed.reconnectLatencyMs, 0.5);
@@ -82,6 +85,7 @@ export function summarize(
     duplicateEvents: observed.duplicateEvents,
     idempotentSend: observed.idempotentSend,
     historyRecovered: observed.historyRecovered,
+    ...(observed.failureReason ? { failureReason: observed.failureReason } : {}),
     goals,
     pass:
       observed.dropsObserved === options.drops &&
@@ -118,10 +122,13 @@ class BenchClient {
       this.closedResolve?.();
       this.closedResolve = null;
     };
-    await new Promise<void>((resolve, reject) => {
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
       this.ws.onopen = () => resolve();
       this.ws.onerror = () => reject(new Error("connection benchmark WebSocket error"));
-    });
+      }),
+      sleep(REQUEST_TIMEOUT_MS).then(() => { throw new Error("WebSocket open timeout"); }),
+    ]);
     const resumeAfterEventSeq = this.lastEventSeq || undefined;
     if (resumeAfterEventSeq !== undefined) {
       this.replaying = true;
@@ -161,8 +168,21 @@ class BenchClient {
   call(method: string, params: unknown): Promise<Frame> {
     const id = ++this.nextId;
     return new Promise((resolve) => {
-      this.pending.set(id, resolve);
-      this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        resolve({ error: { message: `${method} request timeout` } });
+      }, REQUEST_TIMEOUT_MS);
+      this.pending.set(id, (frame) => {
+        clearTimeout(timer);
+        resolve(frame);
+      });
+      try {
+        this.ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        resolve({ error: { message: `${method} send failed: ${String(error)}` } });
+      }
     });
   }
 
@@ -177,6 +197,7 @@ async function post(base: string, path: string, body?: unknown) {
   const response = await fetch(base + path, {
     method: "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`${path} -> ${response.status} ${await response.text()}`);
   return response.json();
@@ -195,7 +216,7 @@ async function callWithRetry(client: BenchClient, method: string, params: unknow
 async function waitForHealth(base: string) {
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
-      if ((await fetch(base + "/healthz")).ok) return;
+      if ((await fetch(base + "/healthz", { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })).ok) return;
     } catch {}
     await sleep(100);
   }
@@ -223,6 +244,7 @@ export async function runConnectionBench(options: ConnectionBenchOptions): Promi
   let duplicateEvents = 0;
   let idempotentSend = false;
   let historyRecovered = false;
+  let failureReason: string | undefined;
   try {
     await waitForHealth(base);
     await post(base, "/admin/knobs", {
@@ -239,7 +261,11 @@ export async function runConnectionBench(options: ConnectionBenchOptions): Promi
     const clientMessageId = `connection-bench-${crypto.randomUUID()}`;
     const first = await callWithRetry(client, "send", { clientMessageId, text: "connection benchmark" });
     const second = await callWithRetry(client, "send", { clientMessageId, text: "connection benchmark retry" });
-    idempotentSend = first.result?.message?.id === second.result?.message?.id;
+    idempotentSend =
+      !first.error &&
+      !second.error &&
+      typeof first.result?.message?.id === "string" &&
+      first.result.message.id === second.result?.message?.id;
     for (let i = 0; i < options.drops; i++) {
       const started = performance.now();
       const lastEventSeq = client.lastEventSeq;
@@ -256,12 +282,14 @@ export async function runConnectionBench(options: ConnectionBenchOptions): Promi
       duplicateEvents += reconnect.duplicateEvents;
       client = reconnect;
     }
+  } catch (error) {
+    failureReason = error instanceof Error ? error.message : String(error);
   } finally {
     try { client.close(); } catch {}
     proc.kill();
     await Promise.race([proc.exited, sleep(5_000)]);
   }
-  return summarize(options, { dropsObserved, reconnectLatencyMs, laggedReconnects, replayedEvents, duplicateEvents, idempotentSend, historyRecovered });
+  return summarize(options, { dropsObserved, reconnectLatencyMs, laggedReconnects, replayedEvents, duplicateEvents, idempotentSend, historyRecovered, failureReason });
 }
 
 function parseArgs(argv: string[]) {

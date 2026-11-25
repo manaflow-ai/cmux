@@ -11,7 +11,7 @@ The command and goal definitions live in
 
 | surface | command | goal | result |
 |---|---|---|---|
-| conversation WebSocket | `bun run services/conversation-sim/connection-bench.ts --drops 5 --latency-scale 3 --fail-rate 0.2 --history-fail-rate 0.1 --duplicate-rate 0` | every drop observed, end-to-end forced-drop-to-replay reconnect p95 ≤ 3 s, no lagged replay, idempotent send, history retry recovery | dropsObserved=5; reconnectLatencyP95Ms=517.52 ms; laggedReconnects=0; replayedEvents=7; duplicateEvents=0; idempotentSend=true; historyRecovered=true; pass=true |
+| conversation WebSocket | `bun run services/conversation-sim/connection-bench.ts --drops 5 --latency-scale 3 --fail-rate 0.2 --history-fail-rate 0.1 --duplicate-rate 0` | every drop observed, end-to-end forced-drop-to-replay reconnect p95 ≤ 3 s, no lagged replay, idempotent send, history retry recovery | dropsObserved=5; reconnectLatencyP95Ms=519.17 ms; laggedReconnects=0; replayedEvents=5; duplicateEvents=0; idempotentSend=true; historyRecovered=true; pass=true |
 
 Latest receipt: commit `b863409076b3`, measured on the clean
 `feat-cmux-next`-based worktree.
