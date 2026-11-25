@@ -117,7 +117,8 @@ fn an_ended_terminal_parks_its_mirror_until_a_lock() {
     {
         let mut term = pty.term.lock().unwrap();
         term.vt_write(SCREEN);
-        let _ = pty.build_frame_locked(&mut term, 2, true);
+        let generation = pty.render.lock().unwrap().built_generation + 1;
+        assert!(pty.build_frame_locked(&mut term, generation, false).unwrap());
     }
     assert!(pty.render.lock().unwrap().latest.is_some());
     let before = state(&pty.term);
