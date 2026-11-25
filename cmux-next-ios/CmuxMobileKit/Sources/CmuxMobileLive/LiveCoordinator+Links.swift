@@ -642,12 +642,14 @@ extension LiveCoordinator {
               let owner = session(macID: macID), let link = owner.servedLink else { return }
         var pan = pan
         if case .connected(_, _, let rtt) = owner.link.phase { pan.rttMs = rtt.map(Int.init) }
-        guard let line = pan.line() else { return }
+        guard pan.line() != nil else { return }
         guard let channel = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
             onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
         ) else { return }
+        // Encoded once the channel is open: each painted frame's age is taken as it is sent.
+        guard let line = pan.line() else { await channel.close(code: "eof", reason: ""); return }
         _ = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await channel.send(line) },
