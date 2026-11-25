@@ -17,6 +17,16 @@ public enum DeveloperOptions {
     /// TCP: WireGuard sends no plain UDP and rides TURN over TLS on 443.
     /// Applies live: changing it redials.
     public static let blockUDPKey = "cmuxMobile.dev.blockUDP"
+    /// `UserDefaults` key: proxy only, to simulate a company network whose only
+    /// way out is its HTTP proxy: no UDP, and TURN over TLS leaves only through
+    /// the system's proxy (Settings → Wi-Fi → Configure Proxy, or an MDM
+    /// profile). Applies at the next dial (PROTOCOL.md "Corporate networks").
+    public static let proxyOnlyKey = "cmuxMobile.dev.proxyOnly"
+    /// `UserDefaults` key: drop WireGuard, to simulate a firewall whose packet
+    /// inspection blocks WireGuard: STUN and TURN answer, every WireGuard
+    /// datagram over UDP is dropped, so the link falls through to TURN over
+    /// TLS. Applies at the next dial (PROTOCOL.md "Corporate networks").
+    public static let dropWireGuardKey = "cmuxMobile.dev.dropWireGuard"
     /// `UserDefaults` key: ride cmux's WebSocket relay only (PROTOCOL.md
     /// "WebSocket relay"): WireGuard sends no plain UDP, takes no TURN
     /// allocation and joins the relay at once. Applies at the next dial.
@@ -37,7 +47,8 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
+        browserVideoOnChannelKey, terminalDemoPhasesKey,
         slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]
 
@@ -80,6 +91,26 @@ public enum DeveloperOptions {
     public static var blockUDP: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: blockUDPKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard acts as on a network whose only way out is its
+    /// proxy. Always off in Release builds.
+    public static var proxyOnly: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: proxyOnlyKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard acts as behind a firewall that drops WireGuard over
+    /// UDP. Always off in Release builds.
+    public static var dropWireGuard: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: dropWireGuardKey)
         #else
         false
         #endif

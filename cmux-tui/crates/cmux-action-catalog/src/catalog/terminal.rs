@@ -211,6 +211,25 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("edit"),
         ..Action::DEFAULT
     },
+    // Go to Directory: the focused terminal's shell changes to a typed directory (`cd`), as
+    // Finder's Go to Folder (Shift-Cmd-G). Shift-Cmd-G's other owners (Group Selected Workspaces,
+    // the browser's Find Previous) keep it outside a focused terminal.
+    Action {
+        id: "terminal.goToDirectory",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.goToDirectory", "Go to Directory…"),
+        keywords: &["cd", "folder", "path", "change directory", "jump"],
+        default_shortcut: Some(Shortcut { key: "g", modifiers: SHIFT | CMD }),
+        category: "terminal",
+        symbol: "arrow.right.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH],
+        requires: &["terminalFocused"],
+        targets: &["tab"],
+        cli_name: "terminal go-to-directory",
+        ..Action::DEFAULT
+    },
     Action {
         id: "findNext",
         group: GROUP,
