@@ -131,7 +131,7 @@ extension SidebarListViewComponents {
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let (base, rules) = dragBase(drag)
-        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules)
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules, dropY: dropY)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
@@ -227,10 +227,13 @@ extension SidebarListViewComponents {
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
-        let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
+        let cardY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
             + drag.restFrame.height / 2 : drag.probeCard.midY
+        // On the stuck header the drop is the header's (`dropY`), not the row under its veil, and its edges decide nothing.
+        let displayY = dropY(cardY)
+        let onStuckHeader = displayY != cardY
         // One rule for the list's rows and a block's item rows (pinned workspaces): `docDragBaseY`. Nil keeps the target.
-        guard var y = docDragBaseY(drag, geometry: geometry, rows: rows, displayY: displayY, x: point.x) else { return }
+        guard var y = docDragBaseY(drag, geometry: geometry, rows: rows, displayY: displayY, x: point.x, edges: !onStuckHeader) else { return }
         // A block item's card back over its own slot drops where it came from. The base has the dragged items out, so
         // that slot's centre is the next item's middle there, and a point either way picked a neighbour's half: a
         // release where the drag started moved the item one place (Lawrence 2026-10-30, the stuck Home drag).
@@ -421,7 +424,7 @@ extension SidebarListViewComponents {
         let drag = settled.drag
         guard drag.lift.superview != nil else { return }
         drag.landsOnModel = true
-        if let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) { return land(drag, at: real, then: settled.then) }
+        if let real = holdDropped(drag), !real.isSameFrame(as: drag.lift.frame) { return land(drag, at: real, then: settled.then) }
         if settled.landed { finishLand(drag, then: settled.then) }
     }
 
@@ -430,7 +433,7 @@ extension SidebarListViewComponents {
     /// retargets, on its spring, to where the model shows the item now, and the item's new views stay hidden under it.
     func followLanding() {
         guard let drag = landing, drag.landsOnModel, drag.lift.superview != nil, settling?.drag !== drag,
-              let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) else { return }
+              let real = holdDropped(drag), !real.isSameFrame(as: drag.lift.frame) else { return }
         land(drag, at: real, then: drag.landingThen)
     }
 
@@ -614,7 +617,10 @@ extension SidebarListViewComponents {
     }
 }
 
-/// Two frames within half a point on every edge (a landing that needs no retarget).
-private func sameFrame(_ a: NSRect, _ b: NSRect) -> Bool {
-    abs(a.minX - b.minX) <= 0.5 && abs(a.minY - b.minY) <= 0.5 && abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 0.5
+private extension NSRect {
+    /// Within half a point of `other` on every edge (a landing that needs no retarget).
+    func isSameFrame(as other: NSRect) -> Bool {
+        abs(minX - other.minX) <= 0.5 && abs(minY - other.minY) <= 0.5 && abs(width - other.width) <= 0.5
+            && abs(height - other.height) <= 0.5
+    }
 }

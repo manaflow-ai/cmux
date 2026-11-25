@@ -25,8 +25,23 @@ export interface AppIconRef {
   symbol?: string;
 }
 
+/**
+ * Where an app installed from a git repo came from (the daemon's git source on catalog and
+ * installed rows). All absent for an app that did not come from git.
+ */
+export interface AppGitSource {
+  /** The repo's https URL, e.g. `https://github.com/OWNER/REPO`. */
+  repository?: string;
+  /** The app's subdirectory in the repo; absent at the root. */
+  path?: string;
+  /** The pinned commit (40 hex). */
+  commit?: string;
+  /** The tag the commit was resolved from, when there is one. */
+  tag?: string;
+}
+
 /** One row of `cmux.apps.catalog.list`. */
-export interface CatalogApp {
+export interface CatalogApp extends AppGitSource {
   id: string;
   name: string;
   description: string;
@@ -121,7 +136,7 @@ export interface AppDetail extends CatalogApp {
 }
 
 /** One row of `cmux.apps.installed.list`. */
-export interface InstalledApp {
+export interface InstalledApp extends AppGitSource {
   id: string;
   name: string;
   version: string;

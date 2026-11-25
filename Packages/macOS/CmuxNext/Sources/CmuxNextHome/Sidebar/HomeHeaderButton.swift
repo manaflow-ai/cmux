@@ -33,6 +33,11 @@ final class HomeHeaderButton: ClickableButton {
 
     /// The glyph's point size; the header shrinks it with the button at narrow widths.
     private(set) var glyphSize: CGFloat = 0
+    /// A glyph size that does not follow the button's height (the bare filter on the lights' line:
+    /// Messages' 16.5 pt glyph in whatever box fits under the window's top); nil: half the height.
+    var fixedGlyphSize: CGFloat? {
+        didSet { if fixedGlyphSize != oldValue { renderSymbol() } }
+    }
     /// The glyph's symbol name at the last render.
     private(set) var glyphName = ""
     /// The tint the glyph image was built for (`renderSymbol`): the theme's secondary text, the
@@ -83,7 +88,8 @@ final class HomeHeaderButton: ClickableButton {
     /// `glyphTint`. A new image whenever the size, the glyph or the colour changes, so a theme or
     /// light/dark switch redraws the glyph, never leaving the old drawing (or none) on screen.
     private func renderSymbol() {
-        let size = max(10, (bounds.height / 2).rounded())
+        // On the half point: the bare filter's 33 pt box draws Messages' 16.5 pt glyph.
+        let size = fixedGlyphSize ?? max(10, (bounds.height).rounded() / 2)
         let name = isOn ? (onSymbol ?? symbol) : symbol
         let tint = performWithTheme { isOn ? Palette.litGlyph : glass ? Palette.textPrimary : Palette.textSecondary }
         guard image == nil || size != glyphSize || name != glyphName || tint != glyphTint else { return }

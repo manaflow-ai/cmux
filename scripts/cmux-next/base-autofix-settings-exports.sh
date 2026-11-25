@@ -11,10 +11,18 @@
 # (the settings area, unless the tip's sources give the same source stamp as
 # the commit the exports were made at),
 # it checks that tip out and regenerates there, at most
-# CMUX_BASE_AUTOFIX_SETTINGS_TRIES times (3). It then prints "made at: SHA";
-# base-autofix-push.sh lands the exports only where nothing moved their inputs
-# after that commit. When the inputs still moved after the last try, it hands
-# on no settings export, prints an error and fails, and the exports wait.
+# CMUX_BASE_AUTOFIX_SETTINGS_TRIES times (3). It then prints "made at: SHA".
+#
+# When the inputs still moved after the last try, or a further try would start
+# after CMUX_BASE_AUTOFIX_SETTINGS_RETRY_SECONDS (600) of this script, it hands
+# on the newest export it made, as progress, with a warning: base-autofix-push.sh
+# lands it unless a commit after "made at" wrote the exports itself, and the
+# next run makes them on the newer tip. Failing instead threw away a finished
+# export: on 2026-11-23 try 1 made feat-cmux-next's export at 750e0b05 in two
+# minutes, without the settings.agents.cmuxMcp.ask row #51725 had removed; try 2
+# checked out a tip 100 commits on, rebuilt the whole package and hit the
+# step's 40-minute timeout (run 45126925631), every other run had deferred to
+# that one, and every web bundle build stayed red on the stale row for hours.
 #
 # OUT gets every export file that differs from the run's own commit (HEAD at
 # the start), at its repository path: base autofix's repair is made on that
@@ -30,7 +38,9 @@ set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
-  local out remote branch tries here root start at tip try moved changed areas file rel prepare regenerate stamp
+  local tries here root tip try moved changed areas prepare regenerate stamp retry_seconds began
+  # Read by hand_on, so not local to main.
+  out="" start="" at=""
   out="$(mkdir -p "${1:?usage: $0 OUT REMOTE BRANCH}" && cd "$1" && pwd)"
   remote="${2:?usage: $0 OUT REMOTE BRANCH}"
   branch="${3:?usage: $0 OUT REMOTE BRANCH}"
@@ -50,6 +60,8 @@ main() {
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   at="$start"
   prepare="${CMUX_BASE_AUTOFIX_SETTINGS_PREPARE:-}"
+  retry_seconds="${CMUX_BASE_AUTOFIX_SETTINGS_RETRY_SECONDS:-600}"
+  began="$SECONDS"
   for ((try = 1; try <= tries; try++)); do
     rm -rf "$work/out"
     mkdir -p "$work/out"
@@ -79,32 +91,45 @@ main() {
       if ((moved)) \
         && stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$at" 2>/dev/null)" \
         && [[ -n "$stamp" && "$stamp" == "$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" ]] \
-        && git diff --quiet "$at" "$tip" -- scripts/cmux-next/regenerate-settings-exports.sh scripts/cmux-next/lib/warm-swiftpm.sh 2>/dev/null; then
+        && git diff --quiet "$at" "$tip" -- scripts/cmux-next/regenerate-settings-exports.sh scripts/cmux-next/lib/warm-swiftpm.sh \
+          scripts/cmux-next/regenerate-settings-exports-linux.sh scripts/cmux-next/export-settings-linux.sh scripts/cmux-next/linux-exports 2>/dev/null; then
         moved=0
       fi
     else
       echo "::warning::cannot read what ${at:0:12}..${tip:0:12} changed; counting the settings inputs as moved" >&2
     fi
     if ((moved == 0)); then
-      while IFS= read -r -d '' file; do
-        rel="${file#"$work/out"/}"
-        if git cat-file -e "$start:$rel" 2>/dev/null && cmp -s <(git cat-file blob "$start:$rel") "$file"; then
-          continue
-        fi
-        mkdir -p "$out/$(dirname "$rel")"
-        cp "$file" "$out/$rel"
-        echo "regenerated: $rel"
-      done < <(find "$work/out" -type f -print0 | sort -z)
-      echo "made at: $at"
+      hand_on
       return 0
     fi
     echo "$branch moved to ${tip:0:12} and changed the settings exports' inputs after ${at:0:12} (try $try of $tries)." >&2
-    if ((try < tries)); then
-      git checkout --quiet --force --detach "$tip"
-      at="$tip"
+    if ((try >= tries)); then
+      echo "::warning::$branch kept changing the settings exports' inputs through $tries regenerations; the exports made at ${at:0:12} are handed on as progress, and the next run makes them on ${tip:0:12} or newer." >&2
+      break
     fi
+    if ((SECONDS - began >= retry_seconds)); then
+      echo "::warning::the regeneration at ${at:0:12} took $((SECONDS - began))s of a ${retry_seconds}s retry window, so no regeneration starts on ${tip:0:12} (a moved tip rebuilds the package and can pass the step's timeout, losing this export); the exports made at ${at:0:12} are handed on as progress, and the next run makes them on the newer tip." >&2
+      break
+    fi
+    git checkout --quiet --force --detach "$tip"
+    at="$tip"
   done
-  echo "::error::$branch kept changing the settings exports' inputs through $tries regenerations (last made at ${at:0:12}, tip ${tip:0:12}); the exports wait for the next run" >&2
-  return 1
+  hand_on
+  return 0
+}
+# Every export file of the newest regeneration ($work/out, made at $at) that differs from the run's
+# commit goes to OUT at its repository path, then "made at: $at".
+hand_on() {
+  local file rel
+  while IFS= read -r -d '' file; do
+    rel="${file#"$work/out"/}"
+    if git cat-file -e "$start:$rel" 2>/dev/null && cmp -s <(git cat-file blob "$start:$rel") "$file"; then
+      continue
+    fi
+    mkdir -p "$out/$(dirname "$rel")"
+    cp "$file" "$out/$rel"
+    echo "regenerated: $rel"
+  done < <(find "$work/out" -type f -print0 | sort -z)
+  echo "made at: $at"
 }
 main "$@"; exit $?

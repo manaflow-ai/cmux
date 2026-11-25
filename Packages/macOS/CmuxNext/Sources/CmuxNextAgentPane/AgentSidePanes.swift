@@ -1,3 +1,5 @@
+public import CmuxNextAgentPanePlacement
+
 /// Where a chat's side sessions open (`chat.sideChat`: New side chat and the side sessions `/btw`
 /// starts; `chat.offer.open`: Session Info's sessions and the transcript's session cards), one
 /// tracker per acpmux chat session so every tab on that chat asks the same one. Each opens where

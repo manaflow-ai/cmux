@@ -68,7 +68,11 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
 
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
-    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The thumb widens only over its scrollbar's lane, where a press grabs it (scrollers.ts NEAR_ATTRIBUTE,
+    // 9411ca1e1fd); headless Chromium hides its scrollbars by default, which leaves no lane to reach for, as
+    // scroller-near-grow.test.ts and scroller-grab-zone-browser.test.ts already allow for.
+    for (const [name, engine] of engines)
+      browsers.set(name, await engine.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] }));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -189,6 +193,9 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
           // Reaching for the thumb: it fades in wide, then out as the pointer leaves.
           await phase(`near-${round}`);
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
+          // The pointer on the bar alone shows nothing (Leo 2026-11-22: "hovering only doesnt show"):
+          // a step of scroll with the pointer there shows the thumb, and the pointer holds it.
+          await page.mouse.wheel(0, 60);
           await settled(true);
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });

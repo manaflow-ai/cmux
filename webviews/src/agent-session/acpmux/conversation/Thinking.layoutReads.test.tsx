@@ -66,14 +66,8 @@ afterEach(async () => {
   dom = undefined;
 });
 
-const counts: WorkingCounts = {
-  agents: 0,
-  commands: 2,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
-};
+// The one part the line draws after its time: the page a background command serves (PreviewChip.tsx).
+const counts: WorkingCounts = { preview: { url: "http://localhost:5173/", open: () => {} } };
 
 const TOKENS = 40;
 

@@ -12,12 +12,6 @@ import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/a
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 549,
 };
 const scope = globalThis as { cmuxExperiments?: Record<string, string> };
