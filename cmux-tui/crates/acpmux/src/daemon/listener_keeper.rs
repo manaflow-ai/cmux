@@ -203,6 +203,7 @@ pub fn main(args: &[OsString]) -> anyhow::Result<()> {
         let fd = unsafe { OwnedFd::from_raw_fd(fd) };
         // SAFETY: a valid descriptor this process owns.
         unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+        widen_backlog(&fd);
         held.push((kind, fd));
     }
     let path = held_path(&home);
@@ -219,6 +220,15 @@ pub fn main(args: &[OsString]) -> anyhow::Result<()> {
     let _ = serve(&listener, &held, HOLD_FOR);
     let _ = std::fs::remove_file(&path);
     Ok(())
+}
+
+/// Nothing accepts while the listener is held, so every connect of the handover waits in its
+/// backlog; std binds with 128, which a busy few seconds can fill (a full backlog drops SYNs, and
+/// the client retries for a second or more). Listening again on a listening socket only resizes
+/// its queue, up to the kernel's somaxconn.
+fn widen_backlog(fd: &OwnedFd) {
+    // SAFETY: listen on a valid socket this process holds.
+    unsafe { libc::listen(fd.as_raw_fd(), libc::SOMAXCONN.max(4096)) };
 }
 
 fn is_socket(fd: RawFd) -> bool {
@@ -319,6 +329,7 @@ mod tests {
         let daemon = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = daemon.local_addr().unwrap().port();
         let copy = daemon.as_fd().try_clone_to_owned().unwrap();
+        widen_backlog(&copy);
         let socket = bind_held(&held_path(&home)).unwrap();
         let keeper = std::thread::spawn(move || {
             let held: [(&'static [u8; 4], OwnedFd); 1] = [(b"egrs", copy)];
