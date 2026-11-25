@@ -44,6 +44,9 @@ public enum CmuxMobilePreferences {
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
         /// the app's keepalive timers (`KeepaliveBeat.defaultsKey`, the same key).
         public static let alignKeepalives = "cmuxMobile.settings.alignKeepalives"
+        /// Settings → Transport → Direct on Wi-Fi (on by default); read at each dial
+        /// (`FFIMacLinkDialer.applyLanDirectToCore`, the same key).
+        public static let lanDirect = "cmuxMobile.settings.lanDirect"
         /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
@@ -60,6 +63,9 @@ public enum CmuxMobilePreferences {
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
+        /// browser card with no picture yet shows its site's letter on the site's hue, not the globe.
+        public static let tabCardMonograms = "cmuxMobile.settings.tabCardMonograms"
         /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
         /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
         public static let attentionMark = "cmuxMobile.settings.attentionMark"
@@ -72,7 +78,7 @@ public enum CmuxMobilePreferences {
     /// The sizes Settings offers (and the terminal accepts).
     public static let terminalFontSizes = 9...24
     public static let defaultWrapCode = false
-    public static let defaultKeyClicks = true
+    public static let defaultKeyClicks = false
     public static let defaultPredictiveEcho = true
     public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
@@ -87,6 +93,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalZoomFullScreenApps = false
     public static let defaultTerminalHistoryFind = false
     public static let defaultDismissKeyboardAfterSend = true
+    public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
     public static let defaultSwipeDownCollapsesComposer = false
@@ -211,6 +218,12 @@ public enum CmuxMobilePreferences {
 
     /// `FollowUpBehavior.queue.rawValue`.
     public static let queueFollowUp = "queue"
+
+    /// Whether browser cards with no picture show the site monogram (off by default).
+    public static func tabCardMonograms(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.tabCardMonograms) == nil ? defaultTabCardMonograms : defaults.bool(forKey: Key.tabCardMonograms)
+    }
 
     public static func compactWorkspaceList(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: Key.compactWorkspaceList)
