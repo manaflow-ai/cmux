@@ -87,6 +87,9 @@ const PARITY_HEADER: usize = 16;
 /// Type, receiver index and counter in front of a WireGuard data message's
 /// ciphertext.
 const WG_DATA_HEADER: usize = 16;
+/// A WireGuard keepalive: a data message with an empty payload, so its
+/// ciphertext is only the 16-byte Poly1305 tag.
+const WG_KEEPALIVE_LEN: usize = WG_DATA_HEADER + 16;
 /// Received data datagrams kept for rebuilding. Parity follows its group
 /// within one pass, so a few groups' worth is enough.
 const KEEP: usize = 256;
@@ -394,6 +397,17 @@ pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     let index: [u8; 4] = datagram.get(4..8)?.try_into().ok()?;
     let counter: [u8; 8] = datagram.get(8..16)?.try_into().ok()?;
     Some((index, u64::from_le_bytes(counter)))
+}
+
+/// A WireGuard keepalive past a session's first message: it carries nothing,
+/// and a lost one is replaced by the next (the air floor sends one every few
+/// seconds on an idle link), so it gets no copies, parity or group. Before,
+/// Auto's floor or repair made each idle keepalive its own group with one or
+/// two 32-byte parities: two or three datagrams per keepalive on the radio.
+/// Counter 0 keeps its repair: an initiator's first keepalive confirms a new
+/// handshake, and the responder cannot send until it arrives.
+fn is_idle_keepalive(datagram: &[u8]) -> bool {
+    datagram.len() == WG_KEEPALIVE_LEN && data_id(datagram).is_some_and(|(_, counter)| counter > 0)
 }
 
 /// Datagrams the loss window spans before it halves.
@@ -855,7 +869,7 @@ impl UltraUnderlay {
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
         self.forward(datagram, priority);
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
-        if !self.repairs(priority) {
+        if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
         }
         // Repaired screen state groups with input.
