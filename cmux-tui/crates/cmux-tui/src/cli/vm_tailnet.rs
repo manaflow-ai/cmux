@@ -192,7 +192,7 @@ pub(super) fn checked(
                         MintSource::Headscale { api_key, .. } => api_key.clone(),
                     },
                 };
-                request.check().map_err(|e| e.0)?;
+                request.clone().check().map_err(|e| e.0)?;
             }
             let spec = MintSpec { ephemeral: request.ephemeral, tags: request.tags.clone() };
             mint_key(&source, &spec, request.allow_http)?
