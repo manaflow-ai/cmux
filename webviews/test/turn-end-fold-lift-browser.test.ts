@@ -63,7 +63,7 @@ await requireBrowserLane("turn-end-fold-lift-browser.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
       await installPaintedFrames(page);
       // Every animation the page starts, by what it plays and whether it is on a fold's copy (a row
-      // with no row id: turnFold.ts ghostOf).
+      // (turnFold.ts ghostOf marks each with TURN_FOLD_GHOST).
       await page.addInitScript(() => {
         const w = window as unknown as { __played: Played[] };
         w.__played = [];
@@ -76,7 +76,7 @@ await requireBrowserLane("turn-end-fold-lift-browser.test.ts", async () => {
           const timing = typeof options === "number" ? { duration: options } : (options ?? {});
           const element = this as HTMLElement;
           w.__played.push({
-            copy: element.classList.contains("acpmux-row") && !element.hasAttribute("data-row-id"),
+            copy: element.classList.contains("acpmux-row--fold-ghost"),
             props,
             duration: Number(timing.duration ?? 0),
             delay: Number(timing.delay ?? 0),
@@ -100,8 +100,8 @@ await requireBrowserLane("turn-end-fold-lift-browser.test.ts", async () => {
             if (!thread) return;
             const inked = (node: HTMLElement) => Number(getComputedStyle(node).opacity) > 0.02;
             const rows = [...thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row")];
-            const live = rows.filter((row) => row.hasAttribute("data-row-id"));
-            const copies = rows.filter((row) => !row.hasAttribute("data-row-id") && inked(row));
+            const live = rows.filter((row) => !row.classList.contains("acpmux-row--fold-ghost"));
+            const copies = rows.filter((row) => row.classList.contains("acpmux-row--fold-ghost") && inked(row));
             const drawn = new Set(live.filter(inked).map((row) => row.textContent?.trim() ?? ""));
             w.__frames.push({
               at,
@@ -127,17 +127,20 @@ await requireBrowserLane("turn-end-fold-lift-browser.test.ts", async () => {
       const folding = frames.filter((frame) => frame.folding);
       expect(folding.length).toBeGreaterThan(0);
       const start = folding[0]!.at;
-      // The fade: every fold copy's opacity runs at most the look's fade, from its first frame.
-      const fades = played.filter((each) => each.copy && each.props.includes("opacity"));
-      expect(fades.length).toBeGreaterThan(0);
-      for (const fade of fades) {
+      // The fade: every fold copy's opacity runs at most the look's fade (at most 160 ms), from the
+      // fold's first frame. Here the answer comes in where the turn's last words and its live line were,
+      // so their copies go on the first pass (turnEndFold.ts `nextTurn`) and none may be left inked.
+      expect(lift.fadeMs).toBeLessThanOrEqual(160);
+      for (const fade of played.filter((each) => each.copy && each.props.includes("opacity"))) {
         expect(fade.duration).toBeLessThanOrEqual(lift.fadeMs);
         expect(fade.delay).toBeLessThanOrEqual(0);
       }
-      expect(lift.fadeMs).toBeLessThanOrEqual(160);
       // As painted: no copy keeps ink past the fade (a frame's slack at 60 Hz).
       const lastInked = folding.filter((frame) => frame.inkedCopies > 0).at(-1);
       if (lastInked) expect(lastInked.at - start).toBeLessThanOrEqual(lift.fadeMs + 17);
+      // The rows that come in (the ended Worked for) fade in on the move's clock, never longer.
+      const enters = played.filter((each) => !each.copy && each.props.includes("opacity"));
+      for (const enter of enters) expect(enter.duration).toBeLessThanOrEqual(lift.moveMs);
       // One transform: every row that moves plays the same length from the same start (no stagger).
       const moves = played.filter(
         (each) => !each.copy && (each.props.includes("translate") || each.props.includes("transform")),
