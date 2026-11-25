@@ -1,4 +1,4 @@
-import { memo, useId, useState, type ReactNode, type Ref } from "react";
+import { memo, useId, type ReactNode, type Ref, useState } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
@@ -9,6 +9,8 @@ import { revealRow } from "../keyboard";
 import { rowsByKey, type SchemaRow } from "../schema";
 import { managedText, type SettingsStore } from "../store";
 import { t, text } from "../strings";
+import { isExperimentalRow, useBetaChips } from "../betaChips";
+import { BetaChip } from "./BetaChip";
 import { asksConsent, ConsentPrompt } from "./ConsentPrompt";
 import { FontPreview } from "./FontPreview";
 import { Highlight } from "./Highlight";
@@ -66,6 +68,7 @@ export const SettingRow = memo(function SettingRow({
   const labelId = useId();
   const disabled = inactive || !state.connected || !state.readable || state.managed !== null;
   const menu = rowMenu(row.key, state, store);
+  const beta = useBetaChips() && isExperimentalRow(row);
   const consent = asksConsent(row);
   const [asking, setAsking] = useState(false);
   return (
@@ -81,6 +84,7 @@ export const SettingRow = memo(function SettingRow({
         <ContextMenu className="row-label" items={menu}>
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
+            {beta && <BetaChip />}
           </div>
           {row.summary && (
             <div className="row-help">
