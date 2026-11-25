@@ -9227,76 +9227,6 @@ public func FfiConverterTypeMailboxTarget_lower(_ value: MailboxTarget) -> RustB
 
 
 /**
- * One interface that is up, as iOS `NWPath.availableInterfaces` says
- * (mirror of `cmux_mobile_link::dial::wireguard::NetInterface`).
- */
-public struct NetInterface: Equatable, Hashable {
-    public var name: String
-    public var kind: InterfaceKind
-    public var expensive: Bool
-    public var constrained: Bool
-    public var primary: Bool
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(name: String, kind: InterfaceKind, expensive: Bool, constrained: Bool, primary: Bool) {
-        self.name = name
-        self.kind = kind
-        self.expensive = expensive
-        self.constrained = constrained
-        self.primary = primary
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension NetInterface: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeNetInterface: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NetInterface {
-        return
-            try NetInterface(
-                name: FfiConverterString.read(from: &buf), 
-                kind: FfiConverterTypeInterfaceKind.read(from: &buf), 
-                expensive: FfiConverterBool.read(from: &buf), 
-                constrained: FfiConverterBool.read(from: &buf), 
-                primary: FfiConverterBool.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: NetInterface, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.name, into: &buf)
-        FfiConverterTypeInterfaceKind.write(value.kind, into: &buf)
-        FfiConverterBool.write(value.expensive, into: &buf)
-        FfiConverterBool.write(value.constrained, into: &buf)
-        FfiConverterBool.write(value.primary, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeNetInterface_lift(_ buf: RustBuffer) throws -> NetInterface {
-    return try FfiConverterTypeNetInterface.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeNetInterface_lower(_ value: NetInterface) -> RustBuffer {
-    return FfiConverterTypeNetInterface.lower(value)
-}
-
-
-/**
  * One waiting request as a card on the phone.
  */
 public struct PairRequestCard: Equatable, Hashable {
@@ -12262,90 +12192,6 @@ public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) ->
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * What a network interface is (mirror of `cmux_mobile_link::dial::wireguard::InterfaceKind`).
- */
-
-public enum InterfaceKind: Equatable, Hashable {
-    
-    case wifi
-    case cellular
-    case wired
-    case other
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension InterfaceKind: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeInterfaceKind: FfiConverterRustBuffer {
-    typealias SwiftType = InterfaceKind
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InterfaceKind {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .wifi
-        
-        case 2: return .cellular
-        
-        case 3: return .wired
-        
-        case 4: return .other
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: InterfaceKind, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .wifi:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .cellular:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .wired:
-            writeInt(&buf, Int32(3))
-        
-        
-        case .other:
-            writeInt(&buf, Int32(4))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeInterfaceKind_lift(_ buf: RustBuffer) throws -> InterfaceKind {
-    return try FfiConverterTypeInterfaceKind.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeInterfaceKind_lower(_ value: InterfaceKind) -> RustBuffer {
-    return FfiConverterTypeInterfaceKind.lower(value)
-}
-
-
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum LastPlaceScreen: Equatable, Hashable {
     
@@ -15191,31 +15037,6 @@ fileprivate struct FfiConverterSequenceTypeMacScreenIceServer: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeNetInterface: FfiConverterRustBuffer {
-    typealias SwiftType = [NetInterface]
-
-    public static func write(_ value: [NetInterface], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeNetInterface.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [NetInterface] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [NetInterface]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeNetInterface.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypePairRequestCard: FfiConverterRustBuffer {
     typealias SwiftType = [PairRequestCard]
 
@@ -15758,15 +15579,6 @@ public func setBuildSpace(value: String?)  {try! rustCall() {
 }
 }
 /**
- * The person allows cell beside Wi-Fi (on unless they turn it off).
- */
-public func setCellularAssist(allowed: Bool)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_cellular_assist(
-        FfiConverterBool.lower(allowed),$0
-    )
-}
-}
-/**
  * The device's network is cellular now, or not (iOS `NWPathMonitor`,
  * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
  * too). Every WireGuard link in Auto (`ConnectOptions::ultra`) reads it
@@ -15787,16 +15599,6 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
 public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
         FfiConverterBool.lower(on),$0
-    )
-}
-}
-/**
- * The interfaces that are up now (every path update). Rust decides what to
- * do with them (a second socket on cell beside Wi-Fi, roaming).
- */
-public func setNetworkInterfaces(interfaces: [NetInterface])  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_network_interfaces(
-        FfiConverterSequenceTypeNetInterface.lower(interfaces),$0
     )
 }
 }
@@ -16353,16 +16155,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_build_space() != 53497) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_assist() != 38122) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 4068) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_interfaces() != 45108) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
