@@ -741,9 +741,10 @@ fn a_primary_screen_click_lands_on_the_host_cell_drawn_there() {
         }
     }
     assert!(checked > 200, "every glyph checked: {checked}");
-    // A tap past a row's last glyph lands on that glyph.
-    let last = host.locate(1, 3).expect("the prompt's last glyph");
-    assert_eq!(host.host_cell(last.from_bottom, 50), Some((1, 3)));
+    // A tap past a row's last glyph lands on that glyph: the prompt row's `s` of `$ ls`.
+    let prompt_from_bottom = 40 - host.terminal().cursor().1;
+    let last = host.locate(prompt_from_bottom, 3).expect("the prompt's last glyph");
+    assert_eq!(host.host_cell(last.from_bottom, 50), Some((prompt_from_bottom, 3)));
 }
 
 /// Aziz, cmux#42219 (6): "One full host-grid model per warm terminal; ...

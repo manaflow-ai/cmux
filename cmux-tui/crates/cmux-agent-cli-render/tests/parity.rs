@@ -275,6 +275,7 @@ fn chrome(draft: &str) -> Chrome {
         draft: draft.into(),
         utc_offset_minutes: 0,
         done_verb: None,
+        placeholder: None,
     }
 }
 
@@ -1295,7 +1296,7 @@ fn phone_fixtures() -> Vec<String> {
     names
 }
 
-fn phone_chrome(name: &str, draft: &str) -> Chrome {
+fn phone_chrome(name: &str, moment: &str, draft: &str) -> Chrome {
     let v: Value = serde_json::from_str(
         &std::fs::read_to_string(fixture(&format!("phone/{name}"), "chrome.json")).unwrap(),
     )
@@ -1310,6 +1311,13 @@ fn phone_chrome(name: &str, draft: &str) -> Chrome {
         draft: draft.into(),
         utc_offset_minutes: v["utc_offset_minutes"].as_i64().unwrap_or(0) as i32,
         done_verb: text("done_verb"),
+        // The host's fact for this moment: a tip before the first prompt, the suggested next
+        // prompt after a turn.
+        placeholder: match moment {
+            "start" => v["placeholders"]["start"].as_str().map(str::to_owned),
+            "done" => v["placeholders"]["done"].as_str().map(str::to_owned),
+            _ => None,
+        },
     }
 }
 
@@ -1354,7 +1362,7 @@ fn claude_code_at_the_phones_grid_from_records() {
             let (live, open) = live_records(&lines);
             let seeded = seeded_records(&lines, open, &scratch);
             let draft = if moment == "typed" { prompt.as_str() } else { "" };
-            let chrome = phone_chrome(name, draft);
+            let chrome = phone_chrome(name, moment, draft);
             let a = real.parity(&claude::render(&live, &chrome, cols, rows));
             let seeded_grid = claude::render(&seeded, &chrome, cols, rows);
             let b = real.parity(&seeded_grid);

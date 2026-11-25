@@ -124,11 +124,20 @@ def main() -> int:
             s.recent = b""
             s.last_write = 0
             s.idle(2000, 60)
+        # The input box is drawn (its effort hint) before anything is typed.
+        end = time.time() + 30
+        while b"/effort" not in s.recent and time.time() < end:
+            s.pump(0.2)
+        s.idle(1500, 10)
         moment("start")
         s.send(PROMPT.encode())
         s.pump(1.0)
         moment("typed")
         s.send(b"\r")
+        s.pump(1.0)
+        # A second Enter: a no-op on the emptied box, the submit if the first came too soon.
+        s.send(b"\r")
+        sent = time.time()
         s.pump(4.0)
         moment("working")
         approvals = 0
@@ -155,7 +164,8 @@ def main() -> int:
                 continue
             # Quiet with no question: the spinner (redrawn ~10 times a second while a turn
             # runs) has stopped, so the turn ended.
-            if now_ms() - s.last_write >= 1200:
+            # (Not before 8 s: a turn can sit quiet before its first token.)
+            if now_ms() - s.last_write >= 1200 and time.time() - sent > 8:
                 s.idle(2000, 10)
                 moment("done")
                 break
