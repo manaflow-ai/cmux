@@ -301,6 +301,8 @@ mod router_socket;
 pub mod routes;
 pub mod rows;
 pub mod rpc;
+// `acpmux run-ask`: run an accepted forum `run` ask here or through the scheduler.
+pub mod run_ask;
 pub mod run_elsewhere;
 pub mod sccache_env;
 pub mod schema;

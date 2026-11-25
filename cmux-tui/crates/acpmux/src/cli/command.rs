@@ -205,6 +205,14 @@ pub enum Command {
     /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
     #[command(name = "pr-wait")]
     PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// Run another person's agent's accepted forum `run` ask: one command at a repo's pushed ref,
+    /// here when light, through the scheduler (cmux-ci) when heavy; prints the result as JSON,
+    /// `{exit, tail, artifacts}`. A refused ask exits 7 with its reason (`run_ask.rs`).
+    #[command(name = "run-ask")]
+    RunAsk {
+        /// The ask's JSON as the forum serves it, from a file, or - for stdin.
+        file: String,
+    },
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
