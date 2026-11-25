@@ -4,10 +4,10 @@
 //! (`cmux link seed pull --or-copy`), and what came home. A probe, not a gate: it asserts only
 //! that each push answered.
 //!
-//! `cargo test -p cmux-tui --test local_only_seed_probe -- --ignored --nocapture`
+//! `cargo test -p cmux-tui --test it -- local_only_seed_probe:: --ignored --nocapture`
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};
