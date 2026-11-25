@@ -7,14 +7,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -29,10 +29,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -53,7 +53,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
-import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
+import { SendSlot, SendSlotGlyph, StopPulse } from "./composer/SendSlotGlyph";
 import { useStopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
@@ -203,6 +203,8 @@ import { isStashKey, useDraftStash } from "./composer/useDraftStash";
 import { StashedChip } from "./composer/StashedChip";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "./savedPrompts";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
+import { MachineJoinLine } from "./MachineJoinLine";
+import { holdSendForJoin, useMachineJoinState } from "./machineJoin";
 import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
@@ -843,6 +845,8 @@ function ComposerFrame({
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
+  // The join a Not added yet row started for this new chat (machineJoin.ts): its line, and a held send.
+  const machineJoin = useMachineJoinState();
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
@@ -2291,6 +2295,10 @@ function ComposerFrame({
       plusDraft.current = undefined;
       return false;
     }
+    // A new chat's machine is still being set up (Not added yet, machineJoin.ts): the prompt stays
+    // here as typed, the line under the box says it sends when the machine is ready, and this same
+    // send runs again once the chat's machine is that one. Nothing goes to This Mac meanwhile.
+    if (onProject !== undefined && holdSendForJoin(() => submitNow.current(force, steer, kept, route))) return true;
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
@@ -3841,6 +3849,13 @@ function ComposerFrame({
         trailing={quietActions ? undefined : slot}
         chromeItems={chrome.all}
       />
+      {onProject !== undefined && (
+        <MachineJoinLine
+          join={machineJoin.join}
+          onSignIn={() => onConnect?.("cloudSignIn")}
+          onAddMachine={() => onConnect?.("addMachine")}
+        />
+      )}
     </form>
   );
 }

@@ -191,6 +191,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/machine_candidates": ([], []),
+        // Never `accessToken` or `hub`: the host adds the token, and the hub is the app's own.
+        "_acpmux/machine_join_ssh": (["host", "name", "joinId", "confirmed"], []),
         "_acpmux/customize_run": (["run", "_meta"], []),
         // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
         "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),

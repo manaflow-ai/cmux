@@ -886,8 +886,11 @@ async fn reported(hub: &dyn Hub, join_token_id: &str, started: Instant) -> Optio
 /// same ssh host key (the [`ledger`]). A machine keeps one join record, so once it reported in
 /// with the new one the old one speaks for nothing; left, it made a second machine of that name
 /// and `cmux chat --on NAME` refused to pick. `swapped`, the credential the join replaced on the
-/// machine itself, goes too, whatever its name. A machine of that name on another box, or one
-/// this computer did not add, is never touched. Answers the revoked machine ids.
+/// machine itself, goes too, whatever its name, but only when the ledger shows this computer
+/// minted that record's token for this same ssh destination and host key: the id comes from the
+/// machine's own probe, so a host naming another machine on the account revokes nothing. A
+/// machine of that name on another box, or one this computer did not add, is never touched.
+/// Answers the revoked machine ids.
 async fn replace_earlier(
     hub: &dyn Hub,
     joined: &Joined,
@@ -895,18 +898,14 @@ async fn replace_earlier(
     host_key: Option<&str>,
     swapped: Option<&str>,
 ) -> Vec<String> {
-    if host_key.is_none() && swapped.is_none() {
-        return Vec::new();
-    }
+    let Some(host_key) = host_key else { return Vec::new() };
     let Ok(rows) = hub.machines().await else { return Vec::new() };
     let mut replaced = Vec::new();
     for row in rows {
-        let earlier_add = row.name.eq_ignore_ascii_case(&joined.name)
-            && host_key.is_some_and(|key| same_machine(hub, &row, host, key));
-        if row.revoked
-            || row.machine_id == joined.machine_id
-            || !(earlier_add || swapped == Some(row.machine_id.as_str()))
-        {
+        let ours = same_machine(hub, &row, host, host_key);
+        let earlier_add = ours && row.name.eq_ignore_ascii_case(&joined.name);
+        let swapped_here = ours && swapped == Some(row.machine_id.as_str());
+        if row.revoked || row.machine_id == joined.machine_id || !(earlier_add || swapped_here) {
             continue;
         }
         match hub.revoke(&row.machine_id).await {

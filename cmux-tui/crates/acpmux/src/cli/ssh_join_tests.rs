@@ -715,10 +715,28 @@ async fn a_machine_whose_daemon_is_down_swaps_its_credential_and_replaces_the_re
         redeemed: Some(vm.redeemed.clone()),
         ..FakeHub::up()
     };
+    hub.remember(entry("join_old", "gcp-3", KEY_A));
     let outcome = run_on(&vm, &hub).await;
     assert!(outcome.ok, "{outcome:?}");
     assert_eq!(outcome.machine.as_ref().map(|m| m.machine_id.as_str()), Some("machine_01"));
     assert_eq!(outcome.replaced, ["machine_old"]);
+}
+
+/// The swapped id is the machine's own word: a host that names another machine on this account
+/// (one this computer never sent a token to this ssh destination) revokes nothing.
+#[tokio::test(start_paused = true)]
+async fn a_host_naming_another_machine_as_its_credential_revokes_nothing() {
+    let vm = JoinedVm::new(Some("machine_elsewhere"), false);
+    let hub = FakeHub {
+        others: vec![earlier("machine_elsewhere", "laptop", "join_elsewhere")],
+        redeemed: Some(vm.redeemed.clone()),
+        ..FakeHub::up()
+    };
+    hub.remember(entry("join_elsewhere", "laptop", KEY_B));
+    let outcome = run_on(&vm, &hub).await;
+    assert!(outcome.ok, "{outcome:?}");
+    assert!(outcome.replaced.is_empty(), "{outcome:?}");
+    assert!(hub.revoked.lock().unwrap().is_empty());
 }
 
 /// An acpmux whose probe prints no status, on a machine already joined: the script's "already

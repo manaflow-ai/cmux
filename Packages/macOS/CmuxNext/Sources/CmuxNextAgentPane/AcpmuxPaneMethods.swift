@@ -266,6 +266,14 @@ nonisolated enum AcpmuxPaneMethods {
         // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
         // record. It sends the chat nothing and runs no turn, so no gesture.
         "_acpmux/prompt_coach",
+        // Door A (machineJoin.ts; acpmux server/machine_join_ssh.rs): the machines this Mac reaches
+        // and has not added, and the join of one over ssh through the hub. acpmux serves both only to
+        // this Mac's own app connection and the person. The page never sends the access token: the
+        // host adds it to the join after every rule read the page's frame (``withMachineJoinToken``),
+        // and the join needs the person's click (``gestureRules``). A host that is not the person's
+        // own tailnet node joins only with `confirmed`, which the page sends after the person's
+        // second click on the line that names the host and its login.
+        "_acpmux/machine_candidates", "_acpmux/machine_join_ssh",
         // The wrap-up card's Try it on, Keep and Revert (direct.ts customizeRun; acpmux customize_run.rs):
         // one of three typed `cmux customize` requests, checked against an allowlist and run without a
         // shell. The person's click in the card sends it.
@@ -521,6 +529,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Run on a bigger machine's Run sends the chat's command, and the files the person ticked, to
         // another machine: only on the person's click or Return in its panel.
         "_acpmux/run_elsewhere/start": .always,
+        // Adding a machine runs the hub join on it with the person's sign-in: only on their click
+        // or Return on its row (or on the line's Add for a host that asks first).
+        "_acpmux/machine_join_ssh": .always,
         // A wrap-up card's Try it on, Keep or Revert runs `cmux customize` on this machine (a dir:
         // trial builds that checkout): only on the person's click.
         "_acpmux/customize_run": .always,

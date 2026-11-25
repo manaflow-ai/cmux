@@ -551,6 +551,9 @@ extension AgentPaneTransport {
             }
         }
         if let refusal = fullAccessRefusal(facts, socket: socket) { return refusal }
+        // Door A's join: the person's access token goes in here, never through the page.
+        if let refusal = await withMachineJoinToken(facts, box, socket: socket) { return refusal }
+        guard id == current, self.socket === socket else { return .stop(.staleConnection) }
         // P2: a config option that is not free needs the native confirmation unless the daemon says the value
         // keeps the session asking. A mode needs only the gesture rule (Lawrence 2026-10-07: no sheet for full access).
         if let setting = facts.setting, setting.asked.needsSheet {

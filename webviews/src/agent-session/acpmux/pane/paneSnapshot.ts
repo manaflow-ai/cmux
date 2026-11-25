@@ -143,18 +143,18 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
-  hostRetryStep,
-  HOST_WAKE_EVENTS,
-  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
-  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
   hostPlannedRestart,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
+  lostRetryStep,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { newChatFolder } from "../startFolderModel";
@@ -204,6 +204,7 @@ import {
 import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
 import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
+import { setMachineJoinPort } from "../machineJoin";
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
@@ -1267,6 +1268,7 @@ export function paneSnapshotEffect({
           setStartModeSource(undefined);
           catalogClientId.current += 1;
           directClient.current = undefined;
+          setMachineJoinPort(undefined);
           delete window.cmuxAcpmuxActions;
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
@@ -1319,6 +1321,11 @@ export function paneSnapshotEffect({
       acpmuxPerf.markLaunch("connected");
       connectingClient = client;
       directClient.current = client;
+      // Door A's rows and joins (machineJoin.ts) go to this connection's acpmux.
+      setMachineJoinPort({
+        candidates: () => client.machineCandidates(),
+        join: (params) => client.joinMachine(params),
+      });
       // The perf watch (perfReporter.ts): one status read on the page's first connect; off, nothing runs.
       perfReporter.attach((params) => client.perf(params));
       // The always-on frame tally (conversation/frameTally.ts): the visible chat's frame gaps, to the daemon.
@@ -3016,6 +3023,7 @@ export function paneSnapshotEffect({
     if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     directClient.current?.close();
     directClient.current = undefined;
+    setMachineJoinPort(undefined);
     setBookmarkTransport(undefined);
     setSavedPromptsTransport(undefined);
     setStashTransport(undefined);

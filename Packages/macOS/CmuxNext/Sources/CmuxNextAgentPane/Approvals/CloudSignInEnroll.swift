@@ -126,7 +126,7 @@ extension CloudSignInEnroll {
             // The platform id: a machine record names its person by it, never by the Stack id.
             return signedInPerson(restoring: auth.isRestoring, completingSignIn: auth.coordinator.isLoading,
                                   signedIn: auth.isSignedIn, userID: auth.platformUserID)
-        }, accessToken: { [weak auth] in await auth?.machineRoutesToken(identity: identity) }, hub: hub, buildTag: buildTag,
+        }, accessToken: machineRoutesToken(auth: auth, identity: identity), hub: hub, buildTag: buildTag,
         recordLeave: { userId, signedOutAt in
             // `acpmux machine leave-intent`: the CLI writes it in the app's acpmux home, daemon or not.
             guard let environment = environment() else { return false }
@@ -146,5 +146,11 @@ extension CloudSignInEnroll {
         }
         windows?.followAvailability(enroll) { [weak enroll] in enroll?.acpmuxReturned() }
         return enroll
+    }
+
+    /// The token the hub's machine routes take, minted from `identity` (nil signed out): what the enroll
+    /// sends and what a pane's Door A join goes with (``AgentPaneShared/machineJoinToken``).
+    public static func machineRoutesToken(auth: CloudAuth, identity: MacInstallIdentity) -> @MainActor () async -> String? {
+        { [weak auth] in await auth?.machineRoutesToken(identity: identity) }
     }
 }

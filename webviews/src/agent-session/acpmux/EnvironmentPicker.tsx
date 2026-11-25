@@ -28,6 +28,7 @@ import { machineColor } from "./machineColor";
 import type { PickerCard } from "./machineCardModel";
 import { useRowPresence } from "./rowPresence";
 import type { RunModeRows } from "./sandboxRun";
+import type { JoinCandidate } from "./machineJoin";
 import {
   SECTION_LABELS,
   environmentStateLabel,
@@ -137,6 +138,9 @@ export function EnvironmentPicker({
   unavailableExpanded = false,
   card,
   otherDevices = false,
+  joinCandidates,
+  onJoin,
+  joinOtherExpanded = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -203,6 +207,14 @@ export function EnvironmentPicker({
   /// opens the person's own machines (no Cloud ones) in place, then Add Machine… (Austin,
   /// 2026-11-12). Needs `onConnect`; a started chat's list is its move instead.
   otherDevices?: boolean;
+  /// `machines`: the machines this Mac reaches and has not added (machineJoin.ts), under "Not added
+  /// yet" after the added ones: the person's own tailnet nodes first, one click each, then a folded
+  /// "Other machines on your network", whose rows ask once before they join.
+  joinCandidates?: { mine: readonly JoinCandidate[]; other: readonly JoinCandidate[] };
+  /// A "Not added yet" row was picked: the join starts and the machine is the chat's pick.
+  onJoin?(candidate: JoinCandidate): void;
+  /// Gallery seam: the other machines' group starts open.
+  joinOtherExpanded?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
@@ -217,6 +229,8 @@ export function EnvironmentPicker({
   const [query, setQuery] = useState("");
   // Whether the machine list's Unavailable group is open; it closes with the list.
   const [showUnavailable, setShowUnavailable] = useState(unavailableExpanded);
+  // Whether "Other machines on your network" is open; it closes with the list.
+  const [showOther, setShowOther] = useState(joinOtherExpanded);
   // When the list last opened: which machines are unavailable is read then, so no row moves into or
   // out of the group while the list stays open.
   const [openedAt, setOpenedAt] = useState(() => Date.now());
@@ -261,6 +275,7 @@ export function EnvironmentPicker({
     setList("main");
     setHighlightAuto(true);
     setShowUnavailable(unavailableExpanded);
+    setShowOther(joinOtherExpanded);
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -618,6 +633,25 @@ export function EnvironmentPicker({
     ...items.filter(environmentReady),
     ...items.filter((environment) => !environmentReady(environment)),
   ];
+  // Not added yet (Door A): after the machines a chat can use, before Add Machine…, as the search
+  // keeps them, in the machine list and in Other devices' (which took Remote's place, Austin
+  // 2026-11-12). The person's own tailnet nodes show; every other host waits behind its group row.
+  const joinShown = (candidates: readonly JoinCandidate[] | undefined) =>
+    ((listRows === "machines" && list === "main") || list === "devices") && onJoin
+      ? (candidates ?? []).filter((candidate) => matches(words, `${candidate.name} ${candidate.address}`))
+      : [];
+  const joinMine = joinShown(joinCandidates?.mine);
+  const joinOther = joinShown(joinCandidates?.other);
+  const joinByValue = new Map(
+    [...joinMine, ...joinOther].map((candidate) => [JOIN + candidate.address, candidate] as const),
+  );
+  const joinRows = [
+    ...joinMine.map((candidate) => JOIN + candidate.address),
+    ...(joinOther.length > 0 ? [JOIN_OTHER] : []),
+    ...(showOther || words.length > 0 ? joinOther.map((candidate) => JOIN + candidate.address) : []),
+  ];
+  // The group's first row carries its heading.
+  const joinHeading = joinRows[0];
   const choicesGrouped = grouped(
     [
       ...(includeLocal ? shown.filter(isLocal).map((environment) => environment.id) : []),
@@ -625,14 +659,14 @@ export function EnvironmentPicker({
         shown.filter((environment) => !isLocal(environment) && !(ownOnly && environment.kind === "cloud")),
       ).map((environment) => environment.id),
     ],
-    addMachine && words.length === 0 ? [addMachine.value] : [],
+    [...joinRows, ...(addMachine && words.length === 0 ? [addMachine.value] : [])],
   );
   // Other devices' list: the ready ones first, the rest greyed with their state (the long-down ones
-  // under Unavailable), as the search keeps them; Add Machine… last.
+  // under Unavailable), as the search keeps them; Not added yet, then Add Machine… last.
   const shownIds = useMemo(() => new Set(shown.map((environment) => environment.id)), [shown]);
   const devicesGrouped = grouped(
     readyFirst(devices.filter((environment) => shownIds.has(environment.id))).map((environment) => environment.id),
-    addMachine && words.length === 0 ? [addMachine.value] : [],
+    [...joinRows, ...(addMachine && words.length === 0 ? [addMachine.value] : [])],
   );
   const machineChoices = choicesGrouped.rows;
   const machines = machinesGrouped.rows;
@@ -734,6 +768,18 @@ export function EnvironmentPicker({
     // The Unavailable row opens or closes its group in place; the list stays open.
     if (value === UNAVAILABLE) {
       setShowUnavailable((shown) => !shown);
+      return;
+    }
+    if (value === JOIN_OTHER) {
+      setShowOther((shown) => !shown);
+      return;
+    }
+    // A machine not added yet: one click joins it and makes it the chat's pick.
+    const joining = joinByValue.get(value);
+    if (joining) {
+      close();
+      persistent();
+      onJoin?.(joining);
       return;
     }
     const action = actions.find((candidate) => candidate.value === value);
@@ -968,6 +1014,47 @@ export function EnvironmentPicker({
             </span>
           )}
         </WithFacts>
+      );
+    }
+    if (value === JOIN_OTHER) {
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-new acpmux-env-unavailable"
+          data-action="joinOther"
+          data-expanded={showOther ? "" : undefined}
+          aria-expanded={showOther}
+        >
+          <UnavailableChevron />
+          <span
+            className="acpmux-menu-text acpmux-location-name"
+            data-section={value === joinHeading ? t("composer.joinNotAdded") : undefined}
+          >
+            <span className="acpmux-menu-label">{t("composer.joinOtherGroup")}</span>
+          </span>
+          <span className="acpmux-location-check" aria-hidden="true" />
+        </span>
+      );
+    }
+    const candidate = joinByValue.get(value);
+    if (candidate) {
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-join"
+          data-kind="ssh"
+          data-action="join"
+          data-mine={candidate.mine ? "" : undefined}
+          title={candidate.address}
+        >
+          <EnvironmentIcon kind="ssh" name={candidate.name} />
+          <span
+            className="acpmux-menu-text acpmux-location-name"
+            data-section={value === joinHeading ? t("composer.joinNotAdded") : undefined}
+          >
+            <span className="acpmux-menu-label">{candidate.name}</span>
+          </span>
+          <span className="acpmux-env-state">{t("composer.add")}</span>
+          <span className="acpmux-location-check" aria-hidden="true" />
+        </span>
       );
     }
     if (value === UNAVAILABLE) {
@@ -1288,6 +1375,9 @@ type PickerList = "main" | "machines" | "moves" | "devices" | "auto";
 const ACTION = "\u0000action:";
 /// A machine card row's value (MachineCard.tsx): its id after this.
 const CARD = ACTION + "card:";
+/// A "Not added yet" row (its value ends in the host ssh dials), and the other machines' group row.
+const JOIN = ACTION + "join:";
+const JOIN_OTHER = ACTION + "joinOther";
 /// A started chat's Move to… row, which opens its targets.
 const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.

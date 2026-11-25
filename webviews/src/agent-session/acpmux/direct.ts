@@ -273,6 +273,7 @@ import {
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
 import { PromptHeads, type PromptHead } from "./promptHeads";
+import { noteJoinProgress } from "./machineJoin";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
   PRESET_APPROVAL,
@@ -467,6 +468,9 @@ type HiddenTurnListener = (state: {
 /// The snapshot's catalog: one empty array, so equal snapshots compare by identity.
 const NO_CATALOG: AcpmuxSnapshot["catalog"] = Object.freeze([]) as unknown as AcpmuxSnapshot["catalog"];
 
+/// How long a join over ssh may run: it downloads and installs the far machine's build (acpmux
+/// cli/ssh_join.rs waits for the machine to report in within its own deadline).
+export const MACHINE_JOIN_DEADLINE_MS = 10 * 60_000;
 /// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
 export const PREWARM_METHOD = "_acpmux/prewarm";
 /// New Project (newtab/newProject.ts, acpmux server/project_new.rs).
@@ -4045,6 +4049,11 @@ export class AcpmuxDirectClient {
     }
     if (!this.browserMaySend()) return;
     const notification = decoded;
+    // A join a Not added yet row started (machineJoin.ts): its step and seconds for the line.
+    if (notification.method === "_acpmux/machine_join_progress") {
+      if (!stale && !this.closed) noteJoinProgress(notification.params);
+      return;
+    }
     if (notification.method === "_acpmux/peer_state_changed") {
       if (!stale && !this.closed && this.peerEvents.changed(notification.params)) {
         this.applyPeerStates();
@@ -5715,6 +5724,20 @@ export class AcpmuxDirectClient {
     // l10n-allow: internal selection race; the transcript surface renders its own localized state.
     if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
     return this.request("_acpmux/subagent_transcript", params, 15_000);
+  }
+
+  /// The machines this Mac reaches and has not added (Door A, acpmux server/machine_join_ssh.rs):
+  /// its tailnet's online nodes and its `~/.ssh/config` hosts, without the ones already added.
+  machineCandidates(): Promise<unknown> {
+    return this.request("_acpmux/machine_candidates", {}, 15_000);
+  }
+
+  /// Joins one of them through the hub over ssh. The app adds the person's access token on the way
+  /// (AgentPaneTransport `machineJoinToken`): the page never holds it. Progress arrives as
+  /// `_acpmux/machine_join_progress`; the answer is the join's outcome, or `needs_confirmation` for
+  /// a host that is not one of the person's own tailnet nodes until `confirmed` is sent.
+  joinMachine(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/machine_join_ssh", params, MACHINE_JOIN_DEADLINE_MS);
   }
 
   /// Asks the local daemon to retry the configured peer and wait for its doctor result.
