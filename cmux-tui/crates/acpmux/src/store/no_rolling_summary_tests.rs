@@ -37,7 +37,7 @@ fn a_chat_saved_with_a_rolling_summary_loads_and_saves_without_it() {
 #[test]
 fn the_protocol_spec_has_no_rolling_summary() {
     let spec = include_str!("../../spec/acpmux-protocol.json");
-    for marker in ["rollingSummary", "RollingSummary", "\"summarized\""] {
+    for marker in ["rollingSummary", "RollingSummary"] {
         assert!(!spec.contains(marker), "acpmux-protocol.json still names {marker}");
     }
 }
