@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { cardStrings } from "../strings";
-import { nextStep, setupProgress, setupSteps, type SetupState } from "./setupModel";
+import { nextStep, setupProgress, setupSteps, setupTitle, type SetupState } from "./setupModel";
 
 const strings = cardStrings(["en"]);
 
@@ -15,6 +15,23 @@ const fresh: SetupState = {
 };
 
 describe("setupSteps", () => {
+  // First-run findings rows 1 and 4: the card's Chief form, shown in Chief's chat while Claude Code (what
+  // Chief answers through) is missing or signed out. Only the agents row, under a title that says why.
+  test("Chief's form: the agents row alone, under a title that names what Chief needs", () => {
+    const state: SetupState = {
+      ...fresh,
+      agents: [{ id: "claude", name: "Claude Code", state: "missing" }],
+      forChief: true,
+    };
+    const steps = setupSteps(state, strings);
+    expect(steps.map((step) => step.id)).toEqual(["agents"]);
+    expect(steps[0]?.action).toEqual({ label: "Install Claude Code", run: { kind: "installAgent", id: "claude" } });
+    expect(setupTitle(state, strings)).toBe("Chief needs Claude Code to answer");
+    expect(setupTitle(fresh, strings)).toBe("Set Up cmux");
+    const signedOut: SetupState = { ...state, agents: [{ id: "claude", name: "Claude Code", state: "signedOut" }] };
+    expect(setupSteps(signedOut, strings)[0]?.action?.label).toBe("Sign In to Claude Code");
+  });
+
   test("a fresh Mac: agents, account, command line; the next row installs the first agent", () => {
     const steps = setupSteps(fresh, strings);
     expect(steps.map((step) => step.id)).toEqual(["agents", "account", "cli"]);
@@ -64,11 +81,7 @@ describe("setupSteps", () => {
     const added = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "on" } }, strings)[1]!;
     expect([added.done, added.detail, added.action]).toEqual([true, "On for agents you start in cmux", undefined]);
     const declined = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "off" } }, strings)[1]!;
-    expect([declined.done, declined.detail, declined.secondary]).toEqual([
-      true,
-      "Off: Settings > Agents",
-      undefined,
-    ]);
+    expect([declined.done, declined.detail, declined.secondary]).toEqual([true, "Off: Settings > Agents", undefined]);
     // Nothing to ask: no row.
     expect(setupSteps({ ...fresh, tools: null }, strings).map((step) => step.id)).not.toContain("tools");
   });

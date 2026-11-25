@@ -64,11 +64,14 @@ export function frameStats(timestamps: number[], nominal: number): FrameStats {
 }
 
 /** p50/p95/max of `values` (unsorted), rounded. */
-export function summary(values: number[]): { p50_ms: number; p95_ms: number; max_ms: number } {
+export function summary(values: number[]): { p50_ms: number; p95_ms: number; p99_ms: number; max_ms: number } {
   const sorted = [...values].sort((a, b) => a - b);
   return {
     p50_ms: round2(percentile(sorted, 0.5)),
     p95_ms: round2(percentile(sorted, 0.95)),
+    // The tail the under-load harnesses report beside p95 (cmuxterm-hq docs/design/chat-instant-under-load.md,
+    // "The bench": "key to frame p50, p95, p99 and max").
+    p99_ms: round2(percentile(sorted, 0.99)),
     max_ms: round2(sorted.at(-1) ?? 0),
   };
 }
@@ -128,7 +131,13 @@ export class FrameRing {
 
   /** Samples oldest first. `other` is the interval not spent in layout or React. */
   samples(): { interval: number; layout: number; react: number; other: number; blank: boolean }[] {
-    const out: { interval: number; layout: number; react: number; other: number; blank: boolean }[] = [];
+    const out: {
+      interval: number;
+      layout: number;
+      react: number;
+      other: number;
+      blank: boolean;
+    }[] = [];
     const start = (this.next - this.count + this.capacity) % this.capacity;
     for (let offset = 0; offset < this.count; offset += 1) {
       const index = (start + offset) % this.capacity;
@@ -155,6 +164,11 @@ export type TypingSample = {
   paint: number;
   listener?: number;
   work?: number;
+  key?: string;
+  /** Same-host epoch clock, for joining the native bench's dispatch to this after-frame callback. */
+  paint_epoch_ms?: number;
+  /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
+  frame_timestamp_ms?: number;
 } & Partial<KeyPresentation>;
 type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
 /**
@@ -172,17 +186,27 @@ export const LIVE_EVENT_LAG_MS = 1000;
 
 /** Typing latency: keydown event time to the next frame and to after that frame paints. */
 export function typingSummary(samples: TypingSample[]) {
+  const stages = (values: number[]) => ({
+    ...summary(values),
+    p99_ms: round2(
+      percentile(
+        [...values].sort((a, b) => a - b),
+        0.99,
+      ),
+    ),
+  });
   return {
     keys: samples.length,
-    to_frame: summary(samples.map((sample) => sample.frame)),
-    to_paint: summary(samples.map((sample) => sample.paint)),
-    to_submitted: summary(samples.flatMap((sample) => (sample.submitted === undefined ? [] : [sample.submitted]))),
-    to_submitted_floor: summary(
+    to_frame: stages(samples.map((sample) => sample.frame)),
+    to_paint: stages(samples.map((sample) => sample.paint)),
+    to_submitted: stages(samples.flatMap((sample) => (sample.submitted === undefined ? [] : [sample.submitted]))),
+    to_submitted_floor: stages(
       samples.flatMap((sample) => (sample.submittedFloor === undefined ? [] : [sample.submittedFloor])),
     ),
     submitted_keys: samples.filter((sample) => sample.submitted !== undefined).length,
-    to_listener: summary(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
-    to_work: summary(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
+    to_listener: stages(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
+    to_work: stages(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
+    samples: samples.map((sample) => ({ ...sample })),
   };
 }
 
@@ -229,7 +253,12 @@ export class AcpmuxPerf {
       // The chat's composer and the New Tab page's (its omnibar's keys, Lawrence 2026-11-13).
       if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
       const start = event.timeStamp;
-      const sample: TypingSample = { frame: 0, paint: 0, listener: performance.now() - start };
+      const sample: TypingSample = {
+        frame: 0,
+        paint: 0,
+        listener: performance.now() - start,
+        key: event.key,
+      };
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
       // The key's edit: its `input` event, then the microtasks the field and React run it in.
       const input = () => {
@@ -241,13 +270,16 @@ export class AcpmuxPerf {
         done.port2.postMessage(0);
       };
       page.addEventListener("input", input, { capture: true, once: true });
-      requestAnimationFrame(() => {
+      requestAnimationFrame((timestamp) => {
         const frame = performance.now();
+        sample.frame_timestamp_ms = timestamp;
         page.removeEventListener("input", input, { capture: true });
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
           sample.frame = frame - start;
-          sample.paint = performance.now() - start;
+          const painted = performance.now();
+          sample.paint = painted - start;
+          sample.paint_epoch_ms = performance.timeOrigin + painted;
           this.typing.push(sample);
           if (this.typing.length > 4096) this.typing.shift();
           channel.port1.close();

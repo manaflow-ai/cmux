@@ -44,8 +44,21 @@
 // again, and so does a trackpad pinch (the visual viewport's resize and scroll), since each box is sent
 // where it shows on the zoomed screen (ui/visualViewportBox.ts). Nothing runs while no marked surface is
 // mounted, and the App's answer is the only other work.
+//
+// One coordinate conversion, and it is the page's (Leo, 2026-11-20: "we have glass project / i add
+// background / it refract / boom done"; cmux#42413 switched host glass off for this drift). A box is
+// in CSS px; the App needs view points, and CSS px times the page zoom is points. The App used to
+// multiply by the zoom it had set (Interface Scale times Agent Chat Zoom), but Chromium applies a new
+// zoom over another channel than the page's reports (PageChromiumDocumentScripts.pageZoomScript), and
+// a popover whose CSS box a zoom leaves as it was (anchored top-left) sent the same report again,
+// which both sides drop as unchanged: the App's glass kept the old zoom's frame while the content drew
+// at the new one, apart from it and larger or smaller. So every report carries the zoom its boxes were
+// measured at (`hostGlassPageZoom`, the zoom the page renders at, published on `<html>` before the
+// frame paints), a zoom change alone sends a new report, and the App places each box with that zoom
+// and never its own (AgentPaneView+HostGlass.swift hostGlassFrame).
 import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
+import { INTERFACE_SCALE_EVENT } from "../interfaceScale";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
@@ -106,6 +119,17 @@ export const HOST_GLASS_HOLD_FRAMES = 2;
 const STABLE_FRAMES = 3;
 
 const SELECTOR = `[${HOST_GLASS_ATTRIBUTE}]`;
+
+/** The page zoom this page renders at now: view points per CSS px, 1 with none to read. The App
+ * writes it to `--cmux-ui-scale` on `<html>` (Chromium: `devicePixelRatio` over the backing scale, in
+ * the resize that applies a zoom, before it paints; WebKit: the page zoom it set). */
+export function hostGlassPageZoom(doc: Document): number {
+  const root = doc.documentElement;
+  let text = root.style.getPropertyValue("--cmux-ui-scale");
+  if (!text) text = doc.defaultView?.getComputedStyle(root).getPropertyValue("--cmux-ui-scale") ?? "";
+  const zoom = Number.parseFloat(text);
+  return Number.isFinite(zoom) && zoom > 0 ? Math.round(zoom * 10_000) / 10_000 : 1;
+}
 const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
@@ -153,7 +177,7 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
 
 /**
  * Keeps the App told where the page's marked surfaces are (`post`, whose promise settles once the App
- * drew that report), and marks each surface drawn when it has. A refused report means the App draws no
+ * drew that report; `zoom` is the page zoom its boxes were measured at, `hostGlassPageZoom`), and marks each surface drawn when it has. A refused report means the App draws no
  * host glass: every surface keeps the page's own glass and the reports end. Returns the stop, which
  * sends an empty list if the last report was not.
  */
@@ -162,7 +186,7 @@ export type HostGlassCover = { candidates: CoveredCandidates; options?: SeeThrou
 
 export function reportHostGlass(
   doc: Document,
-  post: (surfaces: HostGlassSurface[]) => Promise<unknown>,
+  post: (surfaces: HostGlassSurface[], zoom: number) => Promise<unknown>,
   cover?: HostGlassCover,
 ): () => void {
   const view = doc.defaultView;
@@ -198,6 +222,8 @@ export function reportHostGlass(
   const reported = new WeakSet<Element>();
   let stable = 0;
   let sent = "[]";
+  // The zoom the last report was measured at: a zoom change alone reports again.
+  let sentZoom = 1;
   let live = true;
 
   // The deadline stays armed while a surface is marked "1" before the App answered (adopt): only an
@@ -243,11 +269,12 @@ export function reportHostGlass(
     root.removeAttribute(HOST_GLASS_ROOT_ATTRIBUTE);
     for (const element of ids.keys()) mark(element, "0");
   };
-  const send = (surfaces: HostGlassSurface[], elements: Element[]) => {
+  const send = (surfaces: HostGlassSurface[], elements: Element[], zoom: number) => {
     const text = JSON.stringify(surfaces);
-    if (text === sent) return;
+    if (text === sent && (zoom === sentZoom || surfaces.length === 0)) return;
     sent = text;
-    post(surfaces).then(() => {
+    sentZoom = zoom;
+    post(surfaces, zoom).then(() => {
       // An answer that comes after host glass stopped applying (Reduce Transparency, a live
       // background) draws nothing. An answer to an earlier report still draws: a surface whose box
       // changes every frame (a scroll, a fade) is never answered for its latest report in time.
@@ -286,6 +313,8 @@ export function reportHostGlass(
   };
   const measure = (): string => {
     const applies = live && hostGlassApplies(doc);
+    // Read with the boxes, in the same frame: the zoom they are in.
+    const zoom = hostGlassPageZoom(doc);
     root.toggleAttribute(HOST_GLASS_ROOT_ATTRIBUTE, applies);
     const surfaces: HostGlassSurface[] = [];
     const elements: Element[] = [];
@@ -325,8 +354,8 @@ export function reportHostGlass(
         if (!applies && live) mark(element, "0");
       }
     }
-    if (live) send(surfaces, elements);
-    return sent;
+    if (live) send(surfaces, elements, zoom);
+    return `${sentZoom} ${sent}`;
   };
   let last = "";
   const holding = () => [...ids.keys()].some((element) => firstShown.has(element) && !reported.has(element));
@@ -439,6 +468,8 @@ export function reportHostGlass(
   };
   view.addEventListener("scroll", follow, { capture: true, passive: true });
   view.addEventListener("resize", follow);
+  // A page zoom or an Interface Scale change (the App's scale script ends with this event).
+  view.addEventListener(INTERFACE_SCALE_EVENT, follow);
   // A trackpad pinch zooms and pans the visual viewport with no layout change: the boxes move on screen.
   view.visualViewport?.addEventListener("resize", follow);
   view.visualViewport?.addEventListener("scroll", follow);
@@ -454,6 +485,7 @@ export function reportHostGlass(
     restyled.disconnect();
     view.removeEventListener("scroll", follow, { capture: true });
     view.removeEventListener("resize", follow);
+    view.removeEventListener(INTERFACE_SCALE_EVENT, follow);
     view.visualViewport?.removeEventListener("resize", follow);
     view.visualViewport?.removeEventListener("scroll", follow);
     doc.removeEventListener("transitionrun", follow, true);
@@ -464,7 +496,7 @@ export function reportHostGlass(
     for (const element of ids.keys()) forget(element);
     restyled.disconnect();
     root.removeAttribute(HOST_GLASS_ROOT_ATTRIBUTE);
-    if (live && sent !== "[]") void post([]).catch(() => undefined);
+    if (live && sent !== "[]") void post([], sentZoom).catch(() => undefined);
     live = false;
   };
 }

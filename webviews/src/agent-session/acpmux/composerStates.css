@@ -976,7 +976,7 @@ body:has(.nt-box :focus-visible) .nt-popover {
   padding: 0;
   border: 0;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   cursor: zoom-in;
 }
 .acpmux-queued-image:disabled {

@@ -20,10 +20,14 @@
 //! A request whose answer reports a change ([`Hub::save_meta_answered`]) waits until its version
 //! is durable; a commit that fails fails the request (`store.save_failed`), and the change stays
 //! in memory for the next commit, which a change that came during the failed one gets at once.
-//! A change no request answers for ([`Hub::save_meta`]) takes its version and returns: the
-//! writer at work (or this caller, when none is) commits it. A request that changed nothing
-//! (the chat was unread already) waits for every earlier change ([`Hub::meta_barrier`]). The
-//! shutdown's flush waits for each chat's commit before the store is sealed.
+//! A change no request answers for ([`Hub::save_meta`]) also returns once its version is
+//! durable, and a failed commit is only logged: before, it returned at once while another
+//! commit of the chat ran, so a request that answered after it (a stop that closed the chat, a
+//! sub-session's limits) or a line that showed it (a generated title) could come before the
+//! write, and a hard exit in between lost a change the person saw (agent-service-v2, "Write at
+//! the event": metadata, title and status snapshots before their reply). A request that changed
+//! nothing (the chat was unread already) waits for every earlier change ([`Hub::meta_barrier`]).
+//! The shutdown's flush waits for each chat's commit before the store is sealed.
 //!
 //! A kept change (a draft, a name: [`ShowAfter::Written`], `store/durability.rs`) is committed with
 //! [`Hub::save_meta_kept`]: its answer waits until the copy is saved, as any answered change does,
@@ -296,9 +300,10 @@ impl MetaWriter {
 }
 
 impl Hub {
-    /// Commits a change no request answers for; a failed commit is logged.
+    /// Commits a change no request answers for: returns once it is durable, so what the caller
+    /// sends next comes after the write (module text); a failed commit is logged.
     pub(super) fn save_meta(&self, session: &Session) {
-        if let Err(e) = self.commit_meta(session, Wait::No, ShowAfter::Durable) {
+        if let Err(e) = self.commit_meta(session, Wait::Durable, ShowAfter::Durable) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
     }
@@ -443,3 +448,7 @@ fn hold_seam(session_id: &str) {
 #[cfg(test)]
 #[path = "meta_save_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "meta_save_bench.rs"]
+mod bench;

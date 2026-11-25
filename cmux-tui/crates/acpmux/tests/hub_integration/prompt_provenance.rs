@@ -92,7 +92,7 @@ impl Client {
     }
 
     /// A connection with the proof its transport checked (`serve_connection_authed`).
-    fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+    pub(super) fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));

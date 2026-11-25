@@ -257,6 +257,7 @@ struct TerminalChatPair<Terminal: View, Chat: View>: View {
                 .opacity(showsChat ? 1 : 0)
                 .allowsHitTesting(showsChat)
                 .accessibilityHidden(!showsChat)
+                .environment(\.chatFaceHidden, !showsChat)
         }
     }
 }

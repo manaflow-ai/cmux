@@ -160,6 +160,8 @@ impl Runner for SystemRunner {
 pub struct RecordingRunner {
     log: Mutex<Vec<Cmd>>,
     rules: Mutex<VecDeque<(String, Output)>>,
+    /// Answers that stay: used after the one-time rules.
+    always: Mutex<Vec<(String, Output)>>,
 }
 
 impl RecordingRunner {
@@ -174,6 +176,15 @@ impl RecordingRunner {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push_back((needle.to_owned(), output));
+    }
+
+    /// Every command whose display contains `needle` gets `output`, unless a
+    /// one-time [`RecordingRunner::answer`] rule matches it first.
+    pub fn answer_always(&self, needle: &str, output: Output) {
+        self.always
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((needle.to_owned(), output));
     }
 
     pub fn commands(&self) -> Vec<Cmd> {
@@ -195,6 +206,12 @@ impl Runner for RecordingRunner {
             && let Some((_, output)) = rules.remove(pos)
         {
             return Ok(output);
+        }
+        drop(rules);
+        let always = self.always.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, output)) = always.iter().find(|(needle, _)| line.contains(needle.as_str()))
+        {
+            return Ok(output.clone());
         }
         Ok(Output { code: Some(0), ..Output::default() })
     }

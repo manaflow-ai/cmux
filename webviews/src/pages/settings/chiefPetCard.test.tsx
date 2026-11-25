@@ -12,7 +12,7 @@ afterAll(() => restore());
 const { renderPage, settle, ops } = await import("./testing");
 
 // The card's one home is Personalization's Chief part (SectionView HUB_KEYS); Chief no longer draws it.
-const PAGE = "/settings/personalization";
+const PAGE = "/settings/personalization?part=chief";
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const choices = (element: HTMLElement) => [...element.querySelectorAll<HTMLElement>(".chief-pet-choice")];
 /** The pet as the card shows it: on or off, and the character in its preview. */

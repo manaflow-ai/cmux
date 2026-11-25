@@ -296,6 +296,7 @@ fn failure_lines(r: &Value, now: u64) -> Vec<String> {
     {
         let cause = match retry["reason"].as_str().unwrap_or_default() {
             "capacity" => "capacity: the provider or the gateway is full",
+            "rate_limit" => "the account's rate limit (the chat holds every turn until its reset)",
             "transport" => "a dropped connection",
             "agent_exited" => "the agent process's exit",
             "context" => "a chat past its context window (it compacts first)",
@@ -1001,71 +1002,7 @@ async fn turn_stats(client: &Arc<Client>, id: &str) -> (Option<u64>, u64) {
     )
 }
 
-/// `acpmux session tail NAME [--since CURSOR] [--last N] [-f]`.
-pub(crate) async fn tail(
-    client: Arc<Client>,
-    key: &str,
-    last: u64,
-    since: Option<String>,
-    follow: bool,
-    suppress_reads: bool,
-) -> Result<()> {
-    let id = resolve_id(&client, &expand_session_key(key)?).await?;
-    let mut notes =
-        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let events: Vec<Value> = match since {
-        Some(cursor) => {
-            let seq = parse_cursor(&cursor, &id)?;
-            // Subscribe before reading from the cursor, so an event written
-            // in between arrives live; the seq check below drops repeats.
-            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            events_after(&client, &id, seq, usize::MAX).await?
-        }
-        None => with_older(&client, json!({"sessionId": id, "limit": last})).await?,
-    };
-    let stdout = std::io::stdout();
-    let mut sup = ReadSuppressor::default();
-    let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
-    // The newest seq printed: a live event at or below it was in the page.
-    let mut printed_seq = 0u64;
-    for e in events {
-        printed_seq = printed_seq.max(e.get("seq").and_then(Value::as_u64).unwrap_or(0));
-        let mut lock = stdout.lock();
-        let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
-    }
-    if !follow {
-        return Ok(());
-    }
-    while let Some(m) = notes.recv().await {
-        if let Message::Notification { method: m, params } = m {
-            if m == method::MUX_DISCONNECTED {
-                return Err(client.closed("following the session"));
-            }
-            let p = params.unwrap_or(Value::Null);
-            if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id.as_str()) {
-                continue;
-            }
-            let seq = if m == method::MUX_EVENT {
-                p.get("seq").and_then(Value::as_u64)
-            } else {
-                p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64)
-            };
-            if seq.is_some_and(|s| s <= printed_seq) {
-                continue;
-            }
-            let mut lock = stdout.lock();
-            let line = if m == method::MUX_EVENT {
-                with_cursor(&id, filter(&mut sup, p))
-            } else if m == method::SESSION_UPDATE && suppress_reads {
-                json!({"method": m, "params": sup.apply_update(p)})
-            } else {
-                json!({"method": m, "params": p})
-            };
-            let _ = writeln!(lock, "{line}");
-        }
-    }
-    Ok(())
-}
+// `acpmux session tail` streams a chat's events: `session_tail.rs`.
 
 /// A cursor is `<sessionId>:<seq>` or a bare seq.
 pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
@@ -1091,13 +1028,6 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
         )
         .into()
     })
-}
-
-fn with_cursor(id: &str, mut e: Value) -> Value {
-    if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
-    }
-    e
 }
 
 /// --suppress-reads: blank read-tool payloads but keep the message shape.

@@ -38,9 +38,10 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Process basics that are safe for a Team-signed helper to inherit. Its
     /// login-environment loader supplies user tool and credential variables
     /// after start; the app process's unrelated capabilities never cross the
-    /// unverified launch boundary.
+    /// unverified launch boundary. `CMUX_BUILD_SPACE` is the app's own build space
+    /// (`LaunchIdentity.stripInheritedEnvironment` replaced any inherited one): no secret.
     private static let signedInheritedKeys: Set<String> = [
-        "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
+        "CMUX_BUILD_SPACE", "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
     ]
 
     static func arguments(for environment: AcpmuxEnvironment) -> [String] {

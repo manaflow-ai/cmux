@@ -408,6 +408,7 @@ public final class MacScreenSession {
     func reach(_ stage: MacScreenConnectStage) {
         guard stage > connectStage else { return }
         connectStage = stage
+        timings.reached(stage, at: .now)
         if stage == .shown { connectDeadline.cancel() }
     }
 

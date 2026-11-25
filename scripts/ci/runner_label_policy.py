@@ -389,6 +389,22 @@ NO_HOSTED_MAC_VARIABLES = frozenset({
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
 HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+# Any GitHub-hosted image label. On 2026-11-18/19 GitHub-hosted Ubuntu started no manaflow-ai/cmux job for hours:
+# the jobs a RUNNER_POOLS value of `ubuntu-24.04` had routed sat queued 444 min, holding the webview verdict on
+# PRs and three nightly jobs (Leo: "just dont use github for private"). Only a pool .github/runners.json declares
+# `"hosted": true` (with its `hosted_why`) may name one; every runner variable and every other pool takes owned
+# labels, then Blacksmith.
+HOSTED_LABEL = re.compile(r"(?:ubuntu|windows|macos)-(?:latest|\d+(?:\.\d+)?)(?:-[a-z0-9]+)*")
+
+
+@cache
+def declared_hosted_pools() -> frozenset[str]:
+    """Pools .github/runners.json marks `"hosted": true`: the only ones that may hold a GitHub-hosted label."""
+    try:
+        pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8")).get("pools") or {}
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(name for name, pool in pools.items() if isinstance(pool, dict) and pool.get("hosted") is True)
 
 
 def runner_pools_reason(value: str) -> str | None:
@@ -413,8 +429,13 @@ def runner_pools_reason(value: str) -> str | None:
             if not value.strip():
                 return None
             original = value.strip()
+            if pool in declared_hosted_pools():
+                return None  # declared hosted in .github/runners.json, with its reason
             if HOSTED_MAC_LABEL.fullmatch(original.lower()):
                 return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
+            if HOSTED_LABEL.fullmatch(original.lower()):
+                return (f"pool `{pool}` names the GitHub-hosted runner `{original}`; only a pool .github/runners.json "
+                        "declares hosted may, the rest take owned labels, then Blacksmith")
             reason = forbidden_reason(original)
             return f"pool `{pool}` {reason}" if reason is not None else None
         if isinstance(value, dict):
@@ -461,6 +482,11 @@ def drifted_runner_variables(
             continue
         if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
             drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
+            continue
+        if HOSTED_LABEL.fullmatch(value.strip().lower()):
+            drifted.append((name, value.strip(), "names a GitHub-hosted runner, which can sit queued for hours; "
+                            f"set an owned label or Blacksmith (gh variable set {name} --body blacksmith-2vcpu-ubuntu-2404 "
+                            "for a Linux one)"))
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())

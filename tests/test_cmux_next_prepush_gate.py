@@ -2747,6 +2747,27 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: entries[0]", output)
         self.assertNotIn("base-photo.md", output, "only the branch's own highlight is named")
 
+    def test_a_stale_local_branch_named_like_the_upstream_never_becomes_the_base(self):
+        # 2026-11-20: a shared clone held a local branch literally named `origin/feat-cmux-next`
+        # (refs/heads/origin/feat-cmux-next, left behind by some tool) at an old base. Git reads the short name
+        # `origin/feat-cmux-next` as that local branch, so the gate judged a plain base merge (its merged parent the
+        # remote tip) over the stale twin and refused it for files only the base changed.
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        old = self.git("rev-parse", "refs/remotes/origin/feat-cmux-next").stdout.strip()
+        self.git("fetch", "--quiet", "origin")
+        self.git("update-ref", "refs/heads/origin/feat-cmux-next", old)
+        # The remote's HEAD names main there (a fetch here pointed it at feat-cmux-next, which bounded the walk alone).
+        self.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD", check=False)
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        self.assertNotEqual(self.git("rev-parse", "refs/remotes/origin/feat-cmux-next").stdout.strip(), old)
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("base-photo.md", output, "a highlight the base merge brought in is not the branch's")
+        self.assertEqual(self.remote_head_of("topic"), self.git("rev-parse", "HEAD").stdout.strip())
+
     def test_a_refused_push_retried_after_the_base_moved_fetches_the_base_again(self):
         # cmux#41310 review: the fetch stamp outlived its hook run, keyed only by the pushed rows, so the same push
         # tried again after feat-cmux-next moved skipped the fetch and measured from the stale copy.
@@ -2915,6 +2936,84 @@ mod tests {
                       "needs a tryIt action/deeplink or a docs link", output)
         self.assertNotIn("were not validated", output)
 
+
+class AmbiguousUpstreamTests(unittest.TestCase):
+    """2026-11-20: a clone with a local branch literally named `origin/feat-cmux-next` (refs/heads/origin/...) at a
+    stale commit. Git reads the short name as that local branch ("refname is ambiguous"), so push_range judged a base
+    merge over the stale twin (e8c36a3) instead of the remote-tracking tip it merged (7209f01). Every remote-tracking
+    ref push_range hands git is its full name, refs/remotes/<remote>/<name>."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-push-range-ambiguous-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.repo, origin = root / "repository", root / "origin.git"
+        config = root / "gitconfig"
+        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                          + git_fixture_env.CONFIG_FILE_OPT_OUT)
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config), HOME=str(root))
+        git_fixture_env.without_auto_maintenance(self.env)
+        git_fixture_env.init_repo(origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
+        self.repo.mkdir()
+        self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
+        self.git("remote", "add", "origin", str(origin))
+        self.stale = self.commit("base.txt", "base\n")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.commit("topic.txt", "topic\n")
+        self.git("push", "--quiet", "--no-verify", "origin", "topic")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.tip = self.commit("base-only.txt", "only the base changed this\n")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        # The stale local twin: what some tool's `git branch origin/feat-cmux-next ...` leaves behind.
+        self.git("update-ref", "refs/heads/origin/feat-cmux-next", self.stale)
+        # The remote's HEAD names main there; a fetch here may point it at feat-cmux-next, which alone would bound the
+        # walk at the tip and hide the bug.
+        subprocess.run(["git", "-C", str(self.repo), "symbolic-ref", "--delete", "refs/remotes/origin/HEAD"],
+                       env=self.env, capture_output=True)
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        self.head = self.git("rev-parse", "HEAD").stdout.strip()
+        spec = importlib.util.spec_from_file_location("cmux_push_range_ambiguous_test",
+                                                      SOURCE / "scripts/cmux-next/push_range.py")
+        self.push_range = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = self.push_range  # dataclasses resolve their module through sys.modules
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(self.push_range)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
+                              check=True)
+
+    def commit(self, name, text):
+        (self.repo / name).write_text(text)
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "-m", name)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def test_the_fixture_is_ambiguous_to_git(self):
+        short = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "origin/feat-cmux-next"], env=self.env,
+                               text=True, capture_output=True)
+        self.assertEqual(short.stdout.strip(), self.stale, "git reads the short name as the local twin")
+        self.assertIn("ambiguous", short.stderr)
+
+    def test_a_push_of_a_base_merge_is_judged_over_the_remote_tracking_tip(self):
+        old = self.git("rev-parse", "refs/remotes/origin/topic").stdout.strip()
+        line = f"refs/heads/topic {self.head} refs/heads/topic {old}"
+        with unittest.mock.patch.dict(os.environ, {"CMUX_PREPUSH_RUN": ""}):
+            ranges, errors = self.push_range.pushed_ranges(self.repo, [line], "origin")
+        self.assertEqual(errors, [])
+        self.assertEqual(len(ranges), 1)
+        self.assertEqual(ranges[0].base, self.tip, ranges[0].describe())
+        self.assertNotIn("ambiguous", ranges[0].note)
+
+    def test_a_run_by_hand_is_judged_over_the_remote_tracking_tip(self):
+        own = self.push_range.own_range(self.repo, "HEAD")
+        self.assertEqual(own.base, self.tip, own.describe())
+        own = self.push_range.own_range(self.repo, "HEAD", [], "origin/feat-cmux-next")  # a caller's short name
+        self.assertEqual(own.base, self.tip, own.describe())
 
 
 class ToolDownloadFallbackTests(unittest.TestCase):

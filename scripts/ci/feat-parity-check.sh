@@ -28,6 +28,11 @@
 #   web                  ci-web.yml's web/ checks: bun install --frozen-lockfile, the managed
 #                        relay catalog check, typecheck, lint:complexity and the unit tests
 #                        (all four shards in one run), with the bun ci-web.yml pins.
+#   clippy-changed BASE  cmux-tui-spec.yml `clippy (changed cmux-tui packages)`, required on
+#                        feat-cmux-next: changed-package clippy, Cloud host identity tests and the
+#                        panic ratchet against BASE (a 40-hex commit).
+#   react-doctor BASE    cmux-next-react-doctor.yml `React Doctor (changed React projects)`, required
+#                        on feat-cmux-next: the gate on the projects BASE..HEAD touches.
 #   notices              cmux-next-guards.yml rust-notices-tree's "Generate the Rust notices from
 #                        this tree (as the nightly does)": generate-third-party-notices.sh
 #                        --tui-source tree --write-cargo-trees with CMUX_NOTICES_ALLOW_CARGO=1 (cargo
@@ -41,7 +46,7 @@
 # step: outside one (CMUX_CI_STEP_KEY) the script refuses.
 set -euo pipefail
 usage() {
-  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices" >&2
+  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | clippy-changed BASE | react-doctor BASE | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices" >&2
   exit 2
 }
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
@@ -54,10 +59,13 @@ fi
 mode="${1:-}"
 workspace="${2:-}"
 case "$mode" in
-  rust-workspace | swift-portable)
+  rust-workspace | swift-portable | clippy-changed | react-doctor)
     [[ $# -eq 2 && "$workspace" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && "/$workspace/" != *"/../"* && "/$workspace/" != *"/./"* ]] || usage
     ;;
   sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) [[ $# -eq 1 ]] || usage ;;
+esac
+case "$mode" in
+  clippy-changed | react-doctor) [[ "$workspace" =~ ^[0-9a-f]{40}$ ]] || usage ;;
   *) usage ;;
 esac
 umask 022
@@ -276,6 +284,82 @@ PY
   step "swift build $pkg" swift build --package-path "$pkg" --build-tests
   if [[ "$first_rc" -eq 0 && -d "$pkg/Tests" ]]; then
     step "swift test $pkg" swift test --package-path "$pkg" --skip-build --parallel
+  fi
+  finish
+fi
+
+# The two checks feat-cmux-next's ruleset requires, as fleet steps on our own Linux pool (Leo,
+# 2026-11-19: "200 minutes to queue for fucking what? Nobody fucking normal waits 200 fucking
+# minutes median." and "Stop making stupid fucking labels"). Each takes BASE, the commit the
+# change is compared with (the pull request's base tip; its merge base with HEAD when the
+# checkout can reach it), and runs its workflow job's own commands.
+required_base() { # BASE: fetch it when the checkout lacks it, then print the merge base (or BASE)
+  local base="$1" depth=()
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
+  git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null \
+    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$base" 2>/dev/null \
+    || echo "base: cannot fetch $base" >&2
+  git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
+}
+if [[ "$mode" == clippy-changed ]]; then
+  # cmux-tui-spec.yml `clippy (changed cmux-tui packages)`.
+  base="$(required_base "$workspace")"
+  echo "base: $base"
+  export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
+  step "clippy-changed self-test" python3 .github/scripts/test_cmux_tui_clippy_changed.py
+  tools="$(mktemp -d)"
+  cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$tools/"
+  step "ghostty-next" ghostty_next
+  if ! command -v zig >/dev/null 2>&1; then
+    step "zig" ./scripts/install-zig-ci.sh
+  fi
+  step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
+  step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
+  host_identity() {
+    local changed log rc=0
+    if changed="$(git diff --no-renames --name-only "$base" HEAD)" \
+        && ! python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/cmux-host <<<"$changed"; then
+      echo "No Cloud host test input changed; skipping identity tests."
+      return 0
+    fi
+    log="$(mktemp)"
+    (cd cmux-tui && cargo test --locked -p cmux-host --lib identity) 2>&1 | tee "$log" || rc=${PIPESTATUS[0]}
+    [[ "$rc" -eq 0 ]] || return "$rc"
+    grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" || { echo "error: identity selected no test" >&2; return 1; }
+  }
+  step "Cloud host identity tests" host_identity
+  step "Rust panic ratchet on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --panic-ratchet "$root/.build/panic-clippy.jsonl" --compare-base
+  finish
+fi
+if [[ "$mode" == react-doctor ]]; then
+  # cmux-next-react-doctor.yml `React Doctor (changed React projects)`, its pull request leg.
+  base="$(required_base "$workspace")"
+  echo "base: $base"
+  export REACT_DOCTOR_NO_TELEMETRY=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+  step "gate tests" python3 tests/test_react_doctor_gate.py
+  projects="$(git diff --name-only "$base" HEAD | python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import react_doctor_gate as g; print(" ".join(g.select_projects(sys.stdin.read().split())))')"
+  echo "projects: ${projects:-none}"
+  if [[ -n "$projects" ]]; then
+    rd_bun=1.4.4 rd_node=24.22.1
+    rd_tools() { # the workflow's Setup Bun and Setup Node pins, in the step's .build when the host has others
+      local bdir="$root/.build/tools/bun-$rd_bun" ndir="$root/.build/tools/node-$rd_node" arch
+      if [[ "$(bun --version 2>/dev/null || true)" != "$rd_bun" ]]; then
+        [[ -x "$bdir/bin/bun" ]] || { mkdir -p "$bdir"; curl -fsSL https://bun.sh/install | BUN_INSTALL="$bdir" bash -s "bun-v$rd_bun" >/dev/null || return 3; }
+        PATH="$bdir/bin:$PATH"
+      fi
+      if [[ "$(node --version 2>/dev/null || true)" != "v$rd_node" ]]; then
+        case "$(uname -m)" in x86_64) arch=x64 ;; aarch64 | arm64) arch=arm64 ;; *) echo "error: no node for $(uname -m)" >&2; return 3 ;; esac
+        if [[ ! -x "$ndir/bin/node" ]]; then
+          mkdir -p "$ndir"
+          curl -fsSL "https://nodejs.org/dist/v$rd_node/node-v$rd_node-linux-$arch.tar.xz" | tar -xJ -C "$ndir" --strip-components=1 || return 3
+        fi
+        PATH="$ndir/bin:$PATH"
+      fi
+      export PATH
+      echo "bun $(bun --version), node $(node --version)"
+    }
+    step "bun $rd_bun and node $rd_node" rd_tools
+    step "React Doctor gate" python3 scripts/ci/react_doctor_gate.py --changed-from "$base" --out-dir "$root/.build/react-doctor"
   fi
   finish
 fi

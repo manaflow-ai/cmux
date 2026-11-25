@@ -934,7 +934,15 @@ impl Hub {
             .collect();
         let reported = newest_first(of_agent)
             .iter()
-            .map(|s| offered(&s.meta.lock().unwrap_or_else(|e| e.into_inner())))
+            .map(|s| {
+                let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+                // Its permission modes, as the composer shows them (`permission_modes.rs`).
+                if super::permission_modes::of_session(&meta).is_none() {
+                    Vec::new()
+                } else {
+                    offered(&meta)
+                }
+            })
             .find(|m| !m.is_empty());
         reported.unwrap_or_else(|| {
             if profile.kind == crate::config::HarnessKind::ClaudeStdio {
@@ -951,8 +959,8 @@ impl Hub {
     /// What harness profile `agent`'s chats report about the choices a new chat has, for a
     /// `_acpmux/harnesses` row's `reported`: its modes (`id`, `name`, `description`) and its
     /// config options (`session/set_config_option`: effort, fast mode, the agent's own), from
-    /// its newest chat in this daemon that reported each, else acpmux's own Claude backend's
-    /// modes. A client draws a new chat's Mode and option pickers from it before any chat of
+    /// its newest chat in this daemon that reported each, else what the harness's startup probe's
+    /// `session/new` answered (`probed_choices`), else acpmux's own Claude backend's modes. A client draws a new chat's Mode and option pickers from it before any chat of
     /// that agent is open (the phone's New Task). Definitions only: a chat's current values
     /// stay with that chat. None when nothing is known.
     pub(super) fn reported_options(&self, agent: &str, profile: &HarnessProfile) -> Option<Value> {
@@ -973,20 +981,38 @@ impl Hub {
             }
             Some(row)
         };
+        let mode_rows = |modes: Option<&Value>| -> Option<Vec<Value>> {
+            let list: Vec<Value> = modes
+                .and_then(|m| m.get("availableModes"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(mode_row)
+                .collect();
+            (!list.is_empty()).then_some(list)
+        };
+        // What the harness's startup probe's `session/new` answered (`model_probe.rs`), for a
+        // harness no chat of has reported in this daemon yet: a first New Tab on it knows its
+        // choices (Pi: options only; its `modes` copy its thinking levels, `permission_modes.rs`).
+        let probed =
+            self.probed_choices.lock().unwrap_or_else(|e| e.into_inner()).get(agent).cloned();
         let modes: Vec<Value> = newest
             .iter()
             .find_map(|s| {
-                let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
-                let list: Vec<Value> = meta
-                    .modes
-                    .as_ref()
-                    .and_then(|m| m.get("availableModes"))
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(mode_row)
-                    .collect();
-                (!list.is_empty()).then_some(list)
+                mode_rows(
+                    super::permission_modes::of_session(
+                        &s.meta.lock().unwrap_or_else(|e| e.into_inner()),
+                    )
+                    .as_ref(),
+                )
+            })
+            .or_else(|| {
+                probed.as_ref().and_then(|(modes, options)| {
+                    mode_rows(
+                        super::permission_modes::permission_modes(modes.as_ref(), options.as_ref())
+                            .as_ref(),
+                    )
+                })
             })
             .unwrap_or_else(|| {
                 if profile.kind == crate::config::HarnessKind::ClaudeStdio {
@@ -998,34 +1024,37 @@ impl Hub {
                     Vec::new()
                 }
             });
+        let option_defs = |options: Option<&Value>| -> Option<Vec<Value>> {
+            let list: Vec<Value> = options
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|o| o.get("id").and_then(Value::as_str).is_some())
+                .map(|o| {
+                    let mut o = o.clone();
+                    let id = o.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+                    if let Some(map) = o.as_object_mut() {
+                        map.remove("currentValue");
+                        // Whether a remote device may set it (the remote guard's rule,
+                        // `web_modes::FREE_CONFIG_IDS`): a phone offers only these.
+                        map.insert(
+                            "remoteSettable".into(),
+                            json!(crate::web_modes::FREE_CONFIG_IDS.contains(&id.as_str())),
+                        );
+                    }
+                    o
+                })
+                .collect();
+            (!list.is_empty()).then_some(list)
+        };
         let options: Vec<Value> = newest
             .iter()
             .find_map(|s| {
-                let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
-                let list: Vec<Value> = meta
-                    .config_options
-                    .as_ref()
-                    .and_then(|v| v.as_array())
-                    .into_iter()
-                    .flatten()
-                    .filter(|o| o.get("id").and_then(Value::as_str).is_some())
-                    .map(|o| {
-                        let mut o = o.clone();
-                        let id = o.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-                        if let Some(map) = o.as_object_mut() {
-                            map.remove("currentValue");
-                            // Whether a remote device may set it (the remote guard's rule,
-                            // `web_modes::FREE_CONFIG_IDS`): a phone offers only these.
-                            map.insert(
-                                "remoteSettable".into(),
-                                json!(crate::web_modes::FREE_CONFIG_IDS.contains(&id.as_str())),
-                            );
-                        }
-                        o
-                    })
-                    .collect();
-                (!list.is_empty()).then_some(list)
+                option_defs(
+                    s.meta.lock().unwrap_or_else(|e| e.into_inner()).config_options.as_deref(),
+                )
             })
+            .or_else(|| probed.as_ref().and_then(|(_, options)| option_defs(options.as_ref())))
             .unwrap_or_default();
         if modes.is_empty() && options.is_empty() {
             return None;

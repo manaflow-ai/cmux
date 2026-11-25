@@ -158,7 +158,7 @@ fn the_send_schema_keeps_its_first_shape() {
     );
     assert_eq!(props["notice"]["required"], json!(["severity", "title"]));
     assert_eq!(props["notice"]["properties"]["severity"]["enum"], json!(["info", "warn", "fire"]));
-    assert_eq!(props["messages"]["maxItems"], json!(send::MAX_MESSAGES));
+    assert!(props["messages"].get("maxItems").is_none());
 }
 
 /// Waits for a user message carrying `needle` in `session`'s log.
@@ -244,9 +244,18 @@ fn top_level_fields_are_each_items_defaults() {
         ["give to or tag, not both", "give text or file, not both", "not an object"]
     );
     assert!(send::items(&json!({"messages": []})).is_err());
+}
+
+/// A large coordinator round is valid, including its final item; the delivery window must
+/// never become a count-based admission limit again.
+#[test]
+fn a_batch_has_no_message_count_cap() {
     let many: Vec<Value> =
-        (0..=send::MAX_MESSAGES).map(|_| json!({"to": "a", "text": "x"})).collect();
-    assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
+        (0..1001).map(|n| json!({"to": format!("lane-{n}"), "text": "rebase"})).collect();
+    let items = send::items(&json!({"messages": many})).unwrap();
+    assert_eq!(items.len(), 1001);
+    assert!(items.iter().all(Result::is_ok));
+    assert_eq!(items.last().unwrap().as_ref().unwrap().to.as_deref(), Some("lane-1000"));
 }
 
 /// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
@@ -777,6 +786,43 @@ async fn a_tag_expands_to_every_live_session_carrying_it() {
     assert_eq!(rows[0]["ok"], false, "{r}");
     assert!(rows[0]["error"].as_str().unwrap().contains("no live session carries"), "{r}");
     assert_eq!(rows[1]["ok"], true, "{r}");
+}
+
+/// Both explicit messages and tag expansion cross the old 32-message, 32-tag and 64-recipient
+/// caps. Every session receives both messages, including those beyond the dispatch window.
+#[tokio::test]
+async fn large_batch_and_tag_sends_reach_every_recipient() {
+    let (hub, client, _dir) = daemon().await;
+    let mut lanes = Vec::new();
+    for n in 0..65 {
+        let name = format!("uncapped-{n}");
+        let s = client
+            .request(
+                method::SESSION_NEW,
+                json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                    "_meta": {"acpmux": {"name": name, "tags": {"area": "uncapped"}}}}),
+            )
+            .await
+            .unwrap();
+        lanes.push((name, s["sessionId"].as_str().unwrap().to_owned()));
+    }
+    let messages: Vec<Value> = lanes.iter().map(|(name, _)| json!({"to": name})).collect();
+    for (args, needle) in [
+        (json!({"messages": messages, "text": "large batch", "steer": false}), "large batch"),
+        (json!({"tag": "area=uncapped", "text": "large tag", "steer": false}), "large tag"),
+    ] {
+        let result = call(&client, &tool("send", args)).await;
+        assert_eq!(result["isError"], false, "{result}");
+        let rows = result["structuredContent"]["results"].as_array().unwrap();
+        assert_eq!(rows.len(), lanes.len(), "{result}");
+        assert!(rows.iter().all(|row| row["ok"] == true), "{result}");
+        let names: std::collections::BTreeSet<&str> =
+            rows.iter().map(|row| row["to"].as_str().unwrap()).collect();
+        assert_eq!(names, lanes.iter().map(|(name, _)| name.as_str()).collect());
+        for (name, id) in &lanes {
+            assert!(received(&hub, id, needle).await, "{name} never received {needle}");
+        }
+    }
 }
 
 #[tokio::test]

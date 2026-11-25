@@ -115,7 +115,8 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 
 userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
 CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer. No BackgroundWork lane runs at it.
+MetalYUVRenderer, RemoteDecodePipeline (`cmux.remote-view.decode`, the actor's executor: the next frame on screen
+waits for its decode). No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
@@ -169,6 +170,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.remote-view.decode` (one remote view's decode pipeline actor, user-interactive, serial: it blocks only on
+  a synchronous VideoToolbox decode of one access unit, a few ms; the transport's stream to it is bounded
+  `bufferingNewest(8)`, so a slow decoder loses units and asks for a keyframe instead of queueing),
   `cmux.backdrop-shader.render` (the living wallpapers' Metal frames, user-initiated, serial: it blocks only on
   `CAMetalLayer.nextDrawable`, bounded by the layer's one-second timeout; one frame in flight per window, the
   next is skipped while it is busy, so no back-pressure; BackdropShaderRenderer),

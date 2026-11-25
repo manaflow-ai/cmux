@@ -225,6 +225,9 @@ impl Endpoint {
             PathEntry { route, kind, next_probe_us: now_us, heard_us: now_us, unanswered_sends: 0 };
         self.paths.insert(id, entry);
         self.by_route.insert(route, id);
+        // A route to the peer means the peer has the answer and is dialing:
+        // a responder's handshake clock starts now, not at its own start.
+        self.link.peer_contact(now_us);
         if self.punching() {
             self.next_punch_us = self.next_punch_us.min(now_us);
         }

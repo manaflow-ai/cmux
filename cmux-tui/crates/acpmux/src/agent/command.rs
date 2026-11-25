@@ -510,8 +510,12 @@ fn apply_remote_base(cmd: &mut Command) {
 /// host that contains it. The host receives no profile/session authority;
 /// the harness gets those values separately through `SpawnSpec`.
 pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
-    let allowed = |key: &std::ffi::OsStr| {
-        let key = key.to_string_lossy();
+    std::env::vars_os().filter(|(key, _)| host_env_allowed(&key.to_string_lossy())).collect()
+}
+
+/// [`host_environment`]'s names.
+fn host_env_allowed(key: &str) -> bool {
+    {
         [
             "HOME",
             "USER",
@@ -533,6 +537,9 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
             // The QoS opt-out (`qos.rs`), so a daemon started with it starts
             // its hosts unclamped too.
             "ACPMUX_QOS",
+            // This daemon's cloud build space (cmux-build-space): the `cmux` a harness runs
+            // calls cmux Cloud in this build's space, never nightly's. A build tag, no secret.
+            "CMUX_BUILD_SPACE",
             // Windows process startup and temporary-directory basics.
             "SYSTEMROOT",
             "WINDIR",
@@ -544,12 +551,20 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
         ]
         .iter()
         .any(|allowed| key.eq_ignore_ascii_case(allowed))
-    };
-    std::env::vars_os().filter(|(key, _)| allowed(key)).collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    /// A remote-origin harness and its host start from [`super::host_environment`]: the `cmux`
+    /// CLI it runs keeps this daemon's build space, so a dev build's agent never reaches
+    /// nightly's Cloud data.
+    #[test]
+    fn a_remote_harness_keeps_the_build_space() {
+        assert!(super::host_env_allowed("CMUX_BUILD_SPACE"));
+        assert!(!super::host_env_allowed("CMUX_SOCKET_PATH"));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn remote_outer_command_scrubs_loader_env() {

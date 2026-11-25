@@ -26,6 +26,10 @@
       `changed` or `same` (a running app reads it only at launch)
   review_mac.py backend SOCK [--timeout S]    the Cloud backend the running app uses (`auth.status`):
       {"backend", "backend_label", "cloud_environment", "cloud_unavailable"} as JSON
+  review_mac.py space APP                     the cloud data space the installed app's requests and its
+      hostd carry (`X-Cmux-Build-Space`), as the app decides it (BuildIdentity.devTag, CMUXBuildSpace):
+      `dev:<slug>` for a tagged DEV or staging build, an empty line for the default space (nightly,
+      release, RC), `unusable` for a DEV build with no usable tag (its requests are refused)
 
 Nothing here turns a setting on, presses Allow or writes the app's pairing state: the code is the
 Mac's own single-use invite, the same route as scanning it (cmux-next-ios/SECURITY.md, pair-e2e).
@@ -130,6 +134,48 @@ def rpc(sock, method, params=None, timeout=30):
     return result if isinstance(result, dict) else {"result": result}
 
 
+BUILD_KINDS = (("com.cmuxterm.app.debug", "dev"), ("com.cmuxterm.app.nightly", "nightly"),
+               ("com.cmuxterm.app.rc", "rc"), ("com.cmuxterm.app.staging", "staging"), ("com.cmuxterm.app", "release"))
+MAX_SLUG = 64
+
+
+def tag_slug(raw):
+    """BuildIdentity.tagSlug / CMUXBuildSpace.slug: lowercase, every run outside [a-z0-9] one `-`, trimmed."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (raw or "").lower()).strip("-")
+    return slug or None
+
+
+def build_space(plist, app_name=""):
+    """The space of a Mac app with Info.plist `plist` (BuildIdentity(bundle:).devTag, then CMUXBuildSpaceState)."""
+    bundle_id = str(plist.get("CFBundleIdentifier") or "").strip()
+    kind, suffix = "dev", None
+    for prefix, candidate in BUILD_KINDS:
+        if bundle_id == prefix:
+            kind = candidate
+            break
+        if bundle_id.startswith(prefix + "."):
+            kind, suffix = candidate, bundle_id[len(prefix) + 1:]
+            break
+    if kind == "release" and suffix is not None:
+        kind = "dev"  # com.cmuxterm.app.<other>: isolated as DEV
+    if not bundle_id or kind not in ("dev", "staging"):
+        return ""
+    environment = plist.get("LSEnvironment") if isinstance(plist.get("LSEnvironment"), dict) else {}
+    shipped = tag_slug(environment.get("CMUX_TAG"))
+    if shipped is None and app_name.startswith("cmux DEV "):
+        shipped = tag_slug(app_name[len("cmux DEV "):])
+    tag = shipped or tag_slug(suffix)
+    if tag and len(tag) > MAX_SLUG:
+        return "unusable"  # rejected rather than truncated, so two tags never share one space
+    if tag:
+        return "dev:" + tag
+    # needsBuildSpace: every DEV build (`com.cmuxterm.app.debug[.x]`) and a tagged staging build refuses
+    # cloud calls without a tag.
+    needs = bundle_id == "com.cmuxterm.app.debug" or bundle_id.startswith(("com.cmuxterm.app.debug.",
+                                                                           "com.cmuxterm.app.staging."))
+    return "unusable" if needs else ""
+
+
 def info(app):
     with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
         return plistlib.load(f)
@@ -156,12 +202,20 @@ def wait(fn, timeout, every=1.0):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("op", choices=["socket", "bundle", "wait-socket", "account", "pair-url", "mark-used", "mac-id",
-                                  "phones", "quit", "backend-check", "backend-write", "backend"])
+                                  "phones", "quit", "backend-check", "backend-write", "backend", "space"])
     p.add_argument("target")
     p.add_argument("value", nargs="?", default="")
     p.add_argument("--timeout", type=float, default=60)
     p.add_argument("--used", default="")
     a = p.parse_args(argv)
+    if a.op == "space":
+        try:
+            plist = info(a.target)
+        except (OSError, ValueError, plistlib.InvalidFileException) as error:
+            print(f"no readable Info.plist in {a.target} ({type(error).__name__})", file=sys.stderr)
+            return 1
+        print(build_space(plist, os.path.splitext(os.path.basename(a.target.rstrip("/")))[0]))
+        return 0
     if a.op == "backend-check":
         try:
             print(backend_origin(a.target))

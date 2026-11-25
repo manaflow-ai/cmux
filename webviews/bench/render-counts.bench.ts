@@ -7,6 +7,8 @@
 //   switch   selecting the other open chat (`selectSession`), until the page has been still for 1 s;
 //   show     the page hidden, then shown again (`visibilitychange`): nothing changed, so ideally 0;
 //   resize   one 20 px width step of the pane, 12 steps: the rows whose wrap changed;
+//   scroll   one 40 px wheel step up the transcript, 30 steps: the rows coming into view, never the composer;
+//   hover    one pointer move down the transcript, 40 moves: the hovered row's actions, never the composer;
 //   list.select / list.new   with LIST listed sessions (default 10,789, Leo's count, 2026-11-18): selecting a
 //            listed chat and starting a new chat, the pane's side of the sidebar's selection and new workspace.
 // The real pane (`?mock`: the real direct client against the in-page mock daemon), an unminified production build
@@ -184,6 +186,40 @@ try {
       }
       const ms = ((await now(page)) - t0) / steps;
       record("resize", "20px step", perEvent(await renderCountsTake(page), steps), ms);
+      await page.setViewportSize({ width: 1200, height: 800 });
+      await settle(page, 500);
+    }
+
+    // Leo, 2026-11-08: the composer "re-renders on hover plus scroll". Neither should render the composer at all.
+    if (want("scroll")) {
+      const steps = 30;
+      await page.locator(".acpmux-scroll").hover();
+      await settle(page, 300);
+      await renderCountsReset(page);
+      const t0 = await now(page);
+      for (let i = 0; i < steps; i += 1) {
+        await page.mouse.wheel(0, -40);
+        await settle(page);
+      }
+      const ms = ((await now(page)) - t0) / steps;
+      record("scroll", "40px wheel", perEvent(await renderCountsTake(page), steps), ms);
+      await settle(page, 500);
+    }
+
+    if (want("hover")) {
+      const box = await page.locator(".acpmux-scroll").boundingBox();
+      if (!box) throw new Error("hover: no transcript");
+      const steps = 40;
+      await page.mouse.move(box.x + box.width / 2, box.y + 10);
+      await settle(page, 300);
+      await renderCountsReset(page);
+      const t0 = await now(page);
+      for (let i = 1; i <= steps; i += 1) {
+        await page.mouse.move(box.x + box.width / 2, box.y + 10 + ((box.height - 20) * i) / steps);
+        await settle(page);
+      }
+      const ms = ((await now(page)) - t0) / steps;
+      record("hover", "pointer move", perEvent(await renderCountsTake(page), steps), ms);
     }
     await context.close();
   }

@@ -1,6 +1,7 @@
 import { useParams, useSearch } from "@tanstack/react-router";
 import { routeCard, shownSection } from "../categories";
 import { useSettingsState } from "../context";
+import type { SettingsSearch } from "../router";
 import { routeSection } from "../sectionQueries";
 import { SectionView } from "./SectionView";
 
@@ -13,11 +14,20 @@ import { SectionView } from "./SectionView";
  */
 export function SectionRoute() {
   const { section } = useParams({ strict: false }) as { section?: string };
-  const search = useSearch({ strict: false }) as { focus?: string; workspace?: string };
+  const search = useSearch({ strict: false }) as SettingsSearch;
   const state = useSettingsState();
   const routed = routeSection(section, search.focus);
   const shown = shownSection(routed, state.host?.dev_build === true);
   const focus = shown === routed ? (search.focus ?? null) : null;
   const reveal = shown === routed ? routeCard(section, search.focus, shown) : null;
-  return <SectionView key={shown} section={shown} focus={focus} workspace={search.workspace ?? null} reveal={reveal} />;
+  return (
+    <SectionView
+      key={shown}
+      section={shown}
+      focus={focus}
+      workspace={search.workspace ?? null}
+      part={search.part ?? null}
+      reveal={reveal}
+    />
+  );
 }

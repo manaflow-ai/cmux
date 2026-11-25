@@ -15,7 +15,8 @@ public protocol WindowSurfacePainting: NSView {
 extension NSWindow {
     /// The only way a window gets its content (plans/cmux-next/windows.md):
     /// records `kind`, makes the window titled and closable with the
-    /// kind's buttons, adopts `scope`, paints the one backdrop (the main
+    /// kind's buttons, hides the titlebar's own line along the top edge
+    /// (``hideTitlebarTopEdgeLine()``), adopts `scope`, paints the one backdrop (the main
     /// window's material and tint, in a ``WindowSurfaceView`` around
     /// `content` unless the content paints it itself), and only then sets
     /// `contentView`. Changing the
@@ -40,6 +41,7 @@ extension NSWindow {
             standardWindowButton(.zoomButton)?.isHidden = true
         }
         nameStandardWindowButtons()
+        hideTitlebarTopEdgeLine()
         scope.adopt(self)
         let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content, activeLook: activeLook) : content
         (root as? any WindowSurfacePainting)?.paintWindowSurface(of: self)

@@ -306,6 +306,10 @@ pub const URL_2: Argument = Argument { name: "url", title: t("Localizable", "arg
 pub const THEME_2: Argument = Argument { name: "theme", title: t("Localizable", "argument.theme", "Theme"), kind: ArgKind::Enumeration(CASES_SYSTEM_LIGHT), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEVICE: Argument = Argument { name: "device", title: t("Localizable", "argument.device", "Device"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// `macScreen.open --autoconnect`: the opened tab connects to view without its Connect click, from the CLI too
+/// (default off: a non-person open waits at Connect).
+#[rustfmt::skip]
+pub const AUTOCONNECT: Argument = Argument { name: "autoconnect", title: t("Localizable", "argument.autoconnect", "Connect Automatically"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ORIENTATION: Argument = Argument { name: "orientation", title: t("Localizable", "argument.orientation", "Orientation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

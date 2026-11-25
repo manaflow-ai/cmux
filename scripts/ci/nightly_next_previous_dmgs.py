@@ -26,8 +26,13 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
 USER_AGENT = "cmux-nightly-next-previous/1"
+# One DMG download ends within this (about 150 MB from the CDN); 60 s of silence ends it sooner as a stall.
+DOWNLOAD_SECONDS = 900
 
 
 def earlier_builds(xml: bytes, below: int) -> list[int]:
@@ -46,8 +51,8 @@ def earlier_builds(xml: bytes, below: int) -> list[int]:
 
 def fetch(url: str, timeout: float = 30) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read()
+    _, body, _ = deadline_http.request(request, timeout, raise_errors=True)
+    return body
 
 
 def download(url: str, destination: Path) -> str:
@@ -55,7 +60,10 @@ def download(url: str, destination: Path) -> str:
     partial = destination.with_name(f".{destination.name}.partial")
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as out:
+        # A DMG streams: 60 s of silence is a stall, as urlopen(timeout=60) was; the whole download ends by
+        # DOWNLOAD_SECONDS (tests/test_ci_no_bare_urlopen.py).
+        with deadline_http.stream(request, DOWNLOAD_SECONDS, stall=60, raise_errors=True) as response, \
+                partial.open("wb") as out:
             expected = int(response.headers.get("Content-Length") or -1)
             for chunk in iter(lambda: response.read(1 << 20), b""):
                 out.write(chunk)

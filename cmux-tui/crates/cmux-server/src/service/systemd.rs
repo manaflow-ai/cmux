@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use cmux_server_core::layout::{SYSTEMD_UNIT, ServiceKind};
 use cmux_server_core::pg::SOCKET_GROUP;
 use cmux_server_core::units::{
-    SERVICE_USER, UnitError, systemd_app_server_template, systemd_system_unit,
-    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
+    SERVICE_USER, UnitError, systemd_app_server_template, systemd_session_unit,
+    systemd_system_unit, systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
 };
 
 use super::{ServiceReport, ServiceState, Services};
@@ -40,6 +40,13 @@ fn unit_dir(s: &Services<'_>) -> Result<PathBuf> {
 pub fn files(s: &Services<'_>) -> Result<Vec<(PathBuf, String)>> {
     let dir = unit_dir(s)?;
     let layout = s.layout;
+    if let Some(host) = &s.session {
+        if system(s) {
+            return Err(Error::rejected("the session service runs as your own user, not --system"));
+        }
+        let unit = systemd_session_unit(layout, &host.binary, &host.session).map_err(unit_error)?;
+        return Ok(vec![(dir.join(SYSTEMD_UNIT), unit)]);
+    }
     if !system(s) {
         return Ok(vec![(dir.join(SYSTEMD_UNIT), systemd_user_unit(layout).map_err(unit_error)?)]);
     }
@@ -62,6 +69,105 @@ fn systemctl(s: &Services<'_>) -> Cmd {
         cmd = cmd.env("XDG_RUNTIME_DIR", format!("/run/user/{}", s.uid));
     }
     cmd
+}
+
+/// Asks systemd, for each unit file of the layout, where it loads that unit
+/// from. Fine: systemd does not know the unit, or loads it from the file
+/// cmux writes. An error (nothing changes) for anything else: another file
+/// (a package's, `/etc`, a mask), a transient or generated unit, or no
+/// answer, since cmux cannot tell then whose unit it would stop or replace.
+/// Templates (`@.service`) cannot be asked and are checked as files only.
+pub fn check_sources(s: &Services<'_>) -> Result<()> {
+    for (path, _) in files(s)? {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        if name.contains("@.") {
+            continue;
+        }
+        let cmd = systemctl(s).args(["show", "--property=LoadState,FragmentPath,Transient", name]);
+        let cannot = |why: String| {
+            Error::rejected(format!(
+                "cmux cannot tell where systemd loads {name} from ({why}), so it changes nothing. Make sure `{}` works in this shell (a login session, or XDG_RUNTIME_DIR=/run/user/{}), then run the command again",
+                cmd.display(),
+                s.uid
+            ))
+        };
+        let out = s.runner.run(&cmd).map_err(|e| cannot(e.to_string()))?;
+        if !out.ok() {
+            return Err(cannot(format!(
+                "it exited {}",
+                out.code.map_or("by a signal".to_owned(), |c| c.to_string())
+            )));
+        }
+        let text = out.stdout_text();
+        let field = |key: &str| {
+            text.lines()
+                .find_map(|l| l.strip_prefix(key).and_then(|v| v.strip_prefix('=')))
+                .map(str::trim)
+        };
+        let Some(state) = field("LoadState") else {
+            return Err(cannot("it did not say whether it knows the unit".to_owned()));
+        };
+        if state == "not-found" {
+            continue;
+        }
+        let fragment = field("FragmentPath").unwrap_or("");
+        let refuse = |from: String| {
+            Error::rejected(format!(
+                "systemd {from}, not from {} (the file cmux writes), so cmux leaves {name}, and everything it may use, alone; nothing was changed. Remove or disable that unit yourself, then run the command again",
+                path.display()
+            ))
+        };
+        if field("Transient") == Some("yes") || fragment.is_empty() {
+            return Err(refuse(format!(
+                "runs {name} as a transient or generated unit with no unit file (load state {state})"
+            )));
+        }
+        if Path::new(fragment) != path {
+            return Err(refuse(format!("loads {name} from {fragment} (load state {state})")));
+        }
+    }
+    if system(s) {
+        check_app_instances(s)?;
+    }
+    Ok(())
+}
+
+/// The app server instances uninstall stops (`cmux-app-server@*.service`):
+/// each must come from the template cmux writes. A list systemd cannot give
+/// changes nothing.
+fn check_app_instances(s: &Services<'_>) -> Result<()> {
+    let template = unit_dir(s)?.join(APP_TEMPLATE);
+    let list = systemctl(s).args([
+        "list-units",
+        "--all",
+        "--plain",
+        "--no-legend",
+        "--full",
+        APP_INSTANCES,
+    ]);
+    let out = s.runner.run(&list).map_err(|e| Error::io(list.display(), e))?;
+    if !out.ok() {
+        return Err(Error::rejected(format!(
+            "cmux cannot list the app server units (`{}` failed), so it changes nothing",
+            list.display()
+        )));
+    }
+    for unit in out.stdout_text().lines().filter_map(|l| l.split_whitespace().next()) {
+        if !unit.starts_with("cmux-app-server@") || !unit.ends_with(".service") {
+            continue;
+        }
+        let show = systemctl(s).args(["show", "--property=FragmentPath", "--value", unit]);
+        let out = s.runner.run(&show).map_err(|e| Error::io(show.display(), e))?;
+        let fragment = out.stdout_text();
+        if !out.ok() || Path::new(fragment.trim()) != template {
+            return Err(Error::rejected(format!(
+                "systemd runs {unit} from {}, not from {} (the template cmux writes), so cmux leaves it, and everything it may use, alone; nothing was changed",
+                if fragment.trim().is_empty() { "no unit file" } else { fragment.trim() },
+                template.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// `loginctl show-user <user> -p Linger --value`: `Some(true)` for `yes`,
@@ -133,8 +239,14 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         }
         report.changed |= fsx::write_if_changed(path, text.as_bytes(), 0o644)?;
     }
+    s.wrote(&files)?;
     if !system(s) {
-        ensure_linger(s, &mut report);
+        if s.linger {
+            ensure_linger(s, &mut report);
+        } else {
+            // `install --user`: linger stays as it is.
+            report.linger = linger_state(s.runner, &s.user);
+        }
     }
     let ctl = systemctl(s);
     if report.changed {

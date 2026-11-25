@@ -402,7 +402,10 @@ class ThisTree(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         steps = workflow["jobs"]["ci-guard-group"]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
-        calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        # A `--list` call only prints the plan (the cut head pass names its unfinished steps with it, #46862); it
+        # runs no guard, so it is not one of the passes counted here.
+        calls = [line for run in runs for line in run.splitlines()
+                 if "scripts/ci/guards-local.sh" in line and "guards-local.sh --list" not in line]
         # The head call (ci and the routed groups, release-notary among them, on a pull request and a push alike),
         # then the base.
         self.assertEqual(len(calls), 2, calls)

@@ -299,14 +299,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Rename { session, new_name } => {
+        Command::Rename { session, new_name, handle } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = client
-                .request(method::MUX_RENAME, json!({"sessionId": id, "newName": new_name}))
-                .await?;
+            let id = if handle {
+                crate::cli::resolve::control_id(&client, &session).await?
+            } else {
+                resolve_id(&client, &session).await?
+            };
+            let params = if handle {
+                json!({"sessionId": id, "newHandle": new_name})
+            } else {
+                json!({"sessionId": id, "newName": new_name})
+            };
+            let v = client.request(method::MUX_RENAME, params).await?;
             if json_out {
                 print_json(&v)
+            } else if handle {
+                println!(
+                    "{}",
+                    v["handle"].as_str().ok_or_else(|| anyhow!("rename returned no handle"))?
+                );
             } else {
                 println!("renamed")
             }

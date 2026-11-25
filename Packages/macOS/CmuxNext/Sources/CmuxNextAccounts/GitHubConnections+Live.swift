@@ -14,7 +14,7 @@ extension GitHubConnections {
     /// The connections of the Cloud sign-in AUTH, through the owner API at OWNER_API; PREVIEW (showcase or
     /// fixture launches) is always signed out. The GitHub App installation page opens through LinkRouter.
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> GitHubConnections {
-        let transport = InstallHTTPTransport(baseURL: ownerAPI)
+        let transport = InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
@@ -50,7 +50,7 @@ extension GitHubConnections {
             guard current() == bound else { return nil }
             let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) ?? personalTeam(user: bound.user)
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team })
+            return await CloudOwnerAPIClient(baseURL: ownerAPI, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
                 .gitHubReconfigureURL(team: team)
         }
         return model

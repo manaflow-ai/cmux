@@ -303,6 +303,8 @@
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
               "agentPane.display.transcriptView", "agentPane.display.presentation",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+              "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
+              "agentPane.display.thinking.jumpButton",
               "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [

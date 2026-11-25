@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Key to frame for the three typing surfaces of cmux NEXT (perf-lead.md issue 5; target p95 < 8 ms).
+"""Key to frame for the native typing surfaces of cmux NEXT (perf-lead.md issue 5; target p95 < 8 ms).
 
 Launches the tagged DEBUG app itself on a GUI host (no activation, scratch cmux.json and Ghostty config, an
 isolated Chief home, the mock agent host, the typing probe on, the hang watchdog at 8 ms) and types one key at a
@@ -11,6 +11,10 @@ real key waits in the event queue) into:
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
   omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  agentpane  the native agent chat composer: send through the page target, validate exact key order/text, and
+             join `typing_stats.paint_epoch_ms` to the native dispatch clock (a paint proxy, not presentation).
+             `--chat-agent real` attaches an ACP fake agent and streams through AgentPaneTransport/AcpmuxPaneSocket;
+             the default mock stream remains a separate in-page diagnostic path.
 
 each in two phases:
 
@@ -19,35 +23,110 @@ each in two phases:
              other workspaces), --chats mock agent chats stream (debug.agent_pane stream), and for home the
              fixture's Chief streams a reply into the transcript at 30 tokens/s
 
+or, with --modes, in the load modes every under-load harness shares (webviews/bench/load-modes.json, cmuxterm-hq
+docs/design/chat-instant-under-load.md "The bench"; Leo, 2026-11-16: "but typing under load is not good enough"), so
+a native typing number and a web typing number were taken under the same load:
+
+  L0 idle                       L3 the focused chat is the 100k-row fixture, streaming
+  L1 the focused chat streams    L4 every core saturated by other processes (--cpu-burners spinning processes)
+  L2 10 other chats streaming    L5 L1 to L4 together, in the STRESS session (60 workspaces, 20 printing terminals)
+
+Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. A knob these
+surfaces cannot express (the 100k-row chat transcript: none of them types into a chat) is in the mode's
+`nativeMissing` and goes in the report beside the row, so a number is never read as the full mode. The web side
+(L0-L3, its own load model in webviews/bench/composer-load.ts) is `scripts/bench/cmux-bench typing`; this harness's
+cmux-bench adapter is `typing-native`.
+
 Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send to dispatch, dispatch, dispatch to
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
 frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
-  typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
-      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
-      [--backdrops opaque,opacity85,picture]
+  typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar,agentpane]
+      [--phases idle,load | --modes L0,L1,L2,L4,L5|all] [--samples 80] [--busy 20] [--chats 2] [--cpu-burners N]
+      [--sample] [--chat-agent mock|real] [--gate-p95-ms 8] [--backdrops opaque,opacity85,picture]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --artifact artifacts/split-spring/report.json --arg=--suite=typing-frame [--arg=--stress] [--arg=--sample] \\
     [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, csv, glob, json, math, os, re, shlex, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
+
+
+def run_agent():
+    """ACP harness used by --chat-agent real; stream turns exercise the app transport."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fake_agent", FAKE_AGENT)
+    fake = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fake)
+    inner = fake.handle_prompt
+    words = ("the chief streams a reply into the transcript while you type in the composer token by token and a "
+             "tool runs beside it printing its test lines").split()
+
+    def handle_prompt(rid, params):
+        text = fake.prompt_text(params)
+        if "stream:" not in text:
+            return inner(rid, params)
+        sid = params["sessionId"]
+        seconds, chunk_ms, chars = (text[text.index("stream:") + 7:].split() + ["6", "10", "24"])[:3]
+        end, i, block = time.monotonic() + float(seconds), 0, 0
+        next_tool = time.monotonic()
+        while time.monotonic() < end:
+            piece = ""
+            while len(piece) < int(chars):
+                piece += words[i % len(words)] + " "
+                i += 1
+            fake.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": piece}})
+            if time.monotonic() >= next_tool:
+                out = "".join(f"test hub::case_{block}_{n} ... ok\n" for n in range(8))
+                fake.update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"t{block}", "title": f"cargo test {block}",
+                                  "kind": "execute", "status": "completed", "rawInput": {"command": "cargo test"},
+                                  "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+                block += 1
+                next_tool += 0.5
+            time.sleep(float(chunk_ms) / 1000)
+        fake.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\n\n"}})
+        fake.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+    fake.handle_prompt = handle_prompt
+    fake.main()
+
+
+if __name__ == "__main__" and "--agent" in sys.argv[1:]:
+    sys.argv = [a for a in sys.argv if a != "--agent"]
+    run_agent()
+    sys.exit(0)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
-parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
+parser.add_argument("--surfaces", default="dock,terminal,home,omnibar,agentpane")
 parser.add_argument("--phases", default="idle,load")
+parser.add_argument("--modes", help="the shared load modes instead of --phases: a comma list of ids (L0,L1,...) or "
+                                    "`all`; one app launch each, knobs from webviews/bench/load-modes.json")
+parser.add_argument("--cpu-burners", type=int, default=0,
+                    help="spinning processes a mode that saturates every core starts (default: this host's cores)")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
 parser.add_argument("--busy", type=int, default=20, help="busy terminals in the load phase")
 parser.add_argument("--chats", type=int, default=2, help="streaming mock agent chats in the load phase")
+parser.add_argument("--title-churn", action="store_true",
+                    help="the busy terminals rename their tab ten times a second (an agent's spinner title) instead of printing")
+parser.add_argument("--dock-load", action="store_true", help="measure the docked Home in the load phase too")
+parser.add_argument("--words", action="store_true", help="type words with spaces (a sentence), not the alphabet as one word")
+parser.add_argument("--fresh-draft", action="store_true",
+                    help="empty the Home draft (Cmd-A, Delete) before each measure, so every round types the same draft")
+parser.add_argument("--prefill", type=int, default=0,
+                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys")
 parser.add_argument("--stress", action="store_true",
                     help="build the STRESS session first (perf-lead brief: 60 workspaces, the typed workspace a 4x3 grid with "
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
@@ -55,7 +134,11 @@ parser.add_argument("--stress", action="store_true",
 parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
+parser.add_argument("--sample-idle", action="store_true", help="with --sample: the idle phases too")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--chat-agent", choices=("mock", "real"), default="mock",
+                    help="mock: in-page debug stream; real: ACP fake agent through AgentPaneTransport")
+parser.add_argument("--stream", default="6 10 24", help="real agent stream: SECONDS CHUNK_MS CHARS")
 parser.add_argument("--backdrops", default="default",
                     help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
@@ -67,15 +150,47 @@ os.makedirs(OUT, exist_ok=True)
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"typing-{TAG}-")
+WORK = os.path.realpath(tempfile.mkdtemp(prefix=f"typing-work-{TAG}-"))
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 PROBE = os.path.join(OUT, "typing.csv")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1400, 900)
 BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
+# An agent's spinner title: the tab renames ten times a second, as a working agent's terminal does (one process, no
+# fork per frame: a shell loop around `sleep` would spawn ten processes a second per terminal).
+TITLE_CHURN = r'''perl -e '$|=1; for(;;){ for $s (qw(a b c d e f g h i j)){ print "\e]0;$s Working on the task\a"; select(undef,undef,undef,0.1) } }' '''.strip()
 results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": []}
 app = None
 SESSION = "light"
 ROUND = 0
+# The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
+MODE = None
+
+
+# What make_load builds: --busy/--chats by default, a mode's `native` knobs with --modes.
+LOADSPEC = {"busy": opts.busy, "chats": opts.chats, "cpu": False}
+BURNERS = []
+
+
+def start_burners():
+    """Mode L4's load: one spinning shell per core, each a process of ours, so the app waits its turn for a core as
+    it does on a loaded Mac. Only these children are ever signalled."""
+    count = opts.cpu_burners or os.cpu_count() or 8
+    for _ in range(count):
+        BURNERS.append(subprocess.Popen(["/bin/sh", "-c", "while :; do :; done"],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    note(f"load: {len(BURNERS)} cpu burners (this host has {os.cpu_count()} cores)")
+    return len(BURNERS)
+
+
+def stop_burners():
+    while BURNERS:
+        child = BURNERS.pop()
+        try:
+            child.terminate()
+            child.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 def note(text):
@@ -141,6 +256,34 @@ def pct(values):
             "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
 
 
+def frame_metrics(frames):
+    """Summarize the display and main-thread counters without assuming one DEBUG reply shape."""
+    if not isinstance(frames, dict):
+        return {"raw": frames, "frames_over_16ms": None, "frame_bursts": None, "main_thread_cost": None}
+    intervals = [x for x in (frames.get("intervals_ms") or []) if isinstance(x, (int, float)) and x >= 0]
+    main = [x for x in (frames.get("main_ms") or []) if isinstance(x, (int, float)) and x >= 0]
+    refresh = frames.get("refresh_ms")
+    burst_limit = refresh * 0.5 if isinstance(refresh, (int, float)) and refresh > 0 else 8.33
+    burst_runs, current = [], 0
+    for interval in intervals:
+        if interval <= burst_limit:
+            current += 1
+        elif current:
+            burst_runs.append(current)
+            current = 0
+    if current:
+        burst_runs.append(current)
+    return {
+        "refresh_ms": refresh,
+        "frames": frames.get("frames", len(intervals)),
+        "intervals_ms": intervals,
+        "frames_over_16ms": sum(interval > 16 for interval in intervals),
+        "frame_bursts": {"threshold_ms": burst_limit, "count": len(burst_runs),
+                         "max_length": max(burst_runs, default=0), "total_frames": sum(burst_runs)},
+        "main_thread_cost": {"samples": len(main), "total_ms": round(sum(main), 2), "distribution": pct(main)},
+    }
+
+
 def probe_rows():
     try:
         with open(PROBE) as handle:
@@ -181,46 +324,50 @@ class Streamer(threading.Thread):
 LOAD = {"made": False, "workspaces": [], "chat_panes": []}
 
 
+def busy_command():
+    """What each busy terminal runs: printed lines, or with --title-churn a spinner title."""
+    return TITLE_CHURN if opts.title_churn else BUSY
+
+
 def make_load(surface_ws):
     """Busy terminals (three split beside the typed surface, the rest in other workspaces) and mock agent chats."""
     if LOAD["made"]:
         return
     LOAD["made"] = True
-    if SESSION == "stress":
-        # STRESS has its printing terminals and agent chats already: stream up to --chats of its chats.
+    if LOADSPEC["cpu"]:
+        LOAD["cpu_burners"] = start_burners()
+    if SESSION.split("/")[0] == "stress":  # SESSION is SESSION/BACKDROP with --backdrops
+        # STRESS has its printing terminals and agent chats already: stream up to this many of its chats.
         listed = rpc("debug.agent_pane", {"action": "engine", "pane": "none"}) or {}
-        LOAD["chat_panes"] = (listed.get("agent_panes") or [])[: opts.chats]
+        LOAD["chat_panes"] = (listed.get("agent_panes") or [])[: LOADSPEC["chats"]]
         note(f"load (stress): streaming chats {LOAD['chat_panes']}")
         return
-    visible = min(3, opts.busy)
+    visible = min(3, LOADSPEC["busy"])
     for _ in range(visible):
         action("splitRight", settle=0.6)
-        action("terminal.sendText", {"text": BUSY + "\r"})
-    rest = opts.busy - visible
+        action("terminal.sendText", {"text": busy_command() + "\r"})
+    rest = LOADSPEC["busy"] - visible
     per = 4
     for index in range((rest + per - 1) // per):
         count = min(per, rest - index * per)
-        ref = cli("workspace", "create", "--name", f"busy {index}", "--shell", BUSY).stdout.strip()
+        ref = cli("workspace", "create", "--name", f"busy {index}", "--shell", busy_command()).stdout.strip()
         LOAD["workspaces"].append(ref)
         for _ in range(count - 1):
             cli("workspace", ref, "focus")
             action("splitDown", settle=0.4)
-            action("terminal.sendText", {"text": BUSY + "\r"})
-    for _ in range(opts.chats):
-        reply = action("palette.newAgentChat", settle=1.0)
-        # The action answers after ~2 s while the chat still opens: wait for its page, then its composer.
-        ready = wait(lambda: (lambda r: r if r.get("document_ready") else None)(
-            rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
-        engine = rpc("debug.agent_pane", {"action": "engine"}) or {}
-        LOAD["chat_panes"].append(engine.get("pane"))
-        note(f"load: agent chat {engine.get('pane')} ({engine.get('engine')}) ready={bool(ready)} {json.dumps(reply)[:120]}")
+            action("terminal.sendText", {"text": busy_command() + "\r"})
+    for _ in range(LOADSPEC["chats"]):
+        pane, engine = open_agent_chat()
+        if pane:
+            LOAD["chat_panes"].append(pane)
+        note(f"load: agent chat {pane} ({engine})")
     if surface_ws:
         cli("workspace", surface_ws, "focus")
-    note(f"load: {opts.busy} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
+    note(f"load: {LOADSPEC['busy']} busy terminals ({visible} visible), {len(LOAD['chat_panes'])} agent chats")
 
 
-def chat_streams():
-    panes = [p for p in LOAD["chat_panes"] if p]
+def chat_streams(panes=None):
+    panes = [p for p in (panes if panes is not None else LOAD["chat_panes"]) if p]
     if not panes:
         return None
 
@@ -228,10 +375,245 @@ def chat_streams():
 
     def step(_):
         for pane in panes:
-            reply = rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40, "seconds": 3, "chunk_ms": 30}, timeout=10)
+            if opts.chat_agent == "real":
+                reply = rpc("debug.agent_pane", {"action": "send_prompt", "pane": pane,
+                                                  "text": f"stream: {opts.stream}"}, timeout=20)
+            else:
+                reply = rpc("debug.agent_pane", {"action": "stream", "pane": pane, "rows": 40,
+                                                  "seconds": 3, "chunk_ms": 30}, timeout=10)
             if len(replies) < 4 or (isinstance(reply, dict) and reply.get("error")):
                 replies.append(json.dumps(reply)[:200])
-    return Streamer(step, 3.0)
+    period = float(opts.stream.split()[0]) + 0.5 if opts.chat_agent == "real" else 3.0
+    return Streamer(step, period)
+
+
+def agent_expected_text(count):
+    """Stable ordinary keys: the report can prove order and exact composer text."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    return "".join(letters[index % len(letters)] for index in range(count))
+
+
+def agent_typing_verdict(stats, expected, dispatch):
+    """Validate page telemetry and join its paint epoch to the native dispatch clock."""
+    stats = stats if isinstance(stats, dict) else {}
+    samples = stats.get("samples") if isinstance(stats.get("samples"), list) else []
+    keys = [sample.get("key") for sample in samples if isinstance(sample, dict)]
+    ordered = (len(keys) == len(samples) == len(expected) and all(isinstance(key, str) for key in keys)
+               and "".join(keys) == expected)
+    exact = stats.get("composer_text") == expected
+    finite = bool(samples) and len(samples) == len(expected)
+    for sample in samples:
+        if not isinstance(sample, dict):
+            finite = False
+            break
+        for field in ("frame", "paint", "listener", "work"):
+            value = sample.get(field)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                finite = False
+                break
+        if not finite:
+            break
+    paints = [sample["paint"] for sample in samples if isinstance(sample, dict)
+              and isinstance(sample.get("paint"), (int, float))]
+    paint_distribution = pct(paints)
+    after_frame = []
+    if len(dispatch) == len(samples):
+        for sample, sent in zip(samples, dispatch):
+            painted = sample.get("paint_epoch_ms") if isinstance(sample, dict) else None
+            if not isinstance(painted, (int, float)) or not isinstance(sent.get("epoch_ms"), (int, float)):
+                after_frame = []
+                break
+            after_frame.append(painted - sent["epoch_ms"])
+    joined = len(after_frame) == len(expected) and all(0 <= value < 60000 for value in after_frame)
+    after_distribution = pct(after_frame)
+    return {
+        "complete": finite and ordered and exact and joined,
+        "key_order_ok": ordered,
+        "text_exact": exact,
+        "expected_keys": len(expected),
+        "observed_keys": len(samples),
+        "key_to_frame_ms": paint_distribution,
+        "paint_p50_ms": (paint_distribution or {}).get("p50"),
+        "paint_p95_ms": (paint_distribution or {}).get("p95"),
+        "paint_p99_ms": (paint_distribution or {}).get("p99"),
+        "paint_max_ms": (paint_distribution or {}).get("max"),
+        "dispatch_to_after_frame_ms": after_frame,
+        "dispatch_to_after_frame": after_distribution,
+        "dispatch_to_after_frame_p50_ms": (after_distribution or {}).get("p50"),
+        "dispatch_to_after_frame_p95_ms": (after_distribution or {}).get("p95"),
+        "dispatch_to_after_frame_p99_ms": (after_distribution or {}).get("p99"),
+        "dispatch_to_after_frame_max_ms": (after_distribution or {}).get("max"),
+        "renderer_budget_met": bool(finite and ordered and exact and (paint_distribution or {}).get("p95", float("inf")) <= 16
+                                     and (paint_distribution or {}).get("p99", float("inf")) <= 33),
+    }
+
+
+def foreground_activation():
+    """Bring the already-running tagged app front through LaunchServices and prove NSApp is active."""
+    opened = subprocess.run(["open", APP], capture_output=True, text=True, timeout=30)
+    focus = wait(lambda: (lambda report: report if report.get("app_active") is True else None)(rpc("debug.focus") or {}),
+                 15, step=0.25)
+    report = focus or rpc("debug.focus") or {}
+    front = str(report.get("front_app") or report.get("frontmost_app") or report.get("application") or "").lower()
+    locked = report.get("screen_locked") is True or front == "loginwindow"
+    return {"method": "launchservices_open", "returncode": opened.returncode,
+            "stderr": opened.stderr.strip()[:200], "app_active": bool(focus), "screen_locked": locked,
+            "focus": report}
+
+
+def open_agent_chat():
+    """Open one chat and attach either the in-page fixture or a real ACP harness."""
+    reply = action("palette.newAgentChat", settle=1.0, timeout=120)
+    wait(lambda: (lambda r: r if r.get("document_ready") else None)(
+        rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}), 30, step=0.5)
+    engine = rpc("debug.agent_pane", {"action": "engine"}, timeout=10) or {}
+    pane = engine.get("pane")
+    if pane and opts.chat_agent == "real":
+        made = rpc("debug.agent_pane", {"action": "new_chat", "pane": pane, "harness": "fake", "cwd": WORK}, timeout=90)
+        attached = wait(lambda: (lambda state: state if state.get("connection") == "attached" and state.get("sessionId") else None)(
+            rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}), 40, step=0.5)
+        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}")
+    elif pane:
+        rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"}, timeout=30)
+    if pane:
+        wait(lambda: (lambda r: r if r.get("composer_visible") else None)(
+            rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, timeout=5) or {}), 30, step=0.25)
+    note(f"chat {pane} ({engine.get('engine')}) {json.dumps(reply)[:120]}")
+    return pane, engine.get("engine")
+
+
+def ensure_agentpane():
+    if LOAD.get("agentpane_pane"):
+        return LOAD["agentpane_pane"]
+    pane, engine_name = open_agent_chat()
+    if not pane:
+        raise RuntimeError("agent pane did not open")
+    LOAD["agentpane_pane"] = pane
+    LOAD["agentpane_engine"] = engine_name
+    return pane
+
+
+def measure_agentpane(phase, pid, pane, streams=()):
+    """Native agent composer path: exact key samples, page paint epoch, foreground proof and load provenance."""
+    activation = foreground_activation()
+    if activation.get("screen_locked"):
+        entry = {
+            "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
+            "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
+            "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+            "error": "screen is locked (front app loginwindow); no typing or ACP measurement attempted",
+            "complete": False, "keys": 0, "measured": 0,
+        }
+        results["runs"].append(entry)
+        return entry
+    focus_reply = rpc("debug.agent_pane", {"action": "focus_composer", "pane": pane}, timeout=30) or {}
+    focus = wait(lambda: (lambda report: report if report.get("app_active") is True else None)(rpc("debug.focus") or {}),
+                 10, step=0.25) or (rpc("debug.focus") or {})
+    entry = {
+        "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
+        "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
+        "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+        "focus": {"composer": focus_reply, "report": focus, "app_active": focus.get("app_active") is True},
+        "capabilities": {
+            "typing": "debug.key -> agent page",
+            "telemetry": "debug.agent_pane typing_stats (paint_epoch_ms proxy)",
+            "foreground_activation": "LaunchServices open + debug.focus.app_active",
+            "load_source": ("real_acp_agent_transport" if opts.chat_agent == "real" and streams
+                             else "mock_stream" if streams else "none"),
+            "daemon_wake": "exercised" if opts.chat_agent == "real" and streams else "not_exercised",
+            "three_chat_acceptance": {
+                "requested": 3 if MODE is None and phase == "load" else 0,
+                "observed": len(LOAD.get("chat_panes") or []) + 1,
+                "complete": None if MODE is not None or phase != "load"
+                             else len(LOAD.get("chat_panes") or []) + 1 >= 3,
+                "status": "legacy acceptance" if MODE is None and phase == "load" else "covered by L0-L5 mode registry",
+            },
+            "background_wake": {"supported": opts.chat_agent == "real",
+                                "status": "exercised" if opts.chat_agent == "real" and streams else "not_exercised",
+                                "reason": ("ACP fake agent prompts stream through AgentPaneTransport/AcpmuxPaneSocket"
+                                           if opts.chat_agent == "real" else
+                                           "canonical L0-L5 path uses mock_stream; use --chat-agent real for daemon traffic")},
+        },
+    }
+    if focus.get("app_active") is not True:
+        entry.update({"error": "LaunchServices activation did not produce debug.focus.app_active=true",
+                      "complete": False, "keys": 0, "measured": 0})
+        results["runs"].append(entry)
+        return entry
+    for stream in streams:
+        stream.start()
+    if streams:
+        time.sleep(1.0)
+    target = {"pane": pane}
+    if LOAD.get("agentpane_engine") == "cef":
+        target["target"] = "page"
+    stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
+    before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
+    clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
+    clear_delete = rpc("debug.key", dict(target, key="delete"), timeout=10)
+    cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
+                             report.get("keys", 0) >= before_keys + 2 else None)(
+        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
+    reset = rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=10)
+    rpc("debug.hangs", {"clear": True})
+    rpc("debug.timings", {"clear": True})
+    rpc("debug.frames", {"action": "start"})
+    sampler = None
+    if opts.sample and phase == "load":
+        sample_path = os.path.join(OUT, f"sample-{SESSION}-agentpane-{phase}.txt")
+        seconds = max(3, int(opts.samples * opts.interval))
+        sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", sample_path],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
+    expected = agent_expected_text(opts.samples)
+    dispatch, trips = [], []
+    send_start = time.monotonic()
+    for index, key in enumerate(expected):
+        deadline = send_start + index * opts.interval
+        time.sleep(max(0, deadline - time.monotonic()))
+        started = time.monotonic()
+        epoch_ms = time.time() * 1000
+        reply = rpc("debug.key", dict(target, key=key), timeout=10)
+        dispatch.append({"index": index, "key": key, "epoch_ms": epoch_ms,
+                         "late_ms": (started - deadline) * 1000,
+                         "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
+        trips.append(dispatch[-1]["rpc_ms"])
+    typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
+        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
+    typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
+    if streams:
+        for stream in streams:
+            stream.stop()
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
+    hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+    main_profile = None
+    if sampler:
+        try:
+            sampler[0].wait(timeout=opts.samples * opts.interval + 60)
+        except subprocess.TimeoutExpired:
+            sampler[0].terminate()
+        try:
+            main_profile = digest_sample(open(sampler[1], errors="replace").read())
+        except OSError:
+            main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+    verdict = agent_typing_verdict(typing, expected, dispatch)
+    frame_report = frame_metrics(frames)
+    entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
+                  "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
+                            "verified": bool(cleared), "reset": reset},
+                  "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
+                  "driver_p95_late_ms": pct([item["late_ms"] for item in dispatch]).get("p95"),
+                  "driver_p99_rpc_ms": pct(trips).get("p99"),
+                  "frames": frames, "frame_metrics": frame_report, "frames_over_16ms": frame_report.get("frames_over_16ms"),
+                  "frame_bursts": frame_report.get("frame_bursts"), "main_thread_cost": frame_report.get("main_thread_cost"),
+                  "hangs": hangs,
+                  "streams": [stream.calls for stream in streams], "main_profile": main_profile,
+                  "complete": bool(verdict["complete"] and cleared)})
+    results["runs"].append(entry)
+    if opts.json:
+        json.dump(results, open(opts.json, "w"), indent=1)
+    note(f"{SESSION} agentpane.{phase}: key-to-frame {entry.get('key_to_frame_ms')} dispatch-to-after-frame "
+         f"p95={entry.get('dispatch_to_after_frame_p95_ms')} exact={verdict['text_exact']} active={focus.get('app_active')}")
+    return entry
 
 
 def home_stream(tab=None):
@@ -279,13 +661,17 @@ def workspaces():
 
 
 # ---------------------------------------------------------------- typing
+SENTENCE = "the chief reads your note and starts on the work in a new workspace "
+
+
 def type_keys(count, params, column):
-    keys = "abcdefghijklmnopqrstuvwxyz"
+    keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
     for index in range(count):
         t0 = time.perf_counter()
-        reply = rpc("debug.key", dict(params, key=keys[index % len(keys)], timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        key = keys[index % len(keys)]
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
         if isinstance(reply, dict) and reply.get("error"):
@@ -381,7 +767,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     for s in streams:
         s.start()
     sampler = None
-    if opts.sample and phase == "load":
+    if opts.sample and (phase == "load" or opts.sample_idle):
         path = os.path.join(OUT, f"sample-{SESSION}-{surface}-{phase}.txt")
         seconds = max(3, int(opts.samples * opts.interval))
         sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", path],
@@ -407,9 +793,14 @@ def measure(surface, phase, params, column, pid, streams=()):
     marks = ["dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_decoded_ms",
              "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+    display_metrics = frame_metrics(frames)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
         "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
+        # Only with --modes, so a report from the --phases path stays the rows bench_ab already compares.
+        "mode": (MODE or {}).get("id"),
+        "mode_missing": (MODE or {}).get("nativeMissing") or [],
+        "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
         "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
@@ -419,7 +810,10 @@ def measure(surface, phase, params, column, pid, streams=()):
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
-        "frames": frames, "streams": [s.calls for s in streams], "round": ROUND, "focus": LOAD.get("focus"),
+        "frames": frames, "frame_metrics": display_metrics, "frames_over_16ms": display_metrics.get("frames_over_16ms"),
+        "frame_bursts": display_metrics.get("frame_bursts"), "main_thread_cost": display_metrics.get("main_thread_cost"),
+        "streams": [s.calls for s in streams],
+        "round": ROUND, "focus": LOAD.get("focus"),
         "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
                                                    "total_ms": round(sum(publishes), 1)},
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
@@ -526,6 +920,7 @@ def surface_home(phase, pid):
     if not (isinstance(focused, dict) and focused.get("ok")):
         note(f"home: no composer to focus ({json.dumps(focused)[:160]})")
         return None
+    empty_draft()
     streams = [home_stream()] if phase == "load" else []
     if phase == "load":
         s = chat_streams()
@@ -537,14 +932,28 @@ def surface_home(phase, pid):
     return entry
 
 
+def empty_draft():
+    """With --fresh-draft: the focused Home composer's draft is emptied through its own keys (Cmd-A, Delete)."""
+    if opts.fresh_draft:
+        rpc("debug.key", {"key": "a", "modifiers": ["cmd"]})
+        rpc("debug.key", {"key": "delete"})
+        if opts.prefill:
+            text = (SENTENCE * (opts.prefill // len(SENTENCE) + 1))[: opts.prefill]
+            rpc("debug.home.drive", {"action": "type", "text": text})
+        time.sleep(0.3)  # the emptied (or filled) field lays out before the first measured key
+
+
 def surface_dock(phase, pid):
     # The docked Home the app opened at launch: the home workspace's page.
     homes = rpc("debug.home") or {}
+    if phase == "load":
+        make_load(None)
     action("home.show", settle=1.5)
     focused = rpc("debug.home.drive", {"action": "focus"})
     if not (isinstance(focused, dict) and focused.get("ok")):
         note(f"dock: no Home composer to focus ({json.dumps(focused)[:160]}; debug.home {json.dumps(homes)[:200]})")
         return None
+    empty_draft()
     return measure("dock", phase, {"probe": "commit"}, "commit_ms", pid, [])
 
 
@@ -569,22 +978,47 @@ def surface_omnibar(phase, pid):
     return entry
 
 
-SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
+def surface_agentpane(phase, pid):
+    pane = ensure_agentpane()
+    streams = []
+    if phase == "load":
+        make_load(None)
+        mode_id = (MODE or {}).get("id")
+        # L1/L3 type into the focused chat while it streams; L2 adds the ten background chats;
+        # L5 combines both. The legacy --phases path preserves its existing mock-chat load.
+        source = []
+        if mode_id in ("L1", "L3", "L5"):
+            source.append(pane)
+        if mode_id in ("L2", "L5"):
+            source.extend(LOAD.get("chat_panes") or [])
+        if not mode_id:
+            source.extend(LOAD.get("chat_panes") or [])
+        stream = chat_streams(source)
+        if stream:
+            streams.append(stream)
+    return measure_agentpane(phase, pid, pane, streams)
 
 
-def run_session(session, backdrop="default"):
+SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock,
+            "omnibar": surface_omnibar, "agentpane": surface_agentpane}
+
+
+def run_session(session, phases=None, backdrop="default"):
     """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
-    surface and phase in it, --rounds times, with the window's `backdrop` (BACKDROPS)."""
+    surface and phase in it (`phases`, default --phases), --rounds times, with the window's `backdrop` (BACKDROPS)."""
     global app, SESSION, SOCKET, CONFIG
     SESSION = session if backdrop == "default" else f"{session}/{backdrop}"
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
+    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.chat_agent == "real":
+        env.update(CMUX_NEXT_AGENT_PANE_MOCK=None, ACPMUX_AGENT_LAUNCH=None)
     config = {"browser": {"defaultEngine": "chromium"}}
     if BACKDROPS[backdrop]:
         config["appearance"] = BACKDROPS[backdrop]
     bench = BenchApp(APP, out=OUT, config=config, window=WINDOW,
                      log_name=f"app-{SESSION.replace('/', '-')}.log",
-                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
+                     env=env)
     try:
         try:
             bench.launch(timeout=180)
@@ -594,6 +1028,19 @@ def run_session(session, backdrop="default"):
                                                               "detail": error.report.get("detail")})
             return
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
+        initial_focus = rpc("debug.focus") or {}
+        front = str(initial_focus.get("front_app") or initial_focus.get("frontmost_app") or initial_focus.get("application") or "").lower()
+        if initial_focus.get("screen_locked") is True or front == "loginwindow":
+            note(f"{session}: screen is locked (front app {front or 'unknown'}); aborting GUI measurements")
+            results.setdefault("launch_failures", []).append({"session": session, "reason": "screen_locked",
+                                                               "detail": initial_focus})
+            return
+        if opts.chat_agent == "real":
+            added = action("agent.harness.add", {"id": "fake", "name": "Fake", "command": sys.executable,
+                                                 "args": f"{shlex.quote(os.path.abspath(__file__))} --agent",
+                                                 "protocol": "acp", "replace": "true"}, timeout=30)
+            results["harness_add"] = added
+            note(f"harness add: {json.dumps(added)[:300]}")
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
             time.sleep(5)  # the grid settles
@@ -601,10 +1048,10 @@ def run_session(session, backdrop="default"):
         global ROUND
         # Every idle round before the first load round: the load (busy terminals, chats) runs until the app quits,
         # so an idle round after a load round would measure under load.
-        for phase in opts.phases.split(","):
+        for phase in (phases or opts.phases.split(",")):
             for ROUND in range(opts.rounds):
                 for surface in surfaces:
-                    if surface == "dock" and phase != "idle":
+                    if surface == "dock" and phase != "idle" and not opts.dock_load:
                         continue
                     try:
                         SURFACES[surface](phase, app.pid)
@@ -612,22 +1059,50 @@ def run_session(session, backdrop="default"):
                         note(f"{session} {surface}.{phase}: failed: {error!r}")
     finally:
         bench.stop()
+        stop_burners()
 
 
 def main():
     results["refresh_hz"] = refresh_hz()
     results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
+    global MODE
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
     try:
-        for session in sessions:
-            for backdrop in opts.backdrops.split(","):
-                run_session(session, backdrop)
+        if opts.modes:
+            # One launch per mode, its knobs from the registry. L0 is the idle phase; every other mode is the load
+            # phase with the mode's own load.
+            try:
+                wanted = load_modes.load(opts.modes)
+            except KeyError as error:
+                sys.exit(str(error))
+            for mode in wanted:
+                MODE = mode
+                native = mode["native"]
+                LOADSPEC.update({"busy": native["busyTerminals"], "chats": native["chats"],
+                                 "cpu": bool(native["cpuSaturation"])})
+                missing = mode.get("nativeMissing") or []
+                note(f"mode {mode['id']} ({mode['label']}): {mode['what']}; session {native['session']}, "
+                     f"{native['chats']} chats, {native['busyTerminals']} busy terminals, "
+                     f"cpu saturation {bool(native['cpuSaturation'])}"
+                     + (f"; not expressed here: {'; '.join(missing)}" if missing else ""))
+                phase = "idle" if mode["id"] == "L0" else "load"
+                for backdrop in opts.backdrops.split(","):
+                    run_session(native["session"], [phase], backdrop)
+            MODE = None
+        else:
+            for session in sessions:
+                for backdrop in opts.backdrops.split(","):
+                    run_session(session, backdrop=backdrop)
     finally:
         summary = {}
         for r in results["runs"]:
-            summary.setdefault(f"{r['session']}.{r['surface']}.{r['phase']}", []).append((r["key_to_frame_ms"] or {}).get("p95"))
+            key = (f"{r['mode']}.{r['surface']}" if r.get("mode")
+                   else f"{r['session']}.{r['surface']}.{r['phase']}")
+            summary.setdefault(key, []).append((r.get("key_to_frame_ms") or {}).get("p95"))
         results["summary_p95_ms"] = summary
         note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
+        # Keep a terminal report even when a surface fails before it has latency rows. This is the
+        # evidence artifact for screen-lock, focus and transport failures; it must not disappear.
         if opts.json:
             json.dump(results, open(opts.json, "w"), indent=1)
     if opts.gate_p95_ms is not None:

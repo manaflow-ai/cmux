@@ -11,6 +11,8 @@
   background: transparent;
   overflow: hidden;
   --agent-page-bg: transparent;
+  /* The content surface levels (desktop.css --ds-surface-*, design/chat-surfaces.md) are this ink over clear. */
+  --ds-surface-ink: var(--agent-text);
   --agent-surface: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 34%, transparent);
   --agent-surface-elevated: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 48%, transparent);
   --agent-input-bg: color-mix(in srgb, var(--cmux-app-window, #080808) 36%, transparent);

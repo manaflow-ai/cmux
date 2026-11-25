@@ -109,8 +109,9 @@ impl RemoteRows {
 
     /// Marks `peer`'s rows stale (`peer_cache::mark_stale`): the summaries that changed. Each row
     /// is taken out and put back through `insert`, so the index follows whatever the mark touched.
-    /// There is no other way to change a row in place.
-    pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<Value> {
+    /// There is no other way to change a row in place. Each summary shares the text the row had
+    /// before the mark, the mark kept apart (`PeerRow::stale_announced`), so it copies no row.
+    pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<PeerRow> {
         let keys: Vec<String> = self
             .of_peer(peer)
             .filter(|(_, r)| {
@@ -127,9 +128,10 @@ impl RemoteRows {
             let live = self.stale_from.get(&key).cloned();
             let Some(row) = self.take(&key) else { continue };
             let live = live.unwrap_or_else(|| Arc::clone(&row));
+            let before = row.summary.clone();
             let mut row = Arc::unwrap_or_clone(row);
             if row.summary.mark_stale(last_seen) {
-                changed.push(row.summary.value());
+                changed.push(PeerRow::stale_announced(&before, &row.summary, last_seen));
             }
             self.insert(key.clone(), row);
             self.stale_from.insert(key, live);
@@ -144,6 +146,14 @@ impl RemoteRows {
         peer: &str,
     ) -> impl Iterator<Item = &'a RemoteSession> + 'a {
         self.of_peer(peer).map(|(key, row)| &**self.stale_from.get(key).unwrap_or(row))
+    }
+
+    /// Peer `peer`'s rows a dropped link marked stale, each as it was before, with its key.
+    pub(crate) fn stale_of_peer<'a>(
+        &'a self,
+        peer: &str,
+    ) -> impl Iterator<Item = (&'a String, &'a Arc<RemoteSession>)> + 'a {
+        self.of_peer(peer).filter_map(|(key, _)| self.stale_from.get(key).map(|live| (key, live)))
     }
 
     /// Peer `peer`'s rows with their keys, reading no other peer's.
@@ -530,7 +540,8 @@ mod tests {
             Op::MarkStale(p, seen) => {
                 let peer = peer_of(p);
                 let seen = seen.map(u64::from);
-                let mut got: Vec<Value> = rows.mark_peer_stale(&peer, seen);
+                let mut got: Vec<Value> =
+                    rows.mark_peer_stale(&peer, seen).iter().map(PeerRow::value).collect();
                 let mut want: Vec<Value> = Vec::new();
                 for r in model.values_mut().filter(|r| r.peer == peer) {
                     let mut summary = r.summary.value();

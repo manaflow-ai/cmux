@@ -1,10 +1,23 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout]]]
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, type (separate or
+//                                                                      comma-separated)
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
 // `first_shell_live` mark is that terminal's first shell output.
+//
+// With `type` (launch-ready.sh type=1) the app types one space and one Delete the moment its first window frame is in
+// and a window is key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1): `terminal.probe_key_typed`, then `terminal_input_accepted` (the
+// key left the app for the restored terminal's PTY) and `terminal_echo` (the shell's echo came back).
+//
+// With `keys` (launch-ready.sh keys=1) it opens no terminal (that moves focus). From the moment it sees the window it
+// posts one key every 100 ms to the app's pid (CGEvent postToPid: the app's own event queue, which AppKit hands to its
+// key window's first responder), each the next of a-z then 0-9 (36 at most). Once Home's first page is up and the
+// window took keys (home.first_page and window_usable) it posts 3 more and then Return, so Home's box sends; with no
+// such marks it stops at 36 and presses Return at SETTLE_S less 1.5 s. Just before the quit it reads the sent message
+// back from the app's daemon (sentText) and records first_key_ms (when the earliest key the message holds went out),
+// keys_sent, keys_landed (how many of the sent keys the message holds) and keys_text.
 //
 // With `layout` (launch-ready.sh layout=1), from the first on-screen frame the probe samples the first window's frame
 // (CGWindowList, any build) every 16 ms and the sidebar's edge (the middle of `debug.layers`'
@@ -37,7 +50,7 @@ import Darwin
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {
-    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout]]]\n".utf8)); exit(2)
+    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]\n".utf8)); exit(2)
 }
 let appURL = URL(fileURLWithPath: args[1]), homeRoot = URL(fileURLWithPath: args[2]), label = args[3]
 let settle = args.count > 4 ? Double(args[4]) ?? 6 : 6
@@ -45,8 +58,9 @@ let socketPath = args.count > 5 ? args[5] : homeRoot.appendingPathComponent("app
 guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app could bind no socket there
     FileHandle.standardError.write(Data("launch-ready: socket path \(socketPath.utf8.count) bytes, over 103: \(socketPath)\n".utf8)); exit(2)
 }
-let flags = Set(args.dropFirst(6))
-let opensShell = flags.contains("shell"), samplesLayout = flags.contains("layout")
+let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.init) })
+let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
+let typesFirstKey = modes.contains("type")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -120,6 +134,8 @@ var environment: [String: String] = [
     "CMUX_NEXT_SOCKET_PATH": socketPath, "CMUX_NEXT_SOCKET_MODE": "allowAll",
     "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
 ]
+// `type` (launch-ready.sh type=1): the app types one key at its first frame (LaunchTypeProbe) and marks its echo.
+if typesFirstKey { environment["CMUX_NEXT_LAUNCH_TYPE_PROBE"] = "1" }
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
 // A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
 let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
@@ -156,6 +172,13 @@ func ownWindowOnScreen(_ pid: pid_t) -> Bool { !ownWindows(pid).isEmpty }
 
 // One request on the app's control socket (line JSON, release methods only): its result, or nil.
 func rpc(_ method: String) -> [String: Any]? {
+    guard let object = lineRequest(socketPath, ["id": 1, "method": method, "params": [String: Any]()]),
+          object["ok"] as? Bool == true else { return nil }
+    return object["result"] as? [String: Any]
+}
+
+// One JSON line to the Unix socket at `path` and the first line back, parsed (nil: no connection or no JSON reply).
+func lineRequest(_ path: String, _ message: [String: Any]) -> [String: Any]? {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { return nil }
     defer { close(fd) }
@@ -164,13 +187,12 @@ func rpc(_ method: String) -> [String: Any]? {
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
     var address = sockaddr_un()
     address.sun_family = sa_family_t(AF_UNIX)
-    withUnsafeMutableBytes(of: &address.sun_path) { path in
-        for (index, byte) in socketPath.utf8.enumerated() { path[index] = byte }
+    withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
+        for (index, byte) in path.utf8.prefix(sunPath.count - 1).enumerated() { sunPath[index] = byte }
     }
     let connected = withUnsafePointer(to: &address) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
     }
-    let message: [String: Any] = ["id": 1, "method": method, "params": [String: Any]()]
     guard connected == 0, let body = try? JSONSerialization.data(withJSONObject: message) else { return nil }
     let request = body + Data("\n".utf8)
     guard request.withUnsafeBytes({ write(fd, $0.baseAddress, request.count) }) == request.count else { return nil }
@@ -180,8 +202,7 @@ func rpc(_ method: String) -> [String: Any]? {
         if count <= 0 { break }
         reply.append(contentsOf: chunk[0..<count])
     }
-    guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any], object["ok"] as? Bool == true else { return nil }
-    return object["result"] as? [String: Any]
+    return try? JSONSerialization.jsonObject(with: reply) as? [String: Any]
 }
 
 // One series of a layout value (a window frame, a sidebar edge) as the sampler saw it.
@@ -262,6 +283,124 @@ func tabPage(_ tab: String, in node: Any) -> String? {
     return nil
 }
 
+// keys=1: the sequence (a-z then 0-9: 36 steps at most) and each character's ANSI key code (a US layout's; the event
+// carries the character too, so another layout types the same text); when each step's key went out (now()), how many
+// went out while the app was frontmost, the step typing stops at once Home is up, and when Return went out.
+let keySequence = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+let keyCodes: [Character: CGKeyCode] = [
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14,
+    "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "9": 25, "7": 26, "8": 28, "0": 29,
+    "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+]
+let returnKeyCode: CGKeyCode = 36
+var keyPosts: [Double] = [], keysFront = 0, keysStopAt: Int?, returnSent: Double?, keysRead: [String: Any]?
+// Whether this process may post events (Accessibility / PostEvent): without it postToPid drops them silently. Only
+// read: a request would put a prompt on the console.
+let keysAccess = typesKeys && CGPreflightPostEventAccess()
+// With no Home marks, Return goes at SETTLE_S less 1.5 s (and after the 36th key), so the send reaches the daemon
+// before the read back at the settle end.
+let returnBy = max(settle * 1000 - 1500, Double(keySequence.count + 1) * 100)
+
+/// One key, down and up, into the app's event queue.
+func postKey(_ code: CGKeyCode, _ text: String, to pid: pid_t) {
+    let source = CGEventSource(stateID: .hidSystemState)
+    for down in [true, false] {
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { continue }
+        let units = Array(text.utf16)
+        units.withUnsafeBufferPointer { event.keyboardSetUnicodeString(stringLength: $0.count, unicodeString: $0.baseAddress) }
+        event.postToPid(pid)
+    }
+}
+
+/// The text of the message Home's box sent this launch, read from the app's daemon: cmux-tui keeps Home's
+/// conversations, and the app's control socket has no release method that reads one (debug.home and
+/// debug.home.delivery are in DEBUG and bench builds only). The daemon is the app's home session (snapshot.get's
+/// topology.sessions, `session_name`) on the socket its owner listens on: the app starts it with TMPDIR set to the
+/// user's Darwin temp folder and no XDG_RUNTIME_DIR (DaemonLauncher.userTemporaryDirectory), so
+/// TEMP/cmux-tui-UID/SESSION.sock, or /tmp/cmux-tui-UID/SESSION.sock when that is too long for sun_path (cmux-tui-core
+/// server/socket_path.rs). Read with `conversation-list` (each conversation's last message) and
+/// `conversation-snapshot` (its last 20). The message is the newest created since `since` less 2 s whose text is only
+/// sent keys' characters, in sent order (a relaunch's home also holds the earlier launches' messages).
+func sentText(since: Double, sent: [Character]) -> [String: Any] {
+    let sessions = (rpc("snapshot.get")?["topology"] as? [String: Any])?["sessions"] as? [[String: Any]] ?? []
+    let session = sessions.first { $0["home"] as? Bool == true }?["session_name"] as? String ?? "cmux-app"
+    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+    let temp = confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, buffer.count) > 0 ? String(cString: buffer) : "/tmp/"
+    let leaf = "cmux-tui-\(getuid())/\(session).sock"
+    let candidates = [URL(fileURLWithPath: temp).appendingPathComponent(leaf).path, "/tmp/" + leaf].filter { $0.utf8.count <= 103 }
+    var daemon: String?, conversations: [[String: Any]] = []
+    for path in candidates {
+        if let reply = lineRequest(path, ["id": 1, "cmd": "conversation-list"]), reply["ok"] as? Bool == true {
+            daemon = path
+            conversations = (reply["data"] as? [String: Any])?["conversations"] as? [[String: Any]] ?? []
+            break
+        }
+    }
+    guard let daemon else { return ["read_error": "no daemon answered conversation-list", "session": session, "tried": candidates] }
+    var found: [[String: Any]] = []
+    for conversation in conversations {
+        collectMessages(conversation, into: &found)
+        if let id = conversation["id"] as? String,
+           let reply = lineRequest(daemon, ["id": 2, "cmd": "conversation-snapshot", "conversation": id, "tail": 20]) {
+            collectMessages(reply["data"] ?? NSNull(), into: &found)
+        }
+    }
+    let optionSets: [ISO8601DateFormatter.Options] = [[.withInternetDateTime, .withFractionalSeconds], [.withInternetDateTime]]
+    let formats = optionSets.map { (options: ISO8601DateFormatter.Options) -> ISO8601DateFormatter in
+        let format = ISO8601DateFormatter()
+        format.formatOptions = options
+        return format
+    }
+    func createdMs(_ message: [String: Any]) -> Double? {
+        guard let text = message["created_at"] as? String else { return nil }
+        for format in formats { if let date = format.date(from: text) { return date.timeIntervalSince1970 * 1000 } }
+        return nil
+    }
+    var best: (text: String, created: Double, conversation: Any)?
+    for message in found {
+        let text = messageText(message)
+        guard isInOrder(text, of: sent) else { continue }
+        let created = createdMs(message) ?? .infinity // an unreadable time is kept (and taken as the newest)
+        guard created >= since - 2000, best == nil || created > best!.created else { continue }
+        best = (text, created, message["conversation"] ?? NSNull())
+    }
+    var result: [String: Any] = ["socket": daemon, "session": session, "conversations": conversations.count, "messages": found.count]
+    if let best {
+        result["text"] = best.text
+        result["conversation"] = best.conversation
+    } else {
+        result["read_error"] = "no message of the sent keys since Return"
+    }
+    return result
+}
+
+/// Every conversation message (an object with `parts` and `created_at`) anywhere in `node`.
+func collectMessages(_ node: Any, into list: inout [[String: Any]]) {
+    if let object = node as? [String: Any] {
+        if object["parts"] is [Any], object["created_at"] != nil { list.append(object) }
+        for value in object.values { collectMessages(value, into: &list) }
+    } else if let array = node as? [Any] {
+        for value in array { collectMessages(value, into: &list) }
+    }
+}
+
+/// A message's text: its text parts, joined.
+func messageText(_ message: [String: Any]) -> String {
+    let parts = message["parts"] as? [[String: Any]] ?? []
+    return parts.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
+}
+
+/// Whether `text` (trimmed) is a non-empty run of `sent`'s characters in sent order, each at most once.
+func isInOrder(_ text: String, of sent: [Character]) -> Bool {
+    let typed = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    guard !typed.isEmpty else { return false }
+    var next = 0
+    for character in typed {
+        guard next < sent.count, let at = sent[next...].firstIndex(of: character) else { return false }
+        next = at + 1
+    }
+    return true
+}
 /// The process's CPU and pageins so far (proc_pid_rusage), CPU in ms; nil once it is gone.
 func usage(_ pid: pid_t) -> [String: Any]? {
     var info = rusage_info_v4()
@@ -291,7 +430,29 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         window = t; windowSeenAt = t
         if samplesLayout { sampleLayout(pid: pid, window: first.number, from: t) }
     }
-    if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 { frontAtQuit = front(); quitSent = now(); kill(pid, SIGTERM) }
+    // keys=1: step i's key at the window plus 100 i ms; 3 more once Home is up and took keys, then Return.
+    if typesKeys, let seen = windowSeenAt, returnSent == nil, quitSent == nil {
+        let step = keyPosts.count
+        if keysStopAt == nil, marks["window_usable"] != nil, marks["home.first_page"] != nil {
+            keysStopAt = min(step + 3, keySequence.count)
+        }
+        if step < (keysStopAt ?? keySequence.count) {
+            if t >= seen + 100 * Double(step) {
+                let character = keySequence[step]
+                postKey(keyCodes[character] ?? 0, String(character), to: pid)
+                keyPosts.append(t)
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { keysFront += 1 }
+            }
+        } else if (keysStopAt != nil && t >= seen + 100 * Double(step)) || t - seen >= returnBy {
+            postKey(returnKeyCode, "\r", to: pid)
+            returnSent = t
+        }
+    }
+    if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 {
+        frontAtQuit = front()
+        if typesKeys { keysRead = sentText(since: returnSent ?? seen, sent: Array(keySequence.prefix(keyPosts.count))) }
+        quitSent = now(); kill(pid, SIGTERM)
+    }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
     if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
     if let sent = quitSent {
@@ -310,7 +471,11 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live"]
+            "window_usable", "first_shell_live",
+            // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
+            // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
+            "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
+            "terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"]
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -326,7 +491,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot"].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "shell_requested": rel(shellRequested),
@@ -334,6 +499,22 @@ var row: [String: Any] = [
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let frontAtQuit { row["front"] = frontAtQuit }
+if typesKeys {
+    // first_key_ms: when the earliest sent key the sent message holds went out (step i: the window plus 100 i ms), ms
+    // from process start as every time here; null when it holds none, or nothing was read back.
+    let sent = Array(keySequence.prefix(keyPosts.count)), text = keysRead?["text"] as? String ?? ""
+    let firstStep = sent.firstIndex { text.contains($0) }
+    row["first_key_ms"] = firstStep.map { rel(keyPosts[$0]) } ?? NSNull()
+    row["keys_sent"] = keyPosts.count
+    row["keys_landed"] = sent.filter { text.contains($0) }.count
+    row["keys_text"] = keysRead?["text"] ?? NSNull()
+    row["keys_front"] = keysFront // keys posted while the app was frontmost
+    row["keys_access"] = keysAccess // CGPreflightPostEventAccess; false: postToPid dropped every key
+    row["keys_return"] = rel(returnSent)
+    var keysReadRow: [String: Any] = keysRead ?? ["read_error": "not read"] // a dictionary, never filter's tuples
+    keysReadRow["text"] = nil
+    row["keys_read"] = keysReadRow
+}
 if samplesLayout, window != nil {
     let finished = layoutDone.wait(timeout: .now() + 5) == .success
     row["layout"] = ["window": layoutWindow.row(rel), "sidebar": layoutSidebar.row(rel), "samples": layoutSamples,

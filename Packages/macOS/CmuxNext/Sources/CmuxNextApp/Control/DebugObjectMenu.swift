@@ -13,6 +13,7 @@ import CmuxNextTabs
 /// - `menu: "tab"`: the focused pane's selected tab's menu (`PaneController.contextMenu(for: .tab)`), opened
 ///   over the middle of the pane's tab strip.
 /// - `menu: "pane"`: the pane's menu, the one the tab strip's empty space opens (`.emptyStrip`).
+/// - `menu: "paneMore"`: the pane's ⋮ at its tab bar's trailing end (``PaneToolbar``), as its click opens it.
 /// - `folders: ["More", "Copy"]`: with a menu open, opens each folder in turn with keys posted to the app's event
 ///   queue, which the open menu reads. A tab or pane menu (which this holds) gets Down to the folder's row, then
 ///   Right. The workspace menu gets a Down arrow (out of its name field), then each title typed (type-select)
@@ -59,6 +60,14 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: at, in: strip).schedule()
                 services.debugFixtures.objectMenu = shown // its folders are walked by their rows
                 answer["menu"] = .string(menu)
+            case "paneMore":
+                // The focused pane's ⋮ at its tab bar's trailing end (tour:terminal-chat-switch-menu), under the ⋮.
+                guard let bar = controller.focusedPane?.view.toolbar?.view, let shown = bar.moreMenu?() else {
+                    return failure("the focused pane shows no ⋮")
+                }
+                DelayedPopUp(menu: shown, at: NSPoint(x: bar.bounds.maxX - 32, y: bar.isFlipped ? bar.bounds.maxY : 0), in: bar).schedule()
+                services.debugFixtures.objectMenu = shown
+                answer["menu"] = .string(menu)
             case "browserProfile":
                 // The browser toolbar's profile button menu of the focused pane's page (tour:browser-profile-menu).
                 guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
@@ -71,7 +80,7 @@ enum DebugObjectMenu {
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
             default:
-                return failure("menu is workspace, tab, pane or browserProfile")
+                return failure("menu is workspace, tab, pane, paneMore or browserProfile")
             }
         }
         let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue) ?? []

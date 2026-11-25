@@ -443,7 +443,11 @@ impl Hub {
         title
     }
 
-    fn apply_generated_title(self: &Arc<Self>, session: &Arc<Session>, title: Option<String>) {
+    pub(super) fn apply_generated_title(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+    ) {
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;

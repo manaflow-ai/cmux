@@ -146,6 +146,10 @@ acpmux history NAME                                # one line per turn: prompt, 
 acpmux ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--machine MACHINE]   # a filter hides nothing
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
+acpmux resolve Mango                         # the handle, stable session id, host and task
+acpmux session rename --handle NAME Mango    # change the handle without changing the task or id
+acpmux ls Mango                               # the same session's handle, task, host and harness
+acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
 acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
 acpmux ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
@@ -403,7 +407,10 @@ has a copy of another agent's claim. Each claim is in the session events as
 ## 6. Other machines
 
 A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that
-form. A bare name (`review-42`) or an id prefix also works when exactly one live session on this
+form. An agent deeplink can look up the current owner of a handle with `session=handle%3AMango`.
+Use the UUID link from `acpmux resolve Mango` when the target must survive a rename.
+
+A spoken handle (`Mango`), a bare name (`review-42`), or an id prefix also works when exactly one live session on this
 machine or the machines you added has it; when several do, the command refuses and prints the exact
 `MACHINE/NAME` command for each, so pick one and run it. A name in another case (`td2-a` for
 `td2-A`), a unique prefix of it or the name without `-`, `_` and spaces works too, and so does a

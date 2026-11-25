@@ -508,6 +508,8 @@ pub struct Spawner {
     /// The person profile `remember` writes (`optchat/person.md`); None: no
     /// profile on this host.
     person: Option<std::path::PathBuf>,
+    /// The memory files the memory tools read and write (memory_files.rs).
+    memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
     /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
     /// None: no cmux app behind this host.
     cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
@@ -551,6 +553,7 @@ impl Spawner {
             cloud_vms: None,
             agent_keys: None,
             person: None,
+            memory_files: None,
             cloud_workspaces: None,
             engine_file: None,
             families: BTreeMap::new(),
@@ -582,6 +585,12 @@ impl Spawner {
     }
 
     /// `remember` keeps preferences in the profile at `path`.
+    /// The memory files the memory tools use.
+    pub fn with_memory_files(mut self, files: Arc<crate::memory_files::MemoryFiles>) -> Spawner {
+        self.memory_files = Some(files);
+        self
+    }
+
     pub fn with_person(mut self, path: std::path::PathBuf) -> Spawner {
         self.person = Some(path);
         self
@@ -2340,6 +2349,56 @@ impl Orchestrator for Spawner {
             serde_json::json!({"text": self.trace.text(text), "noop": answer.starts_with("outcome: noop")}),
         );
         Ok(answer)
+    }
+
+    fn memory_file(&self, call: crate::tools::MemoryFileCall) -> Result<String, String> {
+        let Some(files) = &self.memory_files else {
+            return Err("this Chief host keeps no memory files".into());
+        };
+        let kind = match &call {
+            crate::tools::MemoryFileCall::Read { .. } => "read",
+            crate::tools::MemoryFileCall::Write { .. } => "write",
+            crate::tools::MemoryFileCall::Forget { .. } => "forget",
+        };
+        let path = match &call {
+            crate::tools::MemoryFileCall::Read { path }
+            | crate::tools::MemoryFileCall::Write { path, .. }
+            | crate::tools::MemoryFileCall::Forget { path } => path.clone(),
+        };
+        // The running turn's trust, asked of the brain without a check of
+        // its own (no refusal is logged or counted).
+        let (reply, owner) = channel();
+        self.to_brain(Input::TurnTrust { reply })?;
+        let trust = match owner.recv_timeout(Duration::from_secs(30)) {
+            Ok(true) => crate::memory_files::Trust::Person,
+            // Another person's turn, or no answer: fail closed.
+            _ => crate::memory_files::Trust::Outside,
+        };
+        let run = format!(
+            "turn:{}:{}",
+            trust.as_str(),
+            chrono::Local::now().format("%Y-%m-%dT%H:%M")
+        );
+        let answer = call.answer(files, &run, trust);
+        if kind != "read" {
+            (self.log)(&format!(
+                "memory_{kind} {path}: {}",
+                answer.as_deref().unwrap_or_else(|e| e)
+            ));
+        }
+        self.trace.emit(
+            "chief.memory_file",
+            serde_json::json!({"op": kind, "path": path, "ok": answer.is_ok()}),
+        );
+        answer
+    }
+
+    fn wake_tool(&self, call: crate::tools::WakeCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::WakeTool { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {

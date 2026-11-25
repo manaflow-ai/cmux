@@ -27,6 +27,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import docs_only_paths  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -39,7 +41,10 @@ def covers_feat(trigger) -> bool:
     if trigger is None:
         return True
     branches = (trigger or {}).get("branches")
-    return not (trigger or {}).get("paths") and (branches is None or "feat-cmux-next" in branches)
+    # The docs-only block (scripts/ci/docs_only_paths.py) still covers every change the group can judge.
+    paths = (trigger or {}).get("paths")
+    unfiltered = not paths or [str(p) for p in paths] == list(docs_only_paths.DOCS_ONLY_PATHS)
+    return unfiltered and (branches is None or "feat-cmux-next" in branches)
 
 
 def runs_ci_group(job: dict) -> bool:

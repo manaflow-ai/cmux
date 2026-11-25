@@ -20,6 +20,12 @@ int cmux_shim_browser_set_embedder_active(int browser_id, int active) {
   return fork_api().browser_set_embedder_active(browser_id, active ? 1 : 0);
 }
 
+// Fork API 35 (draw on input); the caller checks the fork's API version first.
+int cmux_shim_browser_set_draw_on_input(int browser_id, int enabled) {
+  if (!fork_api().browser_set_draw_on_input) return 0;
+  return fork_api().browser_set_draw_on_input(browser_id, enabled ? 1 : 0) == 1 ? 1 : 0;
+}
+
 int cmux_shim_post_user_input_task(void (*fn)(void* context), void* context) {
   if (!fork_api().post_user_input_task) return 0;
   return fork_api().post_user_input_task(fn, context);

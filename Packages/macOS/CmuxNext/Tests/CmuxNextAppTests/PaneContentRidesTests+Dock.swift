@@ -87,6 +87,40 @@ extension PaneContentRidesTests {
         #expect(host.content.frame.width < before.width - 1, "after the motion's end the dock's page is \(host.content.frame.size), no narrower than the \(before) before the act")
     }
 
+    /// Cmd-Shift-Return on the pane beside the docked Home: the zoomed pane shows whole, from the frame that shows the
+    /// zoom to the motion's end and after it. The dock's pane, which the zoom covers, stays shown under the moving pane
+    /// to the motion's end; it is stacked above the strip's panes, but a pane that leaves covers nothing. Before, the
+    /// pass that showed the zoom cut the zoomed pane's mask by the dock's frame, and nothing placed it again once the
+    /// dock's pane hid: the zoomed page showed only right of where the dock had been, its left part the window's
+    /// backdrop (Lawrence 2026-11-19: "i go to right side and do cmd shift enter, and it is buggy").
+    @Test func aZoomOfThePaneBesideADockShowsThatPaneWholeToTheEndAndAfter() throws {
+        let (harness, screen) = try Self.rested(at: Self.dockBesideAColumn)
+        defer { harness.window.closeAfterTest() }
+        let host = try #require(Motion.hosts(of: screen)[Commit.right], "SETUP: the pane beside the dock does not show")
+        let dock = try #require(Motion.hosts(of: screen)[Commit.left], "SETUP: the dock's pane does not show")
+        let order = screen.subviews
+        try #require((order.firstIndex { $0 === dock } ?? -1) > (order.firstIndex { $0 === host } ?? Int.max),
+                     "SETUP: the dock's pane is not stacked above the pane beside it")
+        #expect(host.layer?.mask == nil, "SETUP: the pane beside the dock has a mask at rest: \(String(describing: host.layer?.mask?.frame))")
+
+        harness.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf(Commit.right)), zoomed: true)])
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Motion.dt)
+
+        try #require(host.frame.width > screen.bounds.width * 0.9, "SETUP: the zoomed pane is \(host.frame.width) wide on a screen of \(screen.bounds.width)")
+        var tick = 0
+        repeat {
+            let mask = host.layer?.mask?.frame
+            #expect(mask == nil || mask == host.bounds, "frame \(tick): the zoomed pane is cut to \(String(describing: mask)) of \(host.bounds)")
+            _ = harness.root.advanceFrame(Motion.dt)
+            tick += 1
+        } while Motion.inFlight(screen) && tick < Commit.frames
+        Commit.rest(harness)
+        #expect(dock.isHidden, "after the motion's end the dock's pane, which the zoom covers, still shows")
+        let mask = host.layer?.mask?.frame
+        #expect(mask == nil || mask == host.bounds, "after the motion's end the zoomed pane is cut to \(String(describing: mask)) of \(host.bounds)")
+    }
+
     /// A split of the pane beside a dock changes no edge of the dock: the dock's pane has no move, and its page takes
     /// no size and is not held, from the act to the motion's end.
     @Test func aSplitOfThePaneBesideADockLeavesTheDocksPaneAndItsPageAsTheyAre() throws {

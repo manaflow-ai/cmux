@@ -321,6 +321,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "uniichat-agent",
         &[
             ("Serve ACP backed by uniichat.com", "acpmux uniichat-agent"),
+            ("Sign in to uniichat.com (no `unii` program needed)", "acpmux uniichat-agent login"),
             (
                 "Serve ACP backed by your own `unii serve`",
                 "acpmux uniichat-agent --url http://127.0.0.1:8787",

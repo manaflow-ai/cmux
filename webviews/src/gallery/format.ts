@@ -244,6 +244,10 @@ export type AgentPaneVariant = VariantBase & {
     routeId: string | null;
     fromSessionId: string | null;
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+    /** Whose credential refused the chat, as acpmux names it. */
+    credential?: "login" | "apiKey" | "cmux";
+    /** The provider id of a refused API key ("opencode-go"). */
+    provider?: string;
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is

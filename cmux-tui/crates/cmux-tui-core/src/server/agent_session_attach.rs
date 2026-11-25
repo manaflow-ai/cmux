@@ -101,6 +101,11 @@ pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// asks one: never a teammate or link guest, the Cloud mobile carrier (its prompts keep the Web's
 /// asking policy, which this would widen) or a read-only attachment.
 pub const AGENT_SESSION_BTW_CAPABILITY: &str = "agent-session-btw-v1";
+/// `max_bytes` on `agent-session-attach` and `agent-session-events`: the page's byte budget,
+/// passed to acpmux as `maxBytes` (at most [`MAX_PAGE_BYTES`]). The agent pane asks 128 KiB for a
+/// chat's open page and read-ahead; without it acpmux answers its 1 MiB default, so a Cloud
+/// chat's open, read-ahead and reconnect each read up to 8x what a local chat's do (hq#14027).
+pub const AGENT_SESSION_PAGE_BYTES_CAPABILITY: &str = "agent-session-page-bytes-v1";
 /// How long a side question may wait for its answer: acpmux gives an inline one 110 seconds.
 const BTW_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest side question, in bytes (a question about the chat, not a prompt).
@@ -479,6 +484,8 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
+    #[serde(default)]
+    max_bytes: Option<u64>,
 }
 
 enum AgentSessionCommand {
@@ -1379,6 +1386,12 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
         }
         out.insert("kinds", json!(kinds));
     }
+    if let Some(bytes) = params.max_bytes {
+        if bytes == 0 {
+            return Err(Refusal::BadRequest);
+        }
+        out.insert("maxBytes", json!(bytes.min(MAX_PAGE_BYTES as u64)));
+    }
     if attach {
         out.insert("eventStream", json!(true));
         // The page opening the chat asks for its newest records at once, as the app's local
@@ -2141,7 +2154,8 @@ fn refuse(writer: &MessageWriter, id: Option<Value>, refusal: Refusal) -> bool {
     )
 }
 
-/// A refusal with its typed reason in `data` (`needs_keyed_start`).
+/// A refusal with its typed reason in `data` (`needs_keyed_start`). The generic `refused` also
+/// names acpmux's reason code in its text, as a prompt's refusal does ([`Refused::send`]).
 fn refuse_with_data(
     writer: &MessageWriter,
     id: Option<Value>,
@@ -2153,12 +2167,21 @@ fn refuse_with_data(
         Response {
             id,
             ok: false,
+            error: Some(refusal_text(refusal, &data)),
             data: Some(data),
-            error: Some(refusal.message().to_string()),
             error_code: Some(refusal.code().to_string()),
             error_delivery: None,
         },
     )
+}
+
+/// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
+/// so a reader of the error alone sees why; every other refusal's text is its own.
+fn refusal_text(refusal: Refusal, data: &Value) -> String {
+    match (refusal, data.get("reason").and_then(Value::as_str)) {
+        (Refusal::Refused, Some(reason)) => format!("{} ({reason})", refusal.message()),
+        _ => refusal.message().to_string(),
+    }
 }
 
 impl Mux {
@@ -2210,21 +2233,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod unsent_tests {
-    use super::*;
-    use crate::server::RenderService;
-
-    /// A failed push whose stream never queued its own overflow notice still closes with a
-    /// reason, so the client attaches again after the seq it holds; one that did is not told twice.
-    #[test]
-    fn a_failed_push_always_leaves_the_client_a_close_reason() {
-        let service = RenderService::new();
-        let overflow = closed_event(7, "overflow");
-        let stream = OutboundStream::new(1, service.serialize_control(&overflow).unwrap());
-        assert_eq!(unsent_reason(&stream), Some("send_failed"));
-        stream.close();
-        assert_eq!(unsent_reason(&stream), Some("send_failed"), "closed with no notice queued");
-        stream.terminal_enqueued.store(true, Ordering::Release);
-        assert_eq!(unsent_reason(&stream), None, "the overflow notice already told it");
-    }
-}
+#[path = "agent_session_attach_unsent_tests.rs"]
+mod unsent_tests;

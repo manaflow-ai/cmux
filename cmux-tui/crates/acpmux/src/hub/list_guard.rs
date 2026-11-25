@@ -36,6 +36,10 @@ pub(crate) struct Events {
     /// next, so no cursor a client took from a notice is past a change it was never sent
     /// (#42091 F1).
     untold: std::sync::Mutex<HashSet<String>>,
+    /// This daemon's rows only their agent's stream changed since they were last told (a chunk's
+    /// preview, a tool call's `turn.doing`): told at a read as `untold` are, but each at most once
+    /// per [`STREAM_TELL_EVERY`] ([`StreamedRows`]).
+    streamed: std::sync::Mutex<StreamedRows>,
     /// Records since the last list read that reach other rows: each one's session and its parent
     /// (`Hub::note_rows_reading`).
     reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
@@ -51,6 +55,7 @@ impl Events {
             summary_generation: Arc::new(AtomicU64::new(0)),
             rows: Default::default(),
             untold: Default::default(),
+            streamed: std::sync::Mutex::new(StreamedRows::new(STREAM_TELL_EVERY)),
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
             tee: Default::default(),
@@ -111,10 +116,35 @@ impl Events {
         self.untold.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned());
     }
 
+    /// Marks `session`'s row changed by its agent's stream alone (a chunk's preview, a tool
+    /// call's `turn.doing`): told at a read, at most once per [`STREAM_TELL_EVERY`].
+    fn stamp_streamed(&self, session: &str) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.insert(session.to_owned());
+    }
+
+    /// Tells a streamed row at most once per `every` (a test's short window).
+    #[cfg(test)]
+    pub(super) fn set_stream_tell_every(&self, every: std::time::Duration) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).every = every;
+    }
+
+    /// Whether `session`'s row waits to be told for its agent's stream.
+    #[cfg(test)]
+    pub(super) fn stream_untold(&self, session: &str) -> bool {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.contains(session)
+    }
+
     /// Stamps and tells every row changed with no notice since the last read: a follow after
     /// it sends each as it is now, and a watcher hears each as `session_changed`.
     fn tell_untold(&self) {
-        let untold = std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut untold =
+            std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        let due = self
+            .streamed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .due(&untold, std::time::Instant::now());
+        untold.extend(due);
         for session in untold {
             self.tell_row(&session);
         }
@@ -182,7 +212,7 @@ impl Events {
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        self.stamp_own(&event.session_id);
+        self.stamp_streamed(&event.session_id);
         self.tx.send(event)
     }
 
@@ -217,7 +247,12 @@ impl Events {
             self.mark_tee(&session.id);
         }
         if super::row_log::row_change(&event).is_none() {
-            self.stamp_own(&session.id);
+            if event.record.dir == "in" {
+                // The agent's own stream (a tool call and its updates, a plan), as a chunk is.
+                self.stamp_streamed(&session.id);
+            } else {
+                self.stamp_own(&session.id);
+            }
         }
         self.stamped(event)
     }
@@ -249,6 +284,57 @@ impl Events {
                 tee.mark_all();
             }
         }
+    }
+}
+
+/// How often, at most, a row its agent's stream changed is told to the watchers.
+///
+/// A row only its stream changed is told at the next list read, not at each chunk. On a busy
+/// daemon something reads the list several times a second (pages, `acpmux ls`, peers, tools),
+/// and each read sent every streaming chat's whole row (4 to 6 KB) to every watching connection:
+/// the app's and the iPhone host's, with nobody using either (Leo's Mac, 2026-11-19: 312 MB in
+/// 90 s from acpmux, 45 MB of it to the iPhone host). What a watcher hears now is bounded by the
+/// chats that stream, not by how often anything reads. The stream's end (`turn_result`, `status`)
+/// is a record watchers hear at once, with the row as it is then.
+pub(crate) const STREAM_TELL_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The rows waiting to be told for their agent's stream, and when each row was last told.
+pub(crate) struct StreamedRows {
+    pub(super) waiting: HashSet<String>,
+    /// Rows told less than `every` ago; older entries go at each read, so it holds at most the
+    /// rows told in the last `every`.
+    told: std::collections::HashMap<String, std::time::Instant>,
+    pub(super) every: std::time::Duration,
+}
+
+impl StreamedRows {
+    fn new(every: std::time::Duration) -> Self {
+        Self { waiting: HashSet::new(), told: Default::default(), every }
+    }
+
+    /// At a read: the waiting rows to tell now (none told within `every`), beside `telling`, the
+    /// rows told now for another change, whose rows carry the stream too. A row told within
+    /// `every` keeps waiting for a later read, so a cursor is never past it: it takes a later
+    /// position when told (#42091 F1).
+    fn due(&mut self, telling: &HashSet<String>, now: std::time::Instant) -> Vec<String> {
+        let every = self.every;
+        self.told.retain(|_, at| now.saturating_duration_since(*at) < every);
+        let mut due = Vec::new();
+        let told = &self.told;
+        self.waiting.retain(|id| {
+            if telling.contains(id) {
+                return false;
+            }
+            if told.contains_key(id) {
+                return true;
+            }
+            due.push(id.clone());
+            false
+        });
+        for id in telling.iter().chain(&due) {
+            self.told.insert(id.clone(), now);
+        }
+        due
     }
 }
 
@@ -657,3 +743,7 @@ mod tests;
 #[cfg(test)]
 #[path = "list_scale_tests.rs"]
 mod scale_tests;
+
+#[cfg(test)]
+#[path = "stream_tell_tests.rs"]
+mod stream_tell_tests;

@@ -63,7 +63,8 @@ final class AppOnboardingServices: OnboardingServices {
                 try await cef.importPasswords(rows, into: profile)
             }, primaryPassword: { profile in await FirefoxPrimaryPassword.prompt(profile) })
         }
-        let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
+        let reader = services.browserDataReader
+        let importer = BrowserImporter(reader: reader, provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
         let summary: ImportSummary
         let endAccess = folderAccess.access(plan)
@@ -79,7 +80,10 @@ final class AppOnboardingServices: OnboardingServices {
         owner.browserImportOffer.importFinished(summary.counts)
         await owner.historySync.reconcile()
         ImportedTabsOpener.open(summary, services: services)
-        if let engine = summary.searchEngine, let settings = services.settings { await BrowserOmnibarSetting.applyImported(engine.setting(builtIn: BrowserSearchEngine.templates), in: settings) }
+        if let engine = summary.searchEngine, let settings = services.settings,
+           let choice = try? await reader.setting(engine, builtIn: BrowserSearchEngine.templates) {
+            await BrowserOmnibarSetting.applyImported((choice.engine, choice.search, choice.suggest), in: settings)
+        }
         // The app window, not the tool window: closing that with Done would take the offer with it.
         let windows = services.windows
         if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }

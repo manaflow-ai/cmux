@@ -36,6 +36,9 @@
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium, webkit } from "./browsers";
+import { runComposerLoad } from "./composer-load";
+import { composerTypingRows } from "./composerTypingRows";
+import { perfRow } from "./perfRow";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
@@ -51,9 +54,28 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
-const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
+const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
+const ENGINES = (flag("--engines") ?? "chromium").split(",");
+const STREAM = Number(flag("--stream") ?? 60);
+const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
+if (
+  MODES.some((mode) => !["idle", "stream", "L0", "L1", "L2", "L3"].includes(mode)) ||
+  ENGINES.some((engine) => !["chromium", "webkit"].includes(engine)) ||
+  !Number.isInteger(KEYS) ||
+  KEYS < 1 ||
+  KEYS > 4096 ||
+  !Number.isFinite(GAP_MS) ||
+  GAP_MS < 1 ||
+  KEYS * GAP_MS > 90000 ||
+  LENGTHS.some((length) => !Number.isInteger(length) || length < 1)
+)
+  throw new Error("Invalid benchmark modes, engines, keys, gap or lengths (typing window must be <=90s)");
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
+if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
+  throw new Error(
+    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
+  );
 const DEV = argv.includes("--dev");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
@@ -179,16 +201,40 @@ const serveOptions = {
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
-async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
-  const browser = await (ENGINE === "webkit" ? webkit : chromium).launch({ headless: true });
+async function measure(
+  port: number,
+  length: number,
+  mode: string,
+  engine: "chromium" | "webkit" = ENGINE as "chromium" | "webkit",
+): Promise<Record<string, unknown>> {
+  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    if (mode.startsWith("L") || engine === "webkit") {
+      const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      try {
+        return {
+          engine,
+          ...(await runComposerLoad(page, {
+            port,
+            mode: canonical,
+            length,
+            keys: KEYS,
+            gap: GAP_MS,
+            stream: STREAM,
+            toolLines: TOOL_LINES,
+          })),
+        };
+      } finally {
+        await page.close();
+      }
+    }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
-    const cdp = ENGINE === "webkit" ? undefined : await page.context().newCDPSession(page);
-    await cdp?.send("Performance.enable");
+    // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
     const metrics = async (): Promise<Record<string, number>> => {
-      if (!cdp) return {};
       const { metrics: list } = (await cdp.send("Performance.getMetrics")) as {
         metrics: { name: string; value: number }[];
       };
@@ -210,7 +256,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       debug.resetTyping();
       debug.renders();
     });
-    if (PROFILE && cdp) {
+    if (PROFILE) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await cdp.send("Profiler.start");
@@ -219,7 +265,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     const streaming =
       mode === "stream"
         ? page.evaluate(
-            (seconds) =>
+            (seconds: number) =>
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
             (KEYS * (GAP_MS + 20)) / 1000 + 1,
           )
@@ -252,7 +298,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         () => (window as unknown as { __longTasks?: { at: number; ms: number }[] }).__longTasks ?? [],
       )) as { at: number; ms: number }[]
     ).filter((task) => task.at + task.ms >= since && task.at <= until);
-    if (PROFILE && cdp) {
+    if (PROFILE) {
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
       printProfile(length, profile);
     }
@@ -261,14 +307,14 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
-    if (typedEvents && cdp) {
+    if (typedEvents) {
       await cdp.send("DOM.getDocument", { depth: 0 });
       await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
       console.log(
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
-    if (TRACE && cdp && mode === "stream") {
+    if (TRACE && mode === "stream") {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {
         run = (await page.evaluate(() =>
@@ -326,6 +372,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         .reduce((total, [, value]) => total + value, 0);
     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
     return {
+      engine,
       mode,
       rows,
       keys: typing.keys,
@@ -367,6 +414,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
 
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
+  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
+    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
@@ -388,13 +437,17 @@ try {
   } else {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases) table.push(await measure(port, length, mode));
+    for (const engine of ENGINES)
+      for (const { length, mode } of cases)
+        table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
         `${String(row.mode)} ${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`,
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
+    // Load modes only: the rows web-ui-suite.ts collects for perf-cron.py (web-ui-typing) and `cmux-bench typing`.
+    for (const row of composerTypingRows(table)) perfRow(row);
   }
 } finally {
   for (const release of releases.reverse()) await release();

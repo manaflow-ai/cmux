@@ -130,9 +130,9 @@ import Testing
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
         // The toolbar buttons are the location bar's height (Helium's `kToolbarButtonHeight`), Compact's 28 at Default on
         // its 34 pt bar (#44875: Compact's padding), centered in the row.
-        let row = OmnibarStyle.buttonSize
+        let row = OmnibarStyle.buttonSize(scale: window.backingScaleFactor)
         #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), want \(row)")
-        let centering = (OmnibarStyle.rowContentHeight() - row) / 2
+        let centering = (OmnibarStyle.rowContentHeight(scale: window.backingScaleFactor) - row) / 2
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
         let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
         let below = page.minY - reload.maxY

@@ -8,7 +8,10 @@
 
 pub mod link;
 pub mod manifest;
+#[cfg(target_os = "linux")]
 pub mod overlay;
+#[cfg(target_os = "linux")]
+pub mod upper;
 pub mod wire;
 
 #[cfg(target_os = "linux")]

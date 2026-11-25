@@ -80,6 +80,9 @@ extension MacScreenSettings {
     /// `macScreen.systemShortcuts`.
     public nonisolated static let systemShortcutsPath = ["macScreen", "systemShortcuts"]
     public nonisolated static let systemShortcutsDefault = false
+    /// `macScreen.shareWithoutAsking`.
+    public nonisolated static let shareWithoutAskingPath = ["macScreen", "shareWithoutAsking"]
+    public nonisolated static let shareWithoutAskingDefault = false
 }
 
 extension MacScreenDebugSettings {

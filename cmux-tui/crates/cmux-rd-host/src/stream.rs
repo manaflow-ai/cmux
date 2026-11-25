@@ -18,7 +18,7 @@ use cmux_rd_core::flow::Rect;
 use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
+use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::{DatagramHeader, DatagramKind};
 use std::collections::VecDeque;
 
@@ -85,6 +85,8 @@ pub struct MediaSession {
     /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
     /// reports it: the pictures leave it out.
     cursor: Option<CursorChannel>,
+    /// Clipboard text both ways (cap `clipboard.text`), only while the viewer holds control.
+    clipboard: Option<crate::clipboard::ClipboardChannel>,
     /// Spreads each frame's datagrams over part of its frame interval (`None` with
     /// `CMUX_RD_PACE=0`, for comparison): a keyframe written as one burst of hundreds of
     /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
@@ -284,6 +286,7 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
+            clipboard: crate::clipboard::open(negotiated_caps, now_us()),
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
@@ -346,6 +349,13 @@ impl MediaSession {
             let timeout = self.cursor.as_ref().map_or(timeout, |c| {
                 timeout.min(c.next_deadline_us().saturating_sub(now_us()).saturating_mul(1000))
             });
+            // The next clipboard check or part (only while the viewer holds control).
+            let may_control = table.may_inject_input(session, viewer);
+            let timeout =
+                match self.clipboard.as_ref().and_then(|c| c.next_deadline_us(may_control)) {
+                    Some(due) => timeout.min(due.saturating_sub(now_us()).saturating_mul(1000)),
+                    None => timeout,
+                };
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -373,6 +383,19 @@ impl MediaSession {
             for item in incoming.drain(..) {
                 match item {
                     Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
+                    Incoming::Control(Control::Clipboard { seq, text, offset, total }) => {
+                        // Applied only in a control session; without the cap, ignored.
+                        let may_control = table.may_inject_input(session, viewer);
+                        if let Some(clipboard) = self.clipboard.as_mut() {
+                            let part = cmux_rd_proto::clipboard::ClipboardPart {
+                                seq,
+                                text,
+                                offset,
+                                total,
+                            };
+                            clipboard.on_part(part, may_control);
+                        }
+                    }
                     Incoming::Control(control) => {
                         let may_control = table.may_inject_input(session, viewer);
                         if let Some(answer) =
@@ -441,6 +464,13 @@ impl MediaSession {
             if let Err(e) = self.send_cursor(carrier) {
                 return format!("control write failed: {e}");
             }
+            if let Some(clipboard) = self.clipboard.as_mut() {
+                if let Some(part) = clipboard.poll(now_us(), may_inject) {
+                    if let Err(e) = carrier.send_control(&part) {
+                        return format!("control write failed: {e}");
+                    }
+                }
+            }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(carrier);
             }
@@ -494,11 +524,19 @@ impl MediaSession {
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
+        let idr = frame.idr.then(|| idr_reason(&req, frame.idr_cause));
+        if let Some(reason) = idr {
+            // Every keyframe says why, timing log or not: one costs many delta frames' bytes.
+            eprintln!(
+                "cmux-rd host: idr stream={} frame={} reason={reason} bytes={}",
+                req.stream,
+                req.frame,
+                frame.access_unit.len()
+            );
+        }
         // Logged after the send, with the send time (`sent_us`).
         let logged = self.timing.is_some().then(|| {
             let len = frame.access_unit.len();
-            // An IDR the engine did not ask for is the encoder's own choice.
-            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
             (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
         });
         self.encode_ms.push_back(frame.encode_ms);
@@ -728,14 +766,38 @@ impl MediaSession {
     }
 }
 
+/// Why an encoded IDR is one: the engine's ask, else the encoder's own cause, else
+/// `encoder` for an encoder that cannot say.
+fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str {
+    req.idr_reason.map(|r| r.as_str()).or(cause).unwrap_or("encoder")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::viewer_silent_too_long;
+    use super::{idr_reason, viewer_silent_too_long};
+    use cmux_rd_core::flow::Rect;
+    use cmux_rd_engine::{EncodeRequest, IdrReason};
 
     #[test]
     fn viewer_silence_allows_the_ninety_second_reattach_window() {
         assert!(!viewer_silent_too_long(90_000_000));
         assert!(viewer_silent_too_long(90_000_001));
+    }
+
+    #[test]
+    fn an_idr_names_the_engines_ask_then_the_encoders_cause() {
+        let req = |reason: Option<IdrReason>| EncodeRequest {
+            stream: 0,
+            frame: 9,
+            damage: Rect { x: 0, y: 0, width: 16, height: 16 },
+            force_idr: reason.is_some(),
+            idr_reason: reason,
+            target_kbps: 8_000,
+        };
+        assert_eq!(idr_reason(&req(Some(IdrReason::Recovery)), None), "recovery");
+        assert_eq!(idr_reason(&req(Some(IdrReason::Start)), Some("resize")), "start");
+        assert_eq!(idr_reason(&req(None), Some("scene_change")), "scene_change");
+        assert_eq!(idr_reason(&req(None), None), "encoder");
     }
 }
 

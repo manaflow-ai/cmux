@@ -28,7 +28,49 @@ public final class FirstRunSetup {
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
-    @ObservationIgnored private var agentsModel: AgentsStepModel?
+    /// Observed (not ignored): ``needsChiefAgent`` reads it, so a model made after a reader subscribed wakes it.
+    private var agentsModel: AgentsStepModel?
+
+    /// The agent Chief answers through when no route is configured: the person's own Claude Code.
+    public static let chiefAgentID = "claude"
+
+    /// Hide on the Chief card: it stays away until the next launch.
+    private var chiefAgentHidden = false
+
+    /// Whether Home's Chief chat shows the card's Chief form (first-run findings rows 1 and 4: with onboarding off,
+    /// a fresh Mac opened straight into Home and Chief refused every message). True only on evidence that Chief
+    /// cannot answer: acpmux answered and Claude Code is not installed, or its sign-in check says signed out or
+    /// expired, or its login opened here waits to be confirmed. A read not made yet, a list acpmux did not answer
+    /// (Claude Code not listed at all), an unknown sign-in (a Keychain login) and a configured Claude route never
+    /// show it. Independent of the onboarding switch.
+    public var needsChiefAgent: Bool {
+        guard !chiefAgentHidden, let model = agentsModel, model.loaded, model.source?.chiefUsesRoute != true else { return false }
+        if model.installable.contains(where: { $0.id == Self.chiefAgentID }) { return true }
+        guard let agent = model.agents.first(where: { $0.id == Self.chiefAgentID }) else { return false }
+        return agent.auth == .signedOut || agent.auth == .expired || model.awaitsConfirmation(agent)
+    }
+
+    /// Which Set Up card Chief's chat shows (``SetupCardHost``).
+    public enum CardForm: Sendable, Equatable {
+        /// The whole Set Up cmux card, while ``FirstRunSetup/shows``.
+        case full
+        /// Only the agent Chief answers through, while ``FirstRunSetup/needsChiefAgent``.
+        case chief
+    }
+
+    /// The card Chief's chat shows now, or `nil` for none: the whole card while ``shows``, else its Chief form while
+    /// ``needsChiefAgent``.
+    public var cardForm: CardForm? { shows ? .full : needsChiefAgent ? .chief : nil }
+
+    /// Reads the agents once (the shared model's first read), so ``needsChiefAgent`` can answer.
+    public func checkChiefAgent(source: (any AgentSignInSource)?) {
+        agents(source: source).start()
+    }
+
+    /// Hide on the Chief card: away for this launch; Chief's own reply still says what is missing.
+    public func hideChiefAgent() {
+        chiefAgentHidden = true
+    }
 
     /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
     /// conversation, a new window) shows an install already running, starts no second one, and the install's

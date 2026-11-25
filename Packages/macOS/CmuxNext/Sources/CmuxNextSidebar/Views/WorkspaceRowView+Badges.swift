@@ -14,6 +14,7 @@ extension WorkspaceRowView {
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
                                         detailed: shown.detailedStatus || ws.activityFromProgram)
+        needsYouTone = isShowingPlaceholder ? nil : Self.needsYouTone(badges)
         guard style != .trailing, !isShowingPlaceholder else {
             shownBadges = (ws.id, [])
             rowBadge.configure([], look: .corner)

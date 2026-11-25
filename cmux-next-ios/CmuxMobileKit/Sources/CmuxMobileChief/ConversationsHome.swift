@@ -67,7 +67,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
 
     private var labels: HomeMacLabels {
         HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),

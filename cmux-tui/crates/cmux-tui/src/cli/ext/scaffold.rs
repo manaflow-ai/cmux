@@ -44,28 +44,39 @@ pub(super) fn pending(kind: &str) -> Option<String> {
     })
 }
 
+/// A view kind's design defaults: how the scene should look, so what a model builds from the
+/// template keeps the app's look (templates/common/DESIGN.md).
+const DESIGN: (&str, &str) = ("DESIGN.md", include_str!("templates/common/DESIGN.md"));
+
+/// What the README says of DESIGN.md, in a view kind's file list.
+const DESIGN_LINE: &str = "\n- `DESIGN.md`: how the view should look (the shape of a view, tones, fonts, symbols). Read it\n  before you change `src/main.ts`; the template already follows it.";
+
 const SECTION: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/section/cmux-app.json")),
     ("src/main.ts", include_str!("templates/section/src/main.ts")),
     ("dist/main.js", include_str!("templates/section/dist/main.js")),
+    DESIGN,
 ];
 
 const PANE: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/pane/cmux-app.json")),
     ("src/main.ts", include_str!("templates/pane/src/main.ts")),
     ("dist/main.js", include_str!("templates/pane/dist/main.js")),
+    DESIGN,
 ];
 
 const SESSION_INFO: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/session-info/cmux-app.json")),
     ("src/main.ts", include_str!("templates/session-info/src/main.ts")),
     ("dist/main.js", include_str!("templates/session-info/dist/main.js")),
+    DESIGN,
 ];
 
 const NEWTAB: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/newtab/cmux-app.json")),
     ("src/main.ts", include_str!("templates/newtab/src/main.ts")),
     ("dist/main.js", include_str!("templates/newtab/dist/main.js")),
+    DESIGN,
 ];
 
 const WIDGET: &[(&str, &str)] = &[
@@ -93,7 +104,9 @@ const COMMON: &[(&str, &str)] = &[
 /// The types `src/main.ts` and the SDK reference: the generated app global
 /// from the capability manifest, the same file `cmux script types` starts
 /// with. `cmux ext dev` refreshes it from the running cmux when that one differs.
-const TYPES: &str = cmux_app_manifest::capabilities::APP_TYPES;
+fn types() -> &'static str {
+    cmux_app_manifest::capabilities::APP_TYPES.get()
+}
 
 /// The public SDK as this binary was built with it.
 /// The widget place and its layout helpers (`index.ts` re-exports them).
@@ -178,17 +191,17 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
         "pane" => (
             "a pane that lists your workspaces.",
             "Open the pane from the command palette by its title.",
-            "",
+            DESIGN_LINE,
         ),
         "session-info" => (
             "a section in an agent chat's Session Info panel.",
             "It shows in the Session Info panel of every agent chat; its context is that chat's session\n(`cwd`, `branch`, `harness`).",
-            "",
+            DESIGN_LINE,
         ),
         "newtab" => (
             "a whole New Tab page.",
             "Pick it as your New Tab page: `cmux settings set tabs.newTabApp local/{{NAME}}` (Settings >\nTabs > New Tab App); unset it to get cmux's own page back.",
-            "",
+            DESIGN_LINE,
         ),
         "widget" => (
             "a widget for the New Tab page and the sidebar.",
@@ -200,7 +213,9 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
             "Run it from the command palette, from a terminal as `cmux {{NAME}} hello [NAME]`, or as\n`cmux apps run local/{{NAME}} hello`. `catalog.json` says where it is offered: its `cli.path`,\n`palette` title and `mcp.expose` (agents see it as a tool).",
             "\n- `catalog.json`: the command (`{{NS}}.hello`): its arguments, result, risk and where it shows.",
         ),
-        _ => ("one sidebar section.", "Place the section from the sidebar's edit mode.", ""),
+        _ => {
+            ("one sidebar section.", "Place the section from the sidebar's edit mode.", DESIGN_LINE)
+        }
     }
 }
 
@@ -257,7 +272,7 @@ pub(super) fn files_for(
     };
     let mut out: Vec<(&'static str, String)> =
         templates.iter().chain(COMMON).map(|(path, text)| (*path, fill(text))).collect();
-    out.push(("cmux-app.d.ts", TYPES.to_string()));
+    out.push(("cmux-app.d.ts", types().to_owned()));
     out.extend(sdk_files());
     Some(out)
 }

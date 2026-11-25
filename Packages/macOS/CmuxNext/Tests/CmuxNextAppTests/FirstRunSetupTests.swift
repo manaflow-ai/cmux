@@ -323,6 +323,53 @@ import Testing
         #expect(source.signIns == ["claude"], "the install's sign-in runs after the card was made again")
     }
 
+    /// First-run findings rows 1 and 4: first-run onboarding is off, so a fresh Mac opened straight into Home and
+    /// Chief refused every message with an internal error. Home's Chief chat now shows the card in its Chief form
+    /// (the agents row alone, for Claude Code, which Chief answers through) while Claude Code is missing or signed
+    /// out, whatever the onboarding switch says; it leaves once Claude Code is signed in. A read with no evidence
+    /// (acpmux did not answer, a Keychain login read as unknown) never shows it, and Hide puts it away for this launch.
+    @Test func chiefWithoutItsAgentShowsTheAgentCardWithOnboardingOff() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), skipsOnboarding: true)
+        let missing = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)
+        let codex = OnboardingAgent(id: "codex", name: "Codex", brand: "codex", auth: .signedIn)
+        let source = MockAgentSignInSource(agents: [missing, codex])
+        let model = setup.agents(source: source)
+        #expect(!setup.needsChiefAgent, "nothing read yet is no evidence")
+        model.refresh(recheck: false)
+        await until { model.loaded }
+        #expect(!setup.shows, "the full card stays off")
+        #expect(setup.needsChiefAgent, "Codex signed in does not answer for Chief")
+
+        let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
+                                               openAgents: {}, historySources: { true }, importHistory: { false })
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: environment, forChief: true)
+        defer { provider.stop() }
+        #expect(provider.state["forChief"] == true)
+        #expect(provider.state["agents"]?.arrayValue?.compactMap { $0["id"]?.stringValue } == ["claude"])
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "missing")
+
+        for (auth, needs) in [(OnboardingAgent.Auth.signedOut, true), (.expired, true), (.unknown, false), (.signedIn, false)] {
+            source.agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: auth), codex]
+            model.refresh(recheck: true)
+            await until { !model.loading }
+            #expect(setup.needsChiefAgent == needs, "Claude Code \(auth)")
+        }
+        #expect(provider.allDone, "Claude Code signed in finishes the Chief card")
+
+        source.agents = []
+        model.refresh(recheck: true)
+        await until { !model.loading }
+        #expect(!setup.needsChiefAgent, "acpmux answered nothing: no evidence")
+
+        source.agents = [missing]
+        model.refresh(recheck: true)
+        await until { !model.loading }
+        #expect(setup.needsChiefAgent)
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(1))
+        #expect(!setup.needsChiefAgent, "Hide puts it away for this launch")
+        #expect(FirstRunSetup(defaults: try defaults(), skipsOnboarding: true).shows == false)
+    }
+
     /// Not Now on the chat history row answers it for good.
     @Test func notNowDismissesTheChatHistoryRow() async throws {
         let defaults = try defaults()

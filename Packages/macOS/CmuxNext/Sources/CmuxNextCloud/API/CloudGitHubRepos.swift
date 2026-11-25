@@ -140,13 +140,15 @@ extension CloudOwnerAPIClient {
     }
 
     /// One GET of `path` (a POST of `post` in ``teamID``'s team when given) with only Authorization (the Worker's
-    /// invocation log masks it); nil when it did not answer.
+    /// invocation log masks it) and the build space (the build's public tag); nil when it did not answer, or when a
+    /// misconfigured dev build has no space to send.
     func person(_ path: String, post: Data? = nil) async -> (status: Int, body: Data)? {
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
               let access = try? await accessToken() else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = post == nil ? "GET" : "POST"
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        guard (try? buildSpace.apply(to: &request)) != nil else { return nil }
         if let post {
             request.httpBody = post
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -246,7 +248,7 @@ public struct CloudGitHubPicker {
               let team = MacInstallIdentity.team(ofToken: token) else { return nil }
         let auth = auth
         let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }), team)
+        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace), team)
     }
 
     /// `github.status`: ready, not connected, or unavailable and why.

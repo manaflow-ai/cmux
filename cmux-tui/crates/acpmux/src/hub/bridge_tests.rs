@@ -349,7 +349,9 @@ async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
 }
 
 /// A registered chat whose live process handed over no token (a restarted session that has not
-/// registered again) waits instead of opening with the undocumented peer key.
+/// registered again) waits instead of opening with the undocumented peer key, and says so: the
+/// sender's `--status` and the chat's row name the stale registration and the command that ends
+/// it, not a silent `bridge.not_running` that reads as "the app is closed" for a day.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_registered_chat_with_no_token_from_its_process_waits_for_register() {
@@ -394,8 +396,80 @@ async fn a_registered_chat_with_no_token_from_its_process_waits_for_register() {
         .prompt_with(&session, blocks, "acpmux-outbox#2", false, PromptOptions::default())
         .await
         .unwrap_err();
-    assert!(err.message.contains("bridge.not_running"), "{}", err.message);
+    let name = session.meta().name;
+    assert!(err.message.contains("bridge.registration_stale"), "{}", err.message);
+    assert!(err.message.contains("Claude Code restarted"), "{}", err.message);
+    assert!(err.message.contains(&format!("acpmux register {name}")), "{}", err.message);
+    let data = err.data.unwrap();
+    assert_eq!(data["reason"], "bridge.registration_stale");
+    assert_eq!(data["retryable"], true, "the outbox still tries it again");
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing opened its inbox");
+    let row = session.meta().tags.get("bridge.unreachable").map(|t| t.value.clone());
+    let row = row.expect("the chat's row names why it is unreachable");
+    assert!(row.starts_with("registration stale: Claude Code restarted"), "{row}");
+    assert!(row.contains(&format!("acpmux register {name}")), "{row}");
+}
+
+/// Two live processes claiming a registered chat's conversation (anyone may write a registry
+/// entry naming its session id) reach neither, and the refusal says so instead of reading as a
+/// closed app.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_registered_chat_two_processes_claim_names_the_contest() {
+    let config = scratch("registered-contested");
+    let transcript = config.join("sid-c.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let inbox = fake_claude(&config, "sid-c", transcript.clone());
+    // A second live process (a child of this test) whose entry names the same conversation.
+    let mut other = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+    let entry = json!({"pid": other.id(), "sessionId": "sid-c", "cwd": "/w",
+        "entrypoint": "claude-desktop", "messagingSocketPath": config.join("other.sock"),
+        "startedAt": u64::try_from(now.as_millis()).unwrap()});
+    std::fs::write(config.join(format!("sessions/{}.json", other.id())), entry.to_string())
+        .unwrap();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-c".into());
+        for (k, v) in [("bridge", "claude"), (crate::hub::register::REGISTERED_TAG, "true")] {
+            meta.tags.insert(k.into(), crate::store::Tag { value: v.into(), expires_at: None });
+        }
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    crate::hub::register::mark_registered_for_test(&session.id);
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub
+        .prompt_with(&session, blocks, "acpmux-outbox#4", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    let _ = other.kill();
+    let _ = other.wait();
+    assert!(err.message.contains("bridge.registration_contested"), "{}", err.message);
+    assert!(err.message.contains(&other.id().to_string()), "{}", err.message);
+    let data = err.data.unwrap();
+    assert_eq!(data["reason"], "bridge.registration_contested");
+    assert_eq!(data["retryable"], true);
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing opened an inbox");
+    let row = session.meta().tags.get("bridge.unreachable").map(|t| t.value.clone());
+    assert!(row.is_some_and(|r| r.starts_with("registration contested")), "the row says so");
 }
 
 /// A watched chat the bridge did not list (no `bridge` tag) is refused even while its app is

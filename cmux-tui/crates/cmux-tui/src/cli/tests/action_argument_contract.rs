@@ -49,6 +49,8 @@ const CLI_FLAGS: &[&str] = &[
     "no-wait",
     "interactive",
     "focus",
+    // `run_action` reads `--no-focus` as the run's `focus: false` (and the action's `focus` when it takes one).
+    "no-focus",
     "target",
     "arg",
     "json",
@@ -92,6 +94,7 @@ struct Action {
 }
 
 fn repo_root() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-surfaces.json cmux-tui
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 

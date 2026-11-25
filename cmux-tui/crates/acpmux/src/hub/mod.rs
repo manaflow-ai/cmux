@@ -196,6 +196,7 @@ mod models_view;
 pub(crate) mod native_messaging;
 mod page_first;
 mod paging;
+pub(crate) mod permission_modes;
 mod personal_stats;
 mod policy_gate;
 mod policy_mode;
@@ -227,11 +228,13 @@ pub(crate) fn prompt_attribution_mark(
 }
 mod prompt_sender;
 mod protected_hold;
+// The account's rate limit holds every turn of a chat until its reset.
 mod queue;
 mod queue_admission;
 mod queue_edit;
+pub(crate) mod rate_hold;
 pub(crate) mod reply_fit;
-pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
+pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod credentials;
@@ -321,7 +324,9 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
+pub use paging::{
+    DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
+};
 pub use spawn::expand_env_value;
 pub mod approvers;
 pub(crate) mod key_route;
@@ -339,6 +344,7 @@ mod peer_grace;
 mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
+mod spoken_handles;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
 /// out or dead store would (`peer_snapshot/restore.rs`).
@@ -568,7 +574,12 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    pub summary: Value,
+    /// The peer's row, packed (`peer_row.rs`), sharing its text with the table's row. The hub's
+    /// event ring holds up to 8,192 events, and an outage of a peer announces every row of it:
+    /// as a parsed `Value` each held a tree several times the row's text, and a host with ~100
+    /// sessions and peers that came and went grew about 55 MB a minute. A connection parses it
+    /// as it sends it, and frees it then.
+    pub summary: PeerRow,
 }
 
 impl RemoteRef {
@@ -830,6 +841,7 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
@@ -983,6 +995,10 @@ pub struct Hub {
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
+    /// What each ACP harness's startup probe's `session/new` answered about a new chat's choices,
+    /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
+    /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
+    pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1393,6 +1409,7 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
@@ -1464,6 +1481,7 @@ impl Hub {
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
+            probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
@@ -1918,7 +1936,9 @@ impl Hub {
         // again (review of #37284 at b7496c3f, F1). Until that list reads, the chat is not
         // caught up: the next append or read tries again, and its log is not read, so no queue
         // is rebuilt without the edits and removals it holds (review of #37284 at 23e76b07, F2).
-        if !self.take_back_kept(session) {
+        // Then the tool output bodies a killed run held back and wrote beside the log are stored,
+        // before any record of this run and before its log is read (`store/deferred.rs`).
+        if !self.take_back_kept(session) || !self.take_back_held(session) {
             if rebuilt {
                 self.save_meta(session);
             }
@@ -1993,6 +2013,8 @@ impl Hub {
             auto_resume_restored: AtomicBool::new(false),
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
+            rate_hold: Default::default(),
+            rate_note: Default::default(),
             turn_lock: Mutex::new(()),
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
@@ -2004,6 +2026,7 @@ impl Hub {
             unparked: StdMutex::new(Vec::new()),
             unflushed: StdMutex::new(Vec::new()),
             kept_read: AtomicBool::new(false),
+            held_read: AtomicBool::new(false),
             restore_token: AtomicU64::new(0),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
@@ -3262,3 +3285,8 @@ impl Drop for LogsReady<'_> {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
+#[cfg(test)]
+#[path = "held_append_bench.rs"]
+mod held_append_bench;

@@ -80,7 +80,8 @@ extension CloudGitHubCompletion {
             await auth.awaitRestored()
             guard auth.isSignedIn else { return }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            _ = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }).gitHubComplete(completion)
+            _ = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+                .gitHubComplete(completion)
             auth.gitHubChanges.count += 1
         }
         return true

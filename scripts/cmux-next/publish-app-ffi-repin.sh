@@ -349,7 +349,10 @@ if [[ -n "$pr_number" ]]; then
   [[ "$state" == open ]] || pr_number=""
 fi
 if [[ -n "$pr_number" ]]; then
-  gh pr edit "$pr_number" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
+  # REST, not `gh pr edit`: the gh on the lane VMs still reads repository.pullRequest.projectCards, which GitHub
+  # now answers with "Projects (classic) is being deprecated", so the edit failed after the push (run 44655157417).
+  gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$pr_number" -f title="cmux-next: pin CCmuxAppFFI to $TAG" \
+    -f body="$body" --jq '.number' >/dev/null
 else
   url="$(gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body")"
   pr_number="${url##*/}"

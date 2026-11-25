@@ -45,6 +45,10 @@ impl Drop for Busy {
 }
 
 async fn busy(steering: bool) -> Busy {
+    busy_with_goal(steering, false).await
+}
+
+async fn busy_with_goal(steering: bool, goal: bool) -> Busy {
     let env = if steering { json!({"FAKE_CLAUDE_STEER": "1"}) } else { json!({}) };
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "env": env}},
@@ -76,8 +80,71 @@ async fn busy(steering: bool) -> Busy {
     // SAFETY: a valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     let b = Busy { hub, id, gate, socket, scratch, person };
+    if goal {
+        b.person
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": b.id, "prompt": [{"type": "text", "text": "goal: Ship the fix"}]}),
+            )
+            .await
+            .unwrap();
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
+    }
     b.run_gated().await;
     b
+}
+
+/// A goal is ongoing work, never an admission lock on the person's next message. Exercise
+/// steering, an explicitly queued message, and a harness without steering through the CLI.
+#[tokio::test]
+async fn an_active_goal_accepts_the_persons_steered_and_queued_sends() {
+    for (steering, steer) in [(true, true), (true, false), (false, true)] {
+        let b = busy_with_goal(steering, true).await;
+        let pid = prompt_id();
+        let flag = if steer { "--steer" } else { "--no-steer" };
+        let mut cmd = b.send(&[
+            "send",
+            "--no-wait",
+            flag,
+            "--prompt-id",
+            &pid,
+            &b.id,
+            "follow my correction",
+        ]);
+        let (sent, _) = done(tokio::spawn(async move { cmd.output().await })).await;
+        if steering && steer {
+            let message = b.record("user_message", &pid).await;
+            assert_eq!(message["steer"], true, "{sent}");
+            b.agent_said("steer: follow my correction").await;
+            assert!(!b.queued(&pid));
+        } else {
+            b.record("queued", &pid).await;
+        }
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
+        b.open_gate();
+        if !(steering && steer) {
+            b.agent_said("follow my correction").await;
+        }
+        let finished = b
+            .person
+            .request(
+                method::MUX_WAIT,
+                json!({"sessions": [b.id], "until": ["ready"], "timeoutMs": 30000}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished["timedOut"], false, "{finished}");
+    }
 }
 
 impl Busy {

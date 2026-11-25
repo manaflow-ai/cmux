@@ -36,6 +36,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     private(set) var liveScrolling = false
     /// Counts for the bench (clip-to-model and model-to-clip syncs).
     static var clipSyncs = 0, modelSyncs = 0
+    /// cmux: the clip origin the model last set or took from a move: a bounds notice at this origin is no move.
+    private var knownOrigin: CGFloat?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -162,7 +164,12 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if PacingLog.shared.isOn { logClip() }
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
-        let y = clip.bounds.origin.y - shift
+        // cmux: the clip where the model left it is no move, even when the model's offset is past the document's
+        // end (AppKit stopped the clip there in a resize, before the window view laid out at the new size).
+        let origin = clip.bounds.origin.y
+        guard origin != knownOrigin else { return }
+        knownOrigin = origin
+        let y = origin - shift
         guard y != cv.contentOffset.y else { return }
         TranscriptScrollView.clipSyncs += 1
         applyingClip = true
@@ -308,6 +315,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if document.frame != f { document.frame = f }
         applyingModel -= 1
         pushOffset()
+        knownOrigin = clip.bounds.origin.y // cmux
     }
 
     private func pushOffset() {
@@ -317,6 +325,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         TranscriptScrollView.modelSyncs += 1
         applyingModel += 1
         clip.setBoundsOrigin(NSPoint(x: 0, y: y))
+        knownOrigin = clip.bounds.origin.y // cmux: AppKit can stop it short of `y`
         reflectScrolledClipView(clip)
         pinContent()
         applyingModel -= 1
@@ -510,6 +519,18 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         super.layout()
         applyingModel -= 1
         if !tiling { tiling = true; syncFromModel(); tiling = false }
+    }
+
+    /// cmux: runs `change`, a geometry change of the host (Home's zoom: its bounds scale), as the model's. AppKit
+    /// realigns the clip view to the new pixel grid inside it, and a realignment is not the reader's scroll: in a
+    /// window shrunk on screen it met a clip held 13.5 pt short of the bottom by the document's old end, and
+    /// clipMoved unpinned the chat, so no send or reply followed again (first-run audit row 8, cmux-shots/first-run
+    /// at 4:49). The model's offset is placed again after it, as after layout() and tile().
+    func placing(_ change: () -> Void) {
+        applyingModel += 1
+        change()
+        applyingModel -= 1
+        syncFromModel()
     }
 
     override func tile() {

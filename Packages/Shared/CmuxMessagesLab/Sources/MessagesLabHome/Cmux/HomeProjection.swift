@@ -54,6 +54,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The wait for the next minute a working agent's pill time changes (HomeProjection+AgentClock); nil: none waits.
+    var agentClock: Task<Void, Never>?
+    /// When ``agentClock`` wakes; a refresh with the same next minute keeps the wait it has.
+    var agentClockDue: Date?
     /// The status line's details, made on the first click.
     private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
@@ -200,6 +204,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
+        agentClock?.cancel()
+        agentClock = nil
         turnPopover?.close()
         controller.intents = nil
         controller.approvalDecision = nil
@@ -234,6 +240,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         passStep("liveLine", &mark)
         revealIfLoaded()
         passStep("reveal", &mark)
+        scheduleAgentClock()
     }
 
     /// The whole current value; unchanged values return before any work.

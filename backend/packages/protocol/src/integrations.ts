@@ -384,6 +384,17 @@ export const PolicyApplyManagedParams = Schema.Struct({
   /** Who or what applied it (for example an IdP connection id or an MDM profile id). */
   applied_by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
 })
+/**
+ * A GitHub App webhook changed what an installation grants (`installation.unsuspend`,
+ * `installation.new_permissions_accepted`, `installation_repositories.removed`): the permissions now
+ * granted, and repositories that left the installation (they leave the connection's recorded list).
+ * The connection's status stays as it is.
+ */
+export const ConnectionGithubSyncParams = Schema.Struct({
+  connection: ConnectionId,
+  scopes_granted: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(100)))),
+  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
+})
 export const ConnectionStatusParams = Schema.Struct({
   connection: ConnectionId,
   status: Schema.Literals(["active", "needs_reauth", "error"]),
@@ -442,6 +453,7 @@ export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("integration.github.token_minted", GitHubTokenMintedParams, "Internal: a GitHub installation token was minted for a caller (POST /v1/integrations/github/token); its audit record goes to TeamDO."),
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
+  internal("connection.github.sync", ConnectionGithubSyncParams, "Internal: a GitHub App webhook changed the installation's permissions or repositories; the status stays."),
   internal(
     "connection.expire",
     // `at` is the alarm's wake instant (the owner's own clock reading; only the owner submits this op).

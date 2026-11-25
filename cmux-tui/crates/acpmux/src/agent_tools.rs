@@ -107,6 +107,18 @@ pub const INHERITED_CALLER_ENV: [&str; 5] = [
     TOOLS_ANSWER_ENV,
 ];
 
+/// The harness families whose ACP server refuses `mcpServers` in `session/new` and
+/// `session/load`: OpenClaw's bridge answers "ACP bridge mode does not support per-session MCP
+/// servers", so the whole start failed. They get no per-session servers; the Chief registers
+/// cmux's servers in that brain's own config instead (optchat-chief `brain_home.rs`).
+pub const NO_SESSION_MCP_FAMILIES: [&str; 1] = ["openclaw"];
+
+/// Whether harness `name` (profile `profile`) takes cmux's MCP servers in its ACP session
+/// requests ([`NO_SESSION_MCP_FAMILIES`]).
+pub fn takes_session_mcp(name: &str, profile: &crate::config::HarnessProfile) -> bool {
+    !NO_SESSION_MCP_FAMILIES.contains(&crate::config::derive_family(name, profile).as_str())
+}
+
 /// The agent memory server's name (`optchat-chief agent-memory mcp`).
 pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
 /// The person's saved MCP servers (`optchat-chief integrations serve`): one `mcp_servers` tool

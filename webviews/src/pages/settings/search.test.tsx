@@ -75,7 +75,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   await fire(search(page), "keydown", { key: "Escape" });
   expect(search(page).value).toBe("");
   await fire(search(page), "keydown", { key: "Escape" });
-  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("personalization");
+  expect(document.activeElement?.getAttribute("data-part-link")).toBe("background");
 });
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {

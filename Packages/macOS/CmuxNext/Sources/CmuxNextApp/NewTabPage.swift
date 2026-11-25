@@ -32,10 +32,10 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Runs a host-owned action advertised by the omnibar.
-    var action: (String) -> Void = { _ in }
-    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key; nil keeps the page's own.
-    var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
+    /// `(id, shown title)`: runs a host-owned action advertised by the omnibar, when the palette still lists it under the title the page's list has.
+    var action: (String, String) -> Void = { _, _ in }
+    /// `(page tab)`: asked at the make of the page's view, after its tab's key: it asks for the palette's actions (a page with no view takes no kept list) and gives the bar's lists of now; nil keeps the page's own.
+    var listsAtViewMake: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
 enum NewTabPage {
@@ -174,12 +174,14 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            action: { [weak services] id in
-                // As the palette runs its row: an action that needs arguments asks for them there.
-                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
+            // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now (it cannot run, or its title changed) leaves the bar's list or changes in it: the actions are read again.
+            action: { [weak services] id, shown in
+                if let services, !services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: services.windows.active?.window) { fillPaletteActions(services, again: true) }
             },
-            places: { [weak services] key in
-                guard let services, services.newTabPlaces.rows != nil else { return nil }
+            listsAtViewMake: { [weak services] key in
+                guard let services else { return nil }
+                fillPaletteActions(services)
+                guard services.newTabPlaces.rows != nil else { return nil }
                 return NewTabPage.places(services, excluding: key, current: services.workspaceID(ofTab: key))
             }
         )

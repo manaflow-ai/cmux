@@ -386,6 +386,49 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         expect((await page.evaluate(census)).files).toBeLessThanOrEqual(MAX_FILES);
       });
 
+      test("Cmd-= and Cmd-0 on a 2,000-file diff resize every row and keep jumps exact", async () => {
+        /** A mounted change row's drawn height and font size. */
+        const row = () =>
+          page.evaluate(() => {
+            for (const host of document.querySelectorAll("#viewer diffs-container")) {
+              const line = host.shadowRoot?.querySelector<HTMLElement>("[data-line][data-line-type]");
+              if (line != null && line.getBoundingClientRect().height > 0) {
+                return { height: line.getBoundingClientRect().height, size: getComputedStyle(line).fontSize };
+              }
+            }
+            return null;
+          });
+        const zoom = async (action: string, times = 1) => {
+          for (let step = 0; step < times; step += 1) {
+            expect(
+              await page.evaluate((action) => window.__cmuxPerformDiffViewerNavigationAction!(action), action),
+            ).toBe(true);
+          }
+          await quiet(page);
+        };
+        try {
+          await scrollViewer(page, 0);
+          expect(await row()).toEqual({ height: 20, size: "12px" });
+          // Three steps up: 15 px code on 25 px rows (fontZoom.ts), in the rows and in CodeView's metrics.
+          await zoom("diffViewerZoomIn", 3);
+          expect(await row()).toEqual({ height: 25, size: "15px" });
+          // Jumps use the declared row height: a file far below still lands exactly at the top.
+          await jumpToFile(page, "file1500.ts");
+          expect((await headerOffset(page, "file1500.ts"))?.offset).toBe(0);
+          await scrollViewer(page, await topOf(page, "src/mod12/file1234.ts"));
+          expect((await headerOffset(page, "file1234.ts"))?.offset).toBe(0);
+          const mounted = await page.evaluate(census);
+          expect(mounted.files).toBeLessThanOrEqual(MAX_FILES);
+          expect(mounted.rows).toBeLessThanOrEqual(MAX_ROWS);
+        } finally {
+          // Cmd-0 goes back to the default, and the other cases see the default rows.
+          await zoom("diffViewerZoomReset");
+        }
+        expect(await row()).toEqual({ height: 20, size: "12px" });
+        await jumpToFile(page, "file0700.ts");
+        expect((await headerOffset(page, "file0700.ts"))?.offset).toBe(0);
+      });
+
       test("collapsing a file from its stuck header keeps that header at the top", async () => {
         await scrollViewer(page, 0);
         await clickIn(page, "huge1.ts", ".file-review-load");

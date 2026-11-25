@@ -22,6 +22,11 @@
 //! stays here and is tried again as before. A post whose answer was lost may have reached the
 //! hub, so that delivery is tried again only through the relay, never on the peer's link too.
 //!
+//! An `ssh://` peer's machine is also reached by a plain ssh login while its link is down
+//! (`ssh_carry.rs`): from the second attempt that finds the link down, the far CLI's own
+//! `send --no-wait` takes the message under the delivery's prompt id. Taken there, the delivery
+//! is delivered, pinned to no link, so a reconnect never sends it again.
+//!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
@@ -617,6 +622,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
         let mut link_unsent = true;
+        // The ssh carrier took it (`ssh_carry.rs`): delivered on no link, so open on none.
+        let mut by_ssh = false;
         // The peer's session the delivery goes to: read before its first attempt, kept on the
         // delivery before the attempt goes (a crash mid-attempt keeps it), and the same for every
         // later one once an attempt may have reached the peer, so nothing read after that (a link
@@ -654,8 +661,31 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         } else {
             crate::hub::open_delivery::name_generation(&mut request, pin.as_ref());
             let caller = Caller::of(&delivery);
-            let outcome = attempt_once(hub, caller, request, Origin::Local).await;
+            let mut outcome = attempt_once(hub, caller, request, Origin::Local).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
+            // The link is still down on a later attempt: an ssh peer's machine is tried over a
+            // plain ssh login (`ssh_carry.rs`). Taken there, it is delivered and never sent
+            // again; one that may have reached it is tried again only as a resend of the same
+            // prompt id, never through the mesh relay.
+            if link_unsent
+                && attempt >= super::ssh_carry::CARRY_FROM_ATTEMPT
+                && let Some(carry) = super::ssh_carry::carry(hub, &delivery).await
+            {
+                let error = outcome.err().map(|(e, _)| e).unwrap_or_default();
+                outcome = match carry {
+                    super::ssh_carry::Carry::Taken(answer) => {
+                        by_ssh = true;
+                        Ok(answer)
+                    }
+                    super::ssh_carry::Carry::Maybe(why) => {
+                        link_unsent = false;
+                        Err((format!("{error}; ssh carry: {why}"), Next::Retry))
+                    }
+                    super::ssh_carry::Carry::NotTaken(why) => {
+                        Err((format!("{error}; ssh carry: {why}"), Next::Unsent))
+                    }
+                };
+            }
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
@@ -671,7 +701,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         match outcome {
             Ok(accepted) => {
                 // A peer's session may lose it with the machine's disk until the owner's copy of
-                // that session holds it (`hub/open_delivery.rs`): open until then.
+                // that session holds it (`hub/open_delivery.rs`): open until then. One the ssh
+                // carrier took is the far daemon's own delivery now: no link sends it again.
+                let pin = if by_ssh { None } else { pin };
                 let open = pin.is_some();
                 let saved = hub.outbox.update_saved(id, |d| {
                     crate::hub::open_delivery::accepted(d, pin, accepted);

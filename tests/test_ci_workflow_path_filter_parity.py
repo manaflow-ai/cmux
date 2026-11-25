@@ -26,6 +26,10 @@ EXEMPTIONS: dict[str, str] = {
     # whole, which contains each backend path the pull_request list names.
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
+    # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
+    # every path but prose (the docs-only block, scripts/ci/docs_only_paths.py).
+    "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
+    "requests carry the docs-only block",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
@@ -65,13 +69,6 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
         "earns its Release compile before promotion; the base-red classifier runs "
         "only on pushes",
     ),
-    # The push trigger only registers the workflow on feat-cmux-next for its dispatch half (its jobs skip on a
-    # push); pull requests take no path filter, since the plan decides.
-    "cmux-next-hot-verify.yml": (
-        "paths",
-        frozenset({".github/workflows/cmux-next-hot-verify.yml"}),
-        "a push of this file registers the workflow for dispatch on feat-cmux-next; no job runs on a push",
-    ),
 }
 
 # name -> (filter, pull-request-only patterns, why). The mirror allowance: only
@@ -95,6 +92,12 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "scripts/lib/stop-app-instances.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
             "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/strip-release-bundle.sh",
             "scripts/write-app-symbol-map.py",
+            # A pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py);
+            # a push keeps plans/cmux-next/** whole.
+            "!plans/cmux-next/**/*.md", "plans/cmux-next/actions.md", "plans/cmux-next/browser-repl/README.md",
+            "plans/cmux-next/feed/prototypes/webkit-duplicate/README.md", "plans/cmux-next/formal/README.md",
+            "plans/cmux-next/helium-density/README.md", "plans/cmux-next/home-messaging-invites/REPORT.md",
+            "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/spec-proposals/visuals/README.md",
         }),
         "pull requests admit every product and CI input (#21504); the router picks the tier",
     ),
@@ -187,10 +190,19 @@ def unapproved(path, name=None):
                 push_patterns = events["push"].get(filter_name) or []
                 pull_request_patterns = events["pull_request"].get(filter_name) or []
                 # With a negated pattern the order matters, so the push list
-                # without the allowed patterns must equal the pull_request list.
+                # without its allowed patterns must equal the pull_request list
+                # without its own (PULL_REQUEST_ONLY_PATTERNS).
                 if not any(pattern.startswith("!") for pattern in (*push_patterns, *pull_request_patterns)):
                     continue
-                if [pattern for pattern in push_patterns if pattern not in allowed] == pull_request_patterns:
+                pr_allowed = PULL_REQUEST_ONLY_PATTERNS.get(name, ("", frozenset(), ""))
+                pr_allowed = pr_allowed[1] if pr_allowed[0] == filter_name else frozenset()
+                push_rest = [pattern for pattern in push_patterns if pattern not in allowed]
+                pull_request_rest = [pattern for pattern in pull_request_patterns if pattern not in pr_allowed]
+                if push_rest == pull_request_rest:
+                    continue
+                # Every negation is an allowed pull-request-only pattern: what is left orders nothing.
+                if not any(p.startswith("!") for p in (*push_rest, *pull_request_rest)) \
+                        and set(push_rest) == set(pull_request_rest):
                     continue
                 narrowed = []
             push_only = narrowed

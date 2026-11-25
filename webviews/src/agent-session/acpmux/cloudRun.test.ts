@@ -564,7 +564,7 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
     /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
-  expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
+  expect(source).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
 });
 

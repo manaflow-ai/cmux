@@ -1379,6 +1379,7 @@ function Columns({
         data-popup-open={open ? "" : undefined}
         aria-label={chip.label}
         title={chip.title}
+        data-tooltip-shortcut={chip["data-tooltip-shortcut"]}
         {...press}
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.

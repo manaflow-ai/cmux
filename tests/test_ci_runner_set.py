@@ -71,11 +71,11 @@ class RunnerSetTests(unittest.TestCase):
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
-            ("pr-red-checks-comment.yml", "comment"): ephemeral,
+            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
             ("cmux-next.yml", "path_route"): ephemeral,
             ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "ui-review"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
+            ("pr-checks.yml", "ui-review"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
@@ -109,7 +109,14 @@ class RunnerSetTests(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    self.assertIn(POOL, runs_on)
+                    direct = ((workflow == "web-validation.yml" and name == "web-validation") or
+                              (workflow == "pr-checks.yml" and name in {"size", "ui-review", "split"}))
+                    if direct:
+                        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
+                        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
+                        self.assertNotIn("needs.", runs_on)
+                    else:
+                        self.assertIn(POOL, runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)

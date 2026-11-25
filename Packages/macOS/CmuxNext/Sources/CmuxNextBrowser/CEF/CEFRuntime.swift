@@ -60,6 +60,9 @@ final class CEFRuntime {
     /// The cmux pages' spare window (`CEFSpareWindow`, the pages' off-the-record store), from the first
     /// page on (`usePageSpareWindow`); nil before.
     private(set) var pageSpareWindow: CEFSpareWindow?
+    /// Agent chat pages draw a key's frame at once (fork API 35, Debug Settings; `CEFDrawOnInput`). Made at the first
+    /// browser, once the shim is loaded.
+    private(set) lazy var drawOnInput = CEFDrawOnInput(shim: shim, apiVersion: forkAPIVersion)
     /// Collects the garbage closed cmux pages leave in the renderer they shared (`CEFPageRendererGC`).
     private(set) lazy var pageRendererGC = CEFPageRendererGC(
         pages: { [weak self] in

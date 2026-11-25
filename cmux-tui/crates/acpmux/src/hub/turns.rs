@@ -500,8 +500,12 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
-        // An FYI asks for none.
-        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
+        // An unclassified notice is informational by default, so use its effective class for
+        // cap checks and routing before any path can treat it as a result.
+        let notice_class = super::inbox::is_notice(opts.provenance.as_ref())
+            .then_some(crate::prompt_class::PromptClass::Fyi);
+        let effective_class = opts.class.or(notice_class);
+        let fyi = effective_class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
@@ -543,7 +547,7 @@ impl Hub {
             &blocks,
             control,
             opts.send_now,
-            opts.class,
+            effective_class,
             opts.provenance.as_ref(),
             opts.agent.as_deref(),
             opts.inbox,
@@ -654,7 +658,7 @@ impl Hub {
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
-        let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        let class = crate::prompt_class::of_message(effective_class, agent.is_some());
         // A question no caller reads the reply of, from a session that did not start this chat
         // and that the inbox did not take: its reply goes back when the turn that answers it ends
         // (`question_replies.rs`). It is due under this prompt until its turn is known: its steer
@@ -944,6 +948,9 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        // The message that leads it goes back with them when the account's limit refuses the
+        // turn before its model read it (`digest.rs` `requeue_unread`).
+        joined.lead(&prompt_id, client, &run);
         // This turn answers the questions its prompt and the joined ones carry
         // (`question_replies.rs`).
         for id in std::iter::once(&prompt_id).chain(parts.iter().map(|part| &part.prompt_id)) {
@@ -1006,6 +1013,14 @@ impl Hub {
                 crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
             }
             m.turn_count += 1;
+        }
+        // The first turn after a rate-limit reset carries the continuation it folded
+        // (`rate_hold.rs`). Appended, as above; never to a slash command, whose words it would
+        // become.
+        if !text.trim_start().starts_with('/')
+            && let Some(note) = Self::take_rate_note(session)
+        {
+            blocks.push(json!({"type": "text", "text": note}));
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
@@ -1621,6 +1636,12 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
+        // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
+        // every turn's end comes here, a recovered or carried one's too.
+        if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.rate_turn_ok(session);
+        }
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
@@ -1744,8 +1765,14 @@ impl Hub {
         }
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
-        if let (Err(_), Some(joined)) = (&result, joined) {
-            self.requeue_joined(session, joined, true);
+        // A turn the account's limit refused before its model read a word: every agent message in
+        // it goes in again with the next turn, the one that led it too (`rate_hold.rs`).
+        if let (Err(e), Some(joined)) = (&result, joined) {
+            if self.unread_by_limit(session, turn_seq, &e.message) {
+                self.requeue_unread(session, joined);
+            } else {
+                self.requeue_joined(session, joined, true);
+            }
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.

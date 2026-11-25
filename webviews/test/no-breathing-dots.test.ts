@@ -30,6 +30,12 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
     why: "explicit user-selected Breathing Dot only; the default and unknown values use the spinner",
   },
+  ...["start", "middle", "end"].map((dot) => ({
+    file: "agent-session/acpmux/conversation/JumpDots.css",
+    keyframes: `cv-jump-dots-${dot}`,
+    selector: ".cv-jump-dots__dot",
+    why: "a look's opt-in working mark on Jump to latest (agentPane.display.thinking.jumpButton dots, off by default; Claude's scroll-to-bottom button), drawn only while the agent works and the button shows; the dots trade size and place, never fade, and Static, Reduce Motion and the motion gate hold them still",
+  })),
   {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",

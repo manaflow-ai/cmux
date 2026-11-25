@@ -204,7 +204,10 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
         except (BrokenPipeError, OSError, ValueError):
             pass
 
-DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
+# Full remote-tracking names, never `origin/feat-cmux-next`: git reads a short name as a local branch of that name
+# (refs/heads/origin/feat-cmux-next, which some tool creates) when one exists (push_range.UPSTREAM, 2026-11-20).
+# Reports print them without refs/remotes/.
+DEFAULT_BASE_REFS = ("refs/remotes/origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
 SCRIPTS = "scripts/cmux-next"
 SCOPES = (PKG + "/", "cmux-tui/", "webviews/")
@@ -221,7 +224,11 @@ CONTEXT = (
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
     "schemas/motion-scale/motion-scale.json",  # check-motion-tokens.py reads the scale's steps
+    "backend/apps/api/wrangler.jsonc",  # check-build-spaces.py reads every Durable Object binding
+    "backend/apps/api/src/build-space.ts",  # and its two lists of them
 )
+# The cloud API Worker's sources: only check-build-spaces.py reads them.
+BUILD_SPACES_SCOPE = "backend/apps/api/"
 # Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
 # copy reads its own, beside it). Like the check code, it is the head's on both sides.
 CHECK_CODE = ("scripts/swift_source_mask.py",)
@@ -318,6 +325,18 @@ SCANNERS = (
     # Pure Python, no build: it reads the manifest and the pushed Swift files.
     ("Package dependency lists sorted",
      ["python3", "-I", "{s}/check-package-dependency-lists.py", "{pkg}/Package.swift"], (PKG + "/",)),
+    # Dev builds do not intertwine (AGENTS.md "Dev builds are separate"): every Durable Object binding is classified
+    # per build or account-wide, and no entry point or object reaches an object outside its build space.
+    ("Build spaces (backend/apps/api/src/build-space.ts)",
+     ["python3", "-I", "{s}/check-build-spaces.py", "{root}"], (BUILD_SPACES_SCOPE, "scripts/cmux-next/check-build-spaces.py")),
+    # The user, 2026-11-16: "for dev builds we must make sure that all such values and configurations have a dev
+    # build isolation that prevents each dev build from deriving state from each other even from prod." A new path
+    # every build shares (~/.config/cmux, a fixed Application Support or Caches folder, Keychain service or defaults
+    # suite) needs BuildStatePaths or a reviewed row in dev-build-state-baseline.tsv.
+    ("Dev build state is its own (BuildStatePaths)",
+     ["python3", "-I", "{s}/check-dev-build-state.py", "{root}"],
+     (PKG + "/Sources/", "cmux-tui/crates/", "scripts/cmux-next/check-dev-build-state.py",
+      "scripts/cmux-next/dev-build-state-baseline.tsv")),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
@@ -487,7 +506,7 @@ APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
 # push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
 # "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
 # refused the push without a verdict).
-MAIN_REF = "origin/main"
+MAIN_REF = "refs/remotes/origin/main"  # full name: see DEFAULT_BASE_REFS
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
 RUST_CRATES = "cmux-tui/crates/"
@@ -654,7 +673,7 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
-    return sorted(n for n in names.split("\0") if n and n.startswith(CHANGED_SCOPES))
+    return sorted(n for n in names.split("\0") if n and n.startswith(CHANGED_SCOPES + (BUILD_SPACES_SCOPE,)))
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
@@ -2577,7 +2596,8 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     code_rev = next((ref for ref in DEFAULT_BASE_REFS if rev_ok(repo, ref)), None) if trusted_scripts else head
     try:
         if code_rev is None:
-            raise ValueError(f"no {' or '.join(DEFAULT_BASE_REFS)} in this clone to read the validator from")
+            raise ValueError(f"no {' or '.join(r.removeprefix('refs/remotes/') for r in DEFAULT_BASE_REFS)} in this "
+                             "clone to read the validator from")
         blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
         if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
             return []  # a validator older than the highlights' rules: CI's test is older too
@@ -3349,8 +3369,10 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
         if tracked.returncode == 0 and hook.is_file() and hook.read_bytes() != tracked.stdout:
             stale.append("pre-push (the hook)")
         if stale:
-            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
-                f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
+            shown = ref.removeprefix("refs/remotes/")
+            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {shown}'s, so "
+                f"its rules may be old: run scripts/install-git-hooks.sh from a checkout at {shown} (rebase and fetch do "
+                "not).")
         return
 
 

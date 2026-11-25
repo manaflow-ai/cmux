@@ -315,6 +315,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        handle: None,
         name_given: false,
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),

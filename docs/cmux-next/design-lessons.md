@@ -78,6 +78,11 @@ previews plus three open Move to states, so an audit includes the fallback inste
 **Rule:** every loop, timer and observer has a bound and a stop condition. Work scales with what's visible, not with
 the total.
 
+Scaling measurements count the final fixture, including objects created implicitly by windows or Home. A requested
+number of additions is not a total. The launch seed's explicit total mode reads the topology before filling and
+after showing Home, preserves existing workspaces, and refuses a mismatched total. Its detector is
+`scripts/measure/tests/launch-ready-seed.test.py`; compare 5 and 120 with the same window count and launch case.
+
 **Examples:** [#7182](https://github.com/manaflow-ai/cmux/pull/7182) (O(hosted panes) work on every run-loop tick froze
 the main thread), `9660608040d5` (`NSOpenPanel()` built on the main thread blocked it for 40 s when its service didn't
 answer).

@@ -1,4 +1,7 @@
 #if os(iOS)
+#if DEBUG
+import CmuxMobileAgentChat
+#endif
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -111,7 +114,7 @@ public struct WorkspacesList: View {
     }
 
     /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
@@ -362,6 +365,7 @@ public struct WorkspacesList: View {
     /// there in this launch, else the active tab of its layout's top-left pane
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
+        LaunchMarks.shared.mark("workspace_row_tap")
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -1071,6 +1075,13 @@ struct WorkspaceListRow: View, Equatable {
         .opacity(model.isStale ? 0.55 : 1)
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: model.isStale)
         .onAppear {
+            #if DEBUG
+            // The list rig's seeded rows, not the mock ones shown before it seeds (LaunchTTIUITests).
+            let countsForLaunch = ListStressSettings.shared.countsListFrame(rowID: ws.id)
+            #else
+            let countsForLaunch = true
+            #endif
+            if countsForLaunch { LaunchMarks.shared.markNextFrame("workspaces_list_frame") }
             // verify/fast-connect.md: when a row is first on screen, cached or live.
             if model.tracksMacData {
                 ConnectTimeline.shared.mark(model.isStale ? "workspace_row_cached" : "workspace_row_live")

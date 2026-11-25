@@ -10,6 +10,7 @@
 #[cfg(feature = "serde")]
 pub mod app_line;
 mod bulk;
+pub mod clipboard;
 mod clock;
 #[cfg(feature = "serde")]
 pub mod control;

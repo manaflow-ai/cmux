@@ -174,22 +174,30 @@ impl Hub {
         // The whole name's steps first, then a sub-session's short name by the same steps
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
-        let mut found: Vec<(Option<(bool, Step)>, Candidate)> = Vec::new();
-        let mut take = |host: &str, name: &str, id: &str, route: String, closed: bool| {
-            let at = if name == rest || id.starts_with(rest) {
-                Some((false, Step::Exact))
-            } else {
-                crate::name_match::step(name, rest)
-                    .map(|at| (false, at))
-                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+        let mut found = Vec::new();
+        let mut take =
+            |host: &str, name: &str, id: &str, handle: Option<&str>, route: &str, closed: bool| {
+                let legacy_exact = name == rest || id.starts_with(rest);
+                let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
+                    Some((false, Step::Exact))
+                } else {
+                    crate::name_match::step(name, rest)
+                        .map(|at| (false, at))
+                        .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+                };
+                if let Some(at) = at {
+                    found.push((
+                        at,
+                        legacy_exact,
+                        Candidate {
+                            host: host.to_owned(),
+                            name: name.to_owned(),
+                            route: route.to_owned(),
+                            closed,
+                        },
+                    ));
+                }
             };
-            if at.is_some() {
-                found.push((
-                    at,
-                    Candidate { host: host.to_owned(), name: name.to_owned(), route, closed },
-                ));
-            }
-        };
         match machine {
             Machine::Here(own) => {
                 for s in
@@ -200,7 +208,8 @@ impl Hub {
                         own,
                         &meta.name,
                         &s.id,
-                        s.id.clone(),
+                        meta.handle.as_deref(),
+                        &s.id,
                         meta.status == SessionStatus::Closed,
                     );
                 }
@@ -212,21 +221,21 @@ impl Hub {
                     let name = r.summary.name().unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
                     let closed = r.summary.closed();
-                    take(peer, bare, &r.receipt.mux_session_id, route.clone(), closed);
+                    take(peer, bare, &r.receipt.mux_session_id, r.summary.handle(), route, closed);
                 }
             }
         }
-        let Some(first) = found.iter().filter_map(|(at, _)| *at).min() else {
+        let Some(first) = found.iter().map(|(at, _, _)| *at).min() else {
             return Ok(match machine {
                 Machine::Peer(peer) if !exact => Some(format!("{peer}/{rest}")),
                 _ => None,
             });
         };
-        if exact && first == (false, Step::Exact) {
+        let best = found.into_iter().filter(|(at, _, _)| *at == first).collect::<Vec<_>>();
+        if exact && best.iter().all(|(_, legacy_exact, _)| *legacy_exact) {
             return Ok(None);
         }
-        let tier: Vec<Candidate> =
-            found.into_iter().filter(|(at, _)| *at == Some(first)).map(|(_, c)| c).collect();
+        let tier: Vec<Candidate> = best.into_iter().map(|(_, _, c)| c).collect();
         pick(key, &tier).map(|c| c.map(|c| c.route.clone()))
     }
 
@@ -243,8 +252,9 @@ impl Hub {
     fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
         use crate::name_match::Step;
         let mut tiers: [Vec<Candidate>; 6] = Default::default();
-        let tier_of = |name: &str, id: &str, here: bool| {
-            if name == key || id.starts_with(key) {
+        let tier_of = |name: &str, id: &str, handle: Option<&str>, here: bool| {
+            if name == key || id.starts_with(key) || crate::session_handle::matches(handle, id, key)
+            {
                 return Some(0);
             }
             let at = crate::name_match::step(name, key);
@@ -264,7 +274,9 @@ impl Hub {
         };
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(tier) = tier_of(&meta.name, &s.id, true).and_then(|t| tiers.get_mut(t)) else {
+            let Some(tier) = tier_of(&meta.name, &s.id, meta.handle.as_deref(), true)
+                .and_then(|t| tiers.get_mut(t))
+            else {
                 continue;
             };
             tier.push(Candidate {
@@ -277,8 +289,8 @@ impl Hub {
         for (route, r) in self.remote_sessions.read().iter() {
             let name = r.summary.name().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            let Some(tier) =
-                tier_of(bare, &r.receipt.mux_session_id, false).and_then(|t| tiers.get_mut(t))
+            let Some(tier) = tier_of(bare, &r.receipt.mux_session_id, r.summary.handle(), false)
+                .and_then(|t| tiers.get_mut(t))
             else {
                 continue;
             };

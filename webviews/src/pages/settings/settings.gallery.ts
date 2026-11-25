@@ -307,10 +307,12 @@ export const heightChangingVariants: Record<string, SettingsPageVariant> = {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [
-      wait('[data-card="backdrop"] .backdrop-scope'),
-      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
-    ],
+    play: async (ctx) => {
+      const selector = ".backdrop-scope label:last-child";
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+      await ctx.waitFor(() => ctx.document.querySelector(`${selector} input:checked`));
+    },
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
   "theme-file-refused": variant("theme", {
@@ -564,7 +566,11 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  // Personalization opens its Theme panel by default and lists its panels in the sidebar.
+  "personalization-sidebar": variant("general", {
+    steps: [click('[data-section-link="personalization"]'), wait('[data-part-link="theme"][aria-current="page"]')],
+    note: "Open Personalization from General to expand the five sidebar links and show Theme.",
+  }),
   "personalization-background": variant("personalization", {
     focus: "personalization.background",
     workspace: "ws-1",
@@ -860,13 +866,12 @@ Object.assign(variants, {
           ),
       ]),
     ),
-    steps: [
-      wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] button[aria-expanded]'),
-      input('[data-card="art-browser"] input[type="search"]', "night"),
-      click('[data-card="art-browser"] button[type="submit"]'),
-      wait('[data-card="art-browser"] .backdrop-grid'),
-    ],
+    play: async (ctx) => {
+      await ctx.click({ selector: '[data-card="backdrop"] button[aria-expanded]' });
+      await ctx.type("night", { selector: '[data-card="art-browser"] input[type="search"]' });
+      await ctx.click({ selector: '[data-card="art-browser"] button[type="submit"]' });
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="art-browser"] .backdrop-grid'));
+    },
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "terminal-shell-unknown": variant("terminal", {

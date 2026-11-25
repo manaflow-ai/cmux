@@ -66,11 +66,11 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
     }
     let accepted = if is_backdrop_selection(row) {
         Accepted::Shape(
-            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+            "none, a listed painting, system:<absolute path>, file:<absolute path>, youtube:<video id> (or a YouTube video address) or folder:<absolute path>",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropPicture) {
         Accepted::Shape(
-            "a listed painting, desktop, system:<absolute path> or file:<absolute path>",
+            "a listed painting, desktop, system:<absolute path>, file:<absolute path> or youtube:<video id> (or a YouTube video address)",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
         Accepted::Shape(
@@ -157,12 +157,10 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
         // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
-        // path>` (the person's own image) or `folder:<absolute path>` (the
-        // pictures of a folder shuffled, never `/` alone), as Swift
-        // `BackdropSelectionSetting`.
-        let path = ["system:", "file:"]
-            .iter()
-            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        // path>` (the person's own image or video), a canonical `youtube:`
+        // video or `folder:<absolute path>` (the pictures of a folder
+        // shuffled, never `/` alone), as Swift `BackdropSelectionSetting`.
+        let path = super::backdrop::is_path_or_video(text);
         let folder = text
             .strip_prefix("folder:")
             .is_some_and(|path| path.starts_with('/') && path.len() > 1);

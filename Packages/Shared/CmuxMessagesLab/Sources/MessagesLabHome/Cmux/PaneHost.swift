@@ -221,8 +221,10 @@ final class HostView: NSView {
         placeTopFadeView()
         updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
-        fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
-                          emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
+        // A narrow pane drops the emoji button, then the "+" button, so the draft keeps its line (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: demo.compose.bounds.width)
+        fieldChrome.place(field: demo.compose.fieldRect, plus: chrome.showsPlus ? demo.compose.plusRect : nil,
+                          emoji: chrome.showsEmoji ? CGRect(x: chrome.emojiX, y: demo.compose.plusRect.minY, width: 31, height: 30) : nil)
         placeQuoteCard(above: demo.compose.fieldRect)
         placeSlashMenu(above: demo.compose.fieldRect)
     }
@@ -646,11 +648,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
         // images; no view, window or event), on a later pass than this layout.
         RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
-        let tv = FieldTextView(usingTextLayoutManager: true)
+        // TextKit 1, as the composer field (ComposeTextView).
+        let tv = FieldTextView(usingTextLayoutManager: false)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
         tv.insertText("Warm", replacementRange: NSRange(location: 0, length: 0))
-        if let tlm = tv.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
+        tv.textKit1LayOutAll()
         let r = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 32))
         if let cg = r.image(actions: { ctx in
             TextDraw.line("Warm", font: Fixture.bodyFont, color: .white, x: 2, baseline: 20, in: ctx.cgContext)
@@ -768,8 +771,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
             for r in orphans { storage.replaceCharacters(in: r, with: "") }
         }
-        composerHistory.textChanged(to: tv.string)
-        dispatch(.setDraft(tv.string))
+        // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
+        let text = String(nativeCopyOf: tv.string)
+        composerHistory.textChanged(to: text)
+        dispatch(.setDraft(text))
         // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
         let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
         let gone = draft.filter { !shown.contains($0.id) }

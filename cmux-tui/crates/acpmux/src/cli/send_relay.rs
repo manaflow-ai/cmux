@@ -114,6 +114,11 @@ pub(crate) fn find_row<'a>(rows: &'a [Value], key: &str) -> Option<&'a Value> {
             || on_peer(id)
             || on_peer(bare)
             || (!bare.is_empty() && (key == bare || key == name))
+            || crate::session_handle::matches(r["handle"].as_str(), id, key)
+            || key
+                .strip_prefix(peer)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .is_some_and(|rest| crate::session_handle::matches(r["handle"].as_str(), id, rest))
     };
     let mut found = rows.iter().filter(|&r| named(r));
     let first = found.next()?;
@@ -163,7 +168,7 @@ pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
 }
 
 /// At most this many rows from one relay listing.
-const LS_MAX_ROWS: usize = 5000;
+pub(crate) const LS_MAX_ROWS: usize = 5000;
 
 /// The other machines' sessions the configured relay lists (`relay_ls`, off the async runtime),
 /// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless

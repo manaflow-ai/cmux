@@ -26,7 +26,8 @@ import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown
 import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
-import { PERSONALIZATION_KEYS, PersonalizationCard } from "./PersonalizationCard";
+import { PersonalizationCard } from "./PersonalizationCard";
+import { PERSONALIZATION_KEYS, personalizationPart, type PartID } from "../personalizationParts";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
@@ -57,7 +58,10 @@ const machinesTitle = () => text(sections.find((section) => section.id === "mach
 
 /** Each card; `focus` is the route's focused key (a card may open a panel it names), `workspace`
  * the workspace the page was opened for, `reveal` whether the route opens the page on this card. */
-const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode> = {
+const CARDS: Record<
+  Exclude<CategoryCard, "personalization">,
+  (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode
+> = {
   themeStudio: (focus) => <ThemeStudio focus={focus} />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
@@ -95,7 +99,6 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   models: (focus) => <ModelsCard focus={focus} />,
   worktreeSetup: () => <WorktreeSetupCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
-  personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };
 
 /** Every key Personalization draws: its one home on the page. */
@@ -107,11 +110,13 @@ export function SectionView({
   section,
   focus,
   workspace = null,
+  part = null,
   reveal = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
+  part?: PartID | null;
   /** The card the route opens the page on (`#/settings/machines`), else null. */
   reveal?: CategoryCard | null;
 }) {
@@ -122,6 +127,7 @@ export function SectionView({
   // Personalization is the one home of what it draws (the theme studio among it): no other page
   // draws those rows, and it does not draw them a second time as rows under its parts.
   const hub = category.lead.includes("personalization");
+  const currentPart = personalizationPart(focus, part);
   const studio = hub || category.lead.includes("themeStudio");
   const drawn = new Set(
     studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
@@ -158,19 +164,34 @@ export function SectionView({
       ),
     }))
     .filter((group) => group.rows.length > 0);
-  // Each row's level and the merged cards (rowLevels.ts). Only Personalization has a jump bar (its own
-  // card); a category page is short enough without one (Lucas 2026-11-11).
+  // Each row's level and the merged cards (rowLevels.ts).
   const cards = arrangeGroups(category.id, groups, focus);
   return (
     <div className="section" data-section={category.id}>
-      <h1 className="section-title">{text(category.title)}</h1>
+      {!hub && <h1 className="section-title">{text(category.title)}</h1>}
       {category.lead.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
+        <CardSlot
+          key={card}
+          card={card}
+          focus={focus}
+          workspace={workspace}
+          part={currentPart}
+          reveal={reveal === card}
+        />
       ))}
       {cards.length > 0 && <GroupList groups={cards} focus={focus} pageTitle={text(category.title)} />}
-      {category.trail.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
-      ))}
+      {category.trail
+        .filter((card) => card !== "customizeLibrary" || !hub || currentPart === "theme")
+        .map((card) => (
+          <CardSlot
+            key={card}
+            card={card}
+            focus={focus}
+            workspace={workspace}
+            part={currentPart}
+            reveal={reveal === card}
+          />
+        ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
       ))}
@@ -183,12 +204,16 @@ function CardSlot({
   card,
   focus,
   workspace,
+  part,
   reveal,
 }: {
   card: CategoryCard;
   focus: string | null;
   workspace: string | null;
+  part: PartID;
   reveal: boolean;
 }) {
+  if (card === "personalization")
+    return <PersonalizationCard key={part} part={part} focus={focus} workspace={workspace} />;
   return CARDS[card](focus, workspace, reveal);
 }

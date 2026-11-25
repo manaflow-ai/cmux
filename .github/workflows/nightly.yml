@@ -216,15 +216,7 @@ env:
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
 
 jobs:
-  # Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting
-  # queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z;
-  # the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in
-  # one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead
-  # mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted
-  # queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds
-  # no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything;
-  # an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's
-  # token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
+  # Why: docs/ci/nightly-workflow-notes.md#note-29
   runner-preflight:
     permissions:
       issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
@@ -1419,19 +1411,7 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    # This seeder runs on our nightly-only minis, never Blacksmith (a fork on hosted macos-26).
-    # The schedule skips this seeder while owned pools serve pull
-    # requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that
-    # keep their own DerivedData, and seed-derived-data.yml still seeds the
-    # Blacksmith admission pools on main pushes that change app-host build
-    # inputs. Those incremental chains then get no six-hourly cold reset; a
-    # seed_only dispatch still writes one on demand.
-    # Writes the cold DerivedData seed that ci-macos.yml compile admission
-    # adopts. It no longer restores, bounds or saves the Debug compilation
-    # cache: admission stopped restoring it (the app target missed on every
-    # file; see tests/test_ci_test_compilation_cache_seed.sh), so nothing read
-    # it. The build's CAS stays local to the run. Scheduled, not per push: a
-    # build per merge would take macOS slots from the pull request queue.
+    # Why: docs/ci/nightly-workflow-notes.md#note-30
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Why: docs/ci/nightly-workflow-notes.md#note-2
     strategy:
@@ -2390,9 +2370,9 @@ jobs:
         name: Fetch the Chromium engine
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         env:
-          CMUX_CEF_R2_ACCOUNT_ID: &r2a ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: &r2k ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: &r2s ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
         run: bash -e scripts/ci/nightly-steps/app-fetch-chromium-engine.sh
@@ -3316,6 +3296,7 @@ jobs:
       contents: read
     outputs:
       sha: ${{ steps.checks.outcome == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha || '' }}
+      lint_report: ${{ steps.lint.outputs.lint_report }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3328,9 +3309,16 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+      # Lint-class reds report and are fixed forward (Leo 2026-11-20); typecheck and acpmux-protocol:check block.
       - name: Webview checks on the build commit
         id: checks
-        run: python3 scripts/ci/fast_gate_webviews_checks.py --repo .
+        run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
+      - &lint-report
+        name: Report the lint-class webview checks
+        id: lint
+        if: ${{ !cancelled() && !env.LEFT_SLOT }}
+        continue-on-error: true
+        run: python3 scripts/ci/nightly_fix_forward_issue.py outputs --report "$RUNNER_TEMP/webview-lint.json"
 
   prepare-nightly-variant-primary:
     # No environment and no secrets. It runs no code from the bundle; the
@@ -5607,6 +5595,28 @@ jobs:
             }
             await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
 
+  # Lint-class webview reds, kept in one open issue (scripts/ci/nightly_fix_forward_issue.py); never a hold.
+  report-nightly-fix-forward:
+    needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
+    if: "!cancelled() && (needs.check-nightly-webviews.outputs.lint_report != '' || needs.nightly-next-one.outputs.lint_report != '')"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
+    permissions:
+      contents: read
+      issues: write # the fix-forward issue
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: File the lint-class reds in the fix-forward issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINT_REPORT: ${{ needs.nightly-next-one.outputs.lint_report || needs.check-nightly-webviews.outputs.lint_report }}
+          BUILD_SHA: ${{ needs.nightly-next-one.outputs.build_sha || needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+        run: python3 scripts/ci/nightly_fix_forward_issue.py file --repo "$GITHUB_REPOSITORY"
+
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
@@ -6241,7 +6251,7 @@ jobs:
       actions: read # The published build's artifacts, from the run that published.
     # An upload holds the release App key but signs nothing: a fresh hosted VM per job, so no other job shares it and
     # the signer stays free for the next sign (one-mini mode too: on the mini it would need the whole-Mac claim).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     # The two former jobs' limits added up: the uploads and the names each may wait out an hour of rate limits.
     timeout-minutes: 240
     outputs:
@@ -6528,7 +6538,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     timeout-minutes: 45
     env:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
@@ -6655,13 +6665,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
           overwrite: true
-      # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py.
+      # Before the keyed job asks for the signer Mac; scripts/ci/nightly_deltas_yield.py. Two signers (ultra1, cmux15)
+      # do not wait for the loop (a build may still wait; see the script); one-mini mode or NIGHTLY_NEXT_SIGNERS=1 waits.
       - name: Yield the signer Mac to the nightly-next build loop
         id: deltas-yield
         if: needs.published-build.outputs.track == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 42
-        run: python3 .publish-tooling/scripts/ci/nightly_deltas_yield.py --repo "$GITHUB_REPOSITORY" --build "$NIGHTLY_BUILD" --feed "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml"
+        env:
+          NIGHTLY_NEXT_SIGNERS: ${{ vars.NIGHTLY_NEXT_SIGNERS || vars.CI_NIGHTLY_MINI != '' && '1' || '2' }}
+        run: python3 .publish-tooling/scripts/ci/nightly_deltas_yield.py --repo "$GITHUB_REPOSITORY" --build "$NIGHTLY_BUILD" --feed "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --signers "$NIGHTLY_NEXT_SIGNERS"
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
@@ -6876,6 +6889,7 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
             scripts/ci/nightly_next_delta_check.py
+            scripts/ci/deadline_http.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
@@ -7050,6 +7064,7 @@ jobs:
       source: ${{ steps.source.outputs.source }}
       build: ${{ steps.source.outputs.build }}
       build_sha: ${{ steps.source.outputs.build_sha }}
+      lint_report: ${{ steps.lint.outputs.lint_report }}
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
       refused: ${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || steps.upload_next_appcasts.outputs.publication_refused == 'true' }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
@@ -7064,6 +7079,8 @@ jobs:
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
       left: ${{ steps.one-leave.outputs.superseded }}
+      # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
+      left_pending: ${{ steps.one-leave.outputs.pending }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -7098,7 +7115,8 @@ jobs:
       - *claim-publication-mac
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       - *x12
-      # Latest wins at the slot too. Why: docs/ci/nightly-workflow-notes.md#note-16
+      # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
+      # never a rate-limit wait. Why: docs/ci/nightly-workflow-notes.md#note-16
       - name: Leave the push slot to a newer nightly-next push
         id: one-leave
         if: github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '')
@@ -7109,6 +7127,7 @@ jobs:
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           SUPERSEDE_SKIP: ${{ vars.NIGHTLY_NEXT_SUPERSEDE_SKIP }}
           IN_SLOT: 1
+          GH_BUDGET_WAIT_MAX_SECONDS: "0"
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/resolve-leave-build-slot.sh"
       - name: Point the signing steps at the build products
         if: ${{ !env.LEFT_SLOT }}
@@ -7205,7 +7224,7 @@ jobs:
         run: bash scripts/ci/nightly-steps/app-build-release.sh
       - name: Start the webview checks on the build commit
         if: ${{ !env.LEFT_SLOT }}
-        run: python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks -- python3 scripts/ci/fast_gate_webviews_checks.py --repo .
+        run: python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks -- python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
       - *x34
       - *x35
       - *x36
@@ -7248,6 +7267,7 @@ jobs:
         if: ${{ !env.LEFT_SLOT }}
         id: webview-checks
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks
+      - *lint-report
       - *set-up-node
       - *x56
       # Nothing a build script, a dependency or the app started may still run once a secret is present
@@ -7462,12 +7482,23 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            scripts/cmux-next/lib
       - *wait-through-github-api-rate-l
       - name: Ask main's nightly-next tick
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
+      # nightly-next-one left without waiting for the promotion on the signing Mac; the wait is the retry's, off it.
+      - name: Retry the commit that left the slot unless nightly-next moved
+        if: "!cancelled() && needs.nightly-next-one.outputs.left_pending == 'true'"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
+          REPOSITORY: ${{ github.repository }}
+          RETRY: ${{ inputs.nightly_next_loop_retry }}
+        run: bash scripts/ci/nightly-steps/slot-left-retry.sh
       # The detector (hq#13299): the build this run published must reach the feed with its deltas, each
       # served at its length; a newer build already live passes with a notice. Red here names a feed
       # where every Mac downloads the full 243 MB DMG.
@@ -7709,7 +7740,7 @@ jobs:
     # the key keeps it off the nightly mini's shared light runners, its span fetch waits through API rate limits
     # (70 min), which on the trusted signing runner would hold the whole Mac while the next run signs, and
     # release-notes.py's `openssl pkeyutl -rawin` needs OpenSSL 3, which macOS's LibreSSL is not.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     timeout-minutes: 70
     permissions:
       contents: read
@@ -7780,7 +7811,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     # GitHub-hosted on purpose, in the tail only (after sign-release-notes): up to 130 min of lease and rate-limit
     # waits would hold the whole signing Mac (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
     # 70 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: 130
     permissions:

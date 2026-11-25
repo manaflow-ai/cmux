@@ -381,3 +381,40 @@ test("an expired sign-in badges Agents and says so on its row, like a signed-out
   expect(codex.querySelector('[data-harness-auth="expired"]')?.textContent).toBe("Signed out");
   page.unmount();
 });
+
+// Lawrence 2026-11-19 (msg 42278, "there are duplicates sometimes"): acpmux's `cmux` profile runs the
+// same ~/.local/bin/claude as `claude`, so Settings drew two update cards for one binary, one of them
+// titled "Update Cmux". The harness list keeps both profiles; the update cards are one per binary.
+test("two profiles that run one binary get one update card, named for that binary", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const claude = (id: string) => ({
+    id,
+    name: null,
+    kind: "claude-stdio",
+    source: id === "claude" ? "path" : "config",
+    problem: null,
+    version: "2.1.325",
+    latest: "2.1.329",
+    outdated: true,
+    auth: "signedIn" as const,
+    update: { command: "/Users/me/.local/bin/claude update", elevated: false },
+    ownerUpdate: true,
+    path: "/Users/me/.local/bin/claude",
+    package: "@anthropic-ai/claude-code",
+  });
+  for (const harnesses of [
+    [claude("claude"), claude("cmux")],
+    [claude("cmux"), claude("claude")],
+  ]) {
+    await act(async () => page.provider.setHarnesses({ loading: false, problem: null, harnesses }));
+    await settle();
+    const element = card(page.container)!;
+    expect(ids(element)).toEqual(harnesses.map((row) => row.id));
+    const cards = [...element.querySelectorAll<HTMLElement>("[data-harness-update-card]")];
+    expect(cards.map((node) => node.dataset.harnessUpdateCard)).toEqual(["claude"]);
+    expect(cards[0]!.textContent).toContain("Claude Code");
+    expect(element.querySelector("[data-harness-update-cards]")!.textContent).not.toContain("Cmux");
+  }
+  page.unmount();
+});
