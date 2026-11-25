@@ -1622,7 +1622,7 @@ fn serve_fs_counted(
 
 /// A push of a repository with many loose objects through a link with a
 /// round trip of `CMUX_SYNC_BENCH_RTT_MS` (default 20): prints its wall
-/// time, requests, `fs.write`s and bytes sent. `cargo test --test link_sync
+/// time, requests, `fs.write`s and bytes sent. `cargo test --test it
 /// -- --ignored --nocapture loose_object_push_bench`.
 #[test]
 #[ignore = "a benchmark"]
