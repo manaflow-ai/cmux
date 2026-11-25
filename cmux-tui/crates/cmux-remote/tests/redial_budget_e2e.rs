@@ -313,6 +313,7 @@ struct TestSource {
     standby: Mutex<Option<Arc<TestGroup>>>,
     /// Other routes, handed out in order before `group` (a source with several routes).
     others: Mutex<Vec<Arc<TestGroup>>>,
+    took_standby: AtomicBool,
 }
 
 #[async_trait]
@@ -329,8 +330,16 @@ impl ReconnectGroupSource for TestSource {
         Ok(others.remove(0))
     }
 
+    /// `group` is the link's own route: the others, and the link's own behind a standby
+    /// (held, or taken for the redial under way).
+    fn alternates(&self) -> Option<usize> {
+        let standby = lock(&self.standby).is_some() || self.took_standby.load(Ordering::Acquire);
+        Some(lock(&self.others).len() + usize::from(standby))
+    }
+
     async fn take_standby(&self) -> Option<StandbyGroup> {
         let group = lock(&self.standby).take()?;
+        self.took_standby.store(true, Ordering::Release);
         Some(StandbyGroup {
             group,
             attempt_timeout: STANDBY_BOUND,
@@ -401,6 +410,7 @@ async fn harness_leased(
             calls: AtomicUsize::new(0),
             standby: Mutex::new(None),
             others: Mutex::new(Vec::new()),
+            took_standby: AtomicBool::new(false),
         })
     });
     let client = ClientConnection::connect_with_reconnect_groups(
@@ -1045,4 +1055,6 @@ async fn one_route_is_not_raced_against_itself() {
     h.group.cut_all();
     tokio::time::sleep(Duration::from_secs(10)).await;
     assert_eq!(h.group.dials_since(start), 1, "one hung dial, inside its attempt timeout");
+    let source = h.source.as_ref().unwrap();
+    assert_eq!(source.calls.load(Ordering::Acquire), 0, "a source with one route was asked");
 }

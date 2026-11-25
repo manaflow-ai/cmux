@@ -220,6 +220,14 @@ pub trait ReconnectGroupSource: Send + Sync {
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError>;
 
+    /// How many routes other than a link's own this source can hand a redial (`None`: it does
+    /// not say). A redial races that many behind its first route and no more: a second dial of
+    /// one route gains nothing, and on a provider that keeps socket state per peer (iroh) it
+    /// disturbs the first. A source that does not say is not raced.
+    fn alternates(&self) -> Option<usize> {
+        None
+    }
+
     /// A live group already dialed on another route (a warm standby), taken for the redial
     /// about to start. A recovery tries it before the group that just failed, so a dead route
     /// is never redialed first. `None` (the default): no standby, redial as before.
@@ -1099,7 +1107,8 @@ impl ClientConnection {
     /// One redial round, raced (RFD 0164 Braid, slice B1: "first authenticated reply wins").
     /// The `lead` group dials at once. While no route has connected, the source's next route
     /// starts `stagger` after the one before it, or at once when one fails, at most
-    /// [`REDIAL_RACERS`] in flight. The first whose handshake finishes (transport, Noise,
+    /// [`REDIAL_RACERS`] in flight and never more than the source has routes
+    /// ([`ReconnectGroupSource::alternates`]). The first whose handshake finishes (transport, Noise,
     /// link-ready on every lane) is committed; the rest are dropped, which closes them.
     ///
     /// Before this a redial dialed one route for the whole attempt timeout (15 s by default)
@@ -1128,6 +1137,7 @@ impl ClientConnection {
         let source = self.reconnect_groups.as_deref().filter(|_| stagger.is_some());
         let stagger = stagger.unwrap_or_default();
         let resolution_bound = self.config.reconnect.attempt_timeout;
+        let racers = REDIAL_RACERS.min(self.redial_alternates().saturating_add(1));
         let mut racing = vec![lead.clone()];
         let mut handshakes = FuturesUnordered::new();
         handshakes.push(self.redial_racer(&round, lead, true, lead_bound));
@@ -1136,7 +1146,7 @@ impl ClientConnection {
         let mut next_at = Some(tokio::time::Instant::now() + stagger);
         let mut last_error = None;
         loop {
-            let may_start = !sourced_out && discovery.is_none() && racing.len() < REDIAL_RACERS;
+            let may_start = !sourced_out && discovery.is_none() && racing.len() < racers;
             if handshakes.is_empty() && discovery.is_none() {
                 if !may_start {
                     return Err(last_error.unwrap_or(ConnectionError::ReconnectAttemptTimedOut {
@@ -1199,11 +1209,10 @@ impl ClientConnection {
     /// When a redial's second route starts beside its first: a warm standby's own stagger, else
     /// 1.5 times the last winning handshake (`cmux_braid_path::stagger_after`, at least
     /// [`cmux_braid_path::race::STAGGER_FLOOR`], at most [`REDIAL_STAGGER_CEILING`]), else
-    /// [`REDIAL_STAGGER_UNKNOWN`]. `None`: the redial is not raced (no source of other routes,
-    /// or `CMUX_REMOTE_REDIAL_RACE=0`).
+    /// [`REDIAL_STAGGER_UNKNOWN`]. `None`: the redial is not raced (its source has no other
+    /// route to hand over, or `CMUX_REMOTE_REDIAL_RACE=0`).
     fn redial_stagger(&self, standby: Option<Duration>) -> Option<Duration> {
-        self.reconnect_groups.as_ref()?;
-        if !redial_race_enabled() {
+        if self.redial_alternates() == 0 || !redial_race_enabled() {
             return None;
         }
         if standby.is_some() {
@@ -1218,6 +1227,11 @@ impl ClientConnection {
             ),
             None => REDIAL_STAGGER_UNKNOWN,
         })
+    }
+
+    /// The routes a redial may race behind its first ([`ReconnectGroupSource::alternates`]).
+    fn redial_alternates(&self) -> usize {
+        self.reconnect_groups.as_ref().and_then(|source| source.alternates()).unwrap_or(0)
     }
 
     fn mark_received(&self) {
