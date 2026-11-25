@@ -98,6 +98,9 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
   document.title = strings.t(L.title);
   let view: MonacoView | null = null;
   let mounting: HTMLElement | null = null;
+  // Vim's mode line and `:` prompt (`editor.vimMode`): the view's vim writes it, the status bar shows it.
+  const vimLine = document.createElement("div");
+  vimLine.className = "ed-vim";
   // The app gives the page the keyboard (pane click, Cmd-Opt-Arrow, tab switch, relaunch): Monaco
   // takes it, also when it mounts after the request (pane-focus-DESIGN.md P1, P2).
   const focus = contentFocus();
@@ -155,6 +158,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
           return true;
         },
         onContentChange: () => find.refresh(),
+        vimLine,
       });
       view = next;
       store.attachView(next);
@@ -230,6 +234,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
       find={find}
       strings={strings}
       editorRef={editorRef}
+      vimLine={vimLine}
       emptyState={emptyState}
     />,
   );

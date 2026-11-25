@@ -12,8 +12,10 @@ extension AgentChatDestinations {
     /// - Returns: A source that answers the two actions' machine targets and forwards the rest to `next`.
     @MainActor
     public func paletteTargets(next: any PaletteTargetSource) -> any PaletteTargetSource {
+        // A link on its way is listed like a connected one (``Destination/isOnItsWay``).
         func option(_ row: Destination) -> PaletteTargetOption {
-            PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
+            PaletteTargetOption(id: row.id, title: row.title, subtitle: row.isOnItsWay ? nil : row.state, symbol: row.symbol,
+                                isEnabled: row.opens)
         }
         return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
             initial: [option(local)], next: next, updates: { self.updates() }, option: option)
