@@ -239,7 +239,6 @@ const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
 
-
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
 /// copy or read aloud and the turn did not fail. A stopped turn resumes from the composer.
 /// Its "Worked for" label is the time's tooltip now,
