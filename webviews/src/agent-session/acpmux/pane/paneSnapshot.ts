@@ -143,20 +143,21 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
+  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
   hostPlannedRestart,
-  hostRetryStep,
-  HOST_WAKE_EVENTS,
-  hostWakeAsks,
-  lostRetryStep,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -1012,6 +1013,13 @@ export function paneSnapshotEffect({
         setSessionInfoTab(host.tab);
         setStashTab(host.tab);
       }
+      // A pane opened on a subagent is the subagent's before anything draws: its header and composer
+      // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
+      // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
+      // "they need to be able to load faster and without layout shifts"). The reveal after connect
+      // runs again and changes nothing.
+      if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
+        revealRef.current(host.revealTurn);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
