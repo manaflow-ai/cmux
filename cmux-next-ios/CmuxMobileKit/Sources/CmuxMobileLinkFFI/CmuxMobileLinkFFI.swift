@@ -3651,6 +3651,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func ping() async throws  -> UInt32
     
     /**
+     * Wake the radio before a keystroke (the terminal's keyboard took focus
+     * or a finger touched it): one datagram ping on a link quiet for a
+     * second. Free when the link is busy, parked or closed. `true` when sent.
+     */
+    func prewake()  -> Bool
+    
+    /**
      * Whether the link is alive within `timeout_ms`: the round trip in
      * milliseconds on the pong, `None` when other frames from the Mac came
      * first (a slow relay's queue; the link is alive), an error only when
@@ -4036,6 +4043,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
+}
+    
+    /**
+     * Wake the radio before a keystroke (the terminal's keyboard took focus
+     * or a finger touched it): one datagram ping on a link quiet for a
+     * second. Free when the link is busy, parked or closed. `true` when sent.
+     */
+open func prewake() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_prewake(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -17973,6 +17993,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 22934) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_prewake() != 45304) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
