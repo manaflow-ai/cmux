@@ -67,6 +67,7 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod spill_cloud;
+mod ssh_bench;
 mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
@@ -1534,6 +1535,13 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+    // RFD 0127's harness (`ssh_bench.rs`): `--bench` measures, `--bench-pipe` is its ProxyCommand.
+    if ssh_bench::wants_pipe(args) {
+        return ssh_bench::pipe(args);
+    }
+    if ssh_bench::wants(args) {
+        return ssh_bench::run(args);
+    }
     // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
     let (way, rest) = ssh_carrier::split_way(args)?;
     if way != ssh_carrier::Way::SshOnly

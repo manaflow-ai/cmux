@@ -608,6 +608,8 @@ export function Combobox({
               <Autocomplete.Popup
                 ref={host ? setPopup : undefined}
                 className="ui-popup ui-glass ui-combobox-popup"
+                // Its whole box is the answer to what is typed (popupSettle.ts).
+                data-popup-settle="results"
                 data-host-glass="menu"
                 data-host-glass-cover=""
               >
