@@ -285,10 +285,16 @@ impl Hub {
         if let Some(refused) = self.takes_no_prompt(session, &slot) {
             return Err(refused);
         }
-        // Never awaited: a config writer cannot hold the answer up. Its defaults otherwise.
-        let limits = match self.config.try_read() {
+        // A deferral is already the answer-boundary path. Read the authoritative limits within
+        // a bounded retry window instead of silently changing queue policy during a config write.
+        let limits = match tokio::time::timeout(ADMISSION_BOUND, self.config.read()).await {
             Ok(cfg) => QueueLimits::of(&cfg),
-            Err(_) => QueueLimits::defaults(),
+            Err(_) => {
+                return Err(RpcError::deadline_exceeded(
+                    "prompt queue limits unavailable",
+                    ADMISSION_BOUND,
+                ));
+            }
         };
         let turn_id = uuid::Uuid::now_v7().to_string();
         let position = {

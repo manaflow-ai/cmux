@@ -2258,7 +2258,15 @@ async fn dispatch_request_with_identity(
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                match tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await
+                {
+                    Ok(owned) => owned,
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                }
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2494,7 +2502,7 @@ async fn dispatch_request_with_identity(
             let inbox_on =
                 match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
                     Ok(config) => config.agent_inbox(),
-                    Err(_) => false,
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
                 };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on

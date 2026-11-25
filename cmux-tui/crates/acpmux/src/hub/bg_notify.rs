@@ -239,7 +239,7 @@ comes to you."
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
         if ok
-            && super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name)
+            && self.page_rule_lists(&session.meta().name)
             && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
         {
             if let Err(e) = crate::home_fs::write(&mark, b"") {

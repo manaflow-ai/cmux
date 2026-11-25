@@ -1386,10 +1386,9 @@ impl Hub {
                 sender_session.as_deref(),
             );
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        // A config reload must never hold a delivery before its acceptance answer. During the
-        // write, fail open as unlisted and let the normal wake rules decide this delivery.
-        let page_rule_on =
-            self.config.try_read().is_ok_and(|config| page_rule::listed(&config, &meta_now.name));
+        // Read the catalog snapshot. Reload publishes page-rule names before taking the config
+        // writer, so inbox admission never guesses during a write and never waits on it.
+        let page_rule_on = self.page_rule_lists(&meta_now.name);
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
