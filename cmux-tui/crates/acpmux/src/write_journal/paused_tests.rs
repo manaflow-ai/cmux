@@ -284,3 +284,65 @@ fn a_file_the_seed_left_out_is_still_in_the_tree() {
         [("big.txt".into(), false), ("s.txt".into(), false)]
     );
 }
+
+/// Duress (RFD 0144's 200 ms file-open bound): a 5,000-file tree of 4 KiB sources in 50 folders,
+/// 200 journal writes on top, then folder listings, file opens and whole-tree searches while
+/// paused. Prints p50 and p95 with n; fails past the bound for a listing or an open.
+#[test]
+fn paused_reads_duress_large_tree_with_a_busy_journal() {
+    let body = "let value = compute(1, 2);\n".repeat(150);
+    let paths: Vec<String> = (0..5000).map(|i| format!("d{:02}/f{i:04}.rs", i % 50)).collect();
+    let files: Vec<(&str, &str)> = paths.iter().map(|p| (p.as_str(), body.as_str())).collect();
+    let f = fixture(&files, SeedBounds::default());
+    let resume = FakeResume::new(Duration::ZERO);
+    let report = f.fs.pause("m1", &f.machine, resume.clone(), 0).unwrap();
+    assert!(report.complete);
+    for i in 0..200u64 {
+        let p = f.machine.join(format!("d{:02}/new{i}.rs", i % 50));
+        f.fs.write("m1", &p, "let needle = 1;\n", 0, i + 1).unwrap();
+    }
+    let pct = |mut v: Vec<Duration>, q: f64| {
+        v.sort();
+        v[((v.len() as f64 * q).ceil() as usize).saturating_sub(1)]
+    };
+    let report_line = |what: &str, v: Vec<Duration>| {
+        let n = v.len();
+        let (p50, p95) = (pct(v.clone(), 0.5), pct(v, 0.95));
+        eprintln!(
+            "RFD 0144 paused {what}: n={n} p50 {:.2} ms p95 {:.2} ms",
+            p50.as_secs_f64() * 1e3,
+            p95.as_secs_f64() * 1e3
+        );
+        p95
+    };
+    let mut lists = Vec::new();
+    for i in 0..200 {
+        let dir = f.machine.join(format!("d{:02}", i % 50));
+        let at = Instant::now();
+        let n = names(f.fs.list_dir("m1", &dir, 0).unwrap()).len();
+        lists.push(at.elapsed());
+        assert_eq!(n, 104);
+    }
+    let mut opens = Vec::new();
+    for i in 0..200 {
+        let at = Instant::now();
+        let t = text(f.fs.read("m1", &f.machine.join(&paths[i * 25]), 0).unwrap());
+        opens.push(at.elapsed());
+        assert_eq!(t.len(), body.len());
+    }
+    let mut searches = Vec::new();
+    for _ in 0..10 {
+        let at = Instant::now();
+        let r = f.fs.search("m1", &f.machine, "needle", 1000, 0).unwrap();
+        searches.push(at.elapsed());
+        match r {
+            Routed::Answered(SearchOutcome::Hits { hits, .. }) => assert_eq!(hits.len(), 200),
+            other => panic!("expected hits, got {other:?}"),
+        }
+    }
+    assert_eq!(resume.calls.load(Ordering::SeqCst), 0, "no read woke the machine");
+    let bound = Duration::from_millis(200);
+    assert!(report_line("folder listing", lists) < bound);
+    assert!(report_line("file open", opens) < bound);
+    report_line("whole-tree search (5,200 files)", searches);
+}
