@@ -379,6 +379,7 @@ jobs:
             --artifact-directory assets/chatmux-relay
 
       - name: Attest raw binary subjects
+        id: attest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
@@ -392,6 +393,19 @@ jobs:
           # These are file subjects, not OCI images. No artifact-metadata
           # storage records are created for this R2 publication.
           push-to-registry: false
+
+      # Publish the Sigstore bundle beside each manifest, so installers verify
+      # it offline (gh attestation verify --bundle) instead of spending the
+      # GitHub API installation quota on every nightly leg (run 45583224796).
+      - name: Keep the attestation bundle beside each manifest
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$BUNDLE_PATH"
+          for directory in assets/cmux-tui assets/cmux-relay assets/chatmux-relay; do
+            cp "$BUNDLE_PATH" "$directory/manifest.json.sigstore.json"
+          done
 
       - name: Upload to R2
         env:
