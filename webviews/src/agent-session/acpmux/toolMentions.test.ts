@@ -5,6 +5,7 @@ import sharedCases from "../../../../cmux-tui/crates/acpmux/src/tool_mention_cas
 import { returnPicks, slashMatches, slashTrigger, type SlashCommand } from "./slashCommands";
 import { withToolCommands } from "./composer/extensionCommands";
 import {
+  isToolCommand,
   toolMentionContext,
   toolMentionsFor,
   toolMentionsIn,
@@ -76,6 +77,19 @@ test("the / and $ menus list both tools as cmux's own rows, and a pick writes th
   expect(names("then $brow")).toEqual(["browser-use"]);
   expect(names("costs $5")).toEqual([]);
   expect(toolMentionsIn("open it with $computer-use")).toEqual(["computer-use"]);
+});
+
+test("the New Tab tells the built-in tool rows from an extension's command of the same name", () => {
+  const [computerUse, browserUse] = toolSlashCommands((key) => key);
+  expect(isToolCommand(computerUse!)).toBe(true);
+  expect(isToolCommand(browserUse!)).toBe(true);
+  // An extension's command with the same name and text names its extension: it stays in `/`.
+  expect(isToolCommand({ ...browserUse!, extension: "Local" })).toBe(false);
+  expect(isToolCommand({ name: "computer-use", description: "", source: "skill" })).toBe(false);
+  // The cmux plugin's skills behind the two tools: `@` names them, so `/` leaves them out.
+  expect(isToolCommand({ name: "cmux:cmux-browser", description: "", source: "skill" })).toBe(true);
+  expect(isToolCommand({ name: "cmux:cmux-computer-use", description: "", source: "agent" })).toBe(true);
+  expect(isToolCommand({ name: "cmux:cmux-customization", description: "", source: "skill" })).toBe(false);
 });
 
 test("the draft's badges: each tool word's range and href, and the tool each href names", () => {
