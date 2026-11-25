@@ -114,7 +114,7 @@ struct WorkedForRow: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             .zIndex(1)
             .accessibilityValue(open ? "Expanded" : "Collapsed")

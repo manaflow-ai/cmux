@@ -381,6 +381,7 @@ impl Hub {
                 let leased = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
                 if let Some(leased) = leased {
                     leased.stop();
+                    crate::server::channels::link_lost(self, name, leased.generation);
                 }
                 // The lease lock is held here and this peer has no cache. Avoid taking the
                 // per-peer writer, whose workers take the lease lock while saving.
@@ -587,6 +588,9 @@ impl Hub {
     /// A peer left for good: watchers hear its last state, `offline` with error `removed`,
     /// unless another instance took its name meanwhile (`peer_states.rs`).
     pub(super) fn note_peer_removed(&self, peer: &crate::peer::Peer) {
+        // Its link's channels close for their local side now: the link's own `Disconnected`
+        // notice finds the peer gone (`server/channels.rs`).
+        crate::server::channels::link_lost(self, &peer.name, peer.generation);
         self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
         self.events.origin_tee(&peer.name, OriginState::Removed, crate::store::now_ms());
     }
@@ -667,6 +671,13 @@ impl Hub {
             row
         }));
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
+        // Each machine the fleet registry gives `lanes`: its elastic add/drain state
+        // (`fleet_elastic.rs`, version 1).
+        crate::fleet_elastic::annotate_with(
+            &mut v,
+            crate::fleet_elastic::registry().as_deref(),
+            crate::fleet_elastic::maker_states().as_deref(),
+        );
         v
     }
 
@@ -704,6 +715,13 @@ impl Hub {
     #[doc(hidden)]
     pub fn forget_peer_session_messages_for_tests(&self, name: &str) -> bool {
         self.peer(name).map(|p| p.forget_session_messages_for_tests()).is_some()
+    }
+
+    /// Agent byte channels on this daemon: (channels open, services listened on)
+    /// (`server/channels.rs`), for integration tests.
+    #[doc(hidden)]
+    pub fn channel_counts_for_tests(&self) -> (usize, usize) {
+        crate::server::channels::counts(self)
     }
 
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
@@ -902,7 +920,7 @@ impl Hub {
                     self.events.origin_tee(&peer, OriginState::Connected, crate::store::now_ms());
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
-                    self.outbox.peer_ready.notify_waiters();
+                    self.outbox.note_peer_ready(&peer);
                     // Sessions can be saved before the handshake marks the link ready.
                     // Persist its cleared outage once, without rewriting an already-clear cache.
                     if self.peer(&peer).is_some_and(|p| {
@@ -926,6 +944,8 @@ impl Hub {
                     tracing::info!(peer = %peer, "peer restarting");
                 }
                 PeerNotice::Disconnected(e) => {
+                    // Channels that rode the link end for their local side.
+                    crate::server::channels::link_lost(self, &peer, generation);
                     if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
                         p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
@@ -1229,6 +1249,13 @@ impl Hub {
                     if summary.get("status").and_then(Value::as_str) == Some("closed") {
                         self.trim_closed_peer_rows(&peer, generation);
                     }
+                }
+                // A channel this daemon opened on the peer: its bytes and its end
+                // (`server/channels.rs`).
+                PeerNotice::Notification { method: m, params, .. }
+                    if crate::server::channels::from_peer_method(&m) =>
+                {
+                    crate::server::channels::from_peer(self, &peer, generation, &m, &params);
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
                 PeerNotice::Notification { method: m, params, .. }
