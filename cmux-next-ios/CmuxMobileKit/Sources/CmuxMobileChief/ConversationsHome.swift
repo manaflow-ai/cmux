@@ -67,7 +67,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.leading = leading()
     }
 
-    /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
+    /// The listed Macs (every cmux build as its own Mac: ``MacRoster``).
     private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
 
     private var labels: HomeMacLabels {
@@ -408,7 +408,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     // placeholder-ok: this account has no cached Home rows yet.
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
                         .placeholderBound("home.conversations.loading", .milliseconds(2000))
-                case .connecting, .updating, .none:
+                case .connecting, .none:
                     // `.connecting` draws nothing (Leo, 2026-11-23: "i dont wanna see connecting to
                     // cosmic-gray... with the spinner, i want it to just work."): the rows come with the link.
                     EmptyView()
@@ -451,7 +451,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .scrollContentBackground(.hidden)
         .background(CmuxMobileBackdrop().ignoresSafeArea())
         // Kept rows show while the Mac's list loads, with no note over them (Leo, 2026-11-12:
-        // "just show the cache"); a list that cannot load says so past the quiet bound.
+        // "just show the cache"; 2026-11-24: "they dont need to know that it's updating before
+        // they KNOW it's updating"); a list that cannot load says so past the quiet bound.
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
@@ -663,7 +664,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// What Home says while the Mac's list is not in (``HomeListNote``).
     private func listNote(searching: Bool) -> HomeListNote {
-        HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: homeMacID,
+        HomeListNote.make(rows: feed.rows, homeMacID: homeMacID,
                           macsMayExist: HomeListNote.macsMayAnswer(live: store.tracksMacData, macsKnown: store.activeTeam != nil,
                                                                    anyOnline: macs.contains(where: \.isOnline)),
                           searching: searching, failing: feed.problem != nil || homeIsOffline)
