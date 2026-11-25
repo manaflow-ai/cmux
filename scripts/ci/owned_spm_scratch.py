@@ -831,12 +831,76 @@ def second_seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, 
     return free + kept >= int((floor_gib + growth_gib) * 1024**3) + footprint
 
 
+# The off switch for make_seed_room: "0" leaves the scratch alone and the seed root falls through on room as
+# before (cmux-next.yml sets it from vars.CI_SPM_SCRATCH_SEED_EVICT).
+SEED_EVICT_SETTING = "CMUX_SPM_SCRATCH_SEED_EVICT"
+
+
+def in_use(entry: Path) -> bool:
+    """Whether a job holds ENTRY's lock now (shared or exclusive); drop checks again under its own lock."""
+    try:
+        with open(lock_path(entry), "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    return False
+
+
+def same_volume(a: Path, b: Path) -> bool:
+    try:
+        return a.stat().st_dev == b.stat().st_dev
+    except OSError:
+        return False
+
+
+def free_needed(fits, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> int:
+    """The least free space at which FITS (a seed root's room check: seed_fits, second_seed_fits) passes."""
+    high = 1
+    while not fits(high, kept, floor_gib, growth_gib, footprint):
+        high *= 2
+    low = 0
+    while low < high:
+        mid = (low + high) // 2
+        if fits(mid, kept, floor_gib, growth_gib, footprint):
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def make_seed_room(parent: Path, scratch: Path, kept: int, floor_gib: float, growth_gib: float, footprint: int,
+                   environ: Mapping[str, str] = os.environ, fits=None) -> list[str]:
+    """Drop the least recently used SwiftPM scratch directories no job holds until the seed root fits by its own
+    test (FITS, seed_fits by default: glaeda's floor plus what the seed needs past one job's growth), and no further. The bound is
+    that admission's threshold, not a size: a mini with room keeps all its scratch. The seed root fell through on
+    room on 8 fast-tier jobs (three minis at 15.4, 48.4 and 56.2 GiB free, 2026-11-23) while
+    one of them held 31 GiB of scratch. A directory a job holds (its lock, shared or exclusive) is never dropped
+    (drop). Off: CMUX_SPM_SCRATCH_SEED_EVICT=0. Returns the dropped directories' names."""
+    if environ.get(SEED_EVICT_SETTING, "1") == "0" or not scratch.is_dir() or not same_volume(parent, scratch):
+        return []
+    short = free_needed(fits or seed_fits, kept, floor_gib, growth_gib, footprint) - free_bytes(parent)
+    if short <= 0:
+        return []
+    stats = {entry: tree_stats(entry) for entry in entries(scratch)}
+    if sum(size for entry, (size, _) in stats.items() if not in_use(entry)) < short:
+        return []  # dropping all of it would still leave the seed no room: keep the scratch warm
+    sizes: dict[str, int] = {}
+    total = sum(size for size, _ in stats.values())
+    dropped = prune(scratch, max_bytes=max(0, total - short), sizes=sizes)
+    freed = sum(sizes.get(name, 0) for name in dropped)
+    if dropped:
+        print(f"owned SwiftPM scratch: dropped {len(dropped)} least recently used scratch directories "
+              f"({freed / 1024**3:.1f} GiB) to make room for the seed root ({short / 1024**3:.1f} GiB short)")
+    return dropped
+
+
 def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
-               verdict: dict[str, object] | None = None, fits=seed_fits) -> Path | None:
+               verdict: dict[str, object] | None = None, fits=seed_fits,
+               store: Path = DEFAULT_STORE) -> Path | None:
     """Hold the mini's seed root for this job and mirror WORKSPACE into it; return it, or None to take the
     shared roots as before: not an owned runner, the root's parent not provisioned (the mini's user owns
     /Users/runner/_work/cmux and marks it with SEED_MARKER), another job holding it, or no room above
-    glaeda's floor (seed_fits).
+    glaeda's floor (seed_fits) even after make_seed_room dropped the idle SwiftPM scratch it may.
     The packages' .build stay real directories there: the job restores the seed into them."""
     if "-glaeda" not in runner or os.path.realpath(workspace) == os.path.realpath(seed_workspace):
         return None
@@ -854,6 +918,8 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         kept = sum(tree_bytes(seed_workspace / build) for build in SEED_BUILDS)
         floor_gib, growth_gib = disk_limits_gib()
         footprint = max(SEED_BYTES_ESTIMATE, kept)
+        if not fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
+            make_seed_room(parent, store / SCRATCH, kept, floor_gib, growth_gib, footprint, fits=fits)
         if not fits(free_bytes(parent), kept, floor_gib, growth_gib, footprint):
             os.close(fd)
             return None
@@ -936,7 +1002,7 @@ def main(argv: list[str]) -> int:
             seeded = None
             for seed, fits in seed_roots():
                 try:
-                    seeded = seed_lease(workspace, seed, runner, verdict=verdict, fits=fits)
+                    seeded = seed_lease(workspace, seed, runner, verdict=verdict, fits=fits, store=store)
                 except (OSError, subprocess.SubprocessError) as error:
                     release_holders()
                     print(f"owned SwiftPM scratch: no seed root at {seed} ({error})")

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.claude.invalid" : {
+      "comment" : "Settings > Models (ModelsCard.tsx): Cloud threads' subscriptions and keys. ChatGPT, Claude, Claude Code, OpenAI, Anthropic and the provider names are product names.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That doesn't look like a Claude setup token. It starts with sk-ant-oat and has no spaces."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يبدو هذا رمز إعداد Claude. يبدأ بـ sk-ant-oat ولا يحتوي على مسافات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovo ne liči na Claude token za postavljanje. Počinje sa sk-ant-oat i nema razmaka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det ligner ikke et Claude-opsætningstoken. Det starter med sk-ant-oat og har ingen mellemrum."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das sieht nicht wie ein Claude-Setup-Token aus. Es beginnt mit sk-ant-oat und enthält keine Leerzeichen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eso no parece un token de configuración de Claude. Empieza por sk-ant-oat y no tiene espacios."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ceci ne ressemble pas à un jeton de configuration Claude. Il commence par sk-ant-oat et ne contient pas d’espace."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non sembra un token di configurazione Claude. Inizia con sk-ant-oat e non contiene spazi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude のセットアップトークンではないようです。sk-ant-oat で始まり、空白を含みません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "នេះមើលទៅមិនដូចថូខឹនរៀបចំ Claude ទេ។ វាចាប់ផ្ដើមដោយ sk-ant-oat ហើយគ្មានដកឃ្លា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude 설정 토큰이 아닌 것 같습니다. sk-ant-oat로 시작하며 공백이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det ser ikke ut som et Claude-oppsettstoken. Det begynner med sk-ant-oat og har ingen mellomrom."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To nie wygląda na token konfiguracji Claude. Zaczyna się od sk-ant-oat i nie zawiera spacji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso não parece um token de configuração do Claude. Ele começa com sk-ant-oat e não tem espaços."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это не похоже на токен настройки Claude. Он начинается с sk-ant-oat и не содержит пробелов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ดูไม่เหมือนโทเค็นตั้งค่าของ Claude โทเค็นขึ้นต้นด้วย sk-ant-oat และไม่มีช่องว่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu bir Claude kurulum belirtecine benzemiyor. sk-ant-oat ile başlar ve boşluk içermez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Це не схоже на токен налаштування Claude. Він починається з sk-ant-oat і не містить пробілів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đây có vẻ không phải mã thiết lập Claude. Mã bắt đầu bằng sk-ant-oat và không có khoảng trắng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这看起来不像 Claude 设置令牌。它以 sk-ant-oat 开头且不含空格。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這看起來不像 Claude 設定權杖。它以 sk-ant-oat 開頭且不含空格。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
