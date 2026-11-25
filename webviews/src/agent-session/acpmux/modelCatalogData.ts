@@ -475,7 +475,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join, probed, hiddenReleases);
+  addSessionModels(models, live, harness.id, listed, join, probed, runs, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
@@ -544,7 +544,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
       continue;
     if (!models.some((row) => row.id === model.id)) models.push(listedModel(model, entry.id, entry.models, join));
   }
-  addSessionModels(models, live, entry.id, listed, join, entry.models, hiddenReleases, kin?.id);
+  addSessionModels(models, live, entry.id, listed, join, entry.models, runs, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
@@ -758,16 +758,16 @@ function addSessionModels(
   listed: HarnessModel[],
   join: Join,
   probed: AcpmuxModel[],
+  current: string | undefined,
   hiddenReleases: Set<string> = new Set(),
   identityHarnessId = harnessId,
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
-  if (!option) return;
-  const choices: { id: string; name?: string }[] = (option.options ?? []).map((choice) => ({
+  const choices: { id: string; name?: string }[] = (option?.options ?? []).map((choice) => ({
     id: choice.value,
     name: choice.name || undefined,
   }));
-  if (option.currentValue) choices.push({ id: option.currentValue });
+  if (current) choices.push({ id: current });
   for (const choice of choices) {
     if (!choice.id || models.some((model) => model.id === choice.id)) continue;
     if (isHiddenByUser(harnessId, choice.id, join)) continue;

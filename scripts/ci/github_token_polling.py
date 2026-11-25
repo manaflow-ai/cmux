@@ -77,7 +77,10 @@ SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
 API_URL_VALUE = re.compile(r"github\.api_url|api\.github\.com|\$\{?GITHUB_API_URL\b")
-SCRIPT_PATH = re.compile(r"^(?:\./)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
+# Workflows sometimes check out the main-branch copy of a helper under a
+# tooling directory before running it. Keep following that helper for token
+# accounting while resolving it against the repository root.
+SCRIPT_PATH = re.compile(r"^(?:\./)?(?:\.tick-tooling/)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
 INTERPRETERS = {"bash", "sh", "python", "python3", "node", "bun", "ruby", "source", "."}
 SEPARATORS = {";", "&&", "||", "|", "(", "$(", "{", "then", "else", "elif", "do", "!", "`", "&", "if", "while",
               "until", "time"}

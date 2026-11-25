@@ -37,6 +37,9 @@
 //! "agent process closed" (2026-10-21): a chat whose agent died completes no turn, so they waited
 //! until someone pressed resume.
 //!
+//! - Agents that come close together go in together, busy or not: one that would start a turn
+//!   in an idle chat waits a moment for the ones right behind it (`agent_gather.rs`).
+//!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that
 //! does not steer, a steer its turn ended before reading, a `--no-steer` send, a send that waits
@@ -56,6 +59,11 @@ use std::sync::atomic::Ordering;
 // `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
 #[path = "inbox_digest.rs"]
 pub(super) mod inbox_digest;
+
+// An idle chat's agent message waits for the ones right behind it (`agent_gather.rs`).
+#[path = "agent_gather.rs"]
+mod agent_gather;
+pub(super) use agent_gather::{AGENT_GATHER_MS, end_gather, gather_until, gathers, open_gather};
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
@@ -146,6 +154,25 @@ pub fn declared_sender(params: &Value) -> Result<Option<String>, RpcError> {
         ))
         .with_data(json!({"reason": "from_agent.value_refused"}))),
     }
+}
+
+/// `declared` as `HOST/NAME` for a prompt a peer daemon forwarded: `host` is the machine that
+/// daemon stamped on its own proven caller (`messageSender.host`, `peer_forward.rs`
+/// `name_sender`), which no client of it can set. A name that already starts with that host keeps
+/// it once; any other `HOST/` a sender wrote into its label stays part of the name, under the
+/// stamped host. No host (a peer from before it sent one) leaves the name as it was.
+pub fn on_peer_host(declared: String, host: Option<&str>) -> String {
+    let Some(host) = host
+        .map(str::trim)
+        .filter(|h| !h.is_empty() && !h.contains('/') && !h.chars().any(char::is_control))
+    else {
+        return declared;
+    };
+    if declared.strip_prefix(host).is_some_and(|rest| rest.starts_with('/')) {
+        return declared;
+    }
+    let named = format!("{host}/{declared}");
+    named.chars().take(MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
 }
 
 /// The blocks of one turn of agent messages, `parts` oldest first: a line saying what follows,
@@ -343,7 +370,16 @@ impl Hub {
             return Vec::new();
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
-        if head.agent.is_none()
+        // The person's prompt joins none, but the one a held chat held: the person's prompts
+        // queued behind it join it (`person_hold.rs`).
+        let person = head.agent.is_none() && super::person_hold::folds(session, turn_id);
+        // A cold chat's batch (`cold_wake.rs`): its inbox notice is acpmux's, not the person's,
+        // and the agent messages queued behind it (a background task's end, a lane report) go in
+        // with it. Outside a batch a notice joins nothing, as before.
+        let notice = super::inbox::is_notice(head.provenance.as_ref())
+            && !person
+            && session.cold_batch_turn.load(Ordering::SeqCst);
+        if (head.agent.is_none() && !person && !notice)
             || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
@@ -366,7 +402,7 @@ impl Hub {
                     i += 1;
                     continue;
                 }
-                let joins = q.run.agent.is_some()
+                let joins = q.run.agent.is_some() != person
                     && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
                     && super::forum::slash_command(&q.run.blocks).is_none()
                     && !crate::prompt_uploads::any(&q.run.blocks)
@@ -740,6 +776,25 @@ mod tests {
         assert!(named(json!("x".repeat(65))).is_err());
         assert!(named(json!(7)).is_err());
         assert_eq!(declared_sender(&json!({})).unwrap(), None);
+    }
+
+    /// A peer-forwarded prompt names `HOST/SESSION` from the forwarding daemon's stamp; an old
+    /// peer that stamps no host keeps the bare name, and a label that writes another host stays
+    /// under the stamped one.
+    #[test]
+    fn a_peer_forwarded_sender_names_its_machine() {
+        assert_eq!(on_peer_host("lane-a".into(), Some("host-a")), "host-a/lane-a");
+        assert_eq!(on_peer_host("host-a/lane-a".into(), Some("host-a")), "host-a/lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), None), "lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some(" ")), "lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some("a/b")), "lane-a", "no host smuggles a '/'");
+        assert_eq!(
+            on_peer_host("host-b/coord".into(), Some("host-a")),
+            "host-a/host-b/coord",
+            "a label can't claim another machine"
+        );
+        let long = on_peer_host("x".repeat(MAX_FROM_AGENT_CHARS), Some("host-a"));
+        assert_eq!(long.chars().count(), MAX_FROM_AGENT_CHARS);
     }
 
     #[test]

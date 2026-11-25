@@ -1,12 +1,13 @@
 //! The reducer: [`Coordinator::reduce`] takes an [`Event`] (a request, or the
 //! result of I/O the caller ran) and returns the [`Effect`]s to run, in order.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use crate::event::{
     AfterTeams, AuthFailure, Effect, Event, Persisted, RestoreTicket, SignInFlow, TokenReadKind,
 };
+use crate::machine::Refusal;
 use crate::model::{
     AuthState, AuthTeam, AuthUser, CachedTeamIdentity, LaunchOptions, SessionIdentity, TeamScope,
     resolve_team_id,
@@ -16,52 +17,42 @@ use crate::phase::team_scope_recovery_delay;
 mod restore;
 mod session;
 mod sign_in;
+pub(crate) mod state;
+pub(crate) mod table;
 mod teams;
 
-#[derive(Clone, Copy, Debug)]
-struct RateLimitStreak {
-    streak: u32,
-    delay: Duration,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Recovery {
-    id: u64,
-    attempt: u32,
-}
+use state::{
+    Backoff, DebugCredentials, Generations, Loading, PendingCode, RecoveryLoop, Restore, Session,
+    Teams, TokenCache,
+};
 
 /// The coordinator's view-less state: what it publishes and the generations
-/// that keep a late answer from overwriting a newer session.
-#[derive(Clone, Debug)]
+/// that keep a late answer from overwriting a newer session. Each region is a
+/// sum type ([`state`]); the open tickets (sign-in flows, sign-out captures,
+/// team reads) are keyed by the generation they were issued under.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Coordinator {
     launch: LaunchOptions,
-    is_authenticated: bool,
-    current_user: Option<AuthUser>,
-    is_restoring_session: bool,
-    is_loading: bool,
-    available_teams: Vec<AuthTeam>,
+    session: Session,
+    restore: Restore,
+    loading: Loading,
+    teams: Teams,
     selected_team_id: Option<String>,
     cached_user: Option<AuthUser>,
-    has_tokens: bool,
-    has_pending_code: bool,
-    has_debug_credentials: bool,
+    token_cache: TokenCache,
+    pending_code: PendingCode,
+    debug_credentials: DebugCredentials,
     last_sign_out_reason: Option<String>,
-    session_generation: u64,
-    sign_out_epoch: u64,
-    sign_in_attempt_counter: u64,
-    token_store_write_high_water: u64,
+    generations: Generations,
+    /// The sign-in flows begun and not yet finished, by attempt.
     active_sign_in_flows: BTreeMap<u64, SignInFlow>,
-    is_revalidating_session: bool,
-    is_capturing_sign_out_credentials: bool,
-    authenticated_teams_session_generation: Option<u64>,
-    team_scope_generation: u64,
+    /// The sign-out epochs whose credential capture has not answered yet.
+    pending_sign_out_captures: BTreeSet<u64>,
     last_published_team_scope: Option<TeamScope>,
-    team_mutation_generation: u64,
-    team_list_generation: u64,
-    active_team_refresh_count: u32,
-    team_scope_rate_limit: Option<RateLimitStreak>,
-    team_scope_recovery: Option<Recovery>,
-    next_recovery_id: u64,
+    /// The team reads issued and not yet answered, by id.
+    pending_team_reads: BTreeSet<u64>,
+    backoff: Backoff,
+    recovery: RecoveryLoop,
     rng: u64,
 }
 
@@ -75,33 +66,23 @@ impl Coordinator {
     ) -> (Self, Vec<Effect>) {
         let mut coordinator = Self {
             launch,
-            is_authenticated: false,
-            current_user: None,
-            is_restoring_session: false,
-            is_loading: false,
-            available_teams: Vec::new(),
+            session: Session::SignedOut { shown: None },
+            restore: Restore::Idle,
+            loading: Loading::Idle,
+            teams: Teams::Unloaded,
             selected_team_id: persisted.selected_team_id,
             cached_user: persisted.cached_user,
-            has_tokens: persisted.has_tokens,
-            has_pending_code: false,
-            has_debug_credentials: false,
+            token_cache: if persisted.has_tokens { TokenCache::Stored } else { TokenCache::Empty },
+            pending_code: PendingCode::None,
+            debug_credentials: DebugCredentials::None,
             last_sign_out_reason: None,
-            session_generation: 0,
-            sign_out_epoch: 0,
-            sign_in_attempt_counter: 0,
-            token_store_write_high_water: 0,
+            generations: Generations::default(),
             active_sign_in_flows: BTreeMap::new(),
-            is_revalidating_session: false,
-            is_capturing_sign_out_credentials: false,
-            authenticated_teams_session_generation: None,
-            team_scope_generation: 0,
+            pending_sign_out_captures: BTreeSet::new(),
             last_published_team_scope: None,
-            team_mutation_generation: 0,
-            team_list_generation: 0,
-            active_team_refresh_count: 0,
-            team_scope_rate_limit: None,
-            team_scope_recovery: None,
-            next_recovery_id: 0,
+            pending_team_reads: BTreeSet::new(),
+            backoff: Backoff::Clear,
+            recovery: RecoveryLoop::Idle,
             rng: jitter_seed | 1,
         };
         let mut fx = Vec::new();
@@ -112,31 +93,27 @@ impl Coordinator {
     // MARK: - Reads
 
     pub fn is_authenticated(&self) -> bool {
-        self.is_authenticated
+        self.session.is_authenticated()
     }
 
     pub fn current_user(&self) -> Option<&AuthUser> {
-        self.current_user.as_ref()
+        self.session.user()
     }
 
     pub fn is_restoring_session(&self) -> bool {
-        self.is_restoring_session
+        self.session.is_restoring()
     }
 
     pub fn is_loading(&self) -> bool {
-        self.is_loading
+        self.loading == Loading::Busy
     }
 
     pub fn state(&self) -> AuthState {
-        AuthState {
-            is_authenticated: self.is_authenticated,
-            current_user: self.current_user.clone(),
-            is_restoring_session: self.is_restoring_session,
-        }
+        self.session.published()
     }
 
     pub fn available_teams(&self) -> &[AuthTeam] {
-        &self.available_teams
+        self.teams.list()
     }
 
     pub fn selected_team_id(&self) -> Option<&str> {
@@ -145,16 +122,16 @@ impl Coordinator {
 
     /// The team API calls target.
     pub fn resolved_team_id(&self) -> Option<String> {
-        resolve_team_id(self.selected_team_id.as_deref(), &self.available_teams)
+        resolve_team_id(self.selected_team_id.as_deref(), self.teams.list())
     }
 
     pub fn session_generation(&self) -> u64 {
-        self.session_generation
+        self.generations.session
     }
 
     /// Advances at the start of every sign-out.
     pub fn sign_out_revision(&self) -> u64 {
-        self.sign_out_epoch
+        self.generations.sign_out_epoch
     }
 
     pub fn last_sign_out_reason(&self) -> Option<&str> {
@@ -162,26 +139,27 @@ impl Coordinator {
     }
 
     pub fn has_pending_code(&self) -> bool {
-        self.has_pending_code
+        self.pending_code == PendingCode::Sent
     }
 
     pub fn team_scope_generation(&self) -> u64 {
-        self.team_scope_generation
+        self.generations.team_scope
     }
 
     pub fn has_pending_team_scope_recovery(&self) -> bool {
-        self.team_scope_recovery.is_some()
+        self.recovery != RecoveryLoop::Idle
     }
 
     /// Whether a sign-in, a restore or a sign-out's credential capture owns a
     /// possibly empty token store: a reader's empty read is then transient.
     pub fn session_token_transition_is_active(&self) -> bool {
-        let sign_in_owns_store = self.active_sign_in_flows.values().any(|flow| {
-            flow.generation == self.session_generation && flow.sign_out_epoch == self.sign_out_epoch
-        });
-        let validation_owns_store =
-            self.is_revalidating_session && (self.is_restoring_session || self.is_authenticated);
-        sign_in_owns_store || validation_owns_store || self.is_capturing_sign_out_credentials
+        let sign_in_owns_store =
+            self.active_sign_in_flows.values().any(|flow| self.flow_is_current(*flow));
+        let validation_owns_store = match self.restore {
+            Restore::Idle => false,
+            Restore::Running { .. } => self.session.is_restoring() || self.is_authenticated(),
+        };
+        sign_in_owns_store || validation_owns_store || !self.pending_sign_out_captures.is_empty()
     }
 
     /// The current account and generation, while no token transition runs.
@@ -195,43 +173,44 @@ impl Coordinator {
     /// The identity the lifecycle streams carry: stable through same-account
     /// revalidation, gone at the synchronous start of sign-out.
     pub fn published_session_identity(&self) -> Option<SessionIdentity> {
-        if self.is_capturing_sign_out_credentials {
+        if !self.pending_sign_out_captures.is_empty() {
             return None;
         }
         self.identity_if_signed_in()
     }
 
     fn identity_if_signed_in(&self) -> Option<SessionIdentity> {
-        if !self.is_authenticated {
+        let user = match &self.session {
+            Session::SignedOut { .. } | Session::Restoring { .. } => return None,
+            Session::RestoringSignedIn { user } | Session::SignedIn { user } => user,
+        };
+        if user.id.is_empty() {
             return None;
         }
-        let account_id = self.current_user.as_ref()?.id.clone();
-        if account_id.is_empty() {
-            return None;
-        }
-        Some(SessionIdentity { generation: self.session_generation, account_id })
+        Some(SessionIdentity { generation: self.generations.session, account_id: user.id.clone() })
     }
 
     /// The current account and its resolved team, once this session's team
     /// list has loaded and contains that team.
     pub fn team_scope(&self) -> Option<TeamScope> {
         let session = self.published_session_identity()?;
-        if self.authenticated_teams_session_generation != Some(session.generation) {
-            return None;
-        }
+        let teams = match &self.teams {
+            Teams::Unloaded => return None,
+            Teams::Loaded { teams } => teams,
+        };
         let team_id = self.resolved_team_id().filter(|id| !id.is_empty())?;
-        if !self.available_teams.iter().any(|team| team.id == team_id) {
+        if !teams.iter().any(|team| team.id == team_id) {
             return None;
         }
-        Some(TeamScope { session, team_id, generation: self.team_scope_generation })
+        Some(TeamScope { session, team_id, generation: self.generations.team_scope })
     }
 
     /// The persisted account and team, for read-only warming only.
     pub fn cached_team_identity(&self) -> Option<CachedTeamIdentity> {
-        if !self.has_tokens {
+        if self.token_cache == TokenCache::Empty {
             return None;
         }
-        let account_id = self.current_user.as_ref()?.id.clone();
+        let account_id = self.session.user()?.id.clone();
         let team_id = self.selected_team_id.clone()?;
         if account_id.is_empty() || team_id.is_empty() {
             return None;
@@ -242,33 +221,45 @@ impl Coordinator {
     /// Signed in, but this session's team list has not loaded and no read is
     /// in flight to load it.
     pub fn needs_team_scope_recovery(&self) -> bool {
-        self.is_authenticated
-            && self.active_team_refresh_count == 0
-            && self.authenticated_teams_session_generation != Some(self.session_generation)
+        self.is_authenticated()
+            && self.pending_team_reads.is_empty()
+            && self.teams == Teams::Unloaded
     }
 
     /// The recovery loop's next wait: the normal backoff, or the longer
     /// rate-limit backoff while the session check answers 429.
     pub fn team_scope_recovery_wait(&self, attempt: u32) -> Duration {
         let normal = team_scope_recovery_delay(attempt);
-        match self.team_scope_rate_limit {
-            Some(limit) => normal.max(limit.delay),
-            None => normal,
+        match self.backoff {
+            Backoff::RateLimited { delay, .. } => normal.max(delay),
+            Backoff::Clear => normal,
         }
     }
 
     // MARK: - Reducer
 
-    /// Applies `event` and returns the effects to run, in order.
+    /// Applies `event` and returns the effects to run, in order. A refused
+    /// event ([`Coordinator::step`]) runs nothing.
     pub fn reduce(&mut self, event: Event) -> Vec<Effect> {
+        self.step(event).unwrap_or_default()
+    }
+
+    /// Applies `event` and returns the effects to run, in order; or the
+    /// [`Refusal`] that names why `event` changes nothing. A refusal leaves
+    /// the coordinator exactly as it was. Every event is one arm, and each
+    /// arm decides every state it can meet: there is no default.
+    pub fn step(&mut self, event: Event) -> Result<Vec<Effect>, Refusal> {
         let mut fx = Vec::new();
+        // An answer must be for the run, flow, read or loop that is waiting
+        // for it: a late one must not end or steer the one that replaced it.
+        self.check_answer(&event)?;
         match event {
-            Event::Restore(trigger) => self.on_restore(trigger, &mut fx),
+            Event::Restore(trigger) => self.on_restore(trigger, &mut fx)?,
             Event::TokensProbed { ticket, probe, storage_was_available, read_failed } => {
                 self.on_tokens_probed(ticket, probe, storage_was_available, read_failed, &mut fx);
             }
             Event::TokenStorageAvailability { ticket, available } => {
-                if ticket.generation != self.session_generation || !available {
+                if ticket.generation != self.generations.session || !available {
                     self.finish_restore(&mut fx);
                 } else {
                     fx.push(Effect::ProbeStoredTokens(RestoreTicket {
@@ -279,11 +270,11 @@ impl Coordinator {
             }
             Event::ProbeRetryDue { ticket, cancelled } => {
                 if cancelled {
-                    if ticket.generation == self.session_generation {
+                    if ticket.generation == self.generations.session {
                         self.preserve_cached_session(&mut fx);
                     }
                     self.finish_restore(&mut fx);
-                } else if ticket.generation != self.session_generation {
+                } else if ticket.generation != self.generations.session {
                     self.finish_restore(&mut fx);
                 } else {
                     fx.push(Effect::ProbeStoredTokens(RestoreTicket {
@@ -299,8 +290,8 @@ impl Coordinator {
                 self.on_surviving_refresh_token(ticket, after_error, result, read_failed, &mut fx);
             }
             Event::StaleSessionCleared { ticket, reason } => {
-                if ticket.generation == self.session_generation
-                    && self.token_store_write_high_water == ticket.store_write_high_water
+                if ticket.generation == self.generations.session
+                    && self.generations.store_write_high_water == ticket.store_write_high_water
                 {
                     self.clear_auth_state(&reason, true, false, &mut fx);
                 }
@@ -308,7 +299,15 @@ impl Coordinator {
             }
             Event::AutoLoginFinished { ticket, result } => match result {
                 Ok(()) | Err(AuthFailure::Cancelled) => self.finish_restore(&mut fx),
-                Err(_) => self.clear_stale_session(ticket, false, "auto-login failed", &mut fx),
+                Err(
+                    AuthFailure::TimedOut
+                    | AuthFailure::Offline
+                    | AuthFailure::Unauthorized
+                    | AuthFailure::InvalidCode
+                    | AuthFailure::RateLimited { .. }
+                    | AuthFailure::NetworkError
+                    | AuthFailure::Other,
+                ) => self.clear_stale_session(ticket, false, "auto-login failed", &mut fx),
             },
             Event::SignInRequested { kind, sets_loading } => {
                 self.on_sign_in_requested(kind, sets_loading, &mut fx);
@@ -317,12 +316,13 @@ impl Coordinator {
                 self.on_token_work_quiesced(flow, result, &mut fx);
             }
             Event::OnlineChecked { flow, online } => {
-                if !online {
+                if !self.flow_is_current(flow) {
+                    self.fail_sign_in(flow, AuthFailure::Cancelled, false, &mut fx);
+                } else if !online {
                     self.fail_sign_in(flow, AuthFailure::Offline, false, &mut fx);
                 } else {
                     if flow.sets_loading {
-                        self.is_loading = true;
-                        fx.push(Effect::SetLoading(true));
+                        self.set_loading(Loading::Busy, &mut fx);
                     }
                     if let Some((phase, budget)) = flow.kind.exchange() {
                         fx.push(Effect::RunExchange { flow, phase, budget });
@@ -332,8 +332,8 @@ impl Coordinator {
             Event::ExchangeFinished { flow, result } => match result {
                 Err(failure) => self.fail_sign_in(flow, failure, flow.sets_loading, &mut fx),
                 Ok(()) => {
-                    self.token_store_write_high_water =
-                        self.token_store_write_high_water.max(flow.attempt);
+                    self.generations.store_write_high_water =
+                        self.generations.store_write_high_water.max(flow.attempt);
                     fx.push(Effect::RecordLatestSignInRefreshToken);
                     self.complete_sign_in(flow, &mut fx);
                 }
@@ -343,7 +343,7 @@ impl Coordinator {
                 Ok(None) => {
                     self.fail_sign_in(flow, AuthFailure::Unauthorized, flow.sets_loading, &mut fx);
                 }
-                Ok(Some(_)) if flow.generation != self.session_generation => {
+                Ok(Some(_)) if flow.generation != self.generations.session => {
                     self.fail_sign_in(flow, AuthFailure::Cancelled, flow.sets_loading, &mut fx);
                 }
                 Ok(Some(user)) => {
@@ -351,52 +351,58 @@ impl Coordinator {
                 }
             },
             Event::TeamsRequested => {
-                let generation = self.session_generation;
+                let generation = self.generations.session;
                 self.begin_team_refresh(generation, false, AfterTeams::Nothing, &mut fx);
             }
             Event::TeamsRefreshed { ticket, result } => {
                 self.on_teams_refreshed(ticket, result, &mut fx);
             }
-            Event::PostSignInHookFinished { ticket } => self.after_teams(ticket.after, &mut fx),
+            Event::PostSignInHookFinished { ticket } => {
+                self.after_teams(ticket.generation, ticket.after, &mut fx);
+            }
             Event::TeamScopeRecoveryDue { id } => self.on_recovery_due(id, &mut fx),
-            Event::TeamScopeRecoveryCheckFinished { id } => {
-                if let Some(recovery) = self.team_scope_recovery
-                    && recovery.id == id
-                {
+            Event::TeamScopeRecoveryCheckFinished { id } => match self.recovery {
+                RecoveryLoop::Sleeping { attempt, .. } => {
                     fx.push(Effect::SleepTeamScopeRecovery {
                         id,
-                        delay: self.team_scope_recovery_wait(recovery.attempt),
+                        delay: self.team_scope_recovery_wait(attempt),
                     });
                 }
+                RecoveryLoop::Idle => return Err(Refusal::StaleRecovery),
+            },
+            Event::SetSelectedTeam(team_id) => {
+                if team_id == self.selected_team_id {
+                    return Err(Refusal::AlreadySelected);
+                }
+                self.set_selected_team(team_id, &mut fx);
             }
-            Event::SetSelectedTeam(team_id) => self.set_selected_team(team_id, &mut fx),
             Event::TeamSelectionMutated => {
-                self.team_mutation_generation = self.team_mutation_generation.wrapping_add(1);
+                self.generations.team_mutation = self.generations.team_mutation.wrapping_add(1);
             }
             Event::TeamListMutated => {
-                self.team_list_generation = self.team_list_generation.wrapping_add(1);
+                self.generations.team_list = self.generations.team_list.wrapping_add(1);
             }
-            Event::SendCodeStarted => {
-                self.is_loading = true;
-                fx.push(Effect::SetLoading(true));
-            }
+            Event::SendCodeStarted => self.set_loading(Loading::Busy, &mut fx),
             Event::SendCodeFinished { sent } => {
                 if sent {
-                    self.has_pending_code = true;
+                    self.pending_code = PendingCode::Sent;
                 }
-                self.is_loading = false;
-                fx.push(Effect::SetLoading(false));
+                self.set_loading(Loading::Idle, &mut fx);
             }
-            Event::DebugCredentialsRemembered => self.has_debug_credentials = true,
+            Event::DebugCredentialsRemembered => {
+                self.debug_credentials = DebugCredentials::Remembered;
+            }
             Event::SignOutRequested => self.on_sign_out_requested(&mut fx),
-            Event::SignOutLocalCleared => self.on_sign_out_local_cleared(&mut fx),
+            Event::SignOutLocalCleared { sign_out_epoch } => {
+                self.on_sign_out_local_cleared(sign_out_epoch, &mut fx);
+            }
             Event::TokenReadUnauthorized(kind) => {
                 if self.session_token_transition_is_active() {
                     fx.push(Effect::FailTokenRead(AuthFailure::NetworkError));
                 } else if kind == TokenReadKind::AccessToken
                     && self.launch.debug_build
                     && self.launch.includes_dev_auth
-                    && self.has_debug_credentials
+                    && self.debug_credentials == DebugCredentials::Remembered
                 {
                     fx.push(Effect::TryDevAuthAccessToken);
                 } else {
@@ -404,11 +410,85 @@ impl Coordinator {
                 }
             }
             Event::DevAuthAccessTokenFinished { got_token } => {
-                if !got_token {
-                    self.fail_token_read_unauthorized(TokenReadKind::AccessToken, &mut fx);
+                if got_token {
+                    return Err(Refusal::NothingToDo);
                 }
+                self.fail_token_read_unauthorized(TokenReadKind::AccessToken, &mut fx);
             }
         }
-        fx
+        Ok(fx)
+    }
+
+    /// Refuses an answer whose ticket is not the one waited for. Requests
+    /// carry no ticket and pass.
+    fn check_answer(&self, event: &Event) -> Result<(), Refusal> {
+        match event {
+            Event::TokensProbed { ticket, .. }
+            | Event::TokenStorageAvailability { ticket, .. }
+            | Event::ProbeRetryDue { ticket, .. }
+            | Event::CachedSessionValidated { ticket, .. }
+            | Event::SurvivingRefreshTokenRead { ticket, .. }
+            | Event::StaleSessionCleared { ticket, .. }
+            | Event::AutoLoginFinished { ticket, .. } => match self.restore {
+                Restore::Running { id } if id == ticket.id => Ok(()),
+                Restore::Running { .. } | Restore::Idle => Err(Refusal::StaleRestore),
+            },
+            Event::TokenWorkQuiesced { flow, .. }
+            | Event::OnlineChecked { flow, .. }
+            | Event::ExchangeFinished { flow, .. }
+            | Event::SignInUserFetched { flow, .. } => {
+                if self.flow_is_active(*flow) {
+                    Ok(())
+                } else {
+                    Err(Refusal::InactiveSignInFlow)
+                }
+            }
+            Event::TeamsRefreshed { ticket, .. } => {
+                if self.pending_team_reads.contains(&ticket.id) {
+                    Ok(())
+                } else {
+                    Err(Refusal::UnknownTeamRead)
+                }
+            }
+            Event::PostSignInHookFinished { ticket } => {
+                if self.hook_owner_is_active(ticket.after) {
+                    Ok(())
+                } else {
+                    Err(Refusal::HookOwnerGone)
+                }
+            }
+            Event::TeamScopeRecoveryDue { id } | Event::TeamScopeRecoveryCheckFinished { id } => {
+                match self.recovery {
+                    RecoveryLoop::Sleeping { id: sleeping, .. } if sleeping == *id => Ok(()),
+                    RecoveryLoop::Sleeping { .. } | RecoveryLoop::Idle => {
+                        Err(Refusal::StaleRecovery)
+                    }
+                }
+            }
+            Event::SignOutLocalCleared { sign_out_epoch } => {
+                if self.pending_sign_out_captures.contains(sign_out_epoch) {
+                    Ok(())
+                } else {
+                    Err(Refusal::UnknownSignOutCapture)
+                }
+            }
+            Event::Restore(_)
+            | Event::SignInRequested { .. }
+            | Event::TeamsRequested
+            | Event::SetSelectedTeam(_)
+            | Event::TeamSelectionMutated
+            | Event::TeamListMutated
+            | Event::SendCodeStarted
+            | Event::SendCodeFinished { .. }
+            | Event::DebugCredentialsRemembered
+            | Event::SignOutRequested
+            | Event::TokenReadUnauthorized(_)
+            | Event::DevAuthAccessTokenFinished { .. } => Ok(()),
+        }
+    }
+
+    pub(super) fn set_loading(&mut self, loading: Loading, fx: &mut Vec<Effect>) {
+        self.loading = loading;
+        fx.push(Effect::SetLoading(loading == Loading::Busy));
     }
 }

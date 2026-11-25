@@ -150,6 +150,38 @@ extension CloudWait {
         }) { status() != .starting }
     }
 
+    /// Waits while `status` reads `pausing` (an idle pause or a Pause Machine landing), up to `limit`, as
+    /// ``outwaitResume(of:within:read:)`` waits out a resume: a start that found its machine not running resumes it
+    /// once it is paused, never refuses it as pausing (cmux#47638). Returns at once for any other status.
+    public static func outwaitPause(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable () async -> Void) async {
+        guard status() == .pausing else { return }
+        _ = await holds(within: limit, redialing: startRedial, redial: {
+            // task-owner: one record read; the wait observes what it applies and ends at its own deadline
+            Task { @MainActor in await read() }
+        }) { status() != .pausing }
+    }
+
+    /// A start whose machine's exec route refused it as not running (`vm_not_running`, cmux#47638) though its link may be up:
+    /// a click's link connect starts a paused machine and answers before its record runs, and an idle pause can land as the
+    /// link comes up. The record is read again (`read(true)`, whatever the link says), a pause in flight is waited out, a
+    /// paused machine resumes (`resume`: Resume Machine, as an attach does), and a resume in flight is waited out, each up
+    /// to `limit`. The caller then connects the machine's link as before.
+    public static func startStopped(status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable (_ force: Bool) async -> Void,
+                                    resume: @MainActor () async throws -> Void) async throws {
+        await read(true)
+        await outwaitPause(of: status, within: limit) { await read(false) }
+        if status() == .paused {
+            do { try await resume() } catch where !(error is CancellationError) {
+                // A resume from elsewhere (the link's own connect, another Mac) went first: the record runs or starts now.
+                await read(true)
+                guard status() == .starting || status() == .running else { throw error }
+            }
+        }
+        await outwaitResume(of: status, within: limit) { await read(false) }
+    }
+
     /// Whether `wait` answered true within `limit`; true too when it ran past `limit`, since what it waits on
     /// may still run. False only when `wait` answered false (nothing to wait on).
     public static func ended(within limit: Duration, _ wait: @escaping @Sendable () async -> Bool) async -> Bool {
@@ -181,14 +213,16 @@ extension CloudWait {
     /// does not come back throws as it is.
     /// Whether a start's failure is its link dropping under it, which a relink and one more try can help (``retriedOnce``'s
     /// `closed`): the connection closed (an EOF right after a resume), or the link socket was gone or refused while its
-    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387).
+    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387),
+    /// or a fresh connection's first request got no reply (Rust `wait::link_dropped` decides from the timed-out request).
     public nonisolated static func linkDropped(_ error: any Error) -> Bool {
-        struct Failure: Encodable { var kind: String, code: Int32? }
+        struct Failure: Encodable { var kind: String, code: Int32?, what: String? }
         struct Reply: Decodable { var dropped: Bool }
         let failure = switch error {
-        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil)
-        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code)
-        default: Failure(kind: "other", code: nil)
+        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil, what: nil)
+        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code, what: nil)
+        case DaemonError.timedOut(let what): Failure(kind: "timedOut", code: nil, what: what)
+        default: Failure(kind: "other", code: nil, what: nil)
         }
         return CloudMoveCore().call("link_dropped", failure, as: Reply.self)?.dropped ?? false
     }

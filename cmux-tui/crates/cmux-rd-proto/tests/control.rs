@@ -145,7 +145,7 @@ fn the_largest_clipboard_part_fits_one_record() {
         }
     }
     assert!(largest <= MAX_PART_ENCODED + 128, "{largest}");
-    // 65_000 is below MAX_STREAM_FRAME (1 MiB), so this bound also keeps a part inside one frame.
-    assert!(largest < 65_000);
+    // 65_000 sits under MAX_STREAM_FRAME (1 MiB), so this bound covers the frame cap too.
+    assert!(largest < 65_000, "{largest}");
     assert_eq!(parts, MAX_CLIPBOARD_TEXT.div_ceil(MAX_PART_ENCODED / 6));
 }

@@ -44,6 +44,10 @@ pub struct Interrupt {
     /// A stop that ends the session (the owner's Stop, a denial, an engine
     /// change) came too: it wins over `keeps_session`, whatever the order.
     ends_session: AtomicBool,
+    /// The brain moved the turn's running work to the background
+    /// (`steer.rs`): the session outlives the turn until that work reports
+    /// (`brain/background.rs`), so the runner hands it back, kept or not.
+    moved_work: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
@@ -122,6 +126,21 @@ impl Interrupt {
 
     /// Whether a cancel this interrupt caused leaves a session the next turn
     /// may take.
+    /// The turn's running work moved to the background (`steer.rs`).
+    pub fn set_moved_work(&self) {
+        self.moved_work.store(true, Ordering::SeqCst);
+    }
+
+    pub fn moved_work(&self) -> bool {
+        self.moved_work.load(Ordering::SeqCst)
+    }
+
+    /// A stop that ends the session came (the owner's Stop, a denial, an
+    /// engine change): the session is not kept, however the turn ended.
+    pub fn ends_session(&self) -> bool {
+        self.ends_session.load(Ordering::SeqCst)
+    }
+
     pub fn keeps_session(&self) -> bool {
         self.keeps_session.load(Ordering::SeqCst) && !self.ends_session.load(Ordering::SeqCst)
     }
@@ -279,6 +298,30 @@ pub struct Kept {
     /// The session's context at the turn's end: its last request's prompt
     /// and output tokens (None: not reported).
     pub context: Option<u64>,
+    /// Claude Code's running cost of the session at the turn's end
+    /// (`total_cost_usd`, the process's total): the next turn in the session
+    /// counts only its rise (`own_cost`). In micro-dollars (`Kept` is `Eq`).
+    pub cost_total: Option<u64>,
+}
+
+/// A turn's own cost from its session's running total `total` and the total
+/// `base` the session had when the turn started (a kept session): the rise,
+/// or the whole total when it went down (a new process). Before 2026-11-20 a
+/// reused turn reported the session's running total as its own, so a kept
+/// session's turns counted every earlier turn again (bench burst5: $0.50 a
+/// probe before kept sessions, $1.83 after; the audit, ledger, analytics and
+/// engine bar read the same value).
+pub fn own_cost(total: Option<f64>, base: Option<u64>) -> Option<f64> {
+    let base = base.map(|b| b as f64 / 1e6);
+    match (total, base) {
+        (Some(t), Some(b)) if t + 1e-9 >= b => Some((t - b).max(0.0)),
+        (t, _) => t,
+    }
+}
+
+/// `usd` in micro-dollars, for [`Kept::cost_total`].
+fn micros(usd: f64) -> u64 {
+    (usd.max(0.0) * 1e6).round() as u64
 }
 
 /// A kept session and the blocks that prompt it again: this turn's new
@@ -1159,7 +1202,11 @@ pub fn run_with_drafts(
     // no session was kept (8 of ~1,400 turns, Nov 12-19): each turn started
     // a new Claude Code and wrote its whole input to the cache again.
     let resumable = cancelled && interrupt.keeps_session() && !forced_end;
-    let kept = (start.keep
+    // The owner's Stop (or a denial, an engine change) ends the session even
+    // when the harness answered it `end_turn` (a turn that finished as the
+    // stop came): acpmux reads such a turn as stopped too.
+    let kept = ((start.keep || interrupt.moved_work())
+        && !interrupt.ends_session()
         && !fold.expects_carry()
         && orphan.is_none()
         && moved.is_none()
@@ -1171,6 +1218,7 @@ pub fn run_with_drafts(
     .then(|| Kept {
         session: session.clone(),
         after: fold.seq(),
+        cost_total: cost.map(micros),
         context: fold
             .requests()
             .last()
@@ -1182,6 +1230,9 @@ pub fn run_with_drafts(
     {
         log(&format!("ending turn session {}: {e}", start.session.name));
     }
+    // From here on the cost is this turn's own (the session's total less
+    // what it was when this turn took the kept session).
+    let cost = own_cost(cost, reused.and_then(|r| r.kept.cost_total));
     // The run's end: what is left of its steps, its use and cost.
     send_run(
         // A turn cut by a lost acpmux link (an update relaunch) runs again
