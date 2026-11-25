@@ -86,6 +86,41 @@ fn workspace_name_source_named_creation_is_automatic_until_renamed() {
     assert_eq!(listed(&mux, &key)["name"], "Payments");
 }
 
+/// #56422: `create-workspace {name, name_source: "user"}` (the app's create for `agents chat new
+/// --name`) pins the caller's name like a rename; the same create without `name_source` stays a
+/// starting name.
+#[test]
+fn workspace_name_source_create_with_user_source_pins_the_name() {
+    let mux = test_mux();
+    let key = crate::workspace_registry::new_uuid_v4();
+    let name = "56151: Plan bar icon alignment";
+    run_json_command(
+        &mux,
+        json!({"cmd":"create-workspace","key":key,"name":name,"name_source":"user"}),
+    )
+    .unwrap();
+    let created = listed(&mux, &key);
+    assert_eq!(created["name"], name, "{created}");
+    assert_eq!(created["name_source"], "user", "{created}");
+    assert_eq!(created["name_revision"], "1", "{created}");
+    let (_, generation) = mux.registry_identity();
+    let refused = run_json_command(
+        &mux,
+        json!({
+            "cmd":"rename-workspace", "key":key, "name":"Fix GitHub issue https://github.com/x",
+            "source":"auto", "expected_generation":generation,
+            "expected_name_revision":created["name_revision"],
+        }),
+    );
+    assert!(refused.is_err(), "an agent chat's title replaced the caller's name");
+    assert_eq!(listed(&mux, &key)["name"], name);
+
+    let starting = crate::workspace_registry::new_uuid_v4();
+    run_json_command(&mux, json!({"cmd":"create-workspace","key":starting,"name":"Billing"}))
+        .unwrap();
+    assert_eq!(listed(&mux, &starting)["name_source"], "auto");
+}
+
 #[test]
 fn workspace_name_source_explicit_rename_pin_survives_restart() {
     let root = std::env::temp_dir().join(format!(
