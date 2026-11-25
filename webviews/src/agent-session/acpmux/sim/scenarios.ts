@@ -392,10 +392,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.say(
       Array.from({ length: 50 }, (_, part) =>
         part % 10 === 4
-          ? "| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | 12000 |\n"
+          ? `| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | ${12000 + part} |\n`
           : part % 10 === 7
             ? "```sh\nbun run build --profile\n```\n"
-            : `${PARAGRAPH}\n`,
+            : `${part}. ${PARAGRAPH}\n`,
       ).join("\n"),
       { chunks: 120, chunkMs: 30 },
     );

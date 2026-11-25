@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCloudCredentials
 // Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings).
 @_exported import CmuxNextCloudUI
+import CmuxNextCloudPlace
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextRemote
@@ -359,6 +360,7 @@ extension CloudStartChat {
         }
         services.cloud.setup.gateway = { [weak services] in guard let services else { return nil }; return await gatewayServes(services) }
         services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
+        services.cloud.signedIn = { [weak services] in if let services { warmSpare(services) } } // a sign-in in front, as an activation signed in: an activation before the sign-in (signed out) warmed nothing
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
 
@@ -366,7 +368,7 @@ extension CloudStartChat {
     @MainActor static func warmSpare(_ services: AppServices) {
         let cloud = services.cloud
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let binary = cloud.move.cli, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
-        CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, installIdentity: cloud.installIdentity).start { [weak cloud, account = cloud.account] machine, team in if let cloud, cloud.account == account { cloud.spareReadiness.prime(machine, team: team, dials: true) } } // the spare's team as the platform names it; the reserve and the wire read the install token's (the same team), so one link is held and dialed, and the claim's record takes it
+        CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, installIdentity: cloud.installIdentity).start(gate: cloud.spareReadiness.warmGate) { [weak cloud, account = cloud.account] machine, team in if let cloud, cloud.account == account { cloud.spareReadiness.prime(machine, team: team, dials: true) } } // the spare's team as the platform names it; the reserve and the wire read the install token's (the same team), so one link is held and dialed, and the claim's record takes it
     }
 
     /// ``CloudSpareReadiness``'s App side: the start's own keyed restart, only on a daemon that says it is idle (no agent runs) and with `keepBusy` off, so a daemon not up yet marks nothing busy for the start's own check; the carrier the session would make.

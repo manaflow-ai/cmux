@@ -6,6 +6,7 @@ extension NotificationConfigParser {
         let path = ["notifications", "sounds"]
         guard var reader = ConfigFieldReader(root, at: path, diagnostics: &diagnostics) else { return sounds }
         if let value = reader.number("volume", range: NotificationSoundPreferences.volumeRange) { sounds.volume = value }
+        if let value = reader.number("maxSeconds", range: NotificationSoundPreferences.maxSecondsRange) { sounds.maxSeconds = value }
         if let value = reader.choice("when", NotificationSoundTiming.self) { sounds.when = value }
         if let value = reader.number("cooldownSeconds", range: NotificationSoundPreferences.cooldownRange) { sounds.cooldownSeconds = value }
         diagnostics += reader.diagnostics

@@ -1572,8 +1572,8 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_USAGE, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
-                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_SUCCEED, method::MUX_ROLE, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
+                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_CUSTOMIZE_RUN, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_HERE_BEAT, method::MUX_HERE, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
@@ -4032,6 +4032,15 @@ async fn dispatch_request_with_identity(
         super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            // A client reading a chat's records again lost some of its stream (a host left frames
+            // out): its next chunk goes whole, a template it can rebuild from (`chunk_deltas.rs`).
+            if m == method::MUX_EVENTS
+                && conn.chunk_deltas.enabled()
+                && let Ok(key) = session_key(&params)
+                && let Ok(s) = hub.resolve(key)
+            {
+                conn.chunk_deltas.forget(&s.id);
+            }
             // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
             crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }
@@ -4041,6 +4050,17 @@ async fn dispatch_request_with_identity(
             let turn = str_param(&params, "turnId")
                 .ok_or_else(|| RpcError::invalid_params("turnId is required"))?;
             Ok(crate::hub::turn_shots::turn_shots(&s.id, turn).await)
+        }
+        // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
+        // `cmux customize` argv, no shell. Never offered to a read-only connection. Only the
+        // person runs it: a connection that proved it is the person, or this host's app pane,
+        // whose host admits it only with a click's gesture ticket (`gesture_rules`, policy.json).
+        // An agent, a peer or a remote writable client never starts a build here.
+        method::MUX_CUSTOMIZE_RUN => {
+            if !person_asks(conn) {
+                return Err(conn.person_only("running cmux customize"));
+            }
+            crate::customize_run::run(&params).await.map_err(RpcError::invalid_params)
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
@@ -4081,6 +4101,30 @@ async fn dispatch_request_with_identity(
             };
             let home = hub.harness_homes().claude;
             crate::claude_inbox_relay::poll(pid, home, &params, conn.ended.subscribe()).await
+        }
+        method::MUX_SUCCEED => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let names: Vec<String> = params
+                .get("names")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            hub.succeed(&s, &names)
+        }
+        method::MUX_ROLE => {
+            let op = params.get("op").and_then(Value::as_str).unwrap_or("ls");
+            if op == "ls" {
+                return Ok(hub.roles_list());
+            }
+            let s = hub.resolve(session_key(&params)?)?;
+            let address = params.get("address").and_then(Value::as_str).unwrap_or_default();
+            match op {
+                "claim" => hub.claim_role(&s, address),
+                "release" => hub.release_role(&s, address),
+                other => Err(RpcError::invalid_params(format!(
+                    "op {other:?}: give claim, release or ls"
+                ))),
+            }
         }
         // An `opId` runs it once, as `_acpmux/archive` (`hub/op_once.rs`).
         method::MUX_RENAME => hub.op_once.run(m, &params, || rename(hub, &params)).await,
