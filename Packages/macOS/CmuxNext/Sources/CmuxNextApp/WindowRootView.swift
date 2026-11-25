@@ -329,8 +329,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
-    /// A workspace's view is about to hide (a switch to another workspace or a top page), while what it shows is still
-    /// on screen: its chats are pictured now, since a hidden chat never is (#56159).
+    /// A workspace's view is about to hide (a switch to another workspace or a top page) while it is still on screen:
+    /// its chats are pictured now, since a hidden chat never is (`AgentPanePictures.willHide`, #56159).
     var willHideWorkspace: ((NSView) -> Void)?
 
     /// Keeps the outgoing content until its unpainted pages paint, or show their pictures after two frames of its screen.

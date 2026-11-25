@@ -212,7 +212,7 @@ final class QuitCoordinator {
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
-                        if services.updater.savedForRelaunch == nil { await services.cache.savePageFramesForQuit() } // and browser pages' (`BrowserPageFrames`); a relaunch saved them on screen
+                        await services.cache.cardPictures?.saveForQuit([:]); if services.updater.savedForRelaunch == nil { await services.cache.savePageFramesForQuit() } // and browser pages' (`BrowserPageFrames`); a relaunch saved them on screen
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {

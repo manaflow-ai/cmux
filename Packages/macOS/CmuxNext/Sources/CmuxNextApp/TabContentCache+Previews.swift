@@ -12,9 +12,9 @@ extension TabContentCache {
     /// version moved since its last picture (once per navigation or load), or while it loads with none; a hidden one
     /// returns its last picture, in memory, else on disk (a tab not shown since the relaunch has no page, cmux#56141);
     /// nil: the card shows its placeholder. `captureIfMissing` (a tab drag) also asks for a hidden page that has none.
-    func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
+    func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false, prompts: Bool = false) async -> CGImage? {
         if let entry = terminals[key] {
-            guard entry.session.showsOutput || entry.session.showsHeldFrame else { return nil } // a new shell's prompt: nothing to picture
+            guard prompts || entry.session.showsOutput || entry.session.showsHeldFrame else { return nil } // a new shell's prompt: nothing to picture, but in a workspace card's tile (#56159)
             if let image = await entry.session.shownFrameInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(image, for: key); return image }
         } else if let image = await lastFrames.preview(key)?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) ?? lastFrames.picture(key) {
             return image // an evicted (hibernated) terminal: its last frame, pictured on demand, else the picture taken at its eviction
@@ -27,7 +27,7 @@ extension TabContentCache {
         }
         // Leave, hibernation and disk pictures decode from their JPEG when drawn: the card gets a bitmap made off the main thread.
         var kept = held ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key)
-        if kept == nil { kept = await pageFrames?.lastPicture(key) }
+        if kept == nil { kept = await pageFrames?.lastPicture(key) }; if kept == nil { kept = await cardPictures?.lastPicture(key) } // a terminal's or chat's from before the relaunch (#56159)
         guard let image = kept else { return nil }
         return await PreviewImageCache.decoded(image, maxPixelSize)
     }
@@ -117,6 +117,8 @@ extension TabContentCache {
         guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab else { return false }
         return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && !browserTabs.isIncognitoTab(key)
     }
+    /// Keeps a terminal's or chat's card picture on disk (`cardPictures`), never an incognito window's tab's.
+    func keepCardPicture(_ image: CGImage, for key: String) { if !browserTabs.isIncognitoTab(key) { cardPictures?.save(image, for: key) } }
     func keepFrameOnDisk(_ image: CGImage, for key: String) {
         guard keepsFrameOnDisk(key), let width = browsers[key]?.tab.contentView.bounds.width else { return }
         pageFrames?.save(image, for: key, scale: BrowserPageFrames.scale(of: image, width: width))

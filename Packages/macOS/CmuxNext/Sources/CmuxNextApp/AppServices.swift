@@ -687,6 +687,7 @@ final class AppServices {
         cache.crashedPages = crashRecovery.recovery.crashedPages
         cache.pageFrames = BrowserPageFrames(beside: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         if let read = cache.pageFrames?.prefetch(on: work) { Task { [weak cache] in await read.value; cache?.phonePictures?.heldChanged() } } // read off the main thread while windows restore; then the phones get the cards of tabs not shown since the relaunch (task-owner: one read; ends on its own)
+        cache.cardPictures = BrowserPageFrames(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "tab-card-pictures", directoryHint: .isDirectory), capacity: 16 << 20); cache.cardPictures?.prefetch(on: work) // terminals' and chats' (#56159)
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }

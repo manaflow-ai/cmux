@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import CmuxNextDesign
 import Testing
 @testable import CmuxNextAgentPane
@@ -58,5 +59,26 @@ struct AgentPaneLastPageTests {
         #expect(abs((pixel?.redComponent ?? 1) - 0.1) < 0.02 && (pixel?.alphaComponent ?? 0) == 1, "the clear page did not take the chat's ground")
         // A see-through window: no ground of its own, so the backdrop shows through the picture as through the page.
         #expect(PageImageBackground.flattened(clear, over: ThemeRGB(red: 0.1, green: 0.1, blue: 0.1, alpha: 0.5)) === clear)
+    }
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// #56159: a workspace switch hid the workspace before each pane's leave, so its chats were never pictured and
+    /// the sidebar card's tile showed only the title. A workspace about to hide pictures the chats it shows, and only
+    /// those (a chat in another workspace or window is left alone).
+    @Test func aWorkspaceAboutToHidePicturesTheChatsItShows() throws {
+        _ = NSApplication.shared
+        let source = AgentPaneSource.bundled(URL(filePath: "/dev/null"))
+        let inside = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: source))
+        let elsewhere = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: source))
+        let workspace = NSView(), other = NSView(), pane = NSView()
+        workspace.addSubview(pane)
+        pane.addSubview(inside)
+        other.addSubview(elsewhere)
+        let pictures = AgentPanePictures(view: { _ in nil }, keep: { _, _ in })
+        let asked = pictures.willHide(workspace, chats: [("a", inside), ("b", elsewhere)])
+        #expect(asked == ["a"], "the hiding workspace's chat was not pictured, or another one was")
     }
 }

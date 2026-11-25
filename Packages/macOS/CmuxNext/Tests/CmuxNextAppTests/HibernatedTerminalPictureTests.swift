@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
+@testable import CmuxNextBrowser
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTabs
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -83,6 +86,42 @@ import Testing
         await services.cache.lastFrames.pictureSettled(tab)
         entry.close()
         #expect(services.cache.lastFrames.picture(tab) == nil, "an empty prompt was pictured (Leo 2026-10-13)")
+    }
+
+    /// #56159: a terminal pictured as it leaves the screen shows on its card after a relaunch, before it has a surface
+    /// again; it is pictured at most once a `TerminalCardPictures.freshness`, and never after its tab closed.
+    @Test func aTerminalLeavingTheScreenKeepsItsCardPictureForTheNextLaunch() async throws {
+        let (_, tab, session, done) = try await Self.terminal(output: "npm run dev\r\n  ready on http://localhost:3000\r\n")
+        defer { done() }
+        var saved: [CGImage] = []
+        let cards = TerminalCardPictures { _, image in saved.append(image) }
+        cards.willLeaveScreen(tab, session: session)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while saved.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let picture = try #require(saved.first, "the leaving terminal was not pictured")
+        cards.willLeaveScreen(tab, session: session)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(saved.count == 1, "a terminal pictured within its freshness was pictured again (one encode and write per switch)")
+
+        // Closed while its picture renders: nothing is written for the closed tab.
+        var late: [String] = []
+        let closing = TerminalCardPictures { key, _ in late.append(key) }
+        closing.willLeaveScreen(tab, session: session)
+        closing.forget(tab)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(late.isEmpty, "a closed tab's picture was written after it closed")
+
+        // The next launch: no surface, its picture on disk.
+        let folder = FileManager.default.temporaryDirectory.appending(path: "terminal-card-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        BrowserPageFrames.write(try #require(BrowserPageFrames.encoded(picture)), key: tab, scale: 2, to: folder, capacity: 1 << 20)
+        let relaunched = AppServices(environment: AppEnvironment.current([:]))
+        let store = BrowserPageFrames(directory: folder, capacity: 1 << 20)
+        await store.prefetch(on: BackgroundWork()).value
+        relaunched.cache.cardPictures = store
+        #expect(relaunched.cache.terminals[tab] == nil)
+        let previews = TabPreviewSource(cache: relaunched.cache, pages: relaunched.pages, images: relaunched.launchImages) { _ in nil }
+        #expect(await previews.previewImage(for: TabID(tab), maxPixelSize: CGSize(width: 320, height: 200)) != nil, "the card after the relaunch had no picture")
     }
 
     /// A cache terminal in a window, drawn showing `output`.

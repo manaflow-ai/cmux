@@ -54,6 +54,7 @@ final class TabContentCache {
     /// on demand for its hover card.
     var lastFrames = TerminalLastFrames()
     var pageFrames: BrowserPageFrames? // browser pages' last pictures, shown on a restored tab's first show
+    var cardPictures: BrowserPageFrames?; lazy var terminalCards = TerminalCardPictures { [weak self] key, image in if self?.terminals[key] != nil { self?.keepCardPicture(image, for: key) } } // terminals' and chats' last card pictures on disk, for a tab not shown since the relaunch (#56159)
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch(); let attachAhead = TerminalAttachAhead<DaemonTerminalIO> { $0.close() } // and visible terminals attached ahead of their surfaces (startup-tti)
     /// Browser pages' hover card thumbnails (R131), at most `PreviewImageCache.pagePixelSize`
@@ -522,7 +523,7 @@ final class TabContentCache {
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); standInTerminals.forget(key)
-        if displacing { pageFrames?.remove(key) } // a closed tab's last picture goes with it
+        if displacing { pageFrames?.remove(key); cardPictures?.remove(key); terminalCards.forget(key) } // a closed tab's last pictures go with it
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)

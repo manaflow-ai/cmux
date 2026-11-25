@@ -21,13 +21,17 @@ public final class AgentPanePictures {
 
     private let view: @MainActor (String) -> AgentPaneView?
     private let keep: Keep
+    /// Keeps a leave picture past this run (on disk), so a card shows the chat after a relaunch too (#56159).
+    private let persist: Keep?
     private let images: AgentPaneLaunchImages?
     private var times: [String: ContinuousClock.Instant] = [:]
     private var inFlight: Set<String> = []
 
-    /// `view` gives a tab's chat view when one is made (nil for every other tab).
-    public init(view: @escaping @MainActor (String) -> AgentPaneView?, images: AgentPaneLaunchImages? = nil, keep: @escaping Keep) {
-        (self.view, self.images, self.keep) = (view, images, keep)
+    /// `view` gives a tab's chat view when one is made (nil for every other tab); `persist` also gets each leave
+    /// picture, and a hover's at most once a ``leaveFreshness`` per chat, to keep it past this run.
+    public init(view: @escaping @MainActor (String) -> AgentPaneView?, images: AgentPaneLaunchImages? = nil, keep: @escaping Keep,
+                persist: Keep? = nil) {
+        (self.view, self.images, self.keep, self.persist) = (view, images, keep, persist)
     }
 
     /// Tab `key`'s picture for a hover: a new one of its chat when one can be taken now (``freshPicture(_:fit:)``),
@@ -53,6 +57,7 @@ public final class AgentPanePictures {
         // The page picture starts in this turn, right after the on-screen check: a later start could picture it hidden.
         guard let chat = startable(key, within: Self.freshness),
               let kept = await finish(await Self.picture(of: chat), of: chat, key: key) else { return nil }
+        persistIfDue(key, kept)  // also below macOS 26, where a leave pictures nothing
         let side = Int(max(maxPixelSize.width, maxPixelSize.height))  // the longest side, as the kept and last-page pictures
         return side >= Self.side ? kept : await Task.detached(priority: .userInitiated) { AgentPaneVideoInfo.scaled(kept, toFit: side) }.value
     }
@@ -64,13 +69,36 @@ public final class AgentPanePictures {
         guard #available(macOS 26, *), let chat = startable(key, within: Self.leaveFreshness) else { return }
         Task.immediate { @MainActor [weak self] in  // task-owner: one page picture, started before this turn hides the page
             let image = await Self.picture(of: chat)
-            await self?.finish(image, of: chat, key: key)
+            guard let self, let kept = await finish(image, of: chat, key: key) else { return }
+            persistedAt[key] = nil
+            persistIfDue(key, kept)
         }
+    }
+
+    /// `content` (a workspace's view) is about to hide, while it is still on screen: each of `chats` it shows is
+    /// pictured now (``willLeaveScreen(_:)``). A pane's own leave comes only after its workspace hid, when its chat
+    /// can no longer be pictured, so a chat left by a workspace switch kept no picture and the sidebar card's tile
+    /// showed only its title (#56159). Returns the keys of the chats in `content`.
+    @discardableResult
+    public func willHide(_ content: NSView, chats: [(key: String, view: AgentPaneView)]) -> [String] {
+        let shown = chats.filter { $0.view.isDescendant(of: content) }.map(\.key)
+        shown.forEach(willLeaveScreen)
+        return shown
     }
 
     /// The chat as the pane shows it: its clear page over its ground (``AgentPaneView/cardPicture(maxPixelWidth:)``).
     private static func picture(of chat: AgentPaneView) async -> CGImage? {
         await chat.cardPicture(maxPixelWidth: CGFloat(side))
+    }
+
+    /// When each chat's picture was last persisted: a hover's at most once a ``leaveFreshness``, a leave's always.
+    private var persistedAt: [String: ContinuousClock.Instant] = [:]
+
+    private func persistIfDue(_ key: String, _ image: CGImage) {
+        guard let persist, persistedAt[key].map({ ContinuousClock.now - $0 >= Self.leaveFreshness }) ?? true else { return }
+        persistedAt = persistedAt.filter { view($0.key) != nil }  // closed tabs' times go
+        persistedAt[key] = .now
+        persist(key, image)
     }
 
     /// `key`'s painted, on-screen chat, not pictured within `freshness` nor being pictured; marks it in flight.

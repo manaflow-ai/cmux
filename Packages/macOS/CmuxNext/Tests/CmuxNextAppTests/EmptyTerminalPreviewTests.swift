@@ -49,6 +49,8 @@ import Testing
         try await Self.drawn(session)
         let size = CGSize(width: 320, height: 200)
         #expect(await services.cache.previewImage(for: tab.id, maxPixelSize: size) == nil, "a terminal with no output had a preview")
+        // The sidebar workspace card's tile pictures it all the same: two such shells read only "~" (#56159).
+        #expect(await services.cache.previewImage(for: tab.id, maxPixelSize: size, prompts: true) != nil, "a workspace card's tile of a shell at its prompt had no picture")
 
         // A command still running, with its first line out: the terminal has something to show
         // (only a finished command is reported).
