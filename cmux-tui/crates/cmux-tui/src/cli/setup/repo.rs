@@ -32,6 +32,7 @@ use super::super::{GlobalArgs, OutputMode, wire};
 
 pub(super) const VERBS: &[&str] = &[
     "install",
+    "install-link",
     "update",
     "remove",
     "export",
@@ -61,6 +62,9 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
   cmux setup variant [LOOK] [NAME]                   List a look's variants (its theme files), or pick NAME in its layer
   cmux setup undo | redo                             One install, update, remove, swap, variant, on/off, order or live
                                                      edit back or forward
+  cmux setup install-link URL                        Install from a cmux.com setup page's Open in cmux link
+                                                     (<scheme>://setups/install?repo=HOST/OWNER/REPO&commit=SHA):
+                                                     the same card; it never takes --yes
   cmux setup update [REPO|ID] [--yes]                Move an installed setup to its ref's newest commit (a folder:
                                                      to what the folder holds now)
   cmux setup remove [REPO|ID|DIR]                    Take off its layer only: its settings, views, actions and extensions
@@ -99,6 +103,10 @@ pub(super) enum Request {
         as_id: Option<String>,
         /// Reapply the folder on every save (`--watch`, `dev`).
         watch: bool,
+    },
+    /// cmux.com's Open in cmux link for a setup: an install that always asks.
+    InstallLink {
+        link: String,
     },
     Update {
         which: Option<String>,
@@ -200,6 +208,19 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         {
             Ok(Request::Variant { words: words.into_iter().cloned().collect() })
         }
+        "install-link" => match (yes, words.as_slice()) {
+            (false, [link]) if !link.starts_with('-') => {
+                Ok(Request::InstallLink { link: (*link).clone() })
+            }
+            (true, _) => Err(
+                "cmux setup install-link never takes --yes: whoever opens a link sees the card first"
+                    .to_owned(),
+            ),
+            _ => Err(
+                "usage: cmux setup install-link '<scheme>://setups/install?repo=HOST/OWNER/REPO&commit=SHA'"
+                    .to_owned(),
+            ),
+        },
         "check" if !yes => {
             let (mut dir, mut owner, mut strict) = (None, None, false);
             let mut iter = rest.iter();
@@ -316,6 +337,11 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 Ok(answer)
             })
         }
+        Request::InstallLink { link } => {
+            stepped(&customize, "install", &format!("install {link}"), || {
+                install_link(&customize, &apps, output, &link)
+            })
+        }
         Request::Update { which, yes } => {
             let label = format!("update {}", which.as_deref().unwrap_or("setup"));
             stepped(&customize, "update", &label, || {
@@ -377,6 +403,34 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             failure(global.output, code, &message, details, 1)
         }
     }
+}
+
+/// `cmux setup install-link URL`: the link's repo at its pinned commit, installed
+/// as `cmux setup install` would, never without the person's yes. With --json
+/// (the Mac app) the `setup.needs_consent` refusal also carries the card as text
+/// (`text`) and the pinned `reference`, so the app can show it and, on Install,
+/// run `cmux setup install REFERENCE --yes`.
+pub(super) fn install_link(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    link: &str,
+) -> Result<Value, Failure> {
+    let reference = super::super::community::link_reference_at(link, "setups")
+        .map_err(|why| refused("setup.link", why))?;
+    if let Err(why) = Reference::parse(&reference) {
+        return Err(refused("setup.link", format!("{link}: {why}")));
+    }
+    install_as(customize, apps, output, &reference, false, None).map_err(|mut failure| {
+        if failure.code == "setup.needs_consent" {
+            let text = card_text(&failure.details);
+            if let Value::Object(details) = &mut failure.details {
+                details.insert("text".to_owned(), json!(text));
+                details.insert("reference".to_owned(), json!(reference));
+            }
+        }
+        failure
+    })
 }
 
 fn unreachable_check() -> Result<Value, Failure> {

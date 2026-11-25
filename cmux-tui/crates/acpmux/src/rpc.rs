@@ -54,6 +54,9 @@ pub struct RpcError {
 /// `data.reason` of [`RpcError::no_peer`].
 pub const NO_PEER: &str = "no_peer";
 
+/// A temporary refusal. The reason in `data` identifies the resource.
+pub(crate) const BUSY_CODE: i64 = -32031;
+
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self { code, message: message.into(), data: None }
@@ -430,6 +433,11 @@ pub mod method {
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
+    /// Which of this connection's requests the daemon still runs, and which it answered lately
+    /// (`server/in_flight.rs` `states`): `{}` -> `{running: [id], answered: [id]}`. A client's
+    /// proof, per request, that a slow answer is still being worked on (webviews `direct.ts`
+    /// `checkRequests`). Answered in order with the connection's requests, never queued for a slot.
+    pub const MUX_REQUEST_STATE: &str = "_acpmux/request_state";
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
@@ -440,6 +448,10 @@ pub mod method {
     /// Each caller's requests and bytes over a recent window (`caller_stats.rs`):
     /// `{sinceSecs?, top?}`; local app and unix socket only.
     pub const MUX_CALLERS: &str = "_acpmux/callers";
+    /// The felt-latency histograms (`cmux-felt`, the net graph): p50/p90/p99, count and max of what
+    /// a person feels, over the last minute and since start. No params; numbers and names only;
+    /// local app and unix socket only.
+    pub const MUX_FELT_SNAPSHOT: &str = "_acpmux/felt_snapshot";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
@@ -573,6 +585,8 @@ pub mod method {
     pub const MUX_RETRY: &str = "_acpmux/retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
+    pub const MUX_CONTROLS: &str = "_acpmux/controls";
+    pub const MUX_CONTROL: &str = "_acpmux/control";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// The safe machine/workspace capability snapshot for the calling agent.
     pub const MUX_MACHINE_INFO: &str = "_acpmux/machine_info";
@@ -587,6 +601,10 @@ pub mod method {
     /// The app lends this daemon its cmux sign-in for GitHub App tokens, or takes it back
     /// (`github_app_token.rs`); the unix socket only.
     pub const MUX_GITHUB_APP_LEASE: &str = "_acpmux/github_app_lease";
+    /// The app's own GitHub calls (its PR page, checks, merge, re-run, chip, Create PR), with a
+    /// minted App token or the person's `gh` (`github_rest_op.rs`); the person over the unix
+    /// socket only.
+    pub const MUX_GITHUB_REST: &str = "_acpmux/github_rest";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
@@ -697,6 +715,10 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// The harness-magic scorecard over every session log (`scorecard.rs`): tokens and leo-units
+    /// per settled pull request, steering rate, time to the first useful result, by feature;
+    /// the local unix socket only, like `MUX_STATS`.
+    pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
@@ -970,6 +992,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
+    /// on the masked copy, with no model call.
+    pub const MUX_SURGERY: &str = "_acpmux/surgery";
     /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
     /// agent or its Chief when the harness writes no plan of its own, and read back.
     pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
@@ -1057,6 +1082,17 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_ATTACH: &str = "_acpmux/machine.tunnel.attach";
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
+    /// Agent byte channels (`server/channels.rs`, capability `agent-channels-v1`).
+    pub const MUX_CHANNEL_LISTEN: &str = "_acpmux/channel/listen";
+    pub const MUX_CHANNEL_UNLISTEN: &str = "_acpmux/channel/unlisten";
+    pub const MUX_CHANNEL_OPEN: &str = "_acpmux/channel/open";
+    pub const MUX_CHANNEL_SEND: &str = "_acpmux/channel/send";
+    pub const MUX_CHANNEL_CLOSE: &str = "_acpmux/channel/close";
+    /// The peer leg of `open`: the opening daemon to the listening one.
+    pub const MUX_CHANNEL_CONNECT: &str = "_acpmux/channel/connect";
+    pub const MUX_CHANNEL_OPENED: &str = "_acpmux/channel/opened";
+    pub const MUX_CHANNEL_DATA: &str = "_acpmux/channel/data";
+    pub const MUX_CHANNEL_CLOSED: &str = "_acpmux/channel/closed";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     // From the owner's peer daemon only: a phone it vouched for (`_meta.acpmux.ownerPhone`) had
     // its Full-access setting turned off or was removed (`server/remote_guard.rs`).

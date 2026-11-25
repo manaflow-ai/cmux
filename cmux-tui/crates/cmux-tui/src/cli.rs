@@ -168,6 +168,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
+mod mcp_servers;
+#[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
 mod repo_hold;
@@ -191,6 +193,8 @@ mod vm_gcp;
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
+#[cfg(unix)]
+mod vm_tailnet;
 mod vm_words;
 #[cfg(unix)]
 mod vnc;
@@ -323,6 +327,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod video;
 #[cfg(unix)]
 mod wallpaper;
 mod wire;
@@ -636,6 +642,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "move",
     "teleport",
     "evacuate",
+    "video",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1062,6 +1069,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
+        .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -1104,6 +1112,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| community::run_if_requested(args))
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
+        .or_else(|| video::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
@@ -1273,7 +1282,7 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit") => true,
+        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
         _ => false,
     }
 }
@@ -1843,6 +1852,7 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),

@@ -36,6 +36,8 @@ public final class LinkController {
     public var dialGeneration: Int { machine.generation }
     /// The Mac holds the current link while the app is suspended.
     public var isParked: Bool { machine.isParked }
+    /// The app is in the background as far as this link knows (`.background` until `.resume`).
+    public var isBackgrounded: Bool { machine.isBackgrounded }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
@@ -373,6 +375,9 @@ public final class LinkController {
                         return
                     }
                     if Self.authRefused(error) { self?.refreshTokenNextDial = true }
+                    if let block = Self.networkBlock(error) {
+                        self?.send(.networkBlocked(generation: generation, block))
+                    }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
@@ -772,6 +777,15 @@ public final class LinkController {
         if let error = error as? LinkError { return error.code == LinkError.unauthorized }
         return false
     }
+
+    /// The record of a dial that found no way to the Mac (`network_blocked`).
+    nonisolated static func networkBlock(_ error: any Error) -> NetworkBlock? {
+        guard let error = error as? LinkError, error.code == LinkError.networkBlocked else { return nil }
+        return NetworkBlock(json: error.message)
+    }
+
+    /// What blocks the link on this network, while the quiet retries go on.
+    public var networkBlock: NetworkBlock? { machine.networkBlock }
 
     /// A short, display-safe reason for a dial or link error.
     /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.

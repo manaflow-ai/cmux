@@ -7,7 +7,9 @@
 //! adds what several writers need on top of it:
 //!
 //! - each surface keeps its own unsent text (`_acpmux/composer_set`), so two places typing do
-//!   not overwrite each other's draft the way the one shared `_acpmux/draft_set` slot would;
+//!   not overwrite each other's draft the way the one shared `_acpmux/draft_set` slot would,
+//!   and the images it holds unsent (`images`, kept by content hash as a prompt's are), so a
+//!   moved chat's composer arrives with them (RFD 0138, "Attachments pending in the composer");
 //! - every attached client hears when a surface starts or stops composing, and which surface
 //!   sent a prompt: a `composer` record `{surfaceId, name, kind?, client, composing, promptId?}`,
 //!   written only when that changes (never per keystroke), and once the hub took a prompt (right
@@ -29,6 +31,10 @@ use std::collections::{BTreeMap, VecDeque};
 pub const MAX_SURFACE_FIELD_CHARS: usize = 64;
 /// Sent prompts whose surface one chat remembers, for labelling the queue.
 const SENT_LEDGER: usize = 64;
+/// Most images one surface's unsent draft holds.
+pub const MAX_DRAFT_IMAGES: usize = 32;
+const MAX_IMAGE_NAME_CHARS: usize = 256;
+const MAX_IMAGE_MIME_CHARS: usize = 128;
 
 /// One place a person types into a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,11 +82,14 @@ fn hidden(c: char) -> bool {
         || ('\u{FFF9}'..='\u{FFFB}').contains(&c)
 }
 
-/// One surface's unsent text.
+/// One surface's unsent text, and the images it holds unsent.
 #[derive(Debug, Clone)]
 struct Draft {
     surface: Surface,
     text: String,
+    /// Each as a prompt's record names it: `{id, mimeType, name?, width?, height?}`, its bytes
+    /// kept under `attachments/` by the SHA-256 that is its id (`prompt_images.rs`).
+    images: Vec<Value>,
     updated_at: u64,
     /// When it was typed into, among this chat's drafts: orders them, unlike a clock.
     order: u64,
@@ -100,6 +109,19 @@ impl Composers {
         !self.drafts.is_empty()
     }
 
+    /// The ids of the images every surface's draft holds: a move bundles them (`transfer.rs`).
+    pub(in crate::hub) fn image_ids(&self) -> Vec<String> {
+        self.drafts.values().flat_map(|d| d.images.iter()).filter_map(image_id).collect()
+    }
+
+    /// The record of image `id` in a surface's draft, when one holds it.
+    fn draft_image(&self, id: &str) -> Option<&Value> {
+        self.drafts
+            .values()
+            .flat_map(|d| d.images.iter())
+            .find(|image| image_id(image).as_deref() == Some(id))
+    }
+
     fn sent_by(&self, prompt_id: &str) -> Option<&Surface> {
         self.sent.iter().rev().find(|(id, _)| id == prompt_id).map(|(_, s)| s)
     }
@@ -112,7 +134,12 @@ impl Composers {
             .drafts
             .values()
             .map(|d| {
-                json!({"surface": d.surface.record_in(), "text": d.text, "updatedAt": d.updated_at, "order": d.order})
+                let mut v = json!({"surface": d.surface.record_in(), "text": d.text, "updatedAt": d.updated_at, "order": d.order});
+                // Only when it holds one: a bundle without images reads as before.
+                if !d.images.is_empty() {
+                    v.set("images", json!(d.images));
+                }
+                v
             })
             .collect();
         let sent: Vec<Value> = self
@@ -125,7 +152,8 @@ impl Composers {
 
     /// Takes what [`Self::bundled`] wrote on the other machine. A bundle is a file another
     /// daemon wrote: each surface is checked as `composer_set` checks one, and a bad entry is
-    /// dropped, never the move.
+    /// dropped, never the move. A draft's image is kept only when this machine holds its bytes
+    /// (the move's `restore_images` ran first and kept each whose bytes hash to its name).
     pub(in crate::hub) fn restore(&mut self, v: &Value) {
         let list = |key: &str| v.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
         // The other machine's `order` only ranks the carried drafts among themselves: each gets
@@ -135,17 +163,31 @@ impl Composers {
         for d in list("drafts") {
             let Ok(Some(surface)) = self::surface(d.get("surface")) else { continue };
             let Some(text) = d.get("text").and_then(Value::as_str) else { continue };
-            if text.trim().is_empty() {
+            let images: Vec<Value> = d
+                .get("images")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(carried_image)
+                .filter(|image| {
+                    image_id(image)
+                        .and_then(|id| super::prompt_images::image_path(&id))
+                        .is_some_and(|path| path.is_file())
+                })
+                .take(MAX_DRAFT_IMAGES)
+                .collect();
+            if text.trim().is_empty() && images.is_empty() {
                 continue;
             }
             let rank = d.get("order").and_then(Value::as_u64).unwrap_or(0);
             let updated_at = d.get("updatedAt").and_then(Value::as_u64).unwrap_or_else(now_ms);
-            carried.push((rank, surface, text.to_owned(), updated_at));
+            carried.push((rank, surface, text.to_owned(), images, updated_at));
         }
         carried.sort_by_key(|(rank, ..)| *rank);
-        for (_, surface, text, updated_at) in carried {
+        for (_, surface, text, images, updated_at) in carried {
             self.typed = self.typed.saturating_add(1);
-            let draft = Draft { surface: surface.clone(), text, updated_at, order: self.typed };
+            let draft =
+                Draft { surface: surface.clone(), text, images, updated_at, order: self.typed };
             self.drafts.insert(surface.id, draft);
         }
         for s in list("sent") {
@@ -161,6 +203,80 @@ impl Composers {
 
 /// The file in a move's bundle that holds [`Composers::bundled`].
 pub(in crate::hub) const BUNDLE_FILE: &str = "composers.json";
+
+/// The id of a draft image's record.
+fn image_id(image: &Value) -> Option<String> {
+    let id = image.get("id")?.as_str()?;
+    super::prompt_images::valid_id(id).then(|| id.to_owned())
+}
+
+/// A draft image's record as another daemon wrote it, keeping only what a record names
+/// (`{id, mimeType, name?, width?, height?}`), each field checked; None for one with no valid id.
+fn carried_image(raw: &Value) -> Option<Value> {
+    let id = image_id(raw)?;
+    let short = |key: &str, max: usize| {
+        raw.get(key).and_then(Value::as_str).filter(|s| !s.is_empty() && s.chars().count() <= max)
+    };
+    let mime = short("mimeType", MAX_IMAGE_MIME_CHARS).unwrap_or("image/png");
+    let mut v = json!({"id": id, "mimeType": mime});
+    if let Some(name) = short("name", MAX_IMAGE_NAME_CHARS) {
+        v.set("name", json!(name));
+    }
+    for key in ["width", "height"] {
+        if let Some(n) = raw.get(key).and_then(Value::as_u64) {
+            v.set(key, json!(n));
+        }
+    }
+    Some(v)
+}
+
+fn image_refusal(message: String) -> RpcError {
+    RpcError::invalid_params(message).with_data(json!({"reason": "composer.image.invalid"}))
+}
+
+/// The images `_acpmux/composer_set` names (`images`, optional; missing or null is none). Each is
+/// an ACP `image` block (`{type: "image", mimeType, data, name?}`), kept by the SHA-256 of its
+/// bytes under `attachments/` as `session/prompt` keeps one, or `{id}` of an image a draft of
+/// this chat already holds, so a client sending its draft again need not send the bytes again.
+/// `held` is what this chat's drafts hold now. Answers each as a prompt's record names it.
+fn draft_images(raw: Option<&Value>, held: &[Value]) -> Result<Vec<Value>, RpcError> {
+    let Some(raw) = raw.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let list = raw.as_array().ok_or_else(|| image_refusal("images must be an array".into()))?;
+    if list.len() > MAX_DRAFT_IMAGES {
+        return Err(image_refusal(format!("a draft holds at most {MAX_DRAFT_IMAGES} images")));
+    }
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        if item.get("type").and_then(Value::as_str) == Some("image") {
+            if super::prompt_images::id_of(item).is_none() {
+                return Err(image_refusal("an image block's data must be base64".into()));
+            }
+            let kept = super::prompt_images::keep_sourced(std::slice::from_ref(item), None);
+            let kept = kept.into_iter().next().ok_or_else(|| {
+                RpcError::internal("could not keep the image")
+                    .with_data(json!({"reason": "composer.image.unkept"}))
+            })?;
+            out.push(kept);
+            continue;
+        }
+        let id = image_id(item).ok_or_else(|| {
+            image_refusal(
+                "each image is an image block or {id} of one this chat's drafts hold".into(),
+            )
+        })?;
+        let known = held.iter().find(|h| image_id(h).as_deref() == Some(id.as_str()));
+        let known = known
+            .filter(|_| super::prompt_images::image_path(&id).is_some_and(|p| p.is_file()))
+            .ok_or_else(|| {
+                RpcError::invalid_params(format!(
+                    "no image {id} in this chat's drafts: send its bytes"
+                ))
+                .with_data(json!({"reason": "composer.image.unknown", "id": id}))
+            })?;
+        out.push(known.clone());
+    }
+    Ok(out)
+}
 
 fn refusal(message: String) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": "surface.invalid"}))
@@ -198,8 +314,9 @@ pub fn surface(v: Option<&Value>) -> Result<Option<Surface>, RpcError> {
 }
 
 impl Hub {
-    /// `_acpmux/composer_set {sessionId, surface, text}` from the connection `client`: the
-    /// surface's unsent text. Whitespace clears it. Records `composer` when the surface starts or
+    /// `_acpmux/composer_set {sessionId, surface, text, images?}` from the connection `client`:
+    /// the surface's unsent text and the images it holds unsent (`draft_images`; a request
+    /// without `images` holds none). Whitespace and no image clears it. Records `composer` when the surface starts or
     /// stops composing (or renames itself while it composes), so every client sees who is typing
     /// without a record per key. Answers only this surface's state; `_acpmux/composers` has all.
     pub fn composer_set(
@@ -207,12 +324,19 @@ impl Hub {
         session: &Session,
         surface: Surface,
         text: &str,
+        images: Option<&Value>,
         client: &str,
     ) -> Result<Value, RpcError> {
         if session.moving().is_some() {
             return Err(queue::moving_error(session));
         }
-        let composing = !text.trim().is_empty();
+        let held: Vec<Value> = {
+            let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
+            c.drafts.values().flat_map(|d| d.images.iter().cloned()).collect()
+        };
+        // Kept before the lock: a large image is written to disk.
+        let images = draft_images(images, &held)?;
+        let composing = !text.trim().is_empty() || !images.is_empty();
         let changed = {
             let mut c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
             let before = c.drafts.get(&surface.id).map(|d| d.surface.clone());
@@ -221,6 +345,7 @@ impl Hub {
                 let draft = Draft {
                     surface: surface.clone(),
                     text: text.to_owned(),
+                    images: images.clone(),
                     updated_at: now_ms(),
                     order: c.typed,
                 };
@@ -233,7 +358,32 @@ impl Hub {
         if changed {
             self.append(session, "mux", "composer", surface.composer(client, composing));
         }
-        Ok(json!({"sessionId": session.id, "surfaceId": surface.id, "composing": composing}))
+        let mut answer =
+            json!({"sessionId": session.id, "surfaceId": surface.id, "composing": composing});
+        if composing && !images.is_empty() {
+            answer.set("images", json!(images));
+        }
+        Ok(answer)
+    }
+
+    /// `_acpmux/attachment` for an image a surface's unsent draft holds, as `{mimeType, data}`
+    /// (base64), like a sent prompt's (`prompt_images.rs` `prompt_image`); None when no draft of
+    /// this chat holds `id` or its bytes are gone.
+    pub fn composer_image(&self, session: &Session, id: &str) -> Option<Value> {
+        use base64::Engine;
+        let named = {
+            let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
+            c.draft_image(id).cloned()?
+        };
+        let bytes = std::fs::read(super::prompt_images::image_path(id)?).ok()?;
+        let mime = super::prompt_images::sniffed_type(&bytes)
+            .map(|known| json!(known))
+            .or_else(|| named.get("mimeType").cloned())
+            .unwrap_or_else(|| json!("image/png"));
+        Some(json!({
+            "mimeType": mime,
+            "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+        }))
     }
 
     /// The hub took a prompt a surface sent through the connection `client`
@@ -274,6 +424,9 @@ impl Hub {
             .map(|d| {
                 let mut v = d.surface.record();
                 v.set("text", json!(d.text));
+                if !d.images.is_empty() {
+                    v.set("images", json!(d.images));
+                }
                 v.set("updatedAt", json!(d.updated_at));
                 v
             })
@@ -325,6 +478,7 @@ mod tests {
             let draft = Draft {
                 surface: s.clone(),
                 text: text.into(),
+                images: Vec::new(),
                 updated_at: 7,
                 order: order as u64 + 1,
             };
@@ -363,5 +517,52 @@ mod tests {
         assert_eq!(back.drafts["early"].order, 6, "numbered on from this chat's own count");
         assert_eq!(back.drafts["late"].order, 7, "in the order the other machine typed them");
         assert_eq!(back.typed, 7, "the next keystroke has a number left to take");
+    }
+
+    #[test]
+    fn composer_set_refuses_an_image_it_cannot_keep_or_does_not_hold() {
+        let reason = |e: RpcError| e.data.unwrap()["reason"].as_str().unwrap().to_owned();
+        assert!(draft_images(None, &[]).unwrap().is_empty(), "an old client names none");
+        assert!(draft_images(Some(&Value::Null), &[]).unwrap().is_empty());
+        let not_a_list = draft_images(Some(&json!({"id": "x"})), &[]).unwrap_err();
+        assert_eq!(reason(not_a_list), "composer.image.invalid");
+        let bad = json!([{"type": "image", "mimeType": "image/png", "data": "%%%"}]);
+        assert_eq!(reason(draft_images(Some(&bad), &[]).unwrap_err()), "composer.image.invalid");
+        let unknown = json!([{"id": "a".repeat(64)}]);
+        assert_eq!(
+            reason(draft_images(Some(&unknown), &[]).unwrap_err()),
+            "composer.image.unknown"
+        );
+        let path = json!([{"id": "../secret"}]);
+        assert_eq!(reason(draft_images(Some(&path), &[]).unwrap_err()), "composer.image.invalid");
+        let many = json!(vec![json!({"id": "a".repeat(64)}); MAX_DRAFT_IMAGES + 1]);
+        assert_eq!(reason(draft_images(Some(&many), &[]).unwrap_err()), "composer.image.invalid");
+    }
+
+    #[test]
+    fn a_bundled_drafts_images_keep_only_what_a_record_names() {
+        let id = "b".repeat(64);
+        let mut c = Composers::default();
+        let mac = Surface { id: "mac".into(), name: "Mac".into(), kind: None };
+        let image =
+            json!({"id": id, "mimeType": "image/png", "name": "shot.png", "width": 1, "height": 1});
+        let draft = Draft {
+            surface: mac.clone(),
+            text: String::new(),
+            images: vec![image.clone()],
+            updated_at: 7,
+            order: 1,
+        };
+        c.drafts.insert(mac.id.clone(), draft);
+        assert_eq!(c.image_ids(), std::slice::from_ref(&id), "a move bundles the draft's image");
+        let bundled = c.bundled();
+        assert_eq!(bundled["drafts"][0]["images"], json!([image]));
+        let stray = json!({"id": id, "mimeType": "x".repeat(500), "extra": "dropped", "width": -1});
+        assert_eq!(carried_image(&stray), Some(json!({"id": id, "mimeType": "image/png"})));
+        assert_eq!(carried_image(&json!({"id": "../../etc/passwd"})), None);
+        // A draft of only images whose bytes did not arrive is no draft.
+        let mut back = Composers::default();
+        back.restore(&bundled);
+        assert!(back.drafts.is_empty(), "{:?}", back.drafts);
     }
 }

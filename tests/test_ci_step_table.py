@@ -287,6 +287,44 @@ class SetupTest(unittest.TestCase):
         self.assertIn("made-by-setup", out)
         self.assertEqual(out.count("::group::setup (linux)"), 1)
 
+    def test_steps_read_the_changed_paths(self) -> None:
+        t = table('''
+            [step.a]
+            job = "linux"
+            run = "test \\"$(cat \\"$CI_PATHS_FILE\\")\\" = \\"$(printf 'web/a.ts\\nweb/b c.ts')\\""
+        ''')
+        code, out = self.run_job(t, "linux", ["web/a.ts", "web/b c.ts"])
+        self.assertEqual(code, 0, out)
+        # An unknown change leaves it unset, which a step reads as "everything changed".
+        t = table('''
+            [step.a]
+            job = "linux"
+            run = "test -z \\"${CI_PATHS_FILE:-}\\""
+        ''')
+        with mock.patch.dict(os.environ, {"CI_PATHS_FILE": "/stale"}):
+            code, out = self.run_job(t, "linux", None)
+        self.assertEqual(code, 0, out)
+
+    def test_an_unremovable_tool_dir_does_not_fail_green_steps(self) -> None:
+        # A sudo zig install left root-owned files in $CI_TOOLS; cleanup raised PermissionError and a job whose
+        # steps all passed exited 1 (pr pipeline / linux, run 45474768809).
+        t = table('''
+            [step.a]
+            job = "linux"
+            run = "echo step-ok"
+        ''')
+        real = tempfile.TemporaryDirectory._rmtree
+
+        def rmtree(name, ignore_errors=False, repeated=False):
+            if not ignore_errors:
+                raise PermissionError(1, "Operation not permitted", name)
+            return real(name, ignore_errors=ignore_errors, repeated=repeated)
+
+        with mock.patch.object(tempfile.TemporaryDirectory, "_rmtree", staticmethod(rmtree)):
+            code, out = self.run_job(t, "linux")
+        self.assertEqual(code, 0, out)
+        self.assertIn("step-ok", out)
+
     def test_a_failed_setup_fails_the_job_and_runs_no_step(self) -> None:
         t = table('''
             [setup]
@@ -447,7 +485,7 @@ class PipelineTest(unittest.TestCase):
         import pr_router
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
-        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux"])
+        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser", "mac"])
         self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "the workflows it replaced ran on drafts")
 
         def started(files, **pr):
@@ -469,6 +507,58 @@ class PipelineTest(unittest.TestCase):
                     bad = Path(tmp) / "steps.toml"
                     bad.write_text(body)
                     self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], bad))
+
+    def test_the_router_names_the_routed_table_jobs(self) -> None:
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        routed = pr_router.table_jobs_routed
+        # `security-holes` (inputs ["**"]) routes every change to linux, so linux is in every list; web-browser
+        # starts only for a browser step's inputs.
+        self.assertEqual(routed(callees, ["webviews/src/app.tsx"]), ["linux", "web-browser"])
+        self.assertEqual(routed(callees, ["scripts/ci/notify-indexnow.py"]), ["linux"])
+        self.assertEqual(routed(callees, ["web/app/page.tsx"]), ["linux", "web-browser"])
+        self.assertEqual(routed(callees, ["docs/x.md"]), ["linux"])
+        # Unknown changes or an unreadable table run every job.
+        self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac"])
+        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac"])
+        # The mac job runs only on a full-tier head: a draft's Swift change routes it nowhere.
+        swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift"]
+        self.assertIn("mac", routed(callees, swift))
+        self.assertNotIn("mac", routed(callees, swift, full=False))
+        self.assertEqual(routed(callees, None, full=False), ["linux", "web-browser"])
+        self.assertEqual(pr_router.FULL_TIER_JOBS, ("mac",))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
+                pr_router.write_outputs(["pr-pipeline.yml"], {}, ["webviews/a.ts"], ["web-browser"])
+            self.assertIn('table=["web-browser"]\n', out.read_text())
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
+        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
+
+    def test_each_pipeline_job_runs_only_when_routed(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        on = wf.get("on", wf.get(True))
+        self.assertEqual(on["workflow_call"]["inputs"]["jobs"]["default"], "")
+        table_jobs = set(ci_steps.load().jobs) - {"advisory", "verdict"}
+        for name, job in wf["jobs"].items():
+            with self.subTest(job=name):
+                self.assertIn(name, table_jobs, "a pr-pipeline.yml job is a job of ci/steps.toml")
+                self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}') }}}}")
+                runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
+                self.assertEqual(len(runs), 1)
+                self.assertEqual(job["steps"][0]["with"]["fetch-depth"], 2)
+                self.assertIs(job["steps"][0]["with"]["persist-credentials"], False)
+                # The mac job runs on a Mac (MacJobTest holds its label); every other job on linux's.
+                if name != "mac":
+                    self.assertEqual(job["runs-on"], wf["jobs"]["linux"]["runs-on"])
+                steps = [s for s in ci_steps.load().steps.values() if s.job == name]
+                shared = [s for s in steps if not s.alone]
+                need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT
+                        + -(-len(shared) // 2) * max((s.timeout for s in shared), default=0)
+                        + sum(s.timeout for s in steps if s.alone))
+                self.assertGreaterEqual(job["timeout-minutes"] * 60, need)
 
     def test_the_changed_paths_are_nul_separated(self) -> None:
         # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
@@ -535,8 +625,11 @@ class PipelineTest(unittest.TestCase):
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
-                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
-                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                path = ROOT / ".github/workflows" / name
+                # ci-artifact-transport.yml ran only on pushes to main, so feat-cmux-next has no copy.
+                if path.exists():
+                    wf = yaml.safe_load(path.read_text())
+                    self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
         # coderouter-ci.yml also ran for pull requests into main, which the table does not serve: it keeps those.
@@ -583,8 +676,8 @@ class PipelineTest(unittest.TestCase):
         # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["security-holes"]["if"],
-                         "${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
-                         "|| github.workflow == 'docs-only fallback') }}")
+                         "${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
+                         "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}")
         holes = steps["security-holes"]
         self.assertEqual(holes.job, "linux")
         self.assertEqual(holes.inputs, ("**",))
@@ -621,10 +714,10 @@ class PipelineTest(unittest.TestCase):
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
-        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust"])
+        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck"}
-        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity"}
+                     "web-typecheck", "webviews-typecheck"}
+        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
@@ -672,6 +765,92 @@ class PipelineTest(unittest.TestCase):
         self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
 
 
+class MacJobTest(unittest.TestCase):
+    """The `mac` job: cmux-next.yml's swift-canary and fast-tier jobs on a feat-cmux-next pull request, folded into
+    the table (CI v2 step 11). Leo, 2026-11-24: "how about finishing up our borg/ci v2? did we finish all 27+
+    things?"
+    """
+
+    # Paths cmux_next_route.py routes to the fast tier or the canary, one or more of each kind of input it reads.
+    ROUTED = (
+        "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift",
+        "Packages/macOS/CmuxNext/Package.swift",
+        "scripts/cmux-next/fast-tier.py",
+    )
+
+    def test_it_runs_on_an_owned_mac_and_a_fork_on_blacksmith(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(
+            wf["jobs"]["mac"]["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+            "vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+
+    def test_its_mac_setup_steps_keep_their_names(self) -> None:
+        # owned_pool_rescue.py reads "Select Xcode"; the lease's holder lives as long as the workflow step.
+        job = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]["mac"]
+        names = [s.get("name") for s in job["steps"]]
+        for name in ("Route the Mac tiers", "Select Xcode", "Keep Swift package builds on this owned Mac",
+                     "Restore the CmuxNext build", "Upload fast-tier timing receipt"):
+            with self.subTest(name=name):
+                self.assertIn(name, names)
+        self.assertLess(names.index("Route the Mac tiers"), names.index("Select Xcode"))
+        self.assertLess(names.index("Restore the CmuxNext build"),
+                        names.index("Run the routed mac steps (ci/steps.toml)"))
+        upload = job["steps"][names.index("Upload fast-tier timing receipt")]
+        self.assertEqual(upload["with"]["name"],
+                         "cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}")
+
+    def test_each_step_asks_the_router_first(self) -> None:
+        steps = [s for s in ci_steps.load().steps.values() if s.job == "mac"]
+        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier", "mac-swift-canary"])
+        for step in steps:
+            with self.subTest(step=step.name):
+                tier = {"mac-fast-tier": "fast_tier", "mac-swift-canary": "swift_canary"}[step.name]
+                first = step.run.strip().splitlines()[0]
+                self.assertTrue(first.startswith(f"python3 -I scripts/ci/mac_tiers.py has {tier} "), first)
+                self.assertTrue(first.endswith("|| exit 0"), first)
+                self.assertTrue(step.inputs and step.blocks)
+        self.assertTrue(ci_steps.load().steps["mac-fast-tier"].alone)
+
+    def test_the_inputs_cover_what_the_router_routes(self) -> None:
+        t = ci_steps.load()
+        for path in self.ROUTED:
+            with self.subTest(path=path):
+                self.assertIn("mac-fast-tier", ci_steps.route(t, [path]).get("mac", []))
+        self.assertEqual(ci_steps.route(t, ["docs/x.md"]).get("mac"), None)
+
+    def test_a_draft_starts_no_mac(self) -> None:
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        event = {"action": "synchronize", "pull_request": {"draft": True}}
+        swift = [self.ROUTED[0]]
+        start, why = pr_router.route(event, callees, swift)
+        self.assertNotIn("mac-", why["pr-pipeline.yml"])
+        if start:
+            self.assertNotIn("mac", pr_router.table_jobs_routed(callees, swift, full=False))
+        ready = {"action": "synchronize", "pull_request": {"draft": False}}
+        self.assertEqual(pr_router.route(ready, callees, swift)[0], ["pr-pipeline.yml"])
+
+    def test_cmux_next_keeps_them_only_off_the_pull_request(self) -> None:
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
+        for name in ("fast-tier", "fast-tier-fleet", "fast-tier-rerun-placement"):
+            with self.subTest(job=name):
+                self.assertNotIn("github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next'",
+                                 jobs[name]["if"])
+                self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                              jobs[name]["if"])
+        for name in ("swift-canary", "swift-canary-fleet"):
+            with self.subTest(job=name):
+                self.assertIn("&& github.event_name != 'pull_request'", jobs[name]["if"])
+                self.assertNotIn("head.repo.full_name == github.repository", jobs[name]["if"])
+        placement = jobs["macos-placement"]["steps"]
+        text = json.dumps(placement)
+        self.assertNotIn("'swift-canary daemon-test generated-files'", text)
+        self.assertNotIn("'fast-tier daemon-test generated-files'", text)
+
+
 class RepositoryAdvisoryStepsTest(unittest.TestCase):
     """The table's own advisory steps, run as the workflow runs them, against this checkout."""
 
@@ -707,7 +886,7 @@ class RepositoryAdvisoryStepsTest(unittest.TestCase):
         step = next(s for s in body["steps"] if s.get("name") == "Run the advisory steps")
         self.assertIs(step.get("continue-on-error"), True)
         self.assertIn('ci_steps.py run --job advisory --label "$LABEL" "${only[@]}"', step["run"])
-        self.assertIn('only=(--only "design-spec perf-section cloud-backend")', step["run"])
+        self.assertIn('only=(--only "capture design-spec perf-section cloud-backend")', step["run"])
         names = [s.get("name", "") for s in body["steps"]]
         for gone in ("Check the description cites each changed surface's spec",
                      "Check the description for a Performance table",
@@ -919,6 +1098,20 @@ class EnsureBun(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("from " + str(self.cache), done.stdout)
 
+    def test_bunx_is_beside_bun_whichever_way_bun_came(self) -> None:
+        # setup-bun gave steps `bunx` too; web's playwright webServer runs `bunx next` (#53426: "bunx: not found").
+        ways = {"path": lambda: fake_bun(self.path_bin / "bun", BUN_VERSION), "download": self.publish, "cache": lambda: None}
+        for way, arrange in ways.items():
+            with self.subTest(way=way):
+                arrange()
+                done = self.run_script()
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(os.readlink(self.bin / "bunx"), "bun")
+                self.assertEqual((self.bin / "bunx").resolve(), (self.bin / "bun").resolve())
+                (self.bin / "bunx").unlink()
+                if way == "path":
+                    (self.path_bin / "bun").unlink()
+
     def test_a_download_that_does_not_match_its_checksum_fails(self) -> None:
         self.publish(corrupt=True)
         done = self.run_script()
@@ -932,6 +1125,76 @@ class EnsureBun(unittest.TestCase):
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("not " + BUN_VERSION, done.stdout + done.stderr)
 
+
+
+
+class BunInstallLockTest(unittest.TestCase):
+    def test_every_bun_install_holds_the_job_lock(self) -> None:
+        # Parallel steps share bun's global cache; two installs at once failed copying from it (ENOENT).
+        for name, step in ci_steps.load().steps.items():
+            for line in step.run.splitlines():
+                if re.search(r"\bbun (install|i)\b", line) and not line.lstrip().startswith("#"):
+                    with self.subTest(step=name, line=line.strip()):
+                        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install', line)
+
+
+class WebBrowserStepsTest(unittest.TestCase):
+    """The web-browser job's steps: ci-web.yml's browser jobs on a feat-cmux-next pull request, routed by their
+    web subarea (web_subareas.py), which their globs cover and their first line narrows."""
+
+    STEPS = {"web-instant-navigation": "instant", "agent-pane-real-acpmux": "agent_pane"}
+
+    def test_their_globs_cover_the_subarea(self) -> None:
+        import web_subareas
+
+        steps = ci_steps.load().steps
+        samples = {
+            "instant": sorted(web_subareas.INSTANT_EXACT) + [p + "x.ts" for p in web_subareas.INSTANT_PREFIXES],
+            "agent_pane": sorted(web_subareas.AGENT_PANE_EXACT) + sorted(web_subareas.REACT_EXACT)
+            + [p + "x.ts" for p in web_subareas.AGENT_PANE_PREFIXES + web_subareas.REACT_PREFIXES]
+            + ["schemas/settings/x.json", "release-notes/next/highlights/x.md", "web/data/model-catalog/snapshot.json"],
+        }
+        for name, subarea in self.STEPS.items():
+            self.assertEqual(steps[name].job, "web-browser")
+            for path in samples[subarea] + sorted(web_subareas.ALL_SUBAREA_INPUTS):
+                if not getattr(web_subareas.classify_paths([path], ROOT), subarea):
+                    continue
+                with self.subTest(step=name, path=path):
+                    self.assertTrue(ci_steps.routed(steps[name], [path]))
+            self.assertTrue(steps[name].run.lstrip().startswith(f"python3 -I scripts/ci/web_subareas.py has {subarea} || exit 0"))
+
+    def test_has_answers_from_the_listed_paths(self) -> None:
+        script = ROOT / "scripts" / "ci" / "web_subareas.py"
+
+        def has(subarea, paths):
+            env = {k: v for k, v in os.environ.items() if k != "CI_PATHS_FILE"}
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+                f.write("".join(p + "\n" for p in paths or []))
+            if paths is not None:
+                env["CI_PATHS_FILE"] = f.name
+            try:
+                return subprocess.run([sys.executable, "-I", str(script), "has", subarea], cwd=ROOT, env=env,
+                                      capture_output=True, text=True, timeout=60).returncode
+            finally:
+                os.unlink(f.name)
+
+        self.assertEqual(has("instant", ["web/app/page.tsx"]), 0)
+        self.assertEqual(has("instant", ["webviews/src/a.ts"]), 1)
+        self.assertEqual(has("agent_pane", ["cmux-tui/crates/acpmux/src/lib.rs"]), 0)
+        # A standalone webview test other than the two is not the pane's input.
+        self.assertEqual(has("agent_pane", ["webviews/test/other.test.ts"]), 1)
+        self.assertEqual(has("agent_pane", None), 0)
+        self.assertEqual(has("agent_pane", []), 0)
+        self.assertNotEqual(has("no_such", ["web/a.ts"]), 0)
+
+    def test_ci_web_skips_them_only_on_a_feat_cmux_next_pull_request(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
+        for name in self.STEPS:
+            with self.subTest(job=name):
+                self.assertTrue(wf["jobs"][name]["if"].endswith(
+                    "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        status = wf["jobs"]["web-status"]["steps"][0]["run"]
+        self.assertIn('may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})', status)
 
 if __name__ == "__main__":
     unittest.main()
