@@ -39,6 +39,11 @@ declare global {
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
       cloudStartProgress?(push: unknown): void;
+      /// `{text, replaces}`: the text the tab this chat replaces held when it closed (`text`), when that
+      /// is not what the handshake's `draft` carried (`replaces`). A Cloud start's page takes its seed
+      /// before the start hands the tab off, so that it can draw out of sight first; what the person
+      /// typed in between comes here.
+      lateDraft?(value: unknown): void;
       /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.

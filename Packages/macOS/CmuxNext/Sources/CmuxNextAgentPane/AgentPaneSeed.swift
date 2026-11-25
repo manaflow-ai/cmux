@@ -136,21 +136,35 @@ public final class AgentPaneSeedSource {
 
     /// The draft a hand-off gives later (``handingOffDraft(_:now:)``): ``take()`` waits for it.
     private var lateDraft: AgentPaneLateDraft?
+    /// That hand-off, kept after ``take()`` read it (``draftMayBeTaken()``).
+    private var handOff: AgentPaneLateDraft?
+    /// Takes the text the sending tab holds at the hand-off (`text`) when the page was handed other text
+    /// before it (`replaces`, ``draftMayBeTaken()``): whoever shows the page puts it in the page's composer.
+    public var addDraft: (@MainActor (_ text: String, _ replaces: String) -> Void)?
 
     /// A seed whose draft is known only at a hand-off still to come: a Cloud start's chat, whose sending
     /// tab's composer stays open (Leo, 2026-11-09: "I can't click into the composer at all to, like
     /// potentially type other stuff while it's doing that initial load situation") until the App closes
     /// that tab, after the chat's tab is made and its folder trusted. The page's ``take()`` waits for the
-    /// hand-off however long that takes, so nothing typed meanwhile is snapshotted early and dropped:
+    /// hand-off however long that takes (unless ``draftMayBeTaken()`` let it take the text early, and
+    /// the hand-off then adds what was typed since), so nothing typed meanwhile is snapshotted early and dropped:
     /// the start hands off on every way out (``CloudStartChat`` `openUploaded` gives in a `defer`).
     /// ``peek()`` never waits. `give(true)` hands off the sending tab's text as `now` reads it then;
     /// `give(false)` (the start failed) hands off none. The first call counts.
     public static func handingOffDraft(_ seed: AgentPaneSeed, now: @escaping @MainActor () -> String?)
         -> (source: AgentPaneSeedSource, give: @MainActor (_ handedOff: Bool) -> Void) {
-        let source = AgentPaneSeedSource(seed), handOff = AgentPaneLateDraft()
-        source.lateDraft = handOff
-        return (source, { handOff.give($0 ? now() : nil) })
+        let source = AgentPaneSeedSource(seed), handOff = AgentPaneLateDraft(now: now)
+        (source.lateDraft, source.handOff) = (handOff, handOff)
+        return (source, { if let late = handOff.give($0) { source.addDraft?(late.text, late.replaces) } })
     }
+
+    /// The page may take the hand-off's text as it is typed when it asks, without waiting for the hand-off
+    /// (``handingOffDraft(_:now:)``). For a start that waits for this page to draw before it hands off
+    /// (``AgentPaneDrawFirst``): a page draws only once its handshake is answered, and the handshake takes the
+    /// seed, so a seed that waited for the hand-off held the page, and the start's wait for it, to the wait's
+    /// bound on every start. What is typed between the page's take and the hand-off is not lost: the hand-off
+    /// gives it to ``addDraft``. Nothing changes for a seed with no hand-off, or one already handed off.
+    public func draftMayBeTaken() { handOff?.open() }
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -278,22 +292,57 @@ extension AgentPaneSeedSource {
     }
 }
 
-/// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:now:)``).
+/// The sending tab's text, given later to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:now:)``):
+/// at the hand-off, or as it is typed when asked once ``open()`` allowed that.
 @MainActor
 final class AgentPaneLateDraft {
+    private let now: @MainActor () -> String?
+    /// The hand-off's text, fixed by ``give(_:)``; `.some(nil)` is a hand-off of none.
     private var given: String??
+    /// An ask is answered with the text as it is typed then, before the hand-off.
+    private var isOpen = false
+    /// What an ask was answered with before the hand-off; nil while none was.
+    private var early: String??
     private var waiting: [CheckedContinuation<String?, Never>] = []
 
-    func give(_ value: String?) {
-        guard given == nil else { return }
-        given = .some(value)
-        let resumed = waiting
-        waiting = []
-        for continuation in resumed { continuation.resume(returning: value) }
+    init(now: @escaping @MainActor () -> String?) { self.now = now }
+
+    /// Asks no longer wait for the hand-off: one that waits is answered now, with the text as typed now.
+    func open() {
+        guard given == nil, !isOpen else { return }
+        isOpen = true
+        guard !waiting.isEmpty else { return }
+        let text = now()
+        early = .some(text)
+        resume(text)
+    }
+
+    /// The hand-off: the text as typed now, or none (`handedOff` false: the start failed). The first call
+    /// counts. When an ask was answered early with other text, returns the text now and the text it replaces,
+    /// for the page to take. A start that failed after an early ask returns nothing: the page keeps the text
+    /// it took, and the tab that was not handed off keeps its own.
+    func give(_ handedOff: Bool) -> (text: String, replaces: String)? {
+        guard given == nil else { return nil }
+        let text = handedOff ? now() : nil
+        given = .some(text)
+        resume(text)
+        guard handedOff, let early, (early ?? "") != (text ?? "") else { return nil }
+        return (text ?? "", early ?? "")
     }
 
     func value() async -> String? {
         if let given { return given }
+        if isOpen {
+            let text = now()
+            early = .some(text)
+            return text
+        }
         return await withCheckedContinuation { waiting.append($0) }
+    }
+
+    private func resume(_ text: String?) {
+        let resumed = waiting
+        waiting = []
+        for continuation in resumed { continuation.resume(returning: text) }
     }
 }

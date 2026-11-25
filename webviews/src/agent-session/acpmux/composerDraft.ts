@@ -55,6 +55,25 @@ export function restoredPrompt(typed: string, back: string, behind = false): str
   return behind ? mergedDraft(back, typed) : mergedDraft(typed, back);
 }
 
+/**
+ * A Cloud start's late draft (pane/paneSnapshot.ts `lateDraft`): what the prompt holds after it. `late`
+ * is the text of the tab the chat replaces as it closed, `replaces` what the handshake's draft put in
+ * the prompt before it. A prompt still holding that draft, or nothing, takes `late` (an emptied one
+ * included). Other text in the prompt (a prompt put back beside the draft, text typed there) stays,
+ * after `late`: only the draft is replaced, so it is not in the prompt twice. The result is one
+ * `mergedDraft` leaves as it is, so the composer's own draft merge adds nothing to it.
+ */
+export function lateDraftText(typed: string, late: string, replaces: string): string {
+  if (!typed.trim() || typed === replaces) return late;
+  let rest = typed;
+  if (replaces && typed.startsWith(replaces) && /^\s/.test(typed.slice(replaces.length))) {
+    rest = typed.slice(replaces.length).trimStart();
+  } else if (replaces && typed.endsWith(`${DRAFT_SEPARATOR}${replaces}`)) {
+    rest = typed.slice(0, -replaces.length).trimEnd();
+  }
+  return mergedDraft(rest, late);
+}
+
 /** What goes between a saved draft and text typed after it (`mergedDraft`). */
 const DRAFT_SEPARATOR = "\n\n";
 

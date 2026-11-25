@@ -118,6 +118,81 @@ struct UnsentDraftTests {
         withExtendedLifetime(sender) {}
     }
 
+    /// A start that waits for the chat's page to draw before it hands off (``AgentPaneDrawFirst``) lets the
+    /// page take the text early: the page draws only once its handshake is answered, and the handshake takes
+    /// the seed, so a seed that waited for the hand-off held the page, and the start's wait for it, to the
+    /// wait's bound on every start. The handshake is answered with the text as typed then, and what is typed
+    /// between that and the hand-off goes to the page at the hand-off, in its place.
+    @Test func aPageThatMayTakeTheDraftEarlyGetsWhatWasTypedSinceAtTheHandOff() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let sender = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(sender) { "tab-1" }
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the"]))
+        let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(cwd: "/w", prompt: "fix the build", promptBy: .person)) {
+            drafts.draft(forTab: "tab-1", machine: "this-mac")
+        }
+        var added: [[String]] = []
+        source.addDraft = { text, replaces in added.append([text, replaces]) }
+        source.draftMayBeTaken()
+        // The page's handshake is answered at once, before any hand-off, with the text as typed then.
+        let seed = await source.take()
+        #expect(seed?.draft == "and the")
+        #expect(seed?.prompt == "fix the build")
+        #expect(added.isEmpty)
+        // The person types on while the page draws: the hand-off gives the page the text as it is then.
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "and the nightly"]))
+        handOff(true)
+        #expect(added == [["and the nightly", "and the"]])
+        // The first hand-off counts.
+        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "too late"]))
+        handOff(true)
+        handOff(false)
+        #expect(added.count == 1)
+        withExtendedLifetime(sender) {}
+    }
+
+    /// The other ways an early take goes: nothing typed since adds nothing; a page that already waits is
+    /// answered when it may take, not at the hand-off; a page that had not asked by the hand-off gets the
+    /// hand-off's text and nothing typed after it; a start that failed gives none.
+    @Test func anEarlyTakeAddsOnlyWhatChangedAndTheHandOffStillFixesTheText() async throws {
+        var text: String? = "and the"
+        var added: [[String]] = []
+        let seed = AgentPaneSeed(prompt: "fix the build", promptBy: .person)
+        let (same, give) = AgentPaneSeedSource.handingOffDraft(seed) { text }
+        same.addDraft = { text, replaces in added.append([text, replaces]) }
+        same.draftMayBeTaken()
+        #expect(await same.take()?.draft == "and the")
+        give(true)
+        #expect(added.isEmpty)
+
+        let (waiting, later) = AgentPaneSeedSource.handingOffDraft(seed) { text }
+        waiting.addDraft = { text, replaces in added.append([text, replaces]) }
+        // The page asked before the draw said it may take the draft: its ask waits, and is answered then.
+        let taking = Task { await waiting.take() }
+        for _ in 0..<5 { await Task.yield() }
+        waiting.draftMayBeTaken()
+        #expect(await taking.value?.draft == "and the")
+        // Emptied before the tab closed: the page is told, so its composer is emptied too.
+        text = nil
+        later(true)
+        #expect(added == [["", "and the"]])
+
+        text = "and the"
+        let (slow, handOff) = AgentPaneSeedSource.handingOffDraft(seed) { text }
+        slow.addDraft = { text, replaces in added.append([text, replaces]) }
+        slow.draftMayBeTaken()
+        text = "and the nightly"
+        handOff(true)
+        text = "after the tab closed"
+        #expect(await slow.take()?.draft == "and the nightly")
+
+        let (failed, fail) = AgentPaneSeedSource.handingOffDraft(seed) { text }
+        failed.draftMayBeTaken()
+        fail(false)
+        #expect(await failed.take()?.draft == nil)
+        #expect(added.count == 1)
+    }
+
     /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
     /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
     /// window's next new chat takes it once, and nothing sends it.
