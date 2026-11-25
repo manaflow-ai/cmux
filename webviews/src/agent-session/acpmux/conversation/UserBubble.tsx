@@ -51,7 +51,6 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
-import { SavePromptButton } from "./SavePromptButton";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
@@ -109,8 +108,6 @@ export function UserBubble({
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
-  /// What Save as Prompt keeps: the prompt as it went (its skills as `/$name`), else its text.
-  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
@@ -314,7 +311,6 @@ export function UserBubble({
               ((actions) =>
                 pending(actions, {
                   fork: forkButton,
-                  save: <SavePromptButton text={resend} />,
                 }))
             }
           >
@@ -340,7 +336,6 @@ export function UserBubble({
               {forkButton}
               <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
-              <SavePromptButton text={resend} />
             </MessageFooterRow>
           </UserFooter>
         )}

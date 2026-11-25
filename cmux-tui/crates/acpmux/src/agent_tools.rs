@@ -20,9 +20,9 @@
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-computer-use` is model-invocable: its description claims tasks
 //!   in a desktop app; the person's Computer Use settings decide what runs.
-//!   Known limit: `skills/` is not a cmux-tui tree-key input
-//!   (scripts/cmux-next/cmux-tui-tree-inputs.txt), so a skills-only change
-//!   reaches a published cmux-tui build with the next cmux-tui change.
+//!   Each embedded skill file is a `blob` line in scripts/cmux-next/cmux-tui-tree-inputs.txt,
+//!   so a skills-only change builds a new tree (scripts/ci/check_cmux_tui_tree_inputs.py
+//!   fails when one is missing).
 //! - Computer Use (`computer_use/mcp.rs`): every session gets
 //!   `acpmux computer-use-mcp` (server `cmux-computer-use`), whatever
 //!   `computerUse.mode` says: tools are fixed when a chat spawns, and Computer
@@ -86,6 +86,8 @@ use serde_json::{Map, Value, json};
 pub mod claude_plugin_dirs;
 mod cmux_mcp;
 pub mod project_mcp;
+#[cfg(unix)]
+pub mod shared_servers;
 mod upstreams;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
@@ -411,6 +413,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
     ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
+    // UI work shown in the chat: live mode, the preview tab turn shots capture, how to try it (hq RFD 0150).
+    ("cmux-ui-preview/SKILL.md", include_str!("../../../../skills/cmux-ui-preview/SKILL.md")),
     // Diagrams, charts, math, decks, documents and opening pages beside the chat (hq
     // docs/design/next-rich-output.md). The deck template is a file the agent copies.
     ("cmux-rich-output/SKILL.md", include_str!("../skills/cmux-rich-output/SKILL.md")),
@@ -459,8 +463,9 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
-    /// The person's own skills (`~/.config/cmux/skills`) as a second plugin, `cmux-user`
-    /// (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and there are any.
+    /// The person's own skills (`~/.config/cmux/skills`, `cmux-next` on macOS) as a second
+    /// plugin, `cmux-user` (`agent_guidance.rs`), while `agents.guidance.userSkills` is on and
+    /// there are any.
     pub user_plugin_dir: Option<PathBuf>,
     /// The display allocation folder, only in per-workspace display mode
     /// (`agent_displays.rs`): [`AgentTools::scoped`] then leaves the
@@ -475,6 +480,10 @@ pub struct AgentTools {
     /// Servers the daemon serves for this chat over loopback HTTP ([`AgentTools::via_gateway`]),
     /// by name: the harness reaches them there instead of starting their stdio launch.
     pub http: BTreeMap<String, crate::mcp_gateway::Endpoint>,
+    /// `optchat-chief`, for a chat whose memory followed it here from another machine
+    /// ([`crate::memory_follow`]): [`AgentTools::scoped`] gives it the memory server even when
+    /// this machine's settings name no memory. `None` when this machine turned memory off.
+    pub memory_follow: Option<PathBuf>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -761,7 +770,19 @@ pub fn acp_servers_for(
     }
     let tools = acp_tools_with(current(), env, session_id, all_tools, codex);
     let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
-    tools.acp_servers()
+    let servers = tools.acp_servers();
+    // The person's own Codex servers they share run once for every chat (`mcp_pool.rs`).
+    #[cfg(unix)]
+    let servers = match (codex, servers) {
+        (Some(_), Value::Array(mut list)) => {
+            let taken: std::collections::BTreeSet<String> =
+                list.iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect();
+            list.extend(shared_servers::codex(env, cwd, &taken, &crate::config::home()));
+            Value::Array(list)
+        }
+        (_, servers) => servers,
+    };
+    servers
 }
 
 /// The person's own stdio `cmux` entry, whole, with the env keys, for a Codex chat whose servers
@@ -1061,9 +1082,20 @@ pub(crate) fn claude_args_and_hooks_for(
     let strict = args.iter().any(|a| a == "--strict-mcp-config");
     let project_servers =
         if remote_origin || strict { Map::new() } else { project_servers_at_head(env, cwd) };
+    // The person's own servers they share run once for every chat (`mcp_pool.rs`); a server
+    // wrapped for a checkout still filling stays wrapped.
+    #[cfg(unix)]
+    let shared = if remote_origin || strict {
+        Map::new()
+    } else {
+        let taken = project_servers.keys().cloned().collect();
+        shared_servers::claude(env, cwd, &taken, &crate::config::home())
+    };
+    #[cfg(not(unix))]
+    let shared = Map::new();
     let mut prompt = None;
     let tools = if left_out(remote_origin, env, args) {
-        if project_servers.is_empty() {
+        if project_servers.is_empty() && shared.is_empty() {
             return (Vec::new(), None, false);
         }
         AgentTools::default()
@@ -1083,6 +1115,13 @@ pub(crate) fn claude_args_and_hooks_for(
         tools.via_gateway(session_id, cwd)
     };
     let callbacks = tools.plugin_dir.is_some();
+    let mut project_servers = project_servers;
+    for (name, entry) in shared {
+        // cmux's own server of a name keeps it.
+        if !tools.servers.iter().any(|s| s.name == name) && !tools.http.contains_key(&name) {
+            project_servers.entry(name).or_insert(entry);
+        }
+    }
     let args = AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id));
     (args, prompt, callbacks)
@@ -1331,6 +1370,8 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
         cmux_for_agents: agents_get_cmux(inputs.cmux_json.as_deref()),
         project_servers: Map::new(),
         http: BTreeMap::new(),
+        memory_follow: executable("optchat-chief")
+            .filter(|_| crate::memory_follow::enabled(inputs.cmux_json.as_deref()) != Some(false)),
     }
 }
 
@@ -1357,6 +1398,29 @@ impl AgentTools {
         };
         if !yes && !session_env.contains_key(MCP_TOOLS_ENV) {
             self.servers.retain(|s| s.name != CMUX_SERVER);
+        }
+        // A chat whose memory followed it here keeps it, reaching the owner it used
+        // (`memory_follow.rs`), before the server filter below narrows the list.
+        if let Some(followed) = crate::memory_follow::followed(session_env)
+            && let Some(chief) = self.memory_follow.clone()
+        {
+            if !self.servers.iter().any(|s| s.name == MEMORY_SERVER_NAME) {
+                self.servers.push(McpServer {
+                    name: MEMORY_SERVER_NAME.into(),
+                    command: chief,
+                    args: vec!["agent-memory".into(), "mcp".into()],
+                    env: vec![],
+                });
+            }
+            let env = crate::memory_follow::server_env(&followed);
+            for server in self.servers.iter_mut().filter(|s| s.name == MEMORY_SERVER_NAME) {
+                let followed_key = |k: &str| {
+                    k == crate::memory_follow::OWNER_ENV
+                        || k == crate::memory_follow::OWNER_ARGS_ENV
+                };
+                server.env.retain(|(k, _)| !followed_key(k));
+                server.env.extend(env.iter().cloned());
+            }
         }
         let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
         if let Some(keep) = keep {

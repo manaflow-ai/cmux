@@ -48,7 +48,8 @@ extension PageWebView {
         // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
         let away = shown && (inOffscreenParking || (outside && clear))
         session.setVisible(away ? drawsAway : shown)
-        if away, drawsAway { drawAwayIfNeeded() }
+        if away, drawsAway { drawAwayIfNeeded(); boundUnpaintedAwayDrawing() }
+        if !away, shown { awayDrawing.resetUnpaintedBound() }
     }
     public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
 

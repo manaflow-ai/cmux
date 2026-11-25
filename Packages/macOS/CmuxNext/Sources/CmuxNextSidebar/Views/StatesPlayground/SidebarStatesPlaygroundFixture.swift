@@ -29,10 +29,6 @@ struct SidebarStatesPlaygroundFixture {
         var row = SidebarWorkspace(id: pinnedWorkspace, machineID: .local, title: "Pinned workspace", directory: "~/fun/cmux",
                                    branch: "feat-cmux-next", kind: .terminal)
         row.lastMessage = "Pushed the fix and the gallery"
-        // Its chat's rolling summary and next action (acpmux `rollingSummary`): the card names them in place of the
-        // last reply.
-        row.detail.summary = "Fixed the parser and pushed it. CI is still running."
-        row.detail.nextAction = "Merge the PR once CI is green"
         row.tabs = [
             SidebarTab(id: TabID("sp-pin-chat"), title: "Claude Code", kind: .agentChat, folder: "~/fun/cmux", state: .success),
             SidebarTab(id: TabID("sp-pin-terminal"), title: "Terminal", kind: .terminal, folder: "~/fun/cmux"),
@@ -80,13 +76,6 @@ struct SidebarStatesPlaygroundFixture {
             row.lastMessage = "Pushed the fix and the gallery"
             return row
         }
-        // The idle row's chat has a rolling summary: the Expanded density's second line reads "summary → next".
-        func summarized(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
-            var workspace = workspace
-            workspace.detail.summary = "Tests pass on the fleet"
-            workspace.detail.nextAction = "Land the branch"
-            return workspace
-        }
         var needsInput = row(Self.needsInput, "Program asks a question", activity: .waiting(kind: .question))
         needsInput.activityFromProgram = true // an OSC 7501 report opts its row in to the detailed marks
         var usage = row(Self.usageWarning, "Runaway agent chat")
@@ -107,7 +96,7 @@ struct SidebarStatesPlaygroundFixture {
         let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
             // Colored, so the selected and hovered rows show the leading accent bar in those states (Lawrence msg 19775).
             .workspace(row(Self.selected, "Selected workspace", color: .purple)),
-            .workspace(summarized(row(Self.idle, "Idle workspace"))),
+            .workspace(row(Self.idle, "Idle workspace")),
             .workspace(row(Self.busy, "Agent working", activity: .working)),
             .workspace(row(Self.unread, "Unread reply", unread: .dot)),
             .workspace(row(Self.needsYou, "Agent needs you", activity: .waiting)),

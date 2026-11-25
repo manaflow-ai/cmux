@@ -7,6 +7,7 @@ import CmuxNextCompat
 import CmuxNextMobileHost
 import Observation
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextTestSupport
@@ -247,6 +248,34 @@ import CmuxNextTestSupport
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
         try await rig.until("the phones got its snapshot") { sent() }
+    }
+
+    /// The same ask: a hibernated page's snapshot lived in memory only, so after the next relaunch its tab (no page
+    /// until shown) had no picture for the phones' card. The snapshot is now also kept on disk with the pages' last
+    /// pictures (`BrowserPageFrames`), which the next run reads.
+    @Test func aHibernatedPageKeepsItsSnapshotOnDiskForTheNextRun() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let shot = try Self.picture(shade: 0.5, width: 800, height: 500)
+        rig.hibernation.capture = { _ in shot }
+        rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the frames are set below
+        let key = try await rig.hide(rig.page("disk", body: "<p>disk</p>"))
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        let framesFolder = rig.folder.appendingPathComponent("page-frames", isDirectory: true)
+        let frames = BrowserPageFrames(directory: framesFolder) // set after the leave capture: only the snapshot can land
+        await frames.prefetch(on: BackgroundWork()).value
+        cache.pageFrames = frames
+        try #require(BrowserPageFrames.read(key, in: framesFolder) == nil)
+        rig.hibernation.pressureDidChange(.critical)
+        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        try await rig.until("its snapshot is on disk") { BrowserPageFrames.read(key, in: framesFolder) != nil }
+        let nextRun = BrowserPageFrames(directory: framesFolder)
+        await nextRun.prefetch(on: BackgroundWork()).value
+        #expect(nextRun.hasPicture(key), "the next run holds the hibernated tab's picture")
     }
 
     /// The same ask: a leave picture taken while no phone was paired was never sent, so the phone that paired later

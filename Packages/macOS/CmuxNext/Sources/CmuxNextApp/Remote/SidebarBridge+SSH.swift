@@ -26,10 +26,11 @@ extension SidebarBridge {
         return machines.server(machineID)?.sidebarMachine(machines: machines)
     }
 
-    /// Machine `machineID`'s link for an agent pane's composer strip: the header's same word.
+    /// Machine `machineID`'s link for an agent pane's composer strip: the header's same word; a link on its way reads connected.
     static func paneLink(_ machineID: String, in machines: MachineRegistry) -> AgentPaneMachineLink.State? {
         machineHeader(machineID, in: machines).map {
-            AgentPaneMachineLink.State(machine: machineID, link: $0.status.linkState.rawValue, words: $0.status.words)
+            let status: SidebarMachine.Status = SidebarPlaceholderGrace.isOnItsWay($0.status) ? .connected : $0.status
+            return AgentPaneMachineLink.State(machine: machineID, link: status.linkState.rawValue, words: status.words)
         }
     }
 

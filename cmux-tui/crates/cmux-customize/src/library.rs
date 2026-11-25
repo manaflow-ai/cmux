@@ -69,6 +69,10 @@ use text::{one_line, slug, unique_name};
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
 /// The most entries one collection or library holds.
+/// Measured: every change rewrites `library.json` whole (each entry carries its profile's
+/// settings and files) and rescans every entry for the keys it references, and an exported
+/// library must import under MAX_COLLECTION_BYTES (8 MiB): about 16 KiB an entry for 500.
+/// Derived from those bounds, not timed; per-entry storage would lift it.
 pub const MAX_ENTRIES: usize = 500;
 /// The largest collection file import reads.
 pub const MAX_COLLECTION_BYTES: usize = 8 * 1024 * 1024;
