@@ -5,6 +5,7 @@ import { AUTHORIZE_REFUSED, integrationAppHandoff, integrationAppHandoffResponse
 import { callbackSearch } from "../../lib/search"
 import { apiUrl, completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
+import { integrationCallbackReturnPath, saveReturnPath } from "../../lib/return-path"
 import { CANCELLED_MESSAGE, integrationMessage, OWNER_REQUEST_MESSAGE, type IntegrationMessage } from "../../lib/integration-messages"
 import { IntegrationNotice } from "./-notice"
 import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTeamKey } from "./-return"
@@ -86,10 +87,12 @@ function Callback() {
     const timer = window.setTimeout(() => window.location.replace(integrationReturnPath(team)), 350)
     return () => window.clearTimeout(timer)
   }, [result.data?.ok])
+  // Any provider's connect (GitHub, Linear, Slack) the app started: the app finishes it. In the cmux browser the app
+  // takes the link without asking and closes this tab; elsewhere this page stays as the fallback.
   if (handoff)
     return (
       <p>
-        <a href={handoff}>Open cmux</a> to finish connecting GitHub.
+        Finishing the connection in cmux. If cmux didn&rsquo;t open, <a href={handoff}>open cmux</a>. You can close this page after.
       </p>
     )
   // Said before any sign-in prompt: a connect the app started has no session here, and signing in would not help.
@@ -106,12 +109,23 @@ function Callback() {
         GitHub saved the change. Go back to cmux: it picks up the new access by itself, and you can close this page.
       </p>
     )
-  if (signedIn === false)
+  // Signed out: sign-in comes back here and finishes the connection, no second trip through the provider.
+  if (signedIn === false) {
+    const back = integrationCallbackReturnPath(search)
     return (
       <p>
-        <Link to="/">Sign in</Link> as the person who started this connection, then open the link again.
+        <a
+          href="/"
+          onClick={() => {
+            if (back) saveReturnPath(back)
+          }}
+        >
+          Sign in to cmux
+        </a>{" "}
+        as the person who started this connection. cmux finishes connecting after you sign in.
       </p>
     )
+  }
   return (
     <>
       <h2>Connecting</h2>
