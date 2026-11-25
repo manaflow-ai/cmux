@@ -4027,6 +4027,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           () => directClient.current?.turnFrames(turnId) ?? Promise.resolve([]),
         );
       },
+      full: async (rowId, index) => {
+        const turnId = turnOf(rowId);
+        if (!turnId) return undefined;
+        return directClient.current?.turnFrameFull(turnId, index).catch(() => undefined);
+      },
     };
   }, [turnFramesCache, latestSummary, snapshot.sessionId]);
   const latestFrame = useCallback(
