@@ -13,7 +13,6 @@ fn both_tools_are_listed_read_only() {
     for name in [COMPONENTS, TOKENS] {
         let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
         assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
-        assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{tool}");
     }
     let groups = tools
         .iter()
@@ -48,11 +47,13 @@ fn bad_arguments_are_errors_and_other_tools_pass() {
     for (name, arguments) in [
         (COMPONENTS, json!({"name": "NoSuchThing"})),
         (COMPONENTS, json!({"name": 3})),
-        (COMPONENTS, json!({"group": "radius"})),
         (TOKENS, json!({"group": "nope"})),
     ] {
         let answer = call(name, &args(arguments.clone())).expect("a kit tool");
         assert_eq!(answer["isError"], true, "{name} {arguments}: {answer}");
     }
+    // An argument a newer or older peer sends is ignored, not refused.
+    let answer = call(COMPONENTS, &args(json!({"name": "Pill", "extra": 1}))).expect("a kit tool");
+    assert_ne!(answer["isError"], true, "{answer}");
     assert!(call("customize_status", &Map::new()).is_none());
 }

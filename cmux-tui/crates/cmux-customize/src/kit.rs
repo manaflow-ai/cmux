@@ -287,7 +287,8 @@ fn token_group(group: &str) -> Result<Value, String> {
                 "about": "Tier 2: what a thing is made of, as expressions over the scale (space.N, control.NAME, radius.NAME; self.FIELD is the role itself). Each field is the CSS variable --role-<name>-<field>; a component reads --role-* only.",
                 "roles": list(&r, "roles").iter().map(|role| {
                     let mut role = role.clone();
-                    if let (Some(obj), Some(name)) = (role.as_object_mut(), role_name(&role)) {
+                    let name = role_name(&role);
+                    if let (Some(obj), Some(name)) = (role.as_object_mut(), name) {
                         let vars: Map<String, Value> = obj.keys()
                             .filter(|k| !matches!(k.as_str(), "name" | "for" | "like"))
                             .map(|k| (k.clone(), json!(format!("--role-{name}-{}", kebab(k)))))
