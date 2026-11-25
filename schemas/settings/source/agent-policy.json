@@ -548,6 +548,8 @@
         "experiments.appFontChrome",
         "experiments.composerButtonsVisible",
         "experiments.composerV2",
+        "experiments.paletteV2",
+        "experiments.palettePreview",
         "experiments.hoverLook",
         "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
