@@ -111,7 +111,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
         // With no folder, the chat's own `~/chats/<id>` (agent_session_prewarm.rs).
-        capabilities.push(AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY);
+        if agent_session_attach::chat_folder_prewarm_on() {
+            capabilities.push(AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY);
+        }
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {

@@ -32,6 +32,28 @@ pub const AGENT_SESSION_PREWARM_CAPABILITY: &str = "agent-session-prewarm-v1";
 pub const AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY: &str =
     "agent-session-prewarm-chat-folder-v1";
 
+/// The kill switch of the no-folder prewarm: on by default (Leo, 2026-11-25: "it doesnt work if
+/// it's not \"on by default\""), off with `CMUX_PREWARM_CHAT_FOLDER=0` (or `false`, `off`) in the
+/// daemon's environment. Off, `identify` leaves out its capability, so the app sends no prewarm
+/// without a folder and the start runs cold, as before; a prewarm without a folder is refused.
+pub const PREWARM_CHAT_FOLDER_SWITCH: &str = "CMUX_PREWARM_CHAT_FOLDER";
+
+/// Whether the switch's `value` leaves the no-folder prewarm on: anything but `0`, `false` or
+/// `off` (any case, trimmed), and on when unset.
+pub(crate) fn chat_folder_switch_on(value: Option<&str>) -> bool {
+    !value.is_some_and(|value| {
+        matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off")
+    })
+}
+
+/// The switch as this daemon's environment sets it, read once.
+pub(crate) fn chat_folder_prewarm_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        chat_folder_switch_on(std::env::var(PREWARM_CHAT_FOLDER_SWITCH).ok().as_deref())
+    })
+}
+
 /// How long the prewarm's acpmux calls wait: acpmux accepts a hint at once and warms behind it.
 const PREWARM_PATIENCE: Duration = Duration::from_secs(20);
 
@@ -79,6 +101,10 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
     }
+    let chat_folder = params.cwd.is_none();
+    if chat_folder && !chat_folder_prewarm_on() {
+        return super::super::bad_field::refuse_field(writer, id, Some("cwd"));
+    }
     // The start's own folder, resolved as the start resolves it (`agent_session_start::start`):
     // an explicit folder, or with none picked the chat's own `~/chats/<id>`, made now as the
     // start would make it, so the start that follows runs in the folder its agent warmed in.
@@ -94,6 +120,12 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     if let Err(refusal) = super::super::agent_session_trust::home_rule(&cwd, params.home_confirmed)
     {
         return refuse(writer, id, refusal);
+    }
+    if chat_folder {
+        // The live probe: one line per no-folder prewarm, no path, agent or credential.
+        eprintln!(
+            "cmux-tui: agent prewarm in the chat's own folder ({AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY})"
+        );
     }
     let workspace = mux.surface_workspace_key(params.surface);
     let worker_mux = mux.clone();
@@ -148,4 +180,21 @@ fn hint(
         .call("_acpmux/prewarm", prewarm_body(params, cwd, workspace), PREWARM_PATIENCE)
         .map_err(Refusal::of)?;
     Ok(json!({"accepted": answer.get("accepted").and_then(Value::as_bool) == Some(true)}))
+}
+
+#[cfg(test)]
+mod switch_tests {
+    use super::chat_folder_switch_on;
+
+    /// The no-folder prewarm is on unless its switch says off.
+    #[test]
+    fn the_chat_folder_prewarm_is_on_by_default_and_off_only_by_its_switch() {
+        assert!(chat_folder_switch_on(None), "unset is on");
+        for on in ["1", "true", "on", "", "yes"] {
+            assert!(chat_folder_switch_on(Some(on)), "{on:?} leaves it on");
+        }
+        for off in ["0", "false", "off", " OFF ", "False"] {
+            assert!(!chat_folder_switch_on(Some(off)), "{off:?} turns it off");
+        }
+    }
 }
