@@ -201,6 +201,9 @@ function createdMs(r: any): number {
   return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
 }
 
+// A cleanup line that only says NOT deleted hid why (run 45713223869 left a failed parent and a stray); carry the reason.
+const whyNot = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 160);
+
 // Snapshots this script left behind (a run killed before its finally) count against the team's snapshot quota; run
 // 45703015793 had both the link mint and the plain snapshot refused with cloud.quota.exceeded. Sweep them like machines.
 async function sweepSnapshots(api: any, tag: string, keepId: string | null, cleanup: string[]) {
@@ -208,7 +211,7 @@ async function sweepSnapshots(api: any, tag: string, keepId: string | null, clea
   if (!list) return cleanup.push("snapshot sweep: list failed");
   const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
   for (const id of strays(rows, tag, Date.now(), new Set(keepId ? [keepId] : []))) {
-    await api.op("cloud.snapshot.delete", { snapshot: id }, `${tag}-snap-del-stray-${id}`).then(() => cleanup.push(`stray snapshot ${id} deleted`), () => cleanup.push(`stray snapshot ${id} NOT deleted`));
+    await api.op("cloud.snapshot.delete", { snapshot: id }, `${tag}-snap-del-stray-${id}`).then(() => cleanup.push(`stray snapshot ${id} deleted`), (e) => cleanup.push(`stray snapshot ${id} NOT deleted: ${whyNot(e)}`));
   }
 }
 
@@ -404,7 +407,7 @@ async function main(): Promise<number> {
       } catch (e) {
         r.error = scrub(String((e as Error).message), [...secrets, canary]).slice(0, 400);
       } finally {
-        if (r.copy && !keep) await api.deleteMachine(r.copy, `${tag}-del-open-${run}`).then(() => cleanup.push(`copy ${run} deleted`), () => cleanup.push(`copy ${run} NOT deleted (${r.copy})`));
+        if (r.copy && !keep) await api.deleteMachine(r.copy, `${tag}-del-open-${run}`).then(() => cleanup.push(`copy ${run} deleted`), (e) => cleanup.push(`copy ${run} NOT deleted (${r.copy}): ${whyNot(e)}`));
       }
       opens.push(r);
       say({ phase: "open", run, click_to_usable_ms: r.click_to_usable_ms, canary_after_scrub: r.canary_after_scrub, error: r.error });
@@ -454,7 +457,7 @@ async function main(): Promise<number> {
       } catch (e) {
         b.error = scrub(String((e as Error).message), secrets).slice(0, 400);
       } finally {
-        if (b.machine && !keep) await api.deleteMachine(b.machine, `${tag}-del-base-${run}`).then(() => cleanup.push(`baseline ${run} deleted`), () => cleanup.push(`baseline ${run} NOT deleted (${b.machine})`));
+        if (b.machine && !keep) await api.deleteMachine(b.machine, `${tag}-del-base-${run}`).then(() => cleanup.push(`baseline ${run} deleted`), (e) => cleanup.push(`baseline ${run} NOT deleted (${b.machine}): ${whyNot(e)}`));
       }
       baseline.push(b);
       say({ phase: "baseline", run, total_ms: b.total_ms, error: b.error });
@@ -462,14 +465,14 @@ async function main(): Promise<number> {
   } catch (e) {
     meta.error = scrub(`${stage}: ${String((e as Error).message)}`, [...secrets, canary]).slice(0, 600);
   } finally {
-    if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), () => cleanup.push(`snapshot NOT deleted (${snapshot})`));
-    if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), () => cleanup.push(`parent NOT deleted (${parent})`));
+    if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), (e) => cleanup.push(`snapshot NOT deleted (${snapshot}): ${whyNot(e)}`));
+    if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), (e) => cleanup.push(`parent NOT deleted (${parent}): ${whyNot(e)}`));
     if (!keep) {
       const done = new Set(parent ? [parent] : []);
       const rows = await listAllMachines((q) => api.read("cloud.machine.list", q)).catch(() => null);
       if (!rows) cleanup.push("stray sweep: list failed");
       for (const id of rows ? strays(rows, tag, Date.now(), done) : []) {
-        await api.deleteMachine(id, `${tag}-del-stray-${id}`).then(() => cleanup.push(`stray ${id} deleted`), () => cleanup.push(`stray ${id} NOT deleted`));
+        await api.deleteMachine(id, `${tag}-del-stray-${id}`).then(() => cleanup.push(`stray ${id} deleted`), (e) => cleanup.push(`stray ${id} NOT deleted: ${whyNot(e)}`));
       }
       await sweepSnapshots(api, tag, null, cleanup);
     }
