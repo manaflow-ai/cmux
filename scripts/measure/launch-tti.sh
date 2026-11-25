@@ -6,6 +6,11 @@
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL] [--arg=input=auto|posted|in_app] \
 #     [--arg=plan=warm:terminal,warm:terminal] [--arg=workspaces=120] [--arg=control=500] [--arg=session=auto|own] --artifact .build/launch-tti/report.tgz --timeout 2400
+#   plan=        KIND:FRONT rounds; KIND:FRONT*N repeats one N times (plan=cold_install:terminal*20: the startup-matrix
+#                row, twenty cold launches, printed as TTI-PCT p50/p95 with the load each ran at)
+#   load=X       the load bound per core (default 0.5): each round waits up to 120 s for the 1-minute load per core to
+#                fall to X; rounds launched over it are left out of TTI-PCT, and a cell under min_quiet=N (default 5)
+#                quiet rounds is refused, never posted
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   input=       who types (the check's --input): auto posts keys when this process holds the PostEvent grant and
 #                otherwise has the app type its own first-frame key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1)
@@ -31,6 +36,8 @@ for arg in "$@"; do
     input=auto|input=posted|input=in_app) extra+=(--input "${arg#input=}") ;;
     plan=*) extra+=(--plan "${arg#plan=}") ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
+    load=*) extra+=(--max-load-per-core "${arg#load=}") ;;
+    min_quiet=*) extra+=(--min-quiet "${arg#min_quiet=}") ;;
     session=auto|session=own) export CONSOLE_SESSION="${arg#session=}" ;;
     control=*) control="${arg#control=}"
       [[ "$control" =~ ^[1-9][0-9]{0,3}$ ]] && (( control <= 5000 )) || { echo "control=MS takes 1-5000 ms" >&2; exit 2; } ;;
