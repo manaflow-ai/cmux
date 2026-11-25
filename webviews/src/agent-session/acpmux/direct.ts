@@ -171,7 +171,14 @@ import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
-import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
+import {
+  isLostConnection,
+  lostPrompt,
+  promptResendNotice,
+  resendRefusalError,
+  type LostPrompt,
+  type PromptResendNotice,
+} from "./lostPrompt";
 import { unanswered, type UnsentPromptRecord, type UnsentPromptStore } from "./unsentPrompts";
 import {
   SessionPageError,
@@ -1497,6 +1504,9 @@ export class AcpmuxDirectClient {
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, (accepted?: { steer?: unknown; state?: unknown }) => void>();
+  /// What the host's prompt outbox says of a prompt it sends again (`_cmux/prompt_resend`, Swift
+  /// `AgentPanePromptRelay`), by prompt id: the `awaitResent` waits listen.
+  private promptResends = new Map<string, (notice: PromptResendNotice) => void>();
   /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
   /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
   private readonly sentPrompts = new Set<string>();
@@ -3999,6 +4009,11 @@ export class AcpmuxDirectClient {
     // them with the next follow (`SessionPager.peerRowsChanged`, `readPeerRows`).
     else if (notification.method === "_acpmux/peer_rows_changed")
       this.sessionPages.peerRowsChanged(notification.params?.afterSeq, notification.params?.listSeq);
+    // The host's outbox sent a lost prompt again, or acpmux answered that resend (`awaitResent`).
+    else if (notification.method === "_cmux/prompt_resend") {
+      const notice = promptResendNotice(notification.params);
+      if (notice) this.promptResends.get(notice.promptId)?.(notice);
+    }
     // acpmux took a prompt this connection sent; it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
@@ -14896,6 +14911,10 @@ export class AcpmuxDirectClient {
   /// Retry, which sends it again under the same prompt id (acpmux runs a prompt id once), never a
   /// line apart from the row while the row still looks sent. False when there is no such row.
   failLostPrompt(promptId: string, error: unknown): boolean {
+    // acpmux's own refusal of the outbox's resend, when it said one, over the guessed cause.
+    const refused = this.resendRefusals.get(promptId);
+    this.resendRefusals.delete(promptId);
+    if (refused) error = resendRefusalError(refused);
     const entry = this.deliveries.get(promptId);
     const row = entry ? this.rows.get(entry.rowId) : undefined;
     if (!entry || !row || entry.delivery.state !== "sending") return false;
@@ -14930,10 +14949,17 @@ export class AcpmuxDirectClient {
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.
   private resendWaits = new Map<() => void, string>();
-  /// A prompt an earlier connection lost before acpmux took it (`lostPrompt.ts`), which the host
-  /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
-  /// acceptance), false when it does not within `timeoutMs`, this pane shows (or moves to) another
-  /// chat, or this connection closes.
+  /// A prompt an earlier connection lost before acpmux took it (`lostPrompt.ts`), which the host's
+  /// outbox sends again on this one: true once this chat shows it (its record, its queue row, or
+  /// acpmux's acceptance); false when this pane shows (or moves to) another chat, this connection
+  /// closes, acpmux refuses it for good, or nothing at all is heard of it for `timeoutMs`.
+  /// `timeoutMs` is a quiet window, never a deadline on a send that progresses: each word of the
+  /// outbox (`_cmux/prompt_resend`: sent, retrying after a "not now") opens a new one, and while
+  /// the outbox has it on the wire unanswered the wait goes on up to `deliveryTiming.localFailMs`
+  /// in all. Before, one fixed 10 s wait failed a prompt a loaded or just-restarted acpmux took
+  /// late (Leo, 2026-11-25: "Not sent ... Failed: 11017 ms after sending"; 2026-11-24: "10s
+  /// timeout for messages being sendsble is a shame. if it's making good progress, it shiukd be
+  /// allowed to keep going?").
   /// `draw`: the prompt as it was sent, drawn meanwhile as its own row on its way (`drawLostPrompt`).
   awaitResent(
     sessionId: string,
@@ -14945,24 +14971,59 @@ export class AcpmuxDirectClient {
     const shown = () => this.showsPrompt(sessionId, promptId);
     if (shown()) return Promise.resolve(true);
     if (draw) this.drawLostPrompt(sessionId, promptId, draw.input, draw.attachments);
+    const started = Date.now();
     return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      /// The outbox has it on the wire with no answer yet (`sent`), or will send it again (`retrying`).
+      let working = false;
       const done = (landed: boolean) => {
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
         if (this.promptAccepts.get(promptId) === accept) this.promptAccepts.delete(promptId);
+        if (this.promptResends.get(promptId) === heard) this.promptResends.delete(promptId);
         this.resendWaits.delete(gone);
         resolve(landed);
+      };
+      const arm = (ms: number) => {
+        if (timer !== undefined) clearTimeout(timer);
+        timer = setTimeout(quiet, Math.max(0, ms));
+      };
+      const quiet = () => {
+        if (shown()) return done(true);
+        // On the wire and unanswered on an open connection: a loaded acpmux answers late, never "Not sent" yet.
+        const left = deliveryTiming.localFailMs - (Date.now() - started);
+        if (working && left > 0) return arm(Math.min(timeoutMs, left));
+        done(false);
       };
       // acpmux took it (`_acpmux/prompt_accepted`) before its echo: the row says so now.
       const accept = () => {
         if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
         done(true);
       };
+      const heard = (notice: PromptResendNotice) => {
+        if (notice.state === "accepted") return accept();
+        if (notice.state === "refused") {
+          // acpmux's own words for Details (`failLostPrompt`), never a guessed timeout.
+          this.resendRefusals.set(promptId, notice);
+          return done(shown());
+        }
+        working = true;
+        if (notice.state === "retrying") {
+          // Still on its way, honestly: the row says it is taking longer, not that it failed.
+          if (this.setDelivery(promptId, { slow: true })) this.emit();
+          return arm((notice.retryInMs ?? 0) + timeoutMs);
+        }
+        arm(timeoutMs);
+      };
       const gone = () => done(false);
-      const timer = setTimeout(() => done(shown()), timeoutMs);
+      arm(timeoutMs);
       this.promptAccepts.set(promptId, accept);
+      this.promptResends.set(promptId, heard);
       this.resendWaits.set(gone, sessionId);
     });
   }
+  /// acpmux's refusal of a prompt the outbox sent again (`_cmux/prompt_resend` `refused`), by
+  /// prompt id, for the row `failLostPrompt` fails with it.
+  private resendRefusals = new Map<string, PromptResendNotice>();
   /// Takes over the watched chat shown here (`_acpmux/watch_take_over`), so it runs the
   /// conversation itself. While the app that runs it still does, acpmux refuses (`adopt.live`) and
   /// the pane offers Open Anyway and, for Claude Code, Fork It, which call this with `ifLive`.
@@ -16685,6 +16746,7 @@ export class AcpmuxDirectClient {
     this.promptRowKeys = new Map();
     this.optimisticPromptTexts = new Map();
     this.promptAccepts = new Map();
+    this.promptResends = new Map();
     this.compactionHeardAt = new Map();
     this.interrupting = undefined;
     this.awaiting = undefined;

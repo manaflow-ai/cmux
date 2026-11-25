@@ -376,3 +376,84 @@ test("only a prompt nobody refused counts as unanswered", () => {
   expect(unanswered(record({ hop: "acpmux", reason: "message.too_large" }))).toBe(false);
   expect(unanswered(record({ hop: "agent", code: "timeout" }))).toBe(false);
 });
+
+/// A prompt lost with its connection (no answer, the connection then goes), drawn again on the
+/// pane's next connection while the host's outbox sends it: the next pane, its row, its prompt id.
+async function lostThenReconnected(host: ReturnType<typeof hostStore>, text: string) {
+  const before = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 10, failMs: 30, localFailMs: 30 }); // motion-allow: delivery timeouts, not motion
+  const sentBefore: string[] = [];
+  const first = await pane(host.store, () => "hang", sentBefore);
+  try {
+    void first.client.send(text).catch(() => undefined);
+    await until(() => first.rows().find((row) => row.text === text)?.failed === true);
+    await settle();
+  } finally {
+    Object.assign(deliveryTiming, before); // motion-allow: delivery timeouts, not motion
+  }
+  first.drop();
+  first.client.close?.();
+  const sentAfter: string[] = [];
+  const next = await pane(host.store, () => undefined, sentAfter);
+  const mine = () => next.rows().filter((row) => row.kind === "user" && row.text === text);
+  await until(() => mine().length === 1 && mine()[0]!.failed !== true);
+  const notice = (state: string, extra: Record<string, unknown> = {}) =>
+    next.deliver({
+      jsonrpc: "2.0",
+      method: "_cmux/prompt_resend",
+      params: { sessionId: next.client.selectedSession!, promptId: sentBefore[0]!, state, attempt: 0, ...extra },
+    });
+  return { next, mine, notice, promptId: sentBefore[0]!, sentAfter };
+}
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Leo, 2026-11-25: "Not sent ... (native.timed_out) Failed: 11017 ms after sending", and
+// 2026-11-24: "10s timeout for messages being sendsble is a shame. if it's making good progress,
+// it shiukd be allowed to keep going?". A just-restarted acpmux says "not now" to the outbox's
+// resend for a while; each retry is progress, so the row stays on its way, never "Not sent".
+test("a resend acpmux keeps saying not now to stays on its way past many quiet windows, and lands", async () => {
+  for (let round = 0; round < 5; round += 1) {
+    const host = hostStore();
+    const lost = await lostThenReconnected(host, `restart mid-send ${round}`);
+    try {
+      await withResendShowMs(30, async () => {
+        // The restore's wait is armed now with the 30 ms window; the outbox works on it.
+        lost.notice("sent");
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          await wait(20);
+          lost.notice("retrying", { attempt, retryInMs: 10, code: "acpmux.not_ready", reason: "starting" });
+        }
+        await wait(20);
+        lost.notice("sent", { attempt: 6 });
+        // Long past any one window, with no answer yet: still on its way.
+        await wait(90);
+        expect(lost.mine()).toHaveLength(1);
+        expect(lost.mine()[0]!.failed).not.toBe(true);
+        expect(lost.mine()[0]!.delivery?.state).toBe("sending");
+        lost.notice("accepted", { attempt: 6 });
+        await until(() => lost.mine()[0]!.delivery?.state === "delivered");
+      });
+      expect(lost.mine()[0]!.failed).not.toBe(true);
+      // The page never sent it itself: the outbox's one prompt id runs once.
+      expect(lost.sentAfter).toEqual([]);
+    } finally {
+      lost.next.client.close?.();
+    }
+  }
+});
+
+test("a resend acpmux refuses for good says Not sent with acpmux's own words, not a guessed timeout", async () => {
+  const host = hostStore();
+  const lost = await lostThenReconnected(host, "refused after restart");
+  try {
+    await withResendShowMs(30, async () => {
+      lost.notice("sent");
+      lost.notice("refused", { code: "session.not_found", reason: "session.not_found", message: "This chat is gone." });
+      await until(() => lost.mine()[0]?.failed === true);
+    });
+    expect(lost.mine()[0]!.error).not.toBe(translate("prompt.delivery.noAnswer"));
+    expect(lost.mine()).toHaveLength(1);
+  } finally {
+    lost.next.client.close?.();
+  }
+});
