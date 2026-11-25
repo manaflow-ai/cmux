@@ -161,7 +161,7 @@ fn a_report_turn_that_never_names_the_subagent_gets_one_untold_retry() {
             None
         }
     }));
-    report_task(&mut h, "REPORT-QUESTION fix it");
+    report_and_settle(&mut h);
     assert_eq!(
         h.brain.untold_outcomes(),
         vec!["a1".to_owned()],
@@ -188,7 +188,7 @@ fn a_report_turn_that_names_the_subagent_needs_no_retry() {
             .contains("[a1]")
             .then_some("a1 landed the sidebar fix.")
     }));
-    report_and_settle(&mut h);
+    report_task(&mut h, "REPORT-QUESTION fix it");
     assert!(h.brain.untold_outcomes().is_empty());
     h.brain.fire_outcome_checks_at(u64::MAX / 2);
     h.settle_posts();
@@ -209,6 +209,10 @@ fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
     assert!(h.brain.untold_outcomes().is_empty(), "the first outcome was told");
     let session = sub_session(&h).expect("the subagent session");
     let before = h.brain.state().sub("a1").unwrap().1.clone();
+    assert!(
+        before.told_ms >= before.reported_ms,
+        "the setup must record a told outcome: {before:?}"
+    );
 
     h.agents.append_events(
         &session,

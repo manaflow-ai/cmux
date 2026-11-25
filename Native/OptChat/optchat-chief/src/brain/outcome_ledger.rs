@@ -108,7 +108,9 @@ impl Brain {
             .values_mut()
             .flat_map(|r| r.subs.iter_mut())
         {
-            let open = sub.at_work() || sub.waiting() || sub.status == SubStatus::Done;
+            let open = sub.at_work()
+                || sub.waiting()
+                || matches!(sub.status, SubStatus::Done | SubStatus::Reported);
             if open && names(&text, &sub.id) {
                 sub.told_ms = now;
                 told = true;
