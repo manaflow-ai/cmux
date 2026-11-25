@@ -531,7 +531,8 @@
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.terminalHistoryFind"
       ]
     },
     {
@@ -1639,6 +1640,13 @@
       "keys": [
         "sessions.keepAwake",
         "sessions.keepAwakeForCommands"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
       ]
     },
     {
