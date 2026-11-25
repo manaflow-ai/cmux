@@ -139,6 +139,9 @@ jobs:
       changed: ${{ steps.changed.outputs.changed }}
       # Whether the repair job has anything to repair (any autofix-areas.sh key on).
       repairs: ${{ steps.areas.outputs.repairs }}
+      # The Linux preflight already fetched and restored the base autofix scripts. Reuse them on the
+      # repair rerun instead of paying the 3-13 minute blob restore a second time.
+      context: ${{ steps.context-upload.outcome == 'success' && 'true' || 'false' }}
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
       # takes Blacksmith macOS).
       mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
@@ -261,6 +264,36 @@ jobs:
             awk -F= '$2 == "true" { on = 1 }
               END { print "repairs=" (on ? "true" : "false") }' "$RUNNER_TEMP/areas.txt" | tee -a "$GITHUB_OUTPUT"
           fi
+
+      # The repair job is deliberately a rerun after a red, so its second checkout can consume this
+      # small handoff from the already-complete Linux preflight. A failed upload only takes the old
+      # path and keeps the repair correct.
+      - name: Pack PR autofix context
+        id: context
+        if: always() && steps.areas.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          context="$RUNNER_TEMP/pr-autofix-context"
+          rm -rf "$context"
+          mkdir -p "$context/scripts"
+          cp -R "$RUNNER_TEMP/autofix/scripts/cmux-next" "$context/scripts/"
+          cp "$RUNNER_TEMP/changed.txt" "$context/changed.txt"
+          : > "$context/generator-inputs-verified"
+
+      - name: Upload PR autofix context
+        id: context-upload
+        if: steps.context.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-autofix-context
+          path: ${{ runner.temp }}/pr-autofix-context
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       # Where the Mac exports run: the owned gui label only while one of its runners is idle now
       # (read live, as the nightly visual gate's route does), else Blacksmith macOS. The picker
@@ -986,6 +1019,13 @@ jobs:
           git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"
           echo "listed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Download the PR autofix context
+        if: needs.action-areas.outputs.context == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pr-autofix-context
+          path: ${{ runner.temp }}/pr-autofix-context
+
       # The autofix's own scripts come from the immutable base snapshot, and
       # all generators run on the immutable merge tree for this event.
       - name: Autofix scripts from the base
@@ -994,6 +1034,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
+          if [[ -f "$RUNNER_TEMP/pr-autofix-context/generator-inputs-verified" ]]; then
+            cp -R "$RUNNER_TEMP/pr-autofix-context/scripts/cmux-next" "$RUNNER_TEMP/autofix/"
+            cp "$RUNNER_TEMP/pr-autofix-context/changed.txt" "$RUNNER_TEMP/changed.txt"
+            echo "Reused PR autofix context artifact; skipping the base script restore."
+            echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
+            exit 0
+          fi
           # restore, not git archive: archive fetched every blob one request at a time (1,584 s in one run on
           # 2026-11-23); so does restore, hence the batched fetch first.
           # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
