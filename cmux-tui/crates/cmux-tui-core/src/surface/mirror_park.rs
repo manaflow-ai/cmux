@@ -148,6 +148,7 @@ impl TerminalMirror {
         // Replaying the title must not read as a new title.
         let title_changed = parked.title_changed.clone();
         let was_changed = title_changed.load(Ordering::Relaxed);
+        iif_log("unpark");
         match rebuild(parked) {
             Ok(rebuilt) => **term = rebuilt,
             Err(error) => {
@@ -193,6 +194,17 @@ impl PtySurface {
         {
             return false;
         }
+        let iif_x = std::env::var("IIF_X").unwrap_or_default();
+        if iif_x == "none" {
+            return false;
+        }
+        if iif_x == "render" {
+            if let Ok(mut render) = self.render.lock() {
+                render.release_when_unviewed();
+            }
+            iif_log("render");
+            return false;
+        }
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         // Geometry ranks before the terminal (as in `park_mirror`).
         let Ok(geometry) = self.geometry.lock() else { return false };
@@ -216,6 +228,10 @@ impl PtySurface {
             && let Some(mux) = self.mux.upgrade()
         {
             mux.output_store.forget_scrollback_budget(terminal_id);
+        }
+        iif_log(if parked { "park" } else { "park-no" });
+        if iif_x == "trim" {
+            unsafe { libc::malloc_trim(0) };
         }
         parked
     }
@@ -291,3 +307,12 @@ impl Surface {
 #[cfg(test)]
 #[path = "mirror_park_tests.rs"]
 mod tests;
+
+fn iif_log(what: &str) {
+    if let Ok(path) = std::env::var("IIF_LOG") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "{what}");
+        }
+    }
+}
