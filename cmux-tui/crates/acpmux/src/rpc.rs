@@ -945,6 +945,11 @@ pub mod method {
     /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
     pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
     pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// One-click Claude Code token: the daemon runs `claude setup-token` itself (`claude_token`).
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN: &str = "_acpmux/connections/claude_token.begin";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT: &str = "_acpmux/connections/claude_token.wait";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_CODE: &str = "_acpmux/connections/claude_token.code";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL: &str = "_acpmux/connections/claude_token.cancel";
     /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
     pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
     /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
@@ -1045,10 +1050,6 @@ pub mod method {
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";
-    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
-    /// agent or its Chief when the harness writes no plan of its own, and read back.
-    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
-    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "imessage.diskHelp" : {
+      "comment" : "Session Info Connect iMessage connector: Full Disk Access lets cmux read your Messages on this Mac.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full Disk Access lets cmux read your Messages on this Mac."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يتيح الوصول الكامل إلى القرص لـ cmux قراءة رسائلك على هذا الـ Mac."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puni pristup disku omogućava cmuxu čitanje vaših poruka na ovom Macu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fuld diskadgang giver cmux adgang til at læse dine beskeder på denne Mac."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Festplattenvollzugriff kann cmux deine Nachrichten auf diesem Mac lesen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El acceso total al disco permite que cmux lea tus mensajes en este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’accès complet au disque permet à cmux de lire vos messages sur ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’accesso completo al disco consente a cmux di leggere i tuoi messaggi su questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フルディスクアクセスを許可すると、cmux がこの Mac のメッセージを読み取れます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការចូលប្រើថាសពេញលេញអនុញ្ញាតឱ្យ cmux អានសាររបស់អ្នកនៅលើ Mac នេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "전체 디스크 접근 권한을 허용하면 cmux가 이 Mac의 메시지를 읽을 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full disktilgang lar cmux lese meldingene dine på denne Macen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pełny dostęp do dysku pozwala cmux czytać wiadomości na tym Macu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Acesso Total ao Disco permite que o cmux leia suas mensagens neste Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полный доступ к диску позволяет cmux читать ваши сообщения на этом Mac."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การเข้าถึงดิสก์แบบเต็มช่วยให้ cmux อ่านข้อความของคุณบน Mac เครื่องนี้ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tam Disk Erişimi, cmux’un bu Mac’teki mesajlarınızı okumasını sağlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повний доступ до диска дозволяє cmux читати ваші повідомлення на цьому Mac."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quyền truy cập toàn bộ ổ đĩa cho phép cmux đọc tin nhắn của bạn trên máy Mac này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完全磁盘访问权限允许 cmux 读取此 Mac 上的信息。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完整磁碟存取權限允許 cmux 讀取此 Mac 上的訊息。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
