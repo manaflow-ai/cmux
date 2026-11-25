@@ -1,0 +1,4 @@
+{
+  "agent": "privacy",
+  "why": "Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive."
+}
