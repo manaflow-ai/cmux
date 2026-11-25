@@ -1605,7 +1605,7 @@ def probe(port: int, authority: str, path: str = "/v1/health") -> tuple[bool, st
     """GET path on wrangler's local port, as the Worker that answers `authority` (the front routes by it)."""
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers={"Host": authority})
     try:
-        with urllib.request.urlopen(req, timeout=5) as r:
+        with urllib.request.urlopen(req, timeout=5) as r:  # user-agent: wrangler on 127.0.0.1, no CDN in front
             return r.status == 200, r.read().decode(errors="replace")[:400]
     except Exception as e:  # noqa: BLE001 - still booting
         return False, str(e)[:400]
