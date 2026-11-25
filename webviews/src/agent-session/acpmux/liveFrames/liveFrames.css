@@ -2,6 +2,8 @@
    preview window (FramesDock.tsx). Pure CSS; the window is placed by transform, so a drag costs
    no layout. */
 .acpmux-frames-strip {
+  /* A frame's thumbnail height: two text lines plus room, so a strip never pushes the turn far. */
+  --acpmux-frames-thumb-height: 64px;
   margin-top: var(--ds-space-2, 8px);
 }
 .acpmux-frames-strip__row {
@@ -30,7 +32,7 @@
 }
 .acpmux-frames-strip__frame img {
   display: block;
-  height: 64px;
+  height: var(--acpmux-frames-thumb-height);
   width: auto;
 }
 
@@ -48,7 +50,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  border-radius: 10px;
+  border-radius: var(--surface-card-radius);
   overflow: hidden;
   pointer-events: auto;
   color: var(--agent-text);
@@ -85,8 +87,8 @@
 }
 .acpmux-frames-dock__button {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: var(--acpmux-context-control-size);
+  height: var(--acpmux-context-control-size);
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -122,8 +124,8 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 16px;
-  height: 16px;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
   cursor: nwse-resize;
   touch-action: none;
   background: linear-gradient(135deg, transparent 55%, color-mix(in srgb, currentColor 40%, transparent) 55% 65%, transparent 65% 75%, color-mix(in srgb, currentColor 40%, transparent) 75% 85%, transparent 85%);

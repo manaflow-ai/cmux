@@ -8,7 +8,7 @@ use cmux_json::JsonSet as _;
 
 #[path = "transfer_live.rs"]
 pub(crate) mod live;
-pub(crate) use live::{Live, move_progress_line};
+pub(crate) use live::{Live, move_progress_line, move_undecided_line};
 use live::{Pager, page_files};
 
 /// Moves `session` to the daemon at `to`.
@@ -61,6 +61,8 @@ pub(super) struct Begun {
     pub(super) transfer_id: String,
     pub(super) epoch: u64,
     pub(super) stage_id: Option<String>,
+    /// `session move --as`: the target's harness the chat lands on (`hub/transfer_in.rs`).
+    pub(super) as_harness: Option<String>,
     /// The last seq of the history that follows the chat (`history_follows`), when the staged
     /// prefix left it behind.
     pub(super) history_after: Option<u64>,
@@ -226,7 +228,7 @@ async fn begin_with(
     let staged = staged.filter(|_| begin.get("prefix").is_some());
     let stage_id = staged.map(|s| s.stage_id.clone());
     let history_after = staged.filter(|s| s.history_later).map(|s| s.after_seq);
-    Ok(Begun { begin, transfer_id, epoch, stage_id, history_after, begun_at })
+    Ok(Begun { begin, transfer_id, epoch, stage_id, as_harness: None, history_after, begun_at })
 }
 
 /// Gives the chat back on the source: the move did not happen.
@@ -533,13 +535,26 @@ async fn finish_noted(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
-    let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
-    if let Err(e) = receiver_takes(begin, dst_init) {
+    let transfer_id = &begun.transfer_id;
+    if let Err(e) = receiver_takes(&begun.begin, dst_init) {
         return Err(abort_end(src, id, begun, e).await);
     }
+    // An optional bundle file the target does not list stays here: a target older than it would
+    // refuse the whole move for it (`capabilities::OPTIONAL_BUNDLE_FILES`).
+    let mut begin = begun.begin.clone();
+    let caps = "/_meta/acpmux/capabilities";
+    let left =
+        crate::capabilities::leave_out_untaken(&mut begin, |c| live::lists(dst_init, caps, c));
+    if let Some(line) = crate::capabilities::left_out_line(&left) {
+        eprintln!("acpmux: move {transfer_id}: {line}");
+    }
+    let begin = &begin;
     let mut receive_params = json!({"manifest": begin});
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
+    }
+    if let Some(name) = &begun.as_harness {
+        receive_params.set("asHarness", json!(name));
     }
     let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
     let receive = match receive.await {
