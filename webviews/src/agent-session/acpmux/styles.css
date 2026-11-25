@@ -668,7 +668,7 @@
 .acpmux-home-inbox-answers button[data-recommended]{gap:var(--ds-space-2);background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
 .acpmux-home-inbox-recommended{color:var(--agent-muted);font-size:var(--text-caption)}
 .acpmux-home-inbox-row[data-question] .acpmux-home-inbox-ask{display:-webkit-box;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow-wrap:anywhere}
-.acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 var(--ds-space-1);padding:0;opacity:1;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 var(--ds-space-1);padding:0;opacity:1;color:color-mix(in srgb,currentColor var(--instrument-ink-shortcut, 62%),transparent);font:var(--text-caption)/1 var(--font-ui);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-home-inbox .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-home-inbox-error{margin:0;padding:0 var(--ds-space-2) 0 var(--ds-space-6);color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-row{flex-direction:row;align-items:center;flex-wrap:wrap;padding:0}
@@ -1089,7 +1089,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it. */
-.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0 0 0 var(--ds-space-2);padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0 0 0 var(--ds-space-2);padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor var(--instrument-ink-shortcut, 62%),transparent);font:var(--text-caption)/1 var(--font-ui);font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}
 .acpmux-permission-ask .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-permission-ask .acpmux-permission-action-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* An option beyond the three answers keeps a short label: a long agent name is cut, so one option never widens them all. */
