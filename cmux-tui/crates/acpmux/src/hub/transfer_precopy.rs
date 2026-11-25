@@ -248,7 +248,7 @@ impl Hub {
                 return;
             }
         };
-        let fold = json!({"afterSeq": after_seq, "held": held.to_json(), "epoch": epoch,
+        let fold = json!({"afterSeq": after_seq, "held": held.into_json(), "epoch": epoch,
                           "native": native});
         if let Err(error) = crate::home_fs::write(root.join(FOLD_FILE), fold.to_string()) {
             tracing::debug!(session = %session.id, "prefix fold not written: {error}");
@@ -317,7 +317,7 @@ impl Hub {
 
     /// The move this daemon's moved-away copy of chat `id` was shipped by, while unrewritten.
     fn shipped_base(&self, id: &str) -> Option<String> {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        let session = self.session_get(id)?;
         if !self.moved_away(&session) {
             return None;
         }

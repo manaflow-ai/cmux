@@ -33,8 +33,8 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    /// The card top is fading out after the card closed.
-    private var backdropClosing = false
+    /// The bar's card top is drawn (tests: it goes with the card).
+    var debugCardTopShown: Bool { !backdrop.isHidden }
     /// The card top's reach above the bar (`OmnibarStyle.cardTopOutset(bar:)`), measured at each layout from where the
     /// bar sits in its window.
     private lazy var backdropTop = backdrop.topAnchor.constraint(equalTo: topAnchor)
@@ -612,19 +612,13 @@ public final class AddressBarView: NSView {
             if !isServedByPanePointerArea { window?.invalidateCursorRects(for: field) }
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
-        // The bar's card top fades with the card (`MotionFade.omniboxPopup`).
-        if state.isPopupOpen, backdrop.isHidden || backdropClosing {
-            backdropClosing = false
-            if backdrop.isHidden { backdrop.alphaValue = 0 }
+        // The bar's card top fades in with the card (`MotionFade.omniboxPopup`) and goes with it at once.
+        if state.isPopupOpen, backdrop.isHidden {
+            backdrop.alphaValue = 0
             backdrop.isHidden = false
             Motion.overlays.animate(.omniboxPopup, in: backdrop) { backdrop.animator().alphaValue = 1 }
-        } else if !state.isPopupOpen, !backdrop.isHidden, !backdropClosing {
-            backdropClosing = true
-            Motion.overlays.animate(.omniboxPopup, in: backdrop, { backdrop.animator().alphaValue = 0 }, completion: { [weak self] in
-                guard let self, self.backdropClosing else { return }
-                self.backdropClosing = false
-                self.backdrop.isHidden = true
-            })
+        } else if !state.isPopupOpen, !backdrop.isHidden {
+            backdrop.isHidden = true
         }
         if state.isPopupOpen {
             backdrop.opensUpward = toolbarOpensUpward

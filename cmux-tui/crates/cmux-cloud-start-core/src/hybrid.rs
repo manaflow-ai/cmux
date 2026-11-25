@@ -19,6 +19,10 @@
 //! - what the person sees ([`Cloud`]): booting, ready, moving, live or failed, each with its time;
 //! - the machine nobody uses: one whose chat stayed here is paused ([`Effect::PauseMachine`]).
 //!
+//! - which move ([`MoveRoute`], [`route`]): one planned holder change `device -> vm` through the
+//!   Auto store's lease when the store can take it, else the session transfer as before
+//!   ([`holder`] has the refusal table).
+//!
 //! Every wait here ends on an event (the machine's ready, a tool call's end, the move's commit),
 //! never on a clock. Served over the app FFI's JSON channel as ops `cloud_hybrid_*`.
 
@@ -145,6 +149,69 @@ pub struct State {
     pub reason: Option<String>,
     /// The person chose to keep the chat here, or closed it: no move begins.
     pub stopped: bool,
+    /// Which move this start runs. Absent in an older caller's state: [`MoveRoute::Transfer`].
+    pub route: MoveRoute,
+    /// The store answered `auto.not_copied`: the next ask waits for the turn's end, when the
+    /// holder has stored its copy.
+    pub copy_owed: bool,
+    /// The epoch the store gave the chat to the machine at, once [`Event::HolderGiven`] came.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+}
+
+/// How the chat goes to the machine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MoveRoute {
+    /// acpmux's session transfer (`cmux move --to vm:`), as every start before the Auto store.
+    #[default]
+    Transfer,
+    /// One planned holder change `device -> vm` asked of the Auto store (`/v1/auto-sessions`):
+    /// the store moves the lease and the epoch, and the machine takes the chat over.
+    Holder,
+}
+
+/// The holder-move message version this build speaks. A daemon that names a lower one, or none,
+/// gets today's transfer.
+pub const HOLDER_MOVE_VERSION: u32 = 2;
+
+/// What the caller knows of the Auto store for this chat.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AutoStore {
+    /// The chat has an Auto record held by this device.
+    pub registered: bool,
+    /// The holder-move version the daemon names, when it names one.
+    pub move_version: Option<u32>,
+}
+
+/// The move for a chat: the holder change only when the chat is in the store and the daemon
+/// speaks this build's holder-move version or a later one; else the transfer.
+pub fn route(store: &AutoStore) -> MoveRoute {
+    match store.move_version {
+        Some(version) if store.registered && version >= HOLDER_MOVE_VERSION => MoveRoute::Holder,
+        _ => MoveRoute::Transfer,
+    }
+}
+
+/// Why the store refused a holder move, by its error code.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Refusal {
+    /// The chat's copy is behind its events: ask again once the holder has stored it.
+    #[serde(rename = "auto.not_copied")]
+    NotCopied,
+    /// No Auto machine to give it to: the transfer moves it instead.
+    #[serde(rename = "auto.no_machine")]
+    NoMachine,
+    /// The chat is not Auto: the transfer moves it instead.
+    #[serde(rename = "auto.off")]
+    Off,
+    /// The ask was fenced at an epoch the chat has left: someone else moved it. The chat stays.
+    #[serde(rename = "auto.stale_epoch")]
+    StaleEpoch,
+    /// A code this build does not know: the transfer moves it instead, as before the store.
+    #[serde(other)]
+    Unknown,
 }
 
 /// One thing that happened, as the caller tells it.
@@ -178,6 +245,16 @@ pub enum Event {
     },
     /// The person keeps the chat here (or closed it).
     Stop,
+    /// The store gave the chat to the machine at `epoch`: the machine is its holder.
+    HolderGiven {
+        epoch: u64,
+    },
+    /// The store refused the holder move.
+    HolderRefused {
+        code: Refusal,
+    },
+    /// While the move was asked, the chat went to a holder that is neither here nor the machine.
+    HolderLost,
 }
 
 /// What the caller does next.
@@ -192,6 +269,9 @@ pub enum Effect {
     /// Move the chat to the machine, cut at a tool boundary; tell [`Event::MoveCommitted`] or
     /// [`Event::MoveFailed`].
     Move,
+    /// Ask the Auto store for one planned holder change `device -> vm`; tell
+    /// [`Event::HolderGiven`], [`Event::HolderRefused`] or [`Event::HolderLost`].
+    AskHolderMove,
     /// Send prompt `id` to the chat's writer at `to`.
     Deliver { id: String, to: Home },
     /// Keep prompt `id` until the move ends; a [`Effect::Deliver`] follows.
@@ -230,11 +310,15 @@ fn show(state: &mut State, cloud: Cloud, now: u64, effects: &mut Vec<Effect>) {
 fn move_if_due(state: &mut State, boundary: bool, now: u64, effects: &mut Vec<Effect>) {
     let due = state.cloud == Cloud::Ready
         && !state.stopped
+        && !state.copy_owed
         && (state.turn == Turn::Idle || (boundary && state.turn == Turn::Running));
     if due {
         state.tries += 1;
         effects.push(line("move-begin", state, now));
-        effects.push(Effect::Move);
+        effects.push(match state.route {
+            MoveRoute::Transfer => Effect::Move,
+            MoveRoute::Holder => Effect::AskHolderMove,
+        });
         show(state, Cloud::Moving, now, effects);
     }
 }
@@ -253,6 +337,15 @@ fn stay(state: &mut State, reason: String, pause: bool, now: u64, effects: &mut 
     if pause {
         effects.push(Effect::PauseMachine);
     }
+    release(state, effects);
+}
+
+/// The move committed: the machine is the chat's writer.
+fn live(state: &mut State, now: u64, effects: &mut Vec<Effect>) {
+    state.home = Home::Cloud;
+    (state.turn, state.open_tools) = (Turn::Idle, 0);
+    effects.push(line("live", state, now));
+    show(state, Cloud::Live, now, effects);
     release(state, effects);
 }
 
@@ -297,6 +390,8 @@ pub fn step(mut state: State, event: Event, now: u64) -> Answer {
         }
         Event::TurnEnded => {
             (state.turn, state.open_tools) = (Turn::Idle, 0);
+            // A turn's end is where the holder stores its copy.
+            state.copy_owed = false;
             move_if_due(&mut state, true, now, &mut effects);
         }
         Event::MachineReady => {
@@ -317,13 +412,12 @@ pub fn step(mut state: State, event: Event, now: u64) -> Answer {
         }
         Event::MoveCommitted => {
             if state.cloud == Cloud::Moving {
-                state.home = Home::Cloud;
-                (state.turn, state.open_tools) = (Turn::Idle, 0);
-                effects.push(line("live", &state, now));
-                show(&mut state, Cloud::Live, now, &mut effects);
-                release(&mut state, &mut effects);
+                live(&mut state, now, &mut effects);
             }
         }
+        Event::HolderGiven { epoch } => holder::given(&mut state, epoch, now, &mut effects),
+        Event::HolderRefused { code } => holder::refused(&mut state, code, now, &mut effects),
+        Event::HolderLost => holder::lost(&mut state, now, &mut effects),
         Event::MoveFailed { reason, again } => {
             if state.cloud == Cloud::Moving {
                 if again && state.tries < MOVE_TRIES && !state.stopped {
@@ -351,6 +445,8 @@ pub fn step(mut state: State, event: Event, now: u64) -> Answer {
     }
     Answer { state, effects }
 }
+
+mod holder;
 
 #[cfg(test)]
 mod tests;
