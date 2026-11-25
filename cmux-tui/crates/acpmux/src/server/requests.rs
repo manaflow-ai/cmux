@@ -3921,8 +3921,9 @@ async fn dispatch_request_with_identity(
             Ok(serde_json::to_value(hub.sync_pull(&params)?).unwrap_or_default())
         }
         method::MUX_SYNC_PUSH => {
-            // A mesh link renames only through `mesh_read.rs`'s checked path, not a merge.
-            if view::a_link(conn) {
+            // A mesh link renames only through `mesh_read.rs`'s checked path, not a merge; the
+            // person's own peer daemon (its peer token) pushes their offline edits on connect.
+            if view::a_link(conn) && !(conn.origin == Origin::Peer && conn.auth.peer_daemon()) {
                 return Err(crate::hub::presence::peer_unsupported());
             }
             Ok(serde_json::to_value(hub.sync_push(&params).await?).unwrap_or_default())
@@ -3938,6 +3939,13 @@ async fn dispatch_request_with_identity(
             Ok(done)
         }
         method::MUX_SEEN => view::seen(hub, &params),
+        method::MUX_PIN => {
+            let p: crate::protocol::events::PinParams = serde_json::from_value(params.clone())
+                .map_err(|e| RpcError::invalid_params(format!("_acpmux/pin: {e}")))?;
+            let s = hub.resolve(&p.session_id)?;
+            hub.set_pinned(&s, p.pinned)?;
+            Ok(hub.session_summary(&s))
+        }
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).

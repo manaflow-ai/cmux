@@ -84,6 +84,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_PAUSE,
     method::MUX_PERF,
     method::MUX_PERMISSION_RESPOND,
+    method::MUX_PIN,
     method::MUX_PLACE_CHAT,
     method::MUX_PREWARM,
     method::MUX_PROCESS_BACKGROUND,
