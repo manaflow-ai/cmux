@@ -214,6 +214,34 @@ async fn an_idle_chats_server_stops_and_its_next_call_starts_one_that_was_initia
     assert_eq!(answer["id"], json!(7));
 }
 
+/// The idle-server look woke an idle daemon every 30 s with no chat holding anything, the one wake
+/// left at idle but the lag canary's (`tests/daemon_idle.rs`: the runtime's pool ran in 2 of 6
+/// windows). It looks only while a chat used since its last stop may still hold a server or tool
+/// servers, and sleeps on the next request.
+#[tokio::test]
+async fn an_idle_gateway_looks_for_idle_servers_only_while_a_chat_holds_one() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), Duration::from_millis(200)).await;
+    g.keep("chat-r", launch(home.path())).unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(g.reap_passes.load(Ordering::Relaxed), 0, "looked with no chat used");
+    let answer = rpc(&g, "chat-r", call(1)).await;
+    assert_eq!(answer["id"], json!(1), "{answer}");
+    let pid = g.server_pid("chat-r").await.expect("runs");
+    until("the idle server stops", async || g.server_pid("chat-r").await.is_none() && gone(pid))
+        .await;
+    let stopped = g.reap_passes.load(Ordering::Relaxed);
+    assert!(stopped > 0, "the idle server stopped with no look");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    // One more look at most: a request during a look's sleep leaves it one wake.
+    let after = g.reap_passes.load(Ordering::Relaxed);
+    assert!(after <= stopped + 1, "{} looks after every server stopped", after - stopped);
+    let answer = rpc(&g, "chat-r", call(2)).await;
+    assert_eq!(answer["id"], json!(2), "{answer}");
+    until("a used chat is looked at again", async || g.reap_passes.load(Ordering::Relaxed) > after)
+        .await;
+}
+
 #[tokio::test]
 async fn thirty_chats_hold_no_process_while_idle() {
     let home = tempfile::tempdir().unwrap();
