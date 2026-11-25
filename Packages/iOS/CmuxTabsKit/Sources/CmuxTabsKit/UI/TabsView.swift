@@ -425,7 +425,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let barInset = ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
         let top = theme.metrics.barEdge == .top
         let chrome = chrome, theme = theme, strip = showsStrip
-        return TabsKitContentContext(
+        var context = TabsKitContentContext(
             pageSize: size,
             safeAreaInsets: EdgeInsets(top: top ? barInset : safeTop, leading: 0, bottom: top ? safeBottom : barInset, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
@@ -435,6 +435,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // The strip's bar stays: Conductor's toolbar never collapses into a pill.
                 if !strip { chrome.pageDragged(dy, theme) }
             })
+        context.showsTabStrip = strip
+        context.onBeginAddressEditing = { self.beginEditing() }
+        return context
     }
 
     /// The active tab's live page. It stays at one place in the view tree
@@ -1029,8 +1032,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping { chrome.swiping = true }
+        // No tab before the first: a drag right there does not move the page.
         let atFirst = (activeIndex ?? 0) == 0
-        chrome.swipeOffset = dx > 0 && atFirst ? dx * 0.25 : dx
+        chrome.swipeOffset = dx > 0 && atFirst ? 0 : dx
     }
 
     private func swipeEnded(_ dx: CGFloat, _ predicted: CGFloat) {

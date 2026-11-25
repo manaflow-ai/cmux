@@ -212,7 +212,15 @@ public struct TabsKitContentContext {
     public var isZoomGestureActive: Bool
     /// The toolbar is collapsed into the pill.
     public var isToolbarCollapsed: Bool
+    /// The top bar shows the paged strip of tabs (`TabsKitToolbarStyle.pagedTabs`) instead of
+    /// the address capsule: a page with an address puts its own search field at the bottom.
+    public var showsTabStrip: Bool = false
     let onScroll: @MainActor (CGFloat) -> Void
+    var onBeginAddressEditing: @MainActor () -> Void = {}
+
+    /// Opens the address field (the active tab's URL, its suggestions and other tabs), as a tap
+    /// on the address capsule does: the strip's bottom search field calls it.
+    @MainActor public func beginAddressEditing() { onBeginAddressEditing() }
 
     init(pageSize: CGSize, safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool,
          onScroll: @escaping @MainActor (CGFloat) -> Void) {

@@ -127,7 +127,7 @@ final class PagedTabStripUITests: XCTestCase {
         shot(app, "\(a)-11-two-tab-pane")
         XCTAssertEqual(chipIDs(app), ["t-strip-tests", "t-strip-git"], "the third pane's two tabs")
 
-        // Rubber band at the first chip: a drag right past it returns.
+        // At the first chip a drag right does not move the strip: there is no tab before it.
         center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: 120, dy: 0)),
                      withVelocity: 200, thenHoldForDuration: 0.4)
         pause(0.9)

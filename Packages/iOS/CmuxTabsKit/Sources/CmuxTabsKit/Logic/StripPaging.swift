@@ -64,11 +64,16 @@ struct StripPaging: Equatable {
     /// view turns the page on a short flick).
     static let flingVelocity: CGFloat = 220
 
-    /// A drag past an end moves the row 0.35 as far, as UIScrollView's bounce does near its edge.
-    static func rubberBand(_ x: CGFloat, low: CGFloat, high: CGFloat) -> CGFloat {
-        if x < low { return low - (low - x) * 0.35 }
-        if x > high { return high + (x - high) * 0.35 }
-        return x
+    /// A drag stops at the first and the last page: past an end there is no tab to show, so the
+    /// row does not move at all (Aziz, 2026-11-24: no swipe where there is no tab).
+    static func clamp(_ x: CGFloat, low: CGFloat, high: CGFloat) -> CGFloat {
+        min(max(x, low), high)
+    }
+
+    /// The widest a chip may be on a strip `viewport` wide: narrow enough that a neighbor always
+    /// shows `peek` points on either side, so the row reads as paged (more tabs, New Tab).
+    static func chipMaxWidth(viewport: CGFloat, gap: CGFloat, cap: CGFloat, peek: CGFloat = 36) -> CGFloat {
+        max(60, min(cap, viewport - 2 * (gap + peek)))
     }
 
     /// The row's full width.

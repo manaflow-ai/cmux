@@ -101,7 +101,7 @@ struct PagedTabStrip: View {
                 if dragBase == nil { dragBase = base }
                 if !moving { withAnimation(.easeOut(duration: 0.12)) { moving = true } }
                 moveToken += 1
-                x = StripPaging.rubberBand(base - v.translation.width, low: 0, high: p.offset(p.count - 1))
+                x = StripPaging.clamp(base - v.translation.width, low: 0, high: p.offset(p.count - 1))
                 onMove(p.position(offset: x))
             }
             .onEnded { v in
@@ -130,11 +130,15 @@ struct PagedTabStrip: View {
         onRelease(index)
     }
 
+    private var chipMaxWidth: CGFloat {
+        StripPaging.chipMaxWidth(viewport: frame.width, gap: theme.metrics.stripChipGap, cap: theme.metrics.stripChipMaxWidth)
+    }
+
     private func estimate(_ entry: StripEntry) -> CGFloat {
         let m = theme.metrics
         let title: String = if case .tab(let tab) = entry { tab.title } else { "New Tab" }
         let text = CGFloat(title.count) * m.stripChipFont * 0.55
-        return min(m.stripChipMaxWidth, 2 * m.stripChipPadding + 16 + m.stripChipIconGap + text)
+        return min(chipMaxWidth, 2 * m.stripChipPadding + 16 + m.stripChipIconGap + text)
     }
 
     // MARK: Chips
@@ -172,7 +176,7 @@ struct PagedTabStrip: View {
             .foregroundStyle(theme.colors.label)
             .padding(.horizontal, m.stripChipPadding)
             .frame(height: m.stripChipHeight)
-            .frame(maxWidth: m.stripChipMaxWidth)
+            .frame(maxWidth: chipMaxWidth)
             .contentShape(.capsule)
         }
         .buttonStyle(GlassContentButtonStyle())
@@ -181,7 +185,7 @@ struct PagedTabStrip: View {
         .glassEffect(isActive && !moving ? .regular.interactive() : moving ? .regular : .identity, in: .capsule)
         .opacity(isActive || moving ? 1 : 0.38 + 0.62 * Double(emphasis))
         .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: m.stripChipMaxWidth)
+        .frame(maxWidth: chipMaxWidth)
         .accessibilityIdentifier(entry.id == Self.newTabID ? Self.newTabID : "tabs.strip.chip.\(entry.id)")
         .accessibilityLabel(label(entry))
         .accessibilityAddTraits(isActive ? .isSelected : [])

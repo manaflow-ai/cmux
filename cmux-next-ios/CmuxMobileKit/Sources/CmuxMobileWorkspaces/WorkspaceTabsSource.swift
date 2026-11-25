@@ -2543,12 +2543,72 @@ struct WorkspaceTabAccessory: View {
                 source.terminal.accessory(for: tab, in: workspace, context: TerminalTabContext(
                     safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
                     isZoomGestureActive: context.isZoomGestureActive, reportScroll: { context.reportScroll(fingerDelta: $0) }))
+            case .browser where context.showsTabStrip:
+                // Horizontal tabs: the tabs fill the top bar, so the page's address sits at the
+                // bottom, where an agent tab has its composer (Aziz, 2026-11-24).
+                BrowserBottomSearchField(tab: source.kitTab(tab, in: workspace)) { context.beginAddressEditing() }
             case .browser:
                 EmptyView()
             case .simulator:
                 if let model = source.simulator(tab) { StreamedSimulatorAccessory(model: model) }
             }
         }
+    }
+}
+
+/// A browser tab's address at the bottom of the page while the top bar shows the paged strip
+/// of tabs: the host (or "Search or enter website"), the load progress, and a tap opens the
+/// address field with the page's URL and suggestions.
+struct BrowserBottomSearchField: View {
+    let tab: TabsKitTab
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium)).foregroundStyle(.secondary)
+                Text(label).font(.system(size: 16)).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(isPlaceholder ? .secondary : .primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 48)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottomLeading) {
+                if let progress {
+                    GeometryReader { geo in
+                        Capsule().fill(Color.accentColor).frame(width: geo.size.width * progress, height: 2)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    }
+                    .padding(.horizontal, 20)
+                    .allowsHitTesting(false)
+                }
+            }
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .accessibilityIdentifier("browser.bottomSearch")
+        .accessibilityLabel(isPlaceholder ? "Search or enter website" : "Address, \(label)")
+    }
+
+    private var isPlaceholder: Bool {
+        if case .url = tab.address { return false }
+        return true
+    }
+
+    private var label: String {
+        switch tab.address {
+        case .url(let display, _, _): display
+        case .placeholder(let text): text
+        case .title: "Search or enter website"
+        }
+    }
+
+    private var progress: Double? {
+        tab.navigation.isLoading ? tab.navigation.progress : nil
     }
 }
 
@@ -2635,6 +2695,10 @@ struct WorkspaceTabCard: View {
                              snapshot: source.snapshotEntry(tab.id))
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
+                    // The page's own insets: a card laid out for the bottom bar (62 pt on top) put the
+                    // terminal's text 60 pt too high under the top bar, and the paged strip's swipe
+                    // shows the neighbor's card at full size before its live page takes over.
+                    .environment(\.workspaceTabCardInsets, insets)
             case .browser:
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
                 let lastKnown = source.snapshotEntry(tab.id)?.image
@@ -2775,3 +2839,9 @@ struct TabGroupChip: View {
     }
 }
 #endif
+
+extension EnvironmentValues {
+    /// The live page's insets, for a tab card laid out as its page is (`WorkspaceTabCard`).
+    @Entry public var workspaceTabCardInsets: EdgeInsets?
+}
+

@@ -834,9 +834,10 @@ struct TerminalTabSlotPage: View {
 struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
     let insets: EdgeInsets
+    @Environment(\.workspaceTabCardInsets) private var pageInsets
 
     var body: some View {
-        TerminalTabCard(model: slot.host.model, insets: insets)
+        TerminalTabCard(model: slot.host.model, insets: pageInsets ?? insets)
             .id(ObjectIdentifier(slot.host))
     }
 }
