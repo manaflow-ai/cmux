@@ -906,7 +906,7 @@ struct HandshakeRepeat {
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
 struct HybridUnderlay {
-    socket: UdpSocket,
+    socket: multipath::TunnelSocket,
     options: DialOptions,
     /// The peer's endpoints as it last announced them.
     peer_endpoints: Vec<String>,
@@ -1077,7 +1077,7 @@ fn addresses(texts: &[String]) -> HashSet<SocketAddr> {
 impl HybridUnderlay {
     fn new(spec: UnderlaySpec<'_>, options: &DialOptions) -> Self {
         let mut underlay = Self {
-            socket: spec.socket,
+            socket: multipath::TunnelSocket::new(spec.socket),
             options: options.clone(),
             peer_endpoints: Vec::new(),
             candidates: Vec::new(),
@@ -1256,7 +1256,7 @@ impl HybridUnderlay {
                 {
                     self.candidates.push(route.addr);
                 }
-                self.socket = socket;
+                self.socket = multipath::TunnelSocket::new(socket);
                 self.blackhole = false;
                 // The old allocation belongs to the old network's 5-tuple; a
                 // `reach` still in flight that names it is stale.
@@ -2089,6 +2089,122 @@ impl HybridUnderlay {
     }
 }
 
+impl HybridUnderlay {
+    /// The next datagram from any socket or relay ([`Underlay::poll_recv`]
+    /// notes it for the second interface's copy rule first).
+    fn poll_recv_any(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
+            self.recv_waker = Some(cx.waker().clone());
+        }
+        while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
+            self.apply(control);
+        }
+        self.poll_handshake_repeat(cx);
+        if let Some(received) = self.pop_delayed(buffer) {
+            return Poll::Ready(Ok(received));
+        }
+        if self.assist.primary_streak >= multipath::PRIMARY_BURST {
+            self.assist.primary_streak = 0;
+            if let Some(received) = self.poll_secondary(cx, buffer) {
+                return Poll::Ready(Ok(received));
+            }
+        }
+        loop {
+            let mut read = ReadBuf::new(buffer);
+            match self.socket.poll_recv_from(cx, &mut read) {
+                Poll::Ready(Ok(source)) => {
+                    let len = read.filled().len();
+                    if self.blackhole
+                        || self.dark
+                        || self.options.block_udp
+                        || self.options.force_relay
+                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
+                        || self.stun_answer(&buffer[..len], source)
+                    {
+                        continue;
+                    }
+                    self.note_arrival(source, &buffer[..len]);
+                    let origin = Origin { path: UDP_PATH, addr: Some(source) };
+                    if self.impaired(&buffer[..len], origin) {
+                        continue;
+                    }
+                    self.last_udp_source = Some(source);
+                    self.assist.primary_streak += 1;
+                    return Poll::Ready(Ok(Received { len, origin }));
+                }
+                // ICMP unreachable and friends: keep going on TURN.
+                Poll::Ready(Err(error)) => {
+                    tracing::trace!(%error, "UDP receive error");
+                    if self.blackhole {
+                        // A socket whose network went away can fail every
+                        // receive at once; wait for the roam instead of spinning.
+                        break;
+                    }
+                    continue;
+                }
+                Poll::Pending => {
+                    self.assist.primary_streak = 0;
+                    break;
+                }
+            }
+        }
+        // A dark network is the primary one: the second socket's interface
+        // stays up (Wi-Fi died, cell lives).
+        if let Some(received) = self.poll_secondary(cx, buffer) {
+            return Poll::Ready(Ok(received));
+        }
+        while let Some(turn) = &mut self.turn
+            && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
+        {
+            if self.dark {
+                continue;
+            }
+            let origin = Origin { path: TURN_PATH, addr: Some(from) };
+            if self.impaired(&datagram, origin) {
+                continue;
+            }
+            let len = datagram.len().min(buffer.len());
+            buffer[..len].copy_from_slice(&datagram[..len]);
+            self.last_turn_source = Some(from);
+            return Poll::Ready(Ok(Received { len, origin }));
+        }
+        while let Some(relay) = &mut self.relay {
+            match relay.inbound.poll_recv(cx) {
+                Poll::Ready(Some(datagram)) => {
+                    if self.dark {
+                        continue;
+                    }
+                    let origin = Origin { path: RELAY_PATH, addr: Some(RELAY_PEER) };
+                    if self.impaired(&datagram, origin) {
+                        continue;
+                    }
+                    let len = datagram.len().min(buffer.len());
+                    buffer[..len].copy_from_slice(&datagram[..len]);
+                    return Poll::Ready(Ok(Received { len, origin }));
+                }
+                // The socket is gone: its route with it.
+                Poll::Ready(None) => {
+                    self.drop_relay("the relay socket closed", false);
+                    break;
+                }
+                Poll::Pending => break,
+            }
+        }
+        if let Some(&(at, ..)) = self.delayed.front() {
+            let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
+            if timer.deadline() != at {
+                timer.as_mut().reset(at);
+            }
+            if timer.as_mut().poll(cx).is_ready()
+                && let Some(received) = self.pop_delayed(buffer)
+            {
+                return Poll::Ready(Ok(received));
+            }
+        }
+        Poll::Pending
+    }
+}
+
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
         self.drain_control();
@@ -2158,105 +2274,13 @@ impl Underlay for HybridUnderlay {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
-        if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
-            self.recv_waker = Some(cx.waker().clone());
-        }
-        while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
-            self.apply(control);
-        }
-        self.poll_handshake_repeat(cx);
-        if let Some(received) = self.pop_delayed(buffer) {
-            return Poll::Ready(Ok(received));
-        }
-        loop {
-            let mut read = ReadBuf::new(buffer);
-            match self.socket.poll_recv_from(cx, &mut read) {
-                Poll::Ready(Ok(source)) => {
-                    let len = read.filled().len();
-                    if self.blackhole
-                        || self.dark
-                        || self.options.block_udp
-                        || self.options.force_relay
-                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
-                        || self.stun_answer(&buffer[..len], source)
-                    {
-                        continue;
-                    }
-                    self.note_arrival(source);
-                    let origin = Origin { path: UDP_PATH, addr: Some(source) };
-                    if self.impaired(&buffer[..len], origin) {
-                        continue;
-                    }
-                    self.last_udp_source = Some(source);
-                    return Poll::Ready(Ok(Received { len, origin }));
-                }
-                // ICMP unreachable and friends: keep going on TURN.
-                Poll::Ready(Err(error)) => {
-                    tracing::trace!(%error, "UDP receive error");
-                    if self.blackhole {
-                        // A socket whose network went away can fail every
-                        // receive at once; wait for the roam instead of spinning.
-                        break;
-                    }
-                    continue;
-                }
-                Poll::Pending => break,
-            }
-        }
-        // A dark network is the primary one: the second socket's interface
-        // stays up (Wi-Fi died, cell lives).
-        if let Some(received) = self.poll_secondary(cx, buffer) {
-            return Poll::Ready(Ok(received));
-        }
-        while let Some(turn) = &mut self.turn
-            && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
+        let polled = self.poll_recv_any(cx, buffer);
+        if let Poll::Ready(Ok(received)) = &polled
+            && let Some(datagram) = buffer.get(..received.len)
         {
-            if self.dark {
-                continue;
-            }
-            let origin = Origin { path: TURN_PATH, addr: Some(from) };
-            if self.impaired(&datagram, origin) {
-                continue;
-            }
-            let len = datagram.len().min(buffer.len());
-            buffer[..len].copy_from_slice(&datagram[..len]);
-            self.last_turn_source = Some(from);
-            return Poll::Ready(Ok(Received { len, origin }));
+            self.note_handed(datagram, received.origin);
         }
-        while let Some(relay) = &mut self.relay {
-            match relay.inbound.poll_recv(cx) {
-                Poll::Ready(Some(datagram)) => {
-                    if self.dark {
-                        continue;
-                    }
-                    let origin = Origin { path: RELAY_PATH, addr: Some(RELAY_PEER) };
-                    if self.impaired(&datagram, origin) {
-                        continue;
-                    }
-                    let len = datagram.len().min(buffer.len());
-                    buffer[..len].copy_from_slice(&datagram[..len]);
-                    return Poll::Ready(Ok(Received { len, origin }));
-                }
-                // The socket is gone: its route with it.
-                Poll::Ready(None) => {
-                    self.drop_relay("the relay socket closed", false);
-                    break;
-                }
-                Poll::Pending => break,
-            }
-        }
-        if let Some(&(at, ..)) = self.delayed.front() {
-            let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
-            if timer.deadline() != at {
-                timer.as_mut().reset(at);
-            }
-            if timer.as_mut().poll(cx).is_ready()
-                && let Some(received) = self.pop_delayed(buffer)
-            {
-                return Poll::Ready(Ok(received));
-            }
-        }
-        Poll::Pending
+        polled
     }
 
     fn authenticated(&mut self, origin: Origin) {
