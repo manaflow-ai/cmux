@@ -104,6 +104,10 @@ lm_main() {
   OUT="${out:-$HOME/cold-start-matrix/out/$name}"
   mkdir -p "$OUT" && chmod 0777 "$OUT" && OUT="$(cd "$OUT" && pwd)"
   NAME="$name" SETTLE="$settle"
+  # The home profile's app socket: a short folder of this run's own (a guessed /tmp name could be another
+  # account's link), short because a socket path is capped near 104 bytes.
+  LM_SOCK_DIR="$(mktemp -d /tmp/cmux-lm.XXXXXX)" || exit 3
+  trap 'rm -rf "$LM_SOCK_DIR"' EXIT
   echo "LM host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername) load $(load1)"
   PROBE="$OUT/launch-matrix"
   if [[ ! -x "$PROBE" || "$LM_DIR/launch-matrix.swift" -nt "$PROBE" ]]; then
@@ -133,7 +137,7 @@ lm_main() {
   if [[ "$phase" == before ]]; then phase_before; return $?; fi
   if [[ -n "$seed" ]]; then seed_state "$state_dir" "$seed"; return $?; fi
 
-  trap 'sweep_prompts Cancel exit; marker_remove' EXIT
+  trap 'sweep_prompts Cancel exit; marker_remove; rm -rf "$LM_SOCK_DIR"' EXIT
   local list scenario rep rc=0; IFS=, read -r -a list <<<"$scenarios"
   for scenario in "${list[@]}"; do
     if [[ "$scenario" == first-install || "$scenario" == update ]] && ((SYSTEM)); then
@@ -168,7 +172,7 @@ profile_kind() {
 profile_args() {
   case "$KIND" in
     chromium) echo "-- --user-data-dir=$1/data --no-first-run --no-default-browser-check --password-store=basic --use-mock-keychain${RESTORE:+ --restore-last-session}${EXTRA_ARGS:+ $EXTRA_ARGS}" ;;
-    home) echo "env=HOME=$1/h env=CFFIXED_USER_HOME=$1/h env=TMPDIR=$1/t/ env=CMUX_NEXT_SOCKET_PATH=/tmp/cmux-lm-$(id -u).sock env=CMUX_NEXT_SOCKET_MODE=allowAll" ;;
+    home) echo "env=HOME=$1/h env=CFFIXED_USER_HOME=$1/h env=TMPDIR=$1/t/ env=CMUX_NEXT_SOCKET_PATH=$LM_SOCK_DIR/app.sock env=CMUX_NEXT_SOCKET_MODE=allowAll" ;;
     none) echo "" ;;
   esac
 }
@@ -405,8 +409,8 @@ seed_state() {
     echo "LM-SEED {\"kind\": \"chromium\", \"tabs\": $n, \"session_files\": $tabs, \"run\": $(cat "$OUT/seed.json")}"
     [[ "$tabs" -gt 0 ]]
   else
-    local sock="/tmp/cmux-lm-$(id -u).sock" rc i
-    rm -f "$sock"  # this harness's own socket path, left by an earlier run of ours
+    local sock="$LM_SOCK_DIR/app.sock" rc i
+    rm -f "$sock"  # this run's own socket path, left by an earlier launch of ours
     launch seed "$APP" "$dir" 600 >"$OUT/seed.json" &
     local held=$!
     for ((i = 0; i < 600; i++)); do [[ -S "$sock" ]] && break; sleep 0.1; done

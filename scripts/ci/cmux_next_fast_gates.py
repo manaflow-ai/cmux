@@ -424,6 +424,9 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
         ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
+        # Every pull request, JSON only: the Mac export test checks the same, but feat-cmux-next PRs defer Mac jobs,
+        # and a schema row without its catalog keys stops the settings exports for every row after it.
+        ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo)]),
     ]
 
 
