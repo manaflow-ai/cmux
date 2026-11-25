@@ -330,6 +330,62 @@ import UIKit
         #expect(snapshots.entry(Self.key("a")).image != nil && snapshots.entry(Self.key("c")).image != nil)
     }
 
+    static func diagStats(_ image: UIImage?) -> String {
+        guard let image, let cg = image.cgImage else { return "nil" }
+        let w = cg.width, h = cg.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        var differ = 0
+        var colours = Set<UInt32>()
+        for i in Swift.stride(from: 0, to: bytes.count, by: 4) {
+            if abs(Int(bytes[i]) - Int(bytes[0])) > 6 || abs(Int(bytes[i + 1]) - Int(bytes[1])) > 6
+                || abs(Int(bytes[i + 2]) - Int(bytes[2])) > 6 { differ += 1 }
+            if colours.count < 500 { colours.insert(UInt32(bytes[i]) << 16 | UInt32(bytes[i + 1]) << 8 | UInt32(bytes[i + 2])) }
+        }
+        let mark = CannotDrawMark.pixels(image)
+        return "\(w)x\(h) first=(\(bytes[0]),\(bytes[1]),\(bytes[2]),\(bytes[3])) differ=\(differ) colours=\(colours.count) "
+            + "yellow=\(mark.yellow) red=\(mark.red) solid=\(CardPictureGate.isSolid(image)) placeholder=\(CardPictureGate.isPlaceholder(image))"
+    }
+
+    /// DIAGNOSTIC ONLY (never merged): what the agent card picture holds in the test host.
+    @Test func diagWhatTheAgentCardPictureHolds() async throws {
+        var turn = AgentTurn(id: "t", prompt: "Card", promptAt: Date(timeIntervalSince1970: 0))
+        turn.items = [.message(id: "m", markdown: "Reply")]
+        turn.status = .completed
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        let page = CGSize(width: 402, height: 874)
+        func key(_ scheme: ColorScheme) -> AgentCardRasterKey {
+            AgentCardRasterKey.current(feed, turns: [turn], colorScheme: scheme, page: page, visibleHeight: 566,
+                                       topInset: 70, bottomInset: 110, scale: 1)
+        }
+        func draw(_ view: some View) -> UIImage? {
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 1
+            renderer.isOpaque = true
+            return renderer.uiImage
+        }
+        let dark = key(.dark)
+        var lines: [String] = []
+        lines.append("plainText: " + Self.diagStats(draw(Text("hello world").foregroundStyle(.white).frame(width: 200, height: 100).background(Color.black))))
+        lines.append("renderDark: " + Self.diagStats(AgentCardRasterizer.render(feed, dark)))
+        lines.append("renderDarkAgain: " + Self.diagStats(AgentCardRasterizer.render(feed, dark)))
+        lines.append("renderLight: " + Self.diagStats(AgentCardRasterizer.render(feed, key(.light))))
+        lines.append("keyTurns=\(dark.turns.count) drawable=\(dark.isDrawable) textSize=\(dark.textSize)")
+        let live = AgentChatPreview(store: feed.store, turns: dark.turns, topInset: 70, bottomInset: 110)
+            .frame(width: 402, height: 874).frame(width: 402, height: 566, alignment: .top).clipped()
+            .environment(\.colorScheme, .dark)
+        lines.append("notStill: " + Self.diagStats(draw(live)))
+        lines.append("tallPage: " + Self.diagStats(draw(AgentChatPreview(store: feed.store, turns: dark.turns, topInset: 70, bottomInset: 110)
+            .frame(width: 402, height: 874).environment(\.colorScheme, .dark).drawnAsStillPicture())))
+        try await Task.sleep(for: .seconds(2))
+        lines.append("renderDarkAfter2s: " + Self.diagStats(AgentCardRasterizer.render(feed, dark)))
+        Issue.record("RASTERDIAG\n" + lines.joined(separator: "\n"))
+    }
+
     /// The rasterizer's picture is the tab's last-known picture from then on.
     @Test func anAgentCardsPictureIsKeptAsItsLastKnownPicture() async throws {
         let snapshots = TabCardSnapshots(store: TabSnapshotStore(directory: Self.directory()),
