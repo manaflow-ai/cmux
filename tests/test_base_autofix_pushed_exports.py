@@ -1039,7 +1039,10 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false") -> bool:
             values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,
                       "needs.action-areas.result": result,
-                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false"}
+                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false",
+                      # action-exports-linux and settings-exports-linux did not verify: this Mac job is their fallback.
+                      "needs.action-exports-linux.outputs.verified": "false",
+                      "needs.settings-exports-linux.outputs.verified": "false"}
             expression = condition.replace("!cancelled()", "True")
             for key, value in values.items():
                 expression = expression.replace(key, repr(value))
