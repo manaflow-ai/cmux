@@ -38,6 +38,12 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
         self.assertIsNone(MODULE.published_sha("Published commit: `" + "a" * 40 + "`"))
         self.assertIsNone(MODULE.published_sha("<!-- cmux-published-sha: " + "a" * 39 + " -->"))
 
+    def test_reads_publication_time_marker(self):
+        published_at = "2026-11-25T09:12:34Z"
+        body = f"<!-- cmux-published-at: {published_at} -->"
+        self.assertEqual(MODULE.published_at(body), published_at)
+        self.assertIsNone(MODULE.published_at("<!-- cmux-published-at: 2026-11-25 -->"))
+
     def test_continuation_retries_closure_only_for_the_published_source(self):
         steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
         guard = steps["Reject stale continuation before publication"]["run"]
