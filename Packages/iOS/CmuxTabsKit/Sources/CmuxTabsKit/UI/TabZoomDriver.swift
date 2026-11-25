@@ -183,7 +183,7 @@ enum ZoomWorkProbe {
         return work.counts
     }
 
-    static func note(_ view: ZoomWork.View) {
+    static func note(_ view: ZoomWork.Kind) {
         guard running else { return }
         work.note(view)
     }

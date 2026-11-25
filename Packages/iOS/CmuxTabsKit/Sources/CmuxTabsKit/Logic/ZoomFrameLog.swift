@@ -76,11 +76,11 @@ struct ZoomWork: Equatable, Sendable {
         var cards = 0
     }
 
-    enum View: Sendable { case screen, grid, card }
+    enum Kind: Sendable { case screen, grid, card }
 
     private(set) var counts = Counts()
 
-    mutating func note(_ view: View) {
+    mutating func note(_ view: Kind) {
         switch view {
         case .screen: counts.screen += 1
         case .grid: counts.grid += 1

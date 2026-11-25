@@ -76,8 +76,8 @@ final class TabZoomFrameTimeUITests: XCTestCase {
             // An iteration that started inside the zoom, or the one running when it started.
             let mine = hitches.filter { $0.t >= start - 50 && $0.t <= end && $0.t + $0.ms >= start }
             let line = String(format: "TABZOOM_MAIN zoom=%d direction=%@ main_max_ms=%.1f main_busy_ms=%.1f iterations_4ms=%d",
-                              i, toGrid ? "to_grid" : "to_page", mine.map(\.ms).max() ?? 0,
-                              mine.map(\.ms).reduce(0, +), mine.count)
+                              i, toGrid ? "to_grid" : "to_page", mine.map { $0.ms }.max() ?? 0,
+                              mine.map { $0.ms }.reduce(0, +), mine.count)
             print(line + (mine.max { $0.ms < $1.ms }.map { " worst_at=\($0.top)" } ?? ""))
             let work = row["work"] as? [String: Any]
             let frames = (row["frames"] as? NSNumber)?.intValue ?? 0
