@@ -239,6 +239,17 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// The frame each message a rebuild made under a new id keeps drawing in (``adoptFrames``).
   private readonly frames = new Map<string, string>();
+  /// The running turn's rows the open read, by id, with how many of their items it read: each row
+  /// written carries it as `readAtOpen` (the client's `noteReadWork`). The client's, so a refold keeps it.
+  readAtOpen: ReadonlyMap<string, number> | undefined;
+
+  /// Writes `ids` again, so each carries `readAtOpen` as it is now.
+  restampRead(ids: Iterable<string>): void {
+    for (const id of ids) {
+      const row = this.get(id);
+      if (row) this.set(id, row, false);
+    }
+  }
 
   /// Keeps on screen, in the element it drew in, each prompt and reply a rebuild made again under a
   /// new id. A reply's id is the first of its chunks the pane held, so a turn repaired from its
@@ -303,6 +314,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
     const adopted = this.frames.get(id);
     if (adopted !== undefined && row.frame !== adopted) row = { ...row, frame: adopted };
+    const read = this.readAtOpen?.get(id);
+    if (row.readAtOpen !== read) {
+      if (read === undefined) {
+        const { readAtOpen: _read, ...rest } = row;
+        row = rest;
+      } else row = { ...row, readAtOpen: read };
+    }
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;

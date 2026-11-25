@@ -183,6 +183,8 @@ mod repo_mcp_lazy;
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
+mod repro;
+#[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
 mod start_stages;
@@ -1059,7 +1061,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Err(code) => return code,
     };
     #[cfg(unix)]
-    if let Some(code) = agent_move::run_if_requested(args)
+    if let Some(code) = cloud_start_chat::direct::run_if_requested(args)
+        .or_else(|| agent_move::run_if_requested(args))
         .or_else(|| agent_start::run_if_requested(args))
         .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
@@ -1084,6 +1087,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
+        .or_else(|| repro::run_if_requested(args))
         .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))

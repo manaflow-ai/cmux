@@ -109,6 +109,7 @@ pub fn cpu_busy(before: (u64, u64), after: (u64, u64)) -> Option<f64> {
 /// macOS `host_cpu_load_info` ticks as `[user, system, idle, nice]`: the share busy
 /// between two readings (0..1). The counters are 32-bit and wrap, so the
 /// differences wrap too. None when no tick passed.
+#[cfg(any(target_os = "macos", test))]
 pub fn cpu_busy_ticks(before: [u32; 4], after: [u32; 4]) -> Option<f64> {
     let d: Vec<u64> =
         before.iter().zip(&after).map(|(b, a)| u64::from(a.wrapping_sub(*b))).collect();
@@ -144,6 +145,7 @@ pub fn parse_thermal_millic_max<'a>(temps: impl IntoIterator<Item = &'a str>) ->
 }
 
 /// IORegistry's `HIDIdleTime` (nanoseconds) as seconds; a negative one is none.
+#[cfg(any(target_os = "macos", test))]
 pub fn hid_idle_seconds(nanos: i64) -> Option<f64> {
     (nanos >= 0).then(|| nanos as f64 / 1e9)
 }

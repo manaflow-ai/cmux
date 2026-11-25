@@ -8,6 +8,7 @@ mod agent_hooks_at_rest;
 mod agent_plugin_reports_at_rest;
 mod agent_reports_at_rest;
 mod terminal_size_clamp;
+pub(crate) use journal_plugin_demand::demand_tapped as journal_plugin_demand_tapped;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
 use terminal_exit_snapshot::{
@@ -222,6 +223,7 @@ mod host_death_tests;
 mod idle_close;
 mod journal;
 mod journal_maintenance;
+mod journal_plugin_demand;
 mod journal_plugin_host;
 mod journal_retention;
 mod kitty_budget;
@@ -715,6 +717,9 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
+    /// Terminal output and agent events for the held journal plugin's watch
+    /// (`mux/journal_plugin_demand.rs`).
+    journal_plugin_demand: journal_plugin_demand::DemandTap,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).

@@ -1523,7 +1523,9 @@ jobs:
       - name: The fast gates workflow and its merge and gate script
         id: tt-fast-gates
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-fast-gates ')) }}
-        run: python3 tests/test_cmux_next_fast_gates.py
+        run: |
+          python3 tests/test_cmux_next_fast_gates.py
+          python3 tests/test_ci_entry_logs.py
 
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         id: tt-tip-swift-suite

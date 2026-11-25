@@ -87,7 +87,7 @@ bench() {
   started=$SECONDS
   (cd "$workspace" && CARGO_TARGET_DIR="$work/target-${workspace//\//-}" PAIRMATRIX_PAIR="$pair" \
     cargo test --release --locked -p "$crate" ${features:+--features "$features"} --test "$test" -- --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
-    { sed -un -e "s/^PAIRCELL/PAIRMATRIX-LIVE PAIRCELL/p" -e "/^test .* \.\.\. /s/^/PAIRMATRIX-LIVE /p" || true; }) || code=$?
+    { sed -un -e "s/^PAIRCELL/PAIRMATRIX-LIVE PAIRCELL/p" -e "s/^PAIRAUX/PAIRMATRIX-LIVE PAIRAUX/p" -e "/^test .* \.\.\. /s/^/PAIRMATRIX-LIVE /p" || true; }) || code=$?
   echo "PAIRMATRIX-TEST-DONE $pair exit=$code seconds=$((SECONDS - started))"
   grep -oE 'PAIRCELL(-NA)? \{.*' "$log" >>"$work/lines.txt" || true  # libtest can print a line after its "test ... " prefix
   echo "PAIRMATRIX-STATUS $pair exit=$code log=$log"

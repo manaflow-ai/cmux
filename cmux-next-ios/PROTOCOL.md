@@ -656,9 +656,9 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
 
 ### Relay placement
 
-A Durable Object stays where it is first created, so the first join decides
-where a session's relay lives for good (`backend/src/placement.ts`). The
-Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+A Durable Object stays where it is first created, so the first reach of it
+(the hub's prewarm below, else the first join) decides where a session's
+relay lives for good (`backend/src/placement.ts`). The Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
 The peer is the other party of the session, located by its live signal
 socket. Each end's cost to r is either:
 
@@ -682,6 +682,19 @@ split wins.
   `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
   a relay join). Entries that fail to parse are dropped. The hub keeps the
   value with the socket and never stores it.
+- **Prewarm (added 2026-11-24, server-only, no version change):** when the
+  hub forwards a session's first `wg-init`, it creates the session's relay
+  object (the same name the relay route uses) without waiting for it, placed
+  from both ends' signal sockets (each one's ingress and netcheck), else at
+  the sender's `locationHint`. A later join finds the object made and placed,
+  so a fallback to the relay no longer pays for creation and a cold start.
+  Since the object stays where it is first created, this placement is the
+  session's; the join's own placement applies only when the prewarm did not
+  happen (the kill switch, a `webrtc-*` session, a failed prewarm). Nothing on
+  the wire changes: no frame, header or status is new, old and new clients
+  join and talk exactly as before, and an older Worker's relay object that
+  answers the prewarm with `426` is created all the same. A prewarmed object
+  holds no socket and no storage, so it is evicted soon after if nobody joins.
 
 ### When no path works
 
@@ -765,6 +778,34 @@ are already the newest and keep flowing with no reconnect.
   fill from the source with the higher head, and flags a `StalePick` when
   the relay's copy trails the other source's known head by more than the
   tolerance (4).
+
+## Relay-held sends (RFD 0142 R8, added 2026-11-25, off by default)
+
+A send the phone makes while the Mac is not joined to the session's WebSocket relay (asleep, offline,
+mid-redial) can ride the phone's relay socket and be held by the relay until the Mac joins. The backend turns it
+on with `LINK_RELAY_HOLD=on`; off, the relay answers every hold with `hold_refused` `off` and the phone routes the
+send as before (the store-and-forward mailbox, else it fails). Code: `backend/src/relay-hold.ts`,
+`cmux_mobile_link::relay_hold`.
+
+Text frames on the relay socket (JSON; binary relay frames are unchanged):
+
+- Phone to relay: `{"type":"hold","id","sealed"}`. `id` is a UUID (the composer's client message id, also inside
+  the signature); `sealed` is the store-and-forward item (`mailbox-send-v1`: signed by the phone's identity key,
+  sealed to the Mac's box key), base64url, at most 16384 characters.
+- Relay to phone: `{"type":"held","id","depth","expiresAt"}` at once (one relay RTT: the send is done as far as
+  the user sees), or `{"type":"hold_refused","id","code"}` with `off`, `bad` or `full` (64 items or 524288
+  sealed characters per session). The same id again answers its first `held` and holds nothing new; an id the
+  Mac already acked answers `held` with `"delivered":true`.
+- Relay to Mac: `{"type":"held_item","id","from","sealed","at","expiresAt"}`, oldest first, on every join and at
+  once for a hold made while it is joined. Delivery is at least once.
+- Mac to relay: `{"type":"held_ack","id"}` after the send is applied; the relay deletes it and tells the phone
+  `{"type":"delivered","id"}`.
+
+The Mac applies an id at most once (`HeldInbox`): it records the id in the same durable write as the send's
+effect, before its ack, so a redelivery, a lost ack or a killed process never applies it twice. Items expire
+10 minutes after the hold, with the P8 mailbox's default hold. The relay reads the id, the sender's device id,
+the sealed length and times; never the text (it holds no key). Nothing is written per keystroke: one storage
+write per send, one per ack.
 
 ## Link (inside either transport)
 
@@ -2276,6 +2317,43 @@ sends it over the link, or through the mailbox with `kind` `terminal`, whose
 hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
 ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
 and ids only).
+
+## Relay snapshot seal (`cmux-relay-snapshot-v1`; RFD 0142 R2, crate only so far)
+
+The envelope a relay's Durable Object will store so a cold-opening phone gets first content from the edge
+while its live link dials. The relay holds ciphertext only. The one implementation is the Rust crate
+`cmux-tui/crates/cmux-relay-snapshot` (Mac, relay tooling and the phone's FFI all use it; Swift is a shim).
+No wire message carries it yet: the host publish path and the Durable Object store and serve are the next PR,
+and the phone's open the one after, each versioned and updated both sides at once.
+
+- Seal: the ECIES of "Sealed pushes" (P-256 ECDH, HKDF-SHA256 salted with `E_pub || R_pub`, AES-256-GCM) with
+  HKDF info and AAD `cmux-relay-snapshot-v1 \0 sourceKeyId \0 viewerKeyId \0 stream` (key ids are lowercase hex
+  SHA-256 of the X9.63 point), and the 130-byte header in the AAD.
+- Envelope: `version(1) epoch(u64) seq(u64) sourceKeyId(32) E_pub(65) nonce(12) ctLen(u32) ct||tag sig(64)`,
+  big endian. `sig` is the source identity key's ECDSA P-256 / SHA-256 (fixed 64 bytes) over
+  `cmux-relay-snapshot-sig-v1 \0 context \0 every byte before sig`.
+- Order: `(epoch, seq)` compared epoch first. The Durable Object keeps only the newest envelope per viewer and
+  stream; the viewer keeps the highest position it accepted and refuses an older one (`stale`), so a replay or
+  a rolled-back source never replaces newer state. Equal is a harmless replay.
+
+### Relay delta catch-up (RFD 0142 R9, crate only so far)
+
+A viewer that resumes after sleep asks the relay for the deltas it missed, so it catches up from the edge
+without waking the Mac. `cmux-relay-snapshot::delta` is the one implementation (Rust). No wire message
+carries it yet and nothing calls it, so it is off until the Durable Object store and serve land with R2's
+next PR behind the `relay.deltaCatchup` flag (default off).
+
+- Each delta is a `cmux-relay-snapshot-v1` envelope on the stream `<stream>/delta`, so a snapshot never opens
+  as a delta and a delta never opens as a snapshot. Deltas count `seq` up by one within an epoch.
+- The relay keeps per session at most 512 deltas and 1 MiB, oldest evicted first; each expires 10 minutes
+  after it arrived (the P8 mailbox's expiry), and the log drains through what every viewer acknowledged. A
+  hole or a new epoch restarts the log; a retry of a held or older position changes nothing.
+- A catch-up request is one position, "after `(epoch, seq)`". The relay answers every delta after it, in
+  order, or `gap` (not covered: expired, evicted, another epoch, empty); it never serves a partial run. On
+  `gap` the viewer takes the snapshot or the live link, as before.
+- The viewer applies a delta only if it is exactly the next position after its floor and it opens; it stops
+  at the first that is not. With no floor it takes the snapshot first.
+- The relay sees the envelopes' sizes and positions and which position a viewer resumes after; nothing else.
 
 ## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
 

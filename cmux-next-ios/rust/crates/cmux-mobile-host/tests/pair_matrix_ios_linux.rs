@@ -852,6 +852,7 @@ impl Rig {
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         });
         let options = DialOptions {
             include_loopback: true,
@@ -890,6 +891,7 @@ impl Rig {
                                 session_exposure: None,
                                 route: None,
                                 path: None,
+                                viewport: None,
                             },
                             Arc::new(LinkAuth::default()),
                             incoming,
