@@ -70,10 +70,11 @@ impl Customize {
         // theme you deleted, one you keep there by hand) would still install
         // with it. Nothing is deleted: the export stops and names them.
         if dir.join(SETUP_FILE).is_file() {
-            let stale: Vec<String> = repo_files(dir)?
-                .into_keys()
-                .filter(|path| !profile.files.contains_key(path))
-                .collect();
+            let mut unreadable = Vec::new();
+            let held = repo_files(dir, &mut unreadable);
+            check::first_error(unreadable, Error::Setup)?;
+            let stale: Vec<String> =
+                held.into_keys().filter(|path| !profile.files.contains_key(path)).collect();
             if !stale.is_empty() {
                 return Err(Error::Setup(format!(
                     "{} holds {} that this export leaves out, and they would install with it; move them out of the repo, or export into a new folder",

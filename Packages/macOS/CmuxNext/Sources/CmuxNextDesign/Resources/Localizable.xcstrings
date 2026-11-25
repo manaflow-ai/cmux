@@ -1,6 +1,2134 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "backdrop.collection.live": {
+      "comment": "The wallpaper picker's group of live wallpapers: programs that move and follow the pointer.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات حية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žive pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergründe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live wallpapers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos animados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds d’écran animés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi animati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងរូបភាពផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapety na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papéis de parede animados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живые обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพื้นหลังแบบเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıtları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живі шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片"
+          }
+        }
+      }
+    },
+    "backdrop.live.attribution": {
+      "comment": "Below a live wallpaper's thumbnail when its manifest has no description.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية حية: تتحرك وتتبع المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Živa pozadina: kreće se i prati pokazivač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende baggrund: bevæger sig og følger markøren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergrund: bewegt sich und folgt dem Zeiger"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live wallpaper: moves, and follows the pointer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo animado: se mueve y sigue al puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fond d’écran animé : il bouge et suit le pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondo animato: si muove e segue il puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙：動き、ポインタに反応します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងរូបភាពផ្ទាល់៖ ផ្លាស់ទី និងតាមព្រួញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면: 움직이며 포인터를 따라갑니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende bakgrunn: beveger seg og følger pekeren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapeta na żywo: porusza się i podąża za wskaźnikiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papel de parede animado: se move e segue o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живые обои: движутся и следуют за указателем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพื้นหลังแบบเคลื่อนไหว: เคลื่อนไหวและตามตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıdı: hareket eder ve imleci izler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живі шпалери: рухаються й стежать за вказівником"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền động: chuyển động và đi theo con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸：会动，并跟随指针"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片：會動，並跟隨指標"
+          }
+        }
+      }
+    },
+    "backdrop.collection.eastAsian": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "translated", "value": "الرسم الشرق آسيوي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Istočnoazijsko slikarstvo"}}, "da": {"stringUnit": {"state": "translated", "value": "Østasiatisk maleri"}}, "de": {"stringUnit": {"state": "translated", "value": "Ostasiatische Malerei"}}, "en": {"stringUnit": {"state": "translated", "value": "East Asian Painting"}}, "es": {"stringUnit": {"state": "translated", "value": "Pintura de Asia oriental"}}, "fr": {"stringUnit": {"state": "translated", "value": "Peinture d'Asie de l'Est"}}, "it": {"stringUnit": {"state": "translated", "value": "Pittura dell'Asia orientale"}}, "ja": {"stringUnit": {"state": "translated", "value": "東アジアの絵画"}}, "km": {"stringUnit": {"state": "translated", "value": "គំនូរអាស៊ីបូព៌ា"}}, "ko": {"stringUnit": {"state": "translated", "value": "동아시아 회화"}}, "nb": {"stringUnit": {"state": "translated", "value": "Østasiatisk maleri"}}, "pl": {"stringUnit": {"state": "translated", "value": "Malarstwo wschodnioazjatyckie"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Pintura do Leste Asiático"}}, "ru": {"stringUnit": {"state": "translated", "value": "Живопись Восточной Азии"}}, "th": {"stringUnit": {"state": "translated", "value": "จิตรกรรมเอเชียตะวันออก"}}, "tr": {"stringUnit": {"state": "translated", "value": "Doğu Asya Resmi"}}, "uk": {"stringUnit": {"state": "translated", "value": "Живопис Східної Азії"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hội họa Đông Á"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "东亚绘画"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "東亞繪畫"}}}},
+    "backdrop.hokusai-red-fuji.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Fine Wind, Clear Morning (Red Fuji)"}}, "de": {"stringUnit": {"state": "translated", "value": "Südwind bei klarem Himmel (Roter Fuji)"}}, "fr": {"stringUnit": {"state": "translated", "value": "Vent du sud, ciel clair (Fuji rouge)"}}, "ar": {"stringUnit": {"state": "translated", "value": "ريح جنوبية وسماء صافية (فوجي الأحمر)"}}, "es": {"stringUnit": {"state": "translated", "value": "Viento del sur, cielo despejado (Fuji rojo)"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "凱風快晴（赤富士）"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "凯风快晴（赤富士）"}}, "ko": {"stringUnit": {"state": "translated", "value": "개풍쾌청 (붉은 후지)"}}, "ja": {"stringUnit": {"state": "translated", "value": "凱風快晴（赤富士）"}}, "bs": {"stringUnit": {"state": "translated", "value": "Južni vjetar, vedro jutro (Crveni Fuji)"}}, "da": {"stringUnit": {"state": "translated", "value": "Sydenvind, klar morgen (Rød Fuji)"}}, "it": {"stringUnit": {"state": "translated", "value": "Vento del sud, cielo sereno (Fuji rosso)"}}, "km": {"stringUnit": {"state": "translated", "value": "ខ្យល់ត្បូង មេឃស្រឡះ (ភ្នំហ្វូជីក្រហម)"}}, "nb": {"stringUnit": {"state": "translated", "value": "Sønnavind, klar morgen (Rød Fuji)"}}, "pl": {"stringUnit": {"state": "translated", "value": "Południowy wiatr, pogodny poranek (Czerwona Fuji)"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Vento Sul, Céu Limpo (Fuji Vermelho)"}}, "ru": {"stringUnit": {"state": "translated", "value": "Южный ветер, ясный день (Красная Фудзи)"}}, "th": {"stringUnit": {"state": "translated", "value": "ลมใต้ ฟ้าใส (ฟูจิแดง)"}}, "tr": {"stringUnit": {"state": "translated", "value": "Güney Rüzgârı, Açık Sabah (Kızıl Fuji)"}}, "uk": {"stringUnit": {"state": "translated", "value": "Південний вітер, ясна днина (Червона Фудзі)"}}, "vi": {"stringUnit": {"state": "translated", "value": "Gió nam, trời quang (Phú Sĩ đỏ)"}}}},
+    "backdrop.hokusai-storm-below-fuji.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Thunderstorm beneath the Summit"}}, "de": {"stringUnit": {"state": "translated", "value": "Gewitter unterhalb des Gipfels"}}, "fr": {"stringUnit": {"state": "translated", "value": "Orage sous le sommet"}}, "ar": {"stringUnit": {"state": "translated", "value": "عاصفة رعدية تحت القمة"}}, "es": {"stringUnit": {"state": "translated", "value": "Tormenta bajo la cumbre"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "山下白雨"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "山下白雨"}}, "ko": {"stringUnit": {"state": "translated", "value": "산하백우"}}, "ja": {"stringUnit": {"state": "translated", "value": "山下白雨"}}, "bs": {"stringUnit": {"state": "translated", "value": "Oluja pod vrhom"}}, "da": {"stringUnit": {"state": "translated", "value": "Tordenvejr under tinden"}}, "it": {"stringUnit": {"state": "translated", "value": "Temporale sotto la vetta"}}, "km": {"stringUnit": {"state": "translated", "value": "ព្យុះផ្គររន្ទះក្រោមកំពូលភ្នំ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Tordenvær under toppen"}}, "pl": {"stringUnit": {"state": "translated", "value": "Burza pod szczytem"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tempestade abaixo do Cume"}}, "ru": {"stringUnit": {"state": "translated", "value": "Гроза под вершиной"}}, "th": {"stringUnit": {"state": "translated", "value": "พายุฝนฟ้าคะนองใต้ยอดเขา"}}, "tr": {"stringUnit": {"state": "translated", "value": "Zirvenin Altında Fırtına"}}, "uk": {"stringUnit": {"state": "translated", "value": "Гроза під вершиною"}}, "vi": {"stringUnit": {"state": "translated", "value": "Giông bão dưới đỉnh núi"}}}},
+    "backdrop.hokusai-kajikazawa.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Kajikazawa in Kai Province"}}, "de": {"stringUnit": {"state": "translated", "value": "Kajikazawa in der Provinz Kai"}}, "fr": {"stringUnit": {"state": "translated", "value": "Kajikazawa dans la province de Kai"}}, "ar": {"stringUnit": {"state": "translated", "value": "كاجيكازاوا في مقاطعة كاي"}}, "es": {"stringUnit": {"state": "translated", "value": "Kajikazawa en la provincia de Kai"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "甲州石班澤"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "甲州石班泽"}}, "ko": {"stringUnit": {"state": "translated", "value": "갑주 석반택"}}, "ja": {"stringUnit": {"state": "translated", "value": "甲州石班沢"}}, "bs": {"stringUnit": {"state": "translated", "value": "Kajikazawa u provinciji Kai"}}, "da": {"stringUnit": {"state": "translated", "value": "Kajikazawa i Kai-provinsen"}}, "it": {"stringUnit": {"state": "translated", "value": "Kajikazawa nella provincia di Kai"}}, "km": {"stringUnit": {"state": "translated", "value": "កាជីកាហ្សាវ៉ានៅខេត្តកៃ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Kajikazawa i Kai-provinsen"}}, "pl": {"stringUnit": {"state": "translated", "value": "Kajikazawa w prowincji Kai"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Kajikazawa na Província de Kai"}}, "ru": {"stringUnit": {"state": "translated", "value": "Кадзикадзава в провинции Каи"}}, "th": {"stringUnit": {"state": "translated", "value": "คาจิกาซาวะในแคว้นไค"}}, "tr": {"stringUnit": {"state": "translated", "value": "Kai Eyaletinde Kajikazawa"}}, "uk": {"stringUnit": {"state": "translated", "value": "Кадзікадзава в провінції Каї"}}, "vi": {"stringUnit": {"state": "translated", "value": "Kajikazawa ở xứ Kai"}}}},
+    "backdrop.hiroshige-sudden-shower.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sudden Shower over Shin-Ōhashi Bridge"}}, "de": {"stringUnit": {"state": "translated", "value": "Plötzlicher Regen über der Shin-Ōhashi-Brücke"}}, "fr": {"stringUnit": {"state": "translated", "value": "Averse soudaine sur le pont Shin-Ōhashi"}}, "ar": {"stringUnit": {"state": "translated", "value": "زخة مطر مفاجئة فوق جسر شين-أوهاشي"}}, "es": {"stringUnit": {"state": "translated", "value": "Chaparrón sobre el puente Shin-Ōhashi"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "大橋安宅驟雨"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "大桥安宅骤雨"}}, "ko": {"stringUnit": {"state": "translated", "value": "오하시 아타케의 소나기"}}, "ja": {"stringUnit": {"state": "translated", "value": "大はしあたけの夕立"}}, "bs": {"stringUnit": {"state": "translated", "value": "Iznenadni pljusak nad mostom Shin-Ōhashi"}}, "da": {"stringUnit": {"state": "translated", "value": "Pludselig byge over Shin-Ōhashi-broen"}}, "it": {"stringUnit": {"state": "translated", "value": "Acquazzone improvviso sul ponte Shin-Ōhashi"}}, "km": {"stringUnit": {"state": "translated", "value": "ភ្លៀងធ្លាក់ភ្លាមៗលើស្ពានស៊ីនអូហាស៊ី"}}, "nb": {"stringUnit": {"state": "translated", "value": "Plutselig regnskyll over Shin-Ōhashi-broen"}}, "pl": {"stringUnit": {"state": "translated", "value": "Nagła ulewa nad mostem Shin-Ōhashi"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Chuva Repentina sobre a Ponte Shin-Ōhashi"}}, "ru": {"stringUnit": {"state": "translated", "value": "Внезапный ливень над мостом Син-Охаси"}}, "th": {"stringUnit": {"state": "translated", "value": "ฝนตกกะทันหันเหนือสะพานชินโอฮาชิ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Shin-Ōhashi Köprüsü Üzerinde Ani Sağanak"}}, "uk": {"stringUnit": {"state": "translated", "value": "Раптова злива над мостом Сін-Охасі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Mưa rào bất chợt trên cầu Shin-Ōhashi"}}}},
+    "backdrop.hiroshige-kanbara-snow.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Night Snow at Kanbara"}}, "de": {"stringUnit": {"state": "translated", "value": "Nachtschnee in Kanbara"}}, "fr": {"stringUnit": {"state": "translated", "value": "Neige nocturne à Kanbara"}}, "ar": {"stringUnit": {"state": "translated", "value": "ثلج الليل في كانبارا"}}, "es": {"stringUnit": {"state": "translated", "value": "Nieve nocturna en Kanbara"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "蒲原夜之雪"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "蒲原夜之雪"}}, "ko": {"stringUnit": {"state": "translated", "value": "가모하라의 밤눈"}}, "ja": {"stringUnit": {"state": "translated", "value": "蒲原 夜之雪"}}, "bs": {"stringUnit": {"state": "translated", "value": "Noćni snijeg u Kanbari"}}, "da": {"stringUnit": {"state": "translated", "value": "Nattesne i Kanbara"}}, "it": {"stringUnit": {"state": "translated", "value": "Neve notturna a Kanbara"}}, "km": {"stringUnit": {"state": "translated", "value": "ព្រិលពេលយប់នៅកានបារ៉ា"}}, "nb": {"stringUnit": {"state": "translated", "value": "Nattsnø i Kanbara"}}, "pl": {"stringUnit": {"state": "translated", "value": "Nocny śnieg w Kanbarze"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Neve Noturna em Kanbara"}}, "ru": {"stringUnit": {"state": "translated", "value": "Ночной снег в Камбаре"}}, "th": {"stringUnit": {"state": "translated", "value": "หิมะยามค่ำคืนที่คันบาระ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Kanbara'da Gece Karı"}}, "uk": {"stringUnit": {"state": "translated", "value": "Нічний сніг у Камбарі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Tuyết đêm ở Kanbara"}}}},
+    "backdrop.hiroshige-plum-garden.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Plum Park in Kameido"}}, "de": {"stringUnit": {"state": "translated", "value": "Pflaumengarten in Kameido"}}, "fr": {"stringUnit": {"state": "translated", "value": "Le Jardin des pruniers à Kameido"}}, "ar": {"stringUnit": {"state": "translated", "value": "بستان البرقوق في كاميدو"}}, "es": {"stringUnit": {"state": "translated", "value": "Jardín de ciruelos en Kameido"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "龜戶梅屋舖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "龟户梅屋铺"}}, "ko": {"stringUnit": {"state": "translated", "value": "가메이도 매화 정원"}}, "ja": {"stringUnit": {"state": "translated", "value": "亀戸梅屋舗"}}, "bs": {"stringUnit": {"state": "translated", "value": "Vrt šljiva u Kameidu"}}, "da": {"stringUnit": {"state": "translated", "value": "Blommehaven i Kameido"}}, "it": {"stringUnit": {"state": "translated", "value": "Il giardino dei pruni a Kameido"}}, "km": {"stringUnit": {"state": "translated", "value": "សួនផ្កាព្រូននៅកាមេអ៊ីដូ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Plommehagen i Kameido"}}, "pl": {"stringUnit": {"state": "translated", "value": "Ogród śliwowy w Kameido"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Jardim de Ameixeiras em Kameido"}}, "ru": {"stringUnit": {"state": "translated", "value": "Сливовый сад в Камэйдо"}}, "th": {"stringUnit": {"state": "translated", "value": "สวนบ๊วยที่คาเมอิโดะ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Kameido'da Erik Bahçesi"}}, "uk": {"stringUnit": {"state": "translated", "value": "Сливовий сад у Камейдо"}}, "vi": {"stringUnit": {"state": "translated", "value": "Vườn mận ở Kameido"}}}},
+    "backdrop.hiroshige-moon-pine.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Moon Pine, Ueno"}}, "de": {"stringUnit": {"state": "translated", "value": "Mondkiefer in Ueno"}}, "fr": {"stringUnit": {"state": "translated", "value": "Le Pin de la lune à Ueno"}}, "ar": {"stringUnit": {"state": "translated", "value": "صنوبرة القمر في أوينو"}}, "es": {"stringUnit": {"state": "translated", "value": "El pino de la luna, Ueno"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "上野山內月之松"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "上野山内月之松"}}, "ko": {"stringUnit": {"state": "translated", "value": "우에노 달 소나무"}}, "ja": {"stringUnit": {"state": "translated", "value": "上野山内月のまつ"}}, "bs": {"stringUnit": {"state": "translated", "value": "Mjesečev bor, Ueno"}}, "da": {"stringUnit": {"state": "translated", "value": "Månefyrren i Ueno"}}, "it": {"stringUnit": {"state": "translated", "value": "Il pino della luna, Ueno"}}, "km": {"stringUnit": {"state": "translated", "value": "ដើមស្រល់ព្រះចន្ទ អ៊ុយអេណូ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Månefuruen i Ueno"}}, "pl": {"stringUnit": {"state": "translated", "value": "Księżycowa sosna w Ueno"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "O Pinheiro da Lua, Ueno"}}, "ru": {"stringUnit": {"state": "translated", "value": "Лунная сосна в Уэно"}}, "th": {"stringUnit": {"state": "translated", "value": "ต้นสนพระจันทร์ อุเอโนะ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Ay Çamı, Ueno"}}, "uk": {"stringUnit": {"state": "translated", "value": "Місячна сосна в Уено"}}, "vi": {"stringUnit": {"state": "translated", "value": "Cây thông trăng ở Ueno"}}}},
+    "backdrop.korin-irises.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Irises at Yatsuhashi"}}, "de": {"stringUnit": {"state": "translated", "value": "Schwertlilien bei Yatsuhashi"}}, "fr": {"stringUnit": {"state": "translated", "value": "Iris à Yatsuhashi"}}, "ar": {"stringUnit": {"state": "translated", "value": "زهور السوسن في ياتسوهاشي"}}, "es": {"stringUnit": {"state": "translated", "value": "Lirios en Yatsuhashi"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "八橋圖屏風"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "八桥图屏风"}}, "ko": {"stringUnit": {"state": "translated", "value": "야쓰하시 붓꽃 병풍"}}, "ja": {"stringUnit": {"state": "translated", "value": "八橋図屏風"}}, "bs": {"stringUnit": {"state": "translated", "value": "Perunike kod Yatsuhashija"}}, "da": {"stringUnit": {"state": "translated", "value": "Iris ved Yatsuhashi"}}, "it": {"stringUnit": {"state": "translated", "value": "Iris a Yatsuhashi"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្កាអៃរីសនៅយ៉ាតស៊ូហាស៊ី"}}, "nb": {"stringUnit": {"state": "translated", "value": "Iris ved Yatsuhashi"}}, "pl": {"stringUnit": {"state": "translated", "value": "Irysy w Yatsuhashi"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Íris em Yatsuhashi"}}, "ru": {"stringUnit": {"state": "translated", "value": "Ирисы в Яцухаси"}}, "th": {"stringUnit": {"state": "translated", "value": "ดอกไอริสที่ยัตสึฮาชิ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Yatsuhashi'de Süsenler"}}, "uk": {"stringUnit": {"state": "translated", "value": "Іриси в Яцухасі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hoa diên vĩ ở Yatsuhashi"}}}},
+    "backdrop.tohaku-pine-trees.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Pine Trees"}}, "de": {"stringUnit": {"state": "translated", "value": "Kiefernwald"}}, "fr": {"stringUnit": {"state": "translated", "value": "Pins"}}, "ar": {"stringUnit": {"state": "translated", "value": "أشجار الصنوبر"}}, "es": {"stringUnit": {"state": "translated", "value": "Pinos"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "松林圖屏風"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "松林图屏风"}}, "ko": {"stringUnit": {"state": "translated", "value": "송림도 병풍"}}, "ja": {"stringUnit": {"state": "translated", "value": "松林図屏風"}}, "bs": {"stringUnit": {"state": "translated", "value": "Borovi"}}, "da": {"stringUnit": {"state": "translated", "value": "Fyrretræer"}}, "it": {"stringUnit": {"state": "translated", "value": "Pini"}}, "km": {"stringUnit": {"state": "translated", "value": "ដើមស្រល់"}}, "nb": {"stringUnit": {"state": "translated", "value": "Furutrær"}}, "pl": {"stringUnit": {"state": "translated", "value": "Sosny"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Pinheiros"}}, "ru": {"stringUnit": {"state": "translated", "value": "Сосновый лес"}}, "th": {"stringUnit": {"state": "translated", "value": "ป่าสน"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çam Ağaçları"}}, "uk": {"stringUnit": {"state": "translated", "value": "Сосни"}}, "vi": {"stringUnit": {"state": "translated", "value": "Rừng thông"}}}},
+    "backdrop.jakuchu-mandarin-ducks.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Mandarin Ducks in the Snow"}}, "de": {"stringUnit": {"state": "translated", "value": "Mandarinenten im Schnee"}}, "fr": {"stringUnit": {"state": "translated", "value": "Canards mandarins dans la neige"}}, "ar": {"stringUnit": {"state": "translated", "value": "بط الماندرين في الثلج"}}, "es": {"stringUnit": {"state": "translated", "value": "Patos mandarines en la nieve"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "雪中鴛鴦圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "雪中鸳鸯图"}}, "ko": {"stringUnit": {"state": "translated", "value": "설중원앙도"}}, "ja": {"stringUnit": {"state": "translated", "value": "雪中鴛鴦図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Mandarinske patke u snijegu"}}, "da": {"stringUnit": {"state": "translated", "value": "Mandarinænder i sneen"}}, "it": {"stringUnit": {"state": "translated", "value": "Anatre mandarine nella neve"}}, "km": {"stringUnit": {"state": "translated", "value": "ទាម៉ង់ដារីនក្នុងព្រិល"}}, "nb": {"stringUnit": {"state": "translated", "value": "Mandarinender i snøen"}}, "pl": {"stringUnit": {"state": "translated", "value": "Mandarynki w śniegu"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Patos-mandarins na Neve"}}, "ru": {"stringUnit": {"state": "translated", "value": "Мандаринки в снегу"}}, "th": {"stringUnit": {"state": "translated", "value": "เป็ดแมนดารินในหิมะ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Karda Mandarin Ördekleri"}}, "uk": {"stringUnit": {"state": "translated", "value": "Мандаринки в снігу"}}, "vi": {"stringUnit": {"state": "translated", "value": "Uyên ương trong tuyết"}}}},
+    "backdrop.fan-kuan-travelers.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Travelers among Mountains and Streams"}}, "de": {"stringUnit": {"state": "translated", "value": "Reisende zwischen Bergen und Bächen"}}, "fr": {"stringUnit": {"state": "translated", "value": "Voyageurs parmi les montagnes et les torrents"}}, "ar": {"stringUnit": {"state": "translated", "value": "مسافرون بين الجبال والجداول"}}, "es": {"stringUnit": {"state": "translated", "value": "Viajeros entre montañas y arroyos"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "谿山行旅圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "溪山行旅图"}}, "ko": {"stringUnit": {"state": "translated", "value": "계산행려도"}}, "ja": {"stringUnit": {"state": "translated", "value": "谿山行旅図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Putnici među planinama i potocima"}}, "da": {"stringUnit": {"state": "translated", "value": "Rejsende blandt bjerge og vandløb"}}, "it": {"stringUnit": {"state": "translated", "value": "Viaggiatori tra monti e torrenti"}}, "km": {"stringUnit": {"state": "translated", "value": "អ្នកដំណើរកណ្ដាលភ្នំ និងអូរ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Reisende blant fjell og bekker"}}, "pl": {"stringUnit": {"state": "translated", "value": "Podróżni wśród gór i strumieni"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Viajantes entre Montanhas e Riachos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Путники среди гор и потоков"}}, "th": {"stringUnit": {"state": "translated", "value": "นักเดินทางท่ามกลางขุนเขาและลำธาร"}}, "tr": {"stringUnit": {"state": "translated", "value": "Dağlar ve Dereler Arasında Yolcular"}}, "uk": {"stringUnit": {"state": "translated", "value": "Мандрівники серед гір і потоків"}}, "vi": {"stringUnit": {"state": "translated", "value": "Khê sơn hành lữ đồ"}}}},
+    "backdrop.guo-xi-early-spring.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Early Spring"}}, "de": {"stringUnit": {"state": "translated", "value": "Früher Frühling"}}, "fr": {"stringUnit": {"state": "translated", "value": "Début du printemps"}}, "ar": {"stringUnit": {"state": "translated", "value": "أوائل الربيع"}}, "es": {"stringUnit": {"state": "translated", "value": "Comienzo de la primavera"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "早春圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "早春图"}}, "ko": {"stringUnit": {"state": "translated", "value": "조춘도"}}, "ja": {"stringUnit": {"state": "translated", "value": "早春図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Rano proljeće"}}, "da": {"stringUnit": {"state": "translated", "value": "Tidligt forår"}}, "it": {"stringUnit": {"state": "translated", "value": "Inizio di primavera"}}, "km": {"stringUnit": {"state": "translated", "value": "ដើមនិទាឃរដូវ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Tidlig vår"}}, "pl": {"stringUnit": {"state": "translated", "value": "Wczesna wiosna"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Início da Primavera"}}, "ru": {"stringUnit": {"state": "translated", "value": "Ранняя весна"}}, "th": {"stringUnit": {"state": "translated", "value": "ต้นฤดูใบไม้ผลิ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Erken Bahar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Рання весна"}}, "vi": {"stringUnit": {"state": "translated", "value": "Tảo xuân đồ"}}}},
+    "backdrop.ma-yuan-clouds-green-sea.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Clouds Rising from the Green Sea"}}, "de": {"stringUnit": {"state": "translated", "value": "Wolken steigen aus dem grünen Meer"}}, "fr": {"stringUnit": {"state": "translated", "value": "Nuages s'élevant de la mer verte"}}, "ar": {"stringUnit": {"state": "translated", "value": "غيوم تتصاعد من البحر الأخضر"}}, "es": {"stringUnit": {"state": "translated", "value": "Nubes que surgen del mar verde"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "雲生蒼海"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "云生苍海"}}, "ko": {"stringUnit": {"state": "translated", "value": "운생창해"}}, "ja": {"stringUnit": {"state": "translated", "value": "雲生蒼海"}}, "bs": {"stringUnit": {"state": "translated", "value": "Oblaci se dižu iz zelenog mora"}}, "da": {"stringUnit": {"state": "translated", "value": "Skyer stiger op fra det grønne hav"}}, "it": {"stringUnit": {"state": "translated", "value": "Nuvole che salgono dal mare verde"}}, "km": {"stringUnit": {"state": "translated", "value": "ពពកហក់ឡើងពីសមុទ្របៃតង"}}, "nb": {"stringUnit": {"state": "translated", "value": "Skyer stiger opp fra det grønne havet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Chmury wznoszące się z zielonego morza"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Nuvens Subindo do Mar Verde"}}, "ru": {"stringUnit": {"state": "translated", "value": "Облака над изумрудным морем"}}, "th": {"stringUnit": {"state": "translated", "value": "เมฆลอยขึ้นจากทะเลเขียว"}}, "tr": {"stringUnit": {"state": "translated", "value": "Yeşil Denizden Yükselen Bulutlar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Хмари здіймаються над зеленим морем"}}, "vi": {"stringUnit": {"state": "translated", "value": "Vân sinh thương hải"}}}},
+    "backdrop.zhang-zeduan-qingming.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Along the River During Qingming"}}, "de": {"stringUnit": {"state": "translated", "value": "Am Fluss zum Qingming-Fest"}}, "fr": {"stringUnit": {"state": "translated", "value": "Le long de la rivière à Qingming"}}, "ar": {"stringUnit": {"state": "translated", "value": "على امتداد النهر في تشينغمينغ"}}, "es": {"stringUnit": {"state": "translated", "value": "A lo largo del río en Qingming"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "清明上河圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "清明上河图"}}, "ko": {"stringUnit": {"state": "translated", "value": "청명상하도"}}, "ja": {"stringUnit": {"state": "translated", "value": "清明上河図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Uz rijeku za Qingming"}}, "da": {"stringUnit": {"state": "translated", "value": "Langs floden ved Qingming"}}, "it": {"stringUnit": {"state": "translated", "value": "Lungo il fiume a Qingming"}}, "km": {"stringUnit": {"state": "translated", "value": "តាមដងទន្លេក្នុងពិធីបុណ្យឈីងមីង"}}, "nb": {"stringUnit": {"state": "translated", "value": "Langs elva ved Qingming"}}, "pl": {"stringUnit": {"state": "translated", "value": "Wzdłuż rzeki w święto Qingming"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ao Longo do Rio no Qingming"}}, "ru": {"stringUnit": {"state": "translated", "value": "По реке в день Цинмин"}}, "th": {"stringUnit": {"state": "translated", "value": "ริมแม่น้ำในเทศกาลเช็งเม้ง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Qingming'de Nehir Boyunca"}}, "uk": {"stringUnit": {"state": "translated", "value": "Уздовж річки на Цинмін"}}, "vi": {"stringUnit": {"state": "translated", "value": "Thanh minh thượng hà đồ"}}}},
+    "backdrop.wang-ximeng-thousand-li.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Thousand Li of Rivers and Mountains"}}, "de": {"stringUnit": {"state": "translated", "value": "Tausend Li Flüsse und Berge"}}, "fr": {"stringUnit": {"state": "translated", "value": "Mille li de fleuves et de montagnes"}}, "ar": {"stringUnit": {"state": "translated", "value": "ألف لي من الأنهار والجبال"}}, "es": {"stringUnit": {"state": "translated", "value": "Mil li de ríos y montañas"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "千里江山圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "千里江山图"}}, "ko": {"stringUnit": {"state": "translated", "value": "천리강산도"}}, "ja": {"stringUnit": {"state": "translated", "value": "千里江山図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Hiljadu lija rijeka i planina"}}, "da": {"stringUnit": {"state": "translated", "value": "Tusind li af floder og bjerge"}}, "it": {"stringUnit": {"state": "translated", "value": "Mille li di fiumi e montagne"}}, "km": {"stringUnit": {"state": "translated", "value": "ទន្លេ និងភ្នំមួយពាន់លី"}}, "nb": {"stringUnit": {"state": "translated", "value": "Tusen li med elver og fjell"}}, "pl": {"stringUnit": {"state": "translated", "value": "Tysiąc li rzek i gór"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mil Li de Rios e Montanhas"}}, "ru": {"stringUnit": {"state": "translated", "value": "Тысяча ли рек и гор"}}, "th": {"stringUnit": {"state": "translated", "value": "สายน้ำและขุนเขาพันลี้"}}, "tr": {"stringUnit": {"state": "translated", "value": "Bin Li Boyunca Nehirler ve Dağlar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Тисяча лі річок і гір"}}, "vi": {"stringUnit": {"state": "translated", "value": "Thiên lý giang sơn đồ"}}}},
+    "backdrop.jeong-seon-inwang.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Clearing after Rain on Mount Inwang"}}, "de": {"stringUnit": {"state": "translated", "value": "Aufklaren nach dem Regen am Inwangsan"}}, "fr": {"stringUnit": {"state": "translated", "value": "Éclaircie après la pluie sur le mont Inwang"}}, "ar": {"stringUnit": {"state": "translated", "value": "صفاء السماء بعد المطر على جبل إنوانغ"}}, "es": {"stringUnit": {"state": "translated", "value": "Escampada tras la lluvia en el monte Inwang"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "仁王霽色圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "仁王霁色图"}}, "ko": {"stringUnit": {"state": "translated", "value": "인왕제색도"}}, "ja": {"stringUnit": {"state": "translated", "value": "仁王霽色図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Razvedravanje nakon kiše na planini Inwang"}}, "da": {"stringUnit": {"state": "translated", "value": "Opklaring efter regn på Inwang-bjerget"}}, "it": {"stringUnit": {"state": "translated", "value": "Schiarita dopo la pioggia sul monte Inwang"}}, "km": {"stringUnit": {"state": "translated", "value": "មេឃស្រឡះក្រោយភ្លៀងលើភ្នំអ៊ីនវ៉ាង"}}, "nb": {"stringUnit": {"state": "translated", "value": "Oppklaring etter regn på Inwang-fjellet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Przejaśnienie po deszczu na górze Inwang"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Céu Clareando após a Chuva no Monte Inwang"}}, "ru": {"stringUnit": {"state": "translated", "value": "Гора Инвансан после дождя"}}, "th": {"stringUnit": {"state": "translated", "value": "ฟ้าหลังฝนบนเขาอินวัง"}}, "tr": {"stringUnit": {"state": "translated", "value": "İnwang Dağı'nda Yağmurdan Sonra"}}, "uk": {"stringUnit": {"state": "translated", "value": "Гора Інвансан після дощу"}}, "vi": {"stringUnit": {"state": "translated", "value": "Núi Inwang sau mưa"}}}},
+    "backdrop.jeong-seon-geumgang.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "General View of Mount Geumgang"}}, "de": {"stringUnit": {"state": "translated", "value": "Gesamtansicht des Geumgangsan"}}, "fr": {"stringUnit": {"state": "translated", "value": "Vue générale du mont Geumgang"}}, "ar": {"stringUnit": {"state": "translated", "value": "منظر شامل لجبل كومغانغ"}}, "es": {"stringUnit": {"state": "translated", "value": "Vista general del monte Geumgang"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "金剛全圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "金刚全图"}}, "ko": {"stringUnit": {"state": "translated", "value": "금강전도"}}, "ja": {"stringUnit": {"state": "translated", "value": "金剛全図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Opći pogled na planinu Geumgang"}}, "da": {"stringUnit": {"state": "translated", "value": "Udsigt over Geumgang-bjerget"}}, "it": {"stringUnit": {"state": "translated", "value": "Veduta generale del monte Geumgang"}}, "km": {"stringUnit": {"state": "translated", "value": "ទិដ្ឋភាពទូទៅនៃភ្នំគឹមហ្គាង"}}, "nb": {"stringUnit": {"state": "translated", "value": "Oversikt over Geumgang-fjellet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Widok ogólny góry Geumgang"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Vista Geral do Monte Geumgang"}}, "ru": {"stringUnit": {"state": "translated", "value": "Общий вид гор Кымгансан"}}, "th": {"stringUnit": {"state": "translated", "value": "ทัศนียภาพเขาคึมกัง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Geumgang Dağı'nın Genel Görünümü"}}, "uk": {"stringUnit": {"state": "translated", "value": "Загальний вигляд гір Кимгансан"}}, "vi": {"stringUnit": {"state": "translated", "value": "Toàn cảnh núi Kim Cương"}}}},
+    "backdrop.kim-hong-do-samgong.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Nature Better than the Official Ranks"}}, "de": {"stringUnit": {"state": "translated", "value": "Natur, besser als die höchsten Ämter"}}, "fr": {"stringUnit": {"state": "translated", "value": "La nature plutôt que les hautes charges"}}, "ar": {"stringUnit": {"state": "translated", "value": "الطبيعة خير من المناصب الرسمية"}}, "es": {"stringUnit": {"state": "translated", "value": "La naturaleza antes que los altos cargos"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "三公不換圖"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "三公不换图"}}, "ko": {"stringUnit": {"state": "translated", "value": "삼공불환도"}}, "ja": {"stringUnit": {"state": "translated", "value": "三公不換図"}}, "bs": {"stringUnit": {"state": "translated", "value": "Priroda bolja od visokih položaja"}}, "da": {"stringUnit": {"state": "translated", "value": "Naturen frem for de høje embeder"}}, "it": {"stringUnit": {"state": "translated", "value": "La natura meglio delle alte cariche"}}, "km": {"stringUnit": {"state": "translated", "value": "ធម្មជាតិប្រសើរជាងឋានៈមន្ត្រី"}}, "nb": {"stringUnit": {"state": "translated", "value": "Naturen fremfor de høye embetene"}}, "pl": {"stringUnit": {"state": "translated", "value": "Natura ponad wysokie urzędy"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "A Natureza Acima dos Altos Cargos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Природа лучше высоких чинов"}}, "th": {"stringUnit": {"state": "translated", "value": "ธรรมชาติดีกว่ายศตำแหน่ง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Makamlardan Üstün Doğa"}}, "uk": {"stringUnit": {"state": "translated", "value": "Природа краща за високі посади"}}, "vi": {"stringUnit": {"state": "translated", "value": "Tam công bất hoán đồ"}}}},
+    "backdrop.collection.shader": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Living wallpapers"}}, "ar": {"stringUnit": {"state": "translated", "value": "خلفيات حية"}}, "bs": {"stringUnit": {"state": "translated", "value": "Žive pozadine"}}, "da": {"stringUnit": {"state": "translated", "value": "Levende baggrunde"}}, "de": {"stringUnit": {"state": "translated", "value": "Lebendige Hintergründe"}}, "es": {"stringUnit": {"state": "translated", "value": "Fondos vivos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Fonds d’écran vivants"}}, "it": {"stringUnit": {"state": "translated", "value": "Sfondi viventi"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ壁紙"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាំងរូបភាពរស់"}}, "ko": {"stringUnit": {"state": "translated", "value": "살아 있는 배경화면"}}, "nb": {"stringUnit": {"state": "translated", "value": "Levende bakgrunner"}}, "pl": {"stringUnit": {"state": "translated", "value": "Żywe tapety"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Papéis de parede vivos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Живые обои"}}, "th": {"stringUnit": {"state": "translated", "value": "วอลเปเปอร์มีชีวิต"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı duvar kâğıtları"}}, "uk": {"stringUnit": {"state": "translated", "value": "Живі шпалери"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hình nền sống động"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "动态交互壁纸"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "動態互動桌布"}}}},
+    "backdrop.shader.currents": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Currents"}}, "ar": {"stringUnit": {"state": "translated", "value": "تيارات"}}, "bs": {"stringUnit": {"state": "translated", "value": "Struje"}}, "da": {"stringUnit": {"state": "translated", "value": "Strømme"}}, "de": {"stringUnit": {"state": "translated", "value": "Strömungen"}}, "es": {"stringUnit": {"state": "translated", "value": "Corrientes"}}, "fr": {"stringUnit": {"state": "translated", "value": "Courants"}}, "it": {"stringUnit": {"state": "translated", "value": "Correnti"}}, "ja": {"stringUnit": {"state": "translated", "value": "潮流"}}, "km": {"stringUnit": {"state": "translated", "value": "ចរន្ត"}}, "ko": {"stringUnit": {"state": "translated", "value": "물결"}}, "nb": {"stringUnit": {"state": "translated", "value": "Strømmer"}}, "pl": {"stringUnit": {"state": "translated", "value": "Prądy"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Correntes"}}, "ru": {"stringUnit": {"state": "translated", "value": "Течения"}}, "th": {"stringUnit": {"state": "translated", "value": "กระแสน้ำ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Akıntılar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Течії"}}, "vi": {"stringUnit": {"state": "translated", "value": "Dòng chảy"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "暗流"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "暗流"}}}},
+    "backdrop.shader.ripples": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Ripples"}}, "ar": {"stringUnit": {"state": "translated", "value": "تموجات"}}, "bs": {"stringUnit": {"state": "translated", "value": "Talasići"}}, "da": {"stringUnit": {"state": "translated", "value": "Krusninger"}}, "de": {"stringUnit": {"state": "translated", "value": "Wellen"}}, "es": {"stringUnit": {"state": "translated", "value": "Ondas"}}, "fr": {"stringUnit": {"state": "translated", "value": "Ondulations"}}, "it": {"stringUnit": {"state": "translated", "value": "Increspature"}}, "ja": {"stringUnit": {"state": "translated", "value": "波紋"}}, "km": {"stringUnit": {"state": "translated", "value": "រលកតូចៗ"}}, "ko": {"stringUnit": {"state": "translated", "value": "잔물결"}}, "nb": {"stringUnit": {"state": "translated", "value": "Krusninger"}}, "pl": {"stringUnit": {"state": "translated", "value": "Zmarszczki"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ondulações"}}, "ru": {"stringUnit": {"state": "translated", "value": "Рябь"}}, "th": {"stringUnit": {"state": "translated", "value": "ระลอกคลื่น"}}, "tr": {"stringUnit": {"state": "translated", "value": "Dalgacıklar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Брижі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Gợn sóng"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "涟漪"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "漣漪"}}}},
+    "backdrop.shader.aurora": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Aurora"}}, "ar": {"stringUnit": {"state": "translated", "value": "شفق قطبي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Polarna svjetlost"}}, "da": {"stringUnit": {"state": "translated", "value": "Nordlys"}}, "de": {"stringUnit": {"state": "translated", "value": "Polarlicht"}}, "es": {"stringUnit": {"state": "translated", "value": "Aurora boreal"}}, "fr": {"stringUnit": {"state": "translated", "value": "Aurore boréale"}}, "it": {"stringUnit": {"state": "translated", "value": "Aurora boreale"}}, "ja": {"stringUnit": {"state": "translated", "value": "オーロラ"}}, "km": {"stringUnit": {"state": "translated", "value": "ពន្លឺប៉ូល"}}, "ko": {"stringUnit": {"state": "translated", "value": "오로라"}}, "nb": {"stringUnit": {"state": "translated", "value": "Nordlys"}}, "pl": {"stringUnit": {"state": "translated", "value": "Zorza"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Aurora boreal"}}, "ru": {"stringUnit": {"state": "translated", "value": "Северное сияние"}}, "th": {"stringUnit": {"state": "translated", "value": "แสงเหนือ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Kutup ışıkları"}}, "uk": {"stringUnit": {"state": "translated", "value": "Полярне сяйво"}}, "vi": {"stringUnit": {"state": "translated", "value": "Cực quang"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "极光"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "極光"}}}},
+    "backdrop.shader.field": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Dot Field"}}, "ar": {"stringUnit": {"state": "translated", "value": "حقل النقاط"}}, "bs": {"stringUnit": {"state": "translated", "value": "Polje tačaka"}}, "da": {"stringUnit": {"state": "translated", "value": "Prikfelt"}}, "de": {"stringUnit": {"state": "translated", "value": "Punktfeld"}}, "es": {"stringUnit": {"state": "translated", "value": "Campo de puntos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Champ de points"}}, "it": {"stringUnit": {"state": "translated", "value": "Campo di punti"}}, "ja": {"stringUnit": {"state": "translated", "value": "ドットフィールド"}}, "km": {"stringUnit": {"state": "translated", "value": "វាលចំណុច"}}, "ko": {"stringUnit": {"state": "translated", "value": "점 필드"}}, "nb": {"stringUnit": {"state": "translated", "value": "Prikkfelt"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pole kropek"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Campo de pontos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Поле точек"}}, "th": {"stringUnit": {"state": "translated", "value": "ทุ่งจุด"}}, "tr": {"stringUnit": {"state": "translated", "value": "Nokta alanı"}}, "uk": {"stringUnit": {"state": "translated", "value": "Поле крапок"}}, "vi": {"stringUnit": {"state": "translated", "value": "Trường chấm"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "点阵"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "點陣"}}}},
+    "backdrop.shader.currents.attribution": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live · the pointer stirs the ink"}}, "ar": {"stringUnit": {"state": "translated", "value": "مباشر · المؤشر يحرّك الحبر"}}, "bs": {"stringUnit": {"state": "translated", "value": "Uživo · pokazivač miješa tintu"}}, "da": {"stringUnit": {"state": "translated", "value": "Live · markøren rører i blækket"}}, "de": {"stringUnit": {"state": "translated", "value": "Live · der Zeiger rührt die Tinte um"}}, "es": {"stringUnit": {"state": "translated", "value": "En vivo · el puntero remueve la tinta"}}, "fr": {"stringUnit": {"state": "translated", "value": "En direct · le pointeur remue l’encre"}}, "it": {"stringUnit": {"state": "translated", "value": "Dal vivo · il puntatore mescola l’inchiostro"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ · ポインタがインクをかき混ぜます"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាល់ · ទ្រនិចកូរទឹកខ្មៅ"}}, "ko": {"stringUnit": {"state": "translated", "value": "실시간 · 포인터가 잉크를 휘젓습니다"}}, "nb": {"stringUnit": {"state": "translated", "value": "Live · pekeren rører i blekket"}}, "pl": {"stringUnit": {"state": "translated", "value": "Na żywo · kursor miesza atrament"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ao vivo · o ponteiro mexe a tinta"}}, "ru": {"stringUnit": {"state": "translated", "value": "Вживую · указатель размешивает чернила"}}, "th": {"stringUnit": {"state": "translated", "value": "สด · ตัวชี้กวนหมึก"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı · işaretçi mürekkebi karıştırır"}}, "uk": {"stringUnit": {"state": "translated", "value": "Наживо · вказівник розмішує чорнило"}}, "vi": {"stringUnit": {"state": "translated", "value": "Trực tiếp · con trỏ khuấy mực"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "实时 · 指针搅动墨水"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "即時 · 指標攪動墨水"}}}},
+    "backdrop.shader.ripples.attribution": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live · click to drop a ripple"}}, "ar": {"stringUnit": {"state": "translated", "value": "مباشر · انقر لإحداث تموّج"}}, "bs": {"stringUnit": {"state": "translated", "value": "Uživo · kliknite za talasić"}}, "da": {"stringUnit": {"state": "translated", "value": "Live · klik for at lave en krusning"}}, "de": {"stringUnit": {"state": "translated", "value": "Live · klicken lässt eine Welle entstehen"}}, "es": {"stringUnit": {"state": "translated", "value": "En vivo · haz clic para crear una onda"}}, "fr": {"stringUnit": {"state": "translated", "value": "En direct · cliquez pour créer une onde"}}, "it": {"stringUnit": {"state": "translated", "value": "Dal vivo · fai clic per creare un’increspatura"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ · クリックで波紋が広がります"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាល់ · ចុចដើម្បីបង្កើតរលក"}}, "ko": {"stringUnit": {"state": "translated", "value": "실시간 · 클릭하면 잔물결이 퍼집니다"}}, "nb": {"stringUnit": {"state": "translated", "value": "Live · klikk for å lage en krusning"}}, "pl": {"stringUnit": {"state": "translated", "value": "Na żywo · kliknij, by wywołać zmarszczkę"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ao vivo · clique para criar uma ondulação"}}, "ru": {"stringUnit": {"state": "translated", "value": "Вживую · щёлкните, чтобы пустить рябь"}}, "th": {"stringUnit": {"state": "translated", "value": "สด · คลิกเพื่อสร้างระลอกคลื่น"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı · dalga için tıklayın"}}, "uk": {"stringUnit": {"state": "translated", "value": "Наживо · клацніть, щоб пустити брижі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Trực tiếp · nhấp để tạo gợn sóng"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "实时 · 点击泛起涟漪"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "即時 · 按一下泛起漣漪"}}}},
+    "backdrop.shader.aurora.attribution": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live · the light leans toward the pointer"}}, "ar": {"stringUnit": {"state": "translated", "value": "مباشر · الضوء يميل نحو المؤشر"}}, "bs": {"stringUnit": {"state": "translated", "value": "Uživo · svjetlost se naginje prema pokazivaču"}}, "da": {"stringUnit": {"state": "translated", "value": "Live · lyset bøjer sig mod markøren"}}, "de": {"stringUnit": {"state": "translated", "value": "Live · das Licht neigt sich zum Zeiger"}}, "es": {"stringUnit": {"state": "translated", "value": "En vivo · la luz se inclina hacia el puntero"}}, "fr": {"stringUnit": {"state": "translated", "value": "En direct · la lumière se penche vers le pointeur"}}, "it": {"stringUnit": {"state": "translated", "value": "Dal vivo · la luce si piega verso il puntatore"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ · 光がポインタへ傾きます"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាល់ · ពន្លឺផ្អៀងទៅរកទ្រនិច"}}, "ko": {"stringUnit": {"state": "translated", "value": "실시간 · 빛이 포인터 쪽으로 기웁니다"}}, "nb": {"stringUnit": {"state": "translated", "value": "Live · lyset bøyer seg mot pekeren"}}, "pl": {"stringUnit": {"state": "translated", "value": "Na żywo · światło pochyla się ku kursorowi"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ao vivo · a luz se inclina para o ponteiro"}}, "ru": {"stringUnit": {"state": "translated", "value": "Вживую · свет тянется к указателю"}}, "th": {"stringUnit": {"state": "translated", "value": "สด · แสงเอนเข้าหาตัวชี้"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı · ışık işaretçiye doğru eğilir"}}, "uk": {"stringUnit": {"state": "translated", "value": "Наживо · світло тягнеться до вказівника"}}, "vi": {"stringUnit": {"state": "translated", "value": "Trực tiếp · ánh sáng nghiêng về phía con trỏ"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "实时 · 光向指针倾斜"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "即時 · 光朝指標傾斜"}}}},
+    "backdrop.shader.field.attribution": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live · the pointer pushes the dots aside"}}, "ar": {"stringUnit": {"state": "translated", "value": "مباشر · المؤشر يدفع النقاط جانبًا"}}, "bs": {"stringUnit": {"state": "translated", "value": "Uživo · pokazivač razmiče tačke"}}, "da": {"stringUnit": {"state": "translated", "value": "Live · markøren skubber prikkerne væk"}}, "de": {"stringUnit": {"state": "translated", "value": "Live · der Zeiger schiebt die Punkte beiseite"}}, "es": {"stringUnit": {"state": "translated", "value": "En vivo · el puntero aparta los puntos"}}, "fr": {"stringUnit": {"state": "translated", "value": "En direct · le pointeur écarte les points"}}, "it": {"stringUnit": {"state": "translated", "value": "Dal vivo · il puntatore sposta i punti"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ · ポインタがドットを押しのけます"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាល់ · ទ្រនិចរុញចំណុចចេញ"}}, "ko": {"stringUnit": {"state": "translated", "value": "실시간 · 포인터가 점을 밀어냅니다"}}, "nb": {"stringUnit": {"state": "translated", "value": "Live · pekeren skyver prikkene unna"}}, "pl": {"stringUnit": {"state": "translated", "value": "Na żywo · kursor rozpycha kropki"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ao vivo · o ponteiro afasta os pontos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Вживую · указатель расталкивает точки"}}, "th": {"stringUnit": {"state": "translated", "value": "สด · ตัวชี้ผลักจุดออกไป"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı · işaretçi noktaları iter"}}, "uk": {"stringUnit": {"state": "translated", "value": "Наживо · вказівник розштовхує крапки"}}, "vi": {"stringUnit": {"state": "translated", "value": "Trực tiếp · con trỏ đẩy các chấm ra"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "实时 · 指针推开圆点"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "即時 · 指標推開圓點"}}}},
+    "backdrop.shader.matrix": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Block Matrix"}}, "ar": {"stringUnit": {"state": "translated", "value": "مصفوفة الكتل"}}, "bs": {"stringUnit": {"state": "translated", "value": "Blok matrica"}}, "da": {"stringUnit": {"state": "translated", "value": "Blokmatrix"}}, "de": {"stringUnit": {"state": "translated", "value": "Blockmatrix"}}, "es": {"stringUnit": {"state": "translated", "value": "Matriz de bloques"}}, "fr": {"stringUnit": {"state": "translated", "value": "Matrice de blocs"}}, "it": {"stringUnit": {"state": "translated", "value": "Matrice a blocchi"}}, "ja": {"stringUnit": {"state": "translated", "value": "ブロックマトリクス"}}, "km": {"stringUnit": {"state": "translated", "value": "ម៉ាទ្រីសប្លុក"}}, "ko": {"stringUnit": {"state": "translated", "value": "블록 매트릭스"}}, "nb": {"stringUnit": {"state": "translated", "value": "Blokkmatrise"}}, "pl": {"stringUnit": {"state": "translated", "value": "Matryca bloków"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Matriz de blocos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Блочная матрица"}}, "th": {"stringUnit": {"state": "translated", "value": "เมทริกซ์บล็อก"}}, "tr": {"stringUnit": {"state": "translated", "value": "Blok matrisi"}}, "uk": {"stringUnit": {"state": "translated", "value": "Блокова матриця"}}, "vi": {"stringUnit": {"state": "translated", "value": "Ma trận khối"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "方块点阵"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "方塊點陣"}}}},
+    "backdrop.shader.matrix.attribution": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live · blocks of dots light up around the pointer"}}, "ar": {"stringUnit": {"state": "translated", "value": "مباشر · تضيء كتل من النقاط حول المؤشر"}}, "bs": {"stringUnit": {"state": "translated", "value": "Uživo · blokovi tačaka svijetle oko pokazivača"}}, "da": {"stringUnit": {"state": "translated", "value": "Live · blokke af prikker lyser op omkring markøren"}}, "de": {"stringUnit": {"state": "translated", "value": "Live · Punktblöcke leuchten rund um den Zeiger auf"}}, "es": {"stringUnit": {"state": "translated", "value": "En vivo · bloques de puntos se iluminan alrededor del puntero"}}, "fr": {"stringUnit": {"state": "translated", "value": "En direct · des blocs de points s’allument autour du pointeur"}}, "it": {"stringUnit": {"state": "translated", "value": "Dal vivo · blocchi di punti si accendono intorno al puntatore"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ · ポインタの周りでドットのブロックが光る"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាល់ · ប្លុកចំណុចភ្លឺឡើងជុំវិញទស្សន៍ទ្រនិច"}}, "ko": {"stringUnit": {"state": "translated", "value": "실시간 · 포인터 주변에서 점 블록이 빛납니다"}}, "nb": {"stringUnit": {"state": "translated", "value": "Live · blokker av prikker lyser opp rundt pekeren"}}, "pl": {"stringUnit": {"state": "translated", "value": "Na żywo · bloki kropek rozświetlają się wokół wskaźnika"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ao vivo · blocos de pontos acendem ao redor do ponteiro"}}, "ru": {"stringUnit": {"state": "translated", "value": "Вживую · блоки точек загораются вокруг указателя"}}, "th": {"stringUnit": {"state": "translated", "value": "สด · บล็อกของจุดสว่างขึ้นรอบตัวชี้"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı · işaretçinin çevresinde nokta blokları yanar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Наживо · блоки крапок спалахують довкола вказівника"}}, "vi": {"stringUnit": {"state": "translated", "value": "Trực tiếp · các khối chấm sáng lên quanh con trỏ"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "实时 · 指针周围的点阵方块亮起"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "即時 · 指標周圍的點陣方塊亮起"}}}},
+    "backdrop.shader.aero": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيرو"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エアロ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អេរ៉ូ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에어로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аэро"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แอโร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аеро"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero"
+          }
+        }
+      }
+    },
+    "backdrop.shader.aero.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · bubbles drift aside from the pointer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · الفقاعات تبتعد عن المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · mjehurići se sklanjaju od pokazivača"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · boblerne driver væk fra markøren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · Blasen weichen dem Zeiger aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · las burbujas se apartan del puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · les bulles s’écartent du pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · le bolle si scostano dal puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · 泡がポインタをよけて漂います"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ពពុះរសាត់ចេញពីទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 거품이 포인터를 피해 떠다닙니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · boblene driver unna pekeren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · bańki odpływają od kursora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · as bolhas se afastam do ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · пузыри уплывают от указателя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · ฟองลอยหลบตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · kabarcıklar işaretçiden uzaklaşır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · бульбашки відпливають від вказівника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · bong bóng trôi tránh con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 气泡避开指针漂移"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 氣泡避開指標漂移"
+          }
+        }
+      }
+    },
+    "backdrop.shader.sakura": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ساكورا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桜"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាគូរ៉ា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사쿠라"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сакура"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซากุระ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сакура"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoa anh đào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "樱花"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "櫻花"
+          }
+        }
+      }
+    },
+    "backdrop.shader.sakura.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · the pointer parts the petals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · المؤشر يفرّق البتلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · pokazivač razmiče latice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · markøren skiller kronbladene"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · der Zeiger teilt die Blütenblätter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · el puntero separa los pétalos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · le pointeur écarte les pétales"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · il puntatore separa i petali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · ポインタが花びらをかき分けます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ទ្រនិចញែកផ្កាចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 포인터가 꽃잎을 가릅니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · pekeren skiller kronbladene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · kursor rozsuwa płatki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · o ponteiro afasta as pétalas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · указатель раздвигает лепестки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · ตัวชี้แหวกกลีบดอกไม้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · işaretçi taç yapraklarını ayırır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · вказівник розсуває пелюстки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · con trỏ rẽ những cánh hoa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 指针拨开花瓣"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 指標撥開花瓣"
+          }
+        }
+      }
+    },
+    "backdrop.shader.sumi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سومي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "墨"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស៊ូមិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먹물"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Суми"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สึมิ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sumi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сумі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mực tàu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水墨"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水墨"
+          }
+        }
+      }
+    },
+    "backdrop.shader.sumi.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · click to drop ink"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · انقر لإسقاط الحبر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · kliknite da kapnete tintu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · klik for at tabe blæk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · klicken lässt Tinte fallen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · haz clic para soltar tinta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · cliquez pour faire tomber de l’encre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · fai clic per far cadere l’inchiostro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · クリックで墨を落とします"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ចុចដើម្បីទម្លាក់ទឹកថ្នាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 클릭하면 먹물이 떨어집니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · klikk for å slippe blekk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · kliknij, by upuścić tusz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · clique para pingar tinta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · щёлкните, чтобы уронить тушь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · คลิกเพื่อหยดหมึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · mürekkep damlatmak için tıklayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · клацніть, щоб капнути тушшю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · nhấp để nhỏ mực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 点击滴落墨水"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 按一下滴落墨水"
+          }
+        }
+      }
+    },
+    "backdrop.shader.koi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كوي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koï"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錦鯉"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូអ៊ី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비단잉어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karp koi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โคย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кої"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cá koi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锦鲤"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錦鯉"
+          }
+        }
+      }
+    },
+    "backdrop.shader.koi.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · the koi swim clear of the pointer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · الكوي تسبح بعيدًا عن المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · koi plivaju podalje od pokazivača"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · koien svømmer væk fra markøren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · die Koi weichen dem Zeiger aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · los koi se alejan del puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · les koïs s’écartent du pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · le koi si allontanano dal puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · 錦鯉がポインタを避けて泳ぎます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ត្រីកូអ៊ីហែលចេញឆ្ងាយពីទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 비단잉어가 포인터를 피해 헤엄칩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · koien svømmer unna pekeren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · karpie koi odpływają od kursora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · as carpas koi se afastam do ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · кои уплывают от указателя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · ปลาคาร์ปว่ายหนีตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · koi balıkları işaretçiden uzaklaşır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · кої відпливають від вказівника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · cá koi bơi tránh con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 锦鲤避开指针游开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 錦鯉避開指標游開"
+          }
+        }
+      }
+    },
+    "backdrop.shader.snowfall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snowfall"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تساقط الثلج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snježne padavine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snefald"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schneefall"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chute de neige"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevicata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "降る雪"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្រិលធ្លាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "눈 내림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snøfall"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opady śniegu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevasca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снегопад"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หิมะโปรย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kar yağışı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снігопад"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tuyết rơi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "落雪"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "落雪"
+          }
+        }
+      }
+    },
+    "backdrop.shader.snowfall.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · the pointer sends a gust through the snow"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · المؤشر يرسل هبّة عبر الثلج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · pokazivač šalje naletaj kroz snijeg"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · markøren sender et vindstød gennem sneen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · der Zeiger schickt eine Böe durch den Schnee"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · el puntero lanza una ráfaga entre la nieve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · le pointeur lance une rafale dans la neige"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · il puntatore manda una folata nella neve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · ポインタが雪に風を送ります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ទ្រនិចបញ្ជូនខ្យល់បក់កាត់ព្រិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 포인터가 눈 사이로 바람을 보냅니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · pekeren sender et vindkast gjennom snøen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · kursor wzbudza podmuch w śniegu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · o ponteiro sopra uma rajada na neve"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · указатель пускает порыв сквозь снег"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · ตัวชี้พัดลมกรรโชกผ่านหิมะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · işaretçi karın içinden bir esinti gönderir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · вказівник пускає порив крізь сніг"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · con trỏ thổi một cơn gió qua tuyết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 指针掀起一阵风吹过雪"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 指標掀起一陣風吹過雪"
+          }
+        }
+      }
+    },
+    "backdrop.shader.lanterns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lanterns"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فوانيس"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lampioni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lanterner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laternen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faroles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lanternes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lanterne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提灯"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចង្កៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "등불"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lykter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lampiony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lanternas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фонарики"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โคมไฟ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenerler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліхтарики"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đèn lồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "灯笼"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "燈籠"
+          }
+        }
+      }
+    },
+    "backdrop.shader.lanterns.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · lanterns near the pointer glow"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · الفوانيس قرب المؤشر تتوهج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · lampioni blizu pokazivača sjaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · lanterner nær markøren lyser op"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · Laternen nahe dem Zeiger leuchten auf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · los faroles cerca del puntero brillan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · les lanternes près du pointeur s’illuminent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · le lanterne vicino al puntatore si accendono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · ポインタの近くの提灯が明るく灯ります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ចង្កៀងក្បែរទ្រនិចភ្លឺឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 포인터 근처의 등불이 밝아집니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · lykter nær pekeren lyser opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · lampiony przy kursorze rozjaśniają się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · as lanternas perto do ponteiro brilham"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · фонарики рядом с указателем разгораются"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · โคมไฟใกล้ตัวชี้สว่างขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · işaretçinin yanındaki fenerler parlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · ліхтарики біля вказівника розгоряються"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · đèn lồng gần con trỏ sáng lên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 指针附近的灯笼亮起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 指標附近的燈籠亮起"
+          }
+        }
+      }
+    },
+    "backdrop.shader.rain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rain"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiša"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lluvia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pioggia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雨"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្លៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deszcz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuva"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дождь"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฝน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yağmur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дощ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mưa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雨"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雨"
+          }
+        }
+      }
+    },
+    "backdrop.shader.rain.attribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · rain trickles down the glass"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مباشر · المطر ينساب على الزجاج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživo · kiša klizi niz staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · regnen risler ned ad ruden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · Regen rinnt am Glas herab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vivo · la lluvia resbala por el cristal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En direct · la pluie ruisselle sur la vitre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal vivo · la pioggia scivola sul vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ · 雨がガラスを伝います"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាល់ · ភ្លៀងហូរលើកញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 · 빗물이 유리를 타고 흐릅니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live · regnet siler nedover glasset"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na żywo · deszcz spływa po szybie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao vivo · a chuva escorre pelo vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вживую · дождь стекает по стеклу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สด · สายฝนไหลลงกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı · yağmur camdan süzülür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наживо · дощ стікає по склу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trực tiếp · mưa chảy dọc tấm kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时 · 雨水顺着玻璃流下"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時 · 雨水順著玻璃流下"
+          }
+        }
+      }
+    },
     "liveMode.badge": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live mode"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "ライブモード"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الوضع المباشر"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Live način"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Livetilstand"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Live-Modus"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Modo en vivo"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Mode direct"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Modalità live"}}, "km": {"stringUnit": {"state": "needs_review", "value": "របៀបផ្ទាល់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "라이브 모드"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Livemodus"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tryb na żywo"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Modo ao vivo"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Живой режим"}}, "th": {"stringUnit": {"state": "needs_review", "value": "โหมดสด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Canlı mod"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Живий режим"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chế độ trực tiếp"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "实时模式"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "即時模式"}}}},
     "liveMode.badgeHelp": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Live code build: slower and bigger than normal."}}, "ja": {"stringUnit": {"state": "needs_review", "value": "Swift ライブモード: このコミットのライブコードビルドです。通常のビルドより遅く大きく、パッチした Swift はすぐに反映されます。「Swift ライブモードを終了」で、すべてのセッションを保ったまま通常のビルドで再起動します。"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "وضع Swift المباشر: هذا هو إصدار الشيفرة المباشرة لهذا الإيداع، وهو أبطأ وأكبر من الإصدار العادي، ويُطبَّق كود Swift الذي ترقّعه فورًا. يعيد «إيقاف وضع Swift المباشر» التشغيل إلى الإصدار العادي مع كل الجلسات."}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Swift live način: ovo je live code build ovog commita, sporiji i veći od običnog builda, a Swift koji zakrpite odmah se primjenjuje. Zaustavi Swift live način ponovo pokreće običan build sa svim sesijama."}}, "da": {"stringUnit": {"state": "needs_review", "value": "Swift-livetilstand: dette er live code-buildet af dette commit, langsommere og større end det normale build, og den Swift, du patcher ind, træder i kraft med det samme. Stop Swift-livetilstand genstarter i det normale build med alle sessioner."}}, "de": {"stringUnit": {"state": "needs_review", "value": "Swift-Live-Modus: Dies ist der Live-Code-Build dieses Commits, langsamer und größer als der normale Build, und eingespielter Swift-Code wirkt sofort. „Swift-Live-Modus beenden“ startet mit allen Sitzungen in den normalen Build neu."}}, "es": {"stringUnit": {"state": "needs_review", "value": "Modo en vivo de Swift: esta es la compilación de código en vivo de este commit, más lenta y grande que la normal, y el Swift que parchees se aplica al instante. Detener el modo en vivo de Swift reinicia en la compilación normal con todas las sesiones."}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Mode direct Swift : ceci est le build de code en direct de ce commit, plus lent et plus gros que le build normal, et le Swift que vous patchez s’applique aussitôt. Arrêter le mode direct Swift redémarre dans le build normal avec toutes les sessions."}}, "it": {"stringUnit": {"state": "needs_review", "value": "Modalità live Swift: questa è la build live code di questo commit, più lenta e più grande della build normale, e lo Swift che applichi con una patch ha effetto subito. Interrompi la modalità live Swift riavvia nella build normale con tutte le sessioni."}}, "km": {"stringUnit": {"state": "needs_review", "value": "របៀបផ្ទាល់ Swift៖ នេះជា build កូដផ្ទាល់នៃ commit នេះ យឺតជាង និងធំជាង build ធម្មតា ហើយ Swift ដែលអ្នក patch អនុវត្តភ្លាមៗ។ «បញ្ឈប់របៀបផ្ទាល់ Swift» ចាប់ផ្ដើមឡើងវិញទៅ build ធម្មតា ដោយរក្សាវគ្គទាំងអស់។"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "Swift 라이브 모드: 이 커밋의 라이브 코드 빌드로, 일반 빌드보다 느리고 크며 패치한 Swift가 바로 적용됩니다. Swift 라이브 모드 중지를 누르면 모든 세션을 유지한 채 일반 빌드로 다시 시작합니다."}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Swift-livemodus: dette er live code-bygget av denne committen, tregere og større enn det vanlige bygget, og Swift du patcher inn, gjelder med en gang. Stopp Swift-livemodus starter på nytt i det vanlige bygget med alle økter."}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Tryb na żywo Swift: to kompilacja live code tego commita, wolniejsza i większa od zwykłej, a łatany kod Swift działa od razu. Zatrzymaj tryb na żywo Swift uruchamia ponownie zwykłą kompilację ze wszystkimi sesjami."}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Modo ao vivo do Swift: esta é a build de código ao vivo deste commit, mais lenta e maior que a build normal, e o Swift que você aplicar com patch vale na hora. Parar o modo ao vivo do Swift reinicia na build normal com todas as sessões."}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Живой режим Swift: это сборка живого кода этого коммита, медленнее и больше обычной, и подставленный Swift-код применяется сразу. «Выключить живой режим Swift» перезапускает обычную сборку со всеми сессиями."}}, "th": {"stringUnit": {"state": "needs_review", "value": "โหมดสด Swift: นี่คือบิลด์โค้ดสดของคอมมิตนี้ ช้ากว่าและใหญ่กว่าบิลด์ปกติ และ Swift ที่คุณแพตช์จะมีผลทันที «หยุดโหมดสด Swift» จะรีสตาร์ตเป็นบิลด์ปกติโดยเก็บทุกเซสชันไว้"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Swift canlı modu: bu, bu commit'in canlı kod derlemesidir; normal derlemeden daha yavaş ve büyüktür, yamaladığınız Swift hemen uygulanır. Swift Canlı Modunu Durdur, tüm oturumlarla normal derlemeye yeniden başlatır."}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Живий режим Swift: це збірка живого коду цього коміту, повільніша й більша за звичайну, і підставлений Swift-код діє одразу. «Вимкнути живий режим Swift» перезапускає звичайну збірку з усіма сеансами."}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chế độ trực tiếp Swift: đây là bản build mã trực tiếp của commit này, chậm và lớn hơn bản build thường, và Swift bạn vá vào có hiệu lực ngay. Dừng chế độ trực tiếp Swift khởi động lại vào bản build thường với mọi phiên."}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Swift 实时模式：这是该提交的实时代码构建，比普通构建更慢、更大，你打入的 Swift 补丁立即生效。“停止 Swift 实时模式”会保留所有会话并重启为普通构建。"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Swift 即時模式：這是此提交的即時程式碼建置，比一般建置更慢、更大，你修補進去的 Swift 會立即生效。「停止 Swift 即時模式」會保留所有工作階段並重新啟動為一般建置。"}}}},
     "signIn.button": {"comment": "The shared Sign In button every place that says to sign in shows (SignInButton)", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sign In"}}, "ja": {"stringUnit": {"state": "translated", "value": "サインイン"}}, "ar": {"stringUnit": {"state": "translated", "value": "تسجيل الدخول"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prijava"}}, "da": {"stringUnit": {"state": "translated", "value": "Log ind"}}, "de": {"stringUnit": {"state": "translated", "value": "Anmelden"}}, "es": {"stringUnit": {"state": "translated", "value": "Iniciar sesión"}}, "fr": {"stringUnit": {"state": "translated", "value": "Se connecter"}}, "it": {"stringUnit": {"state": "translated", "value": "Accedi"}}, "km": {"stringUnit": {"state": "translated", "value": "ចូល"}}, "ko": {"stringUnit": {"state": "translated", "value": "로그인"}}, "nb": {"stringUnit": {"state": "translated", "value": "Logg inn"}}, "pl": {"stringUnit": {"state": "translated", "value": "Zaloguj się"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Entrar"}}, "ru": {"stringUnit": {"state": "translated", "value": "Войти"}}, "th": {"stringUnit": {"state": "translated", "value": "ลงชื่อเข้าใช้"}}, "tr": {"stringUnit": {"state": "translated", "value": "Giriş yap"}}, "uk": {"stringUnit": {"state": "translated", "value": "Увійти"}}, "vi": {"stringUnit": {"state": "translated", "value": "Đăng nhập"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "登录"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "登入"}}}},
@@ -3974,6 +6102,1054 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的圖片"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景を調整"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضبط الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podesi pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juster baggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrund anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajuster l’arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regola sfondo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កែសម្រួលផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 조정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juster bakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj tło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить фон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka Planı Ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати фон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều chỉnh hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调整背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整背景"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to move, scroll or pinch to zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで移動、スクロールかピンチで拡大縮小"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسحب للتحريك، ومرّر أو اقرص للتكبير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevucite za pomicanje, skrolajte ili štipnite za zumiranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Træk for at flytte, rul eller knib for at zoome"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Bewegen ziehen, zum Zoomen scrollen oder zusammenziehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra para mover; desplaza o pellizca para hacer zoom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser pour déplacer, défilez ou pincez pour zoomer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina per spostare, scorri o pizzica per lo zoom"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អូសដើម្បីផ្លាស់ទី រំកិល ឬច្បិចដើម្បីពង្រីក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하여 이동, 스크롤하거나 핀치하여 확대/축소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dra for å flytte, rull eller knip for å zoome"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeciągnij, aby przesunąć; przewiń lub uszczypnij, aby powiększyć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para mover; role ou faça pinça para ampliar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите, чтобы сдвинуть; прокрутите или сведите пальцы для масштаба"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลากเพื่อย้าย เลื่อนหรือบีบเพื่อซูม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taşımak için sürükleyin, yakınlaştırmak için kaydırın veya kıstırın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетягніть, щоб зсунути; прокрутіть або зведіть пальці для масштабу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kéo để di chuyển, cuộn hoặc chụm để thu phóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖移以移动，滚动或捏合以缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖移以移動，捲動或捏合以縮放"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.fill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いっぱいに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispuni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udfyld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füllen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Llenar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riempi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fyll"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wypełnij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preencher"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заполнить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doldur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заповнити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lấp đầy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填满"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填滿"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.fit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合わせる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملاءمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uklopi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adapter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adatta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맞추기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopasuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вписать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พอดี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sığdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вписати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vừa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适合"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "符合"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.center": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Center"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中央"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توسيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centriraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centrer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zentrieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centrer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កណ្ដាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가운데"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midtstill"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyśrodkuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centralizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По центру"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กึ่งกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ortala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По центру"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Căn giữa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "居中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置中"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تعيين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resetuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nulstil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbakestill"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resetuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเซ็ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sıfırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скинути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "backdrop.adjust.noPicture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This window shows no background picture to place"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウには配置できる背景画像がありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تعرض هذه النافذة صورة خلفية لوضعها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj prozor ne prikazuje sliku pozadine za postavljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette vindue viser intet baggrundsbillede at placere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Fenster zeigt kein Hintergrundbild zum Platzieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta ventana no muestra ninguna imagen de fondo que colocar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette fenêtre n’affiche aucune image d’arrière-plan à placer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa finestra non mostra un’immagine di sfondo da posizionare"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចនេះមិនបង្ហាញរូបភាពផ្ទៃខាងក្រោយដើម្បីដាក់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 윈도우에는 배치할 배경 그림이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette vinduet viser ikke noe bakgrunnsbilde å plassere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To okno nie pokazuje obrazu tła do ustawienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta janela não mostra uma imagem de fundo para posicionar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом окне нет фонового изображения для размещения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างนี้ไม่มีภาพพื้นหลังให้จัดวาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu pencerede yerleştirilecek bir arka plan resmi yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому вікні немає фонового зображення для розміщення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ này không có ảnh nền để đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗口没有可放置的背景图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此視窗沒有可放置的背景圖片"
           }
         }
       }
@@ -22445,6 +25621,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dạ khúc đen và vàng"
+          }
+        }
+      }
+    },
+    "backdrop.aero-sky.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Sky"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-Himmel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ciel Aero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cielo Aero"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cielo Aero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Céu Aero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аэро-небо"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аеро-небо"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niebo Aero"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Gökyüzü"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-himmel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-himmel"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero nebo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エアロの空"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에어로 하늘"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 天空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 天空"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سماء إيرو"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ท้องฟ้าแอโร"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bầu trời Aero"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មេឃ Aero"
+          }
+        }
+      }
+    },
+    "backdrop.aero-lagoon.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Lagoon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-Lagune"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagon Aero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna Aero"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna Aero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagoa Aero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аэро-лагуна"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аеро-лагуна"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laguna Aero"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Lagün"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-lagune"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-lagune"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero laguna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エアロのラグーン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에어로 석호"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 泻湖"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 潟湖"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بحيرة إيرو"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลากูนแอโร"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đầm phá Aero"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បឹង Aero"
+          }
+        }
+      }
+    },
+    "backdrop.aero-aurora.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Aurora"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-Polarlicht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurore Aero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora Aero"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora Aero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aurora Aero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аэро-сияние"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аеро-сяйво"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zorza Aero"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Kutup Işıkları"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-nordlys"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-nordlys"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero polarna svjetlost"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エアロのオーロラ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에어로 오로라"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 极光"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 極光"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شفق إيرو"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสงเหนือแอโร"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cực quang Aero"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពន្លឺប៉ូល Aero"
+          }
+        }
+      }
+    },
+    "backdrop.aero-meadow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Meadow"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-Wiese"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prairie Aero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pradera Aero"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prato Aero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campina Aero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аэро-луг"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аеро-луг"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łąka Aero"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Çayır"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-eng"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-eng"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero livada"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エアロの草原"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에어로 초원"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 草地"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 草地"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرج إيرو"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุ่งหญ้าแอโร"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đồng cỏ Aero"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាលស្មៅ Aero"
+          }
+        }
+      }
+    },
+    "backdrop.aero-orchid.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Orchid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-Orchidee"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orchidée Aero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orquídea Aero"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orchidea Aero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orquídea Aero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аэро-орхидея"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аеро-орхідея"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orchidea Aero"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero Orkide"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-orkidé"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero-orkidé"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero orhideja"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エアロのオーキッド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에어로 난초"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 兰花"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aero 蘭花"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوركيد إيرو"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กล้วยไม้แอโร"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lan Aero"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ័រគីដេ Aero"
           }
         }
       }

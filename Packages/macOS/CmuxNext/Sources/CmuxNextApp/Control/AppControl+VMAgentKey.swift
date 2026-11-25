@@ -1,4 +1,4 @@
-import CmuxNextCloud
+import CmuxEgress; import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
@@ -23,16 +23,16 @@ extension AppControl {
                 else {
                     throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
                 }
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
                 // timeout: a VM API that never answers; the CLI waits on this call (Rust's 20 s, as before).
-                request.timeoutInterval = TimeInterval(planned.timeoutSeconds)
+                var request = URLRequest(url: url, timeoutInterval: TimeInterval(planned.timeoutSeconds))
+                request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "content-type")
                 request.setValue("Bearer \(issuer.accessToken)", forHTTPHeaderField: "authorization")
                 request.setValue(issuer.teamID, forHTTPHeaderField: "x-cmux-team-id")
+                for (name, value) in issuer.buildSpaceHeaders { request.setValue(value, forHTTPHeaderField: name) }
                 request.httpBody = try JSONEncoder().encode(planned.body)
                 // No answer at all is status 0, which Rust reads as unreachable.
-                let answer = try? await URLSession.shared.data(for: request)
+                let answer = try? await CmuxEgress.shared(site: "CmuxNextApp.AppControl+VMAgentKey").data(for: request)
                 let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
                 return try Self.vmAgentKeyAnswer(status: status, body: answer?.0 ?? Data(), baseURL: baseURL, teamID: issuer.teamID)
             }.withDeadline(.fixed(.seconds(25))),
@@ -45,27 +45,25 @@ extension AppControl {
         var vmOrigin: URL?
         var teamID: String
         var accessToken: String
+        var buildSpaceHeaders: [String: String] // a tagged dev build's X-Cmux-Build-Space (CloudConfiguration.buildSpace)
     }
 
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
     nonisolated static func vmIssuer(_ services: AppServices) async throws -> VMIssuer {
-        let (cloud, backend, vmOrigin) = try await MainActor.run { () throws -> (CloudService, CloudConfiguration.Backend, URL?) in
+        let (cloud, backend, vmOrigin, buildSpaceHeaders) = try await MainActor.run { () throws -> (CloudService, CloudConfiguration.Backend, URL?, [String: String]) in
             if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: Self.vmText(.cloudUnavailable)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
             let configuration = services.cloud.configuration
-            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin)
+            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin, try configuration.buildSpace.headers())
         }
         guard let teamID = await MainActor.run(body: { cloud.auth.teamID }), !teamID.isEmpty else {
             throw ControlError(code: "no_team", message: Self.vmText(.noTeam))
         }
-        let access: String
-        do {
-            access = try await cloud.auth.tokens().access
-        } catch {
+        guard let access = try? await cloud.auth.tokens().access else {
             throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn))
         }
-        return VMIssuer(backend: backend, vmOrigin: vmOrigin, teamID: teamID, accessToken: access)
+        return VMIssuer(backend: backend, vmOrigin: vmOrigin, teamID: teamID, accessToken: access, buildSpaceHeaders: buildSpaceHeaders)
     }
 
     // The mint's rules are Rust's (cmux-cloud-config agent_key, the same ones `cmux vm token
@@ -151,13 +149,13 @@ extension AppControl {
     nonisolated static func vmText(_ text: VMText) -> String {
         switch text {
         case .notSignedIn:
-            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)
         case .noTeam:
-            String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module)
+            String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module.inAppLanguage)
         case .unreachable:
-            String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module)
+            String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module.inAppLanguage)
         case .cloudUnavailable:
-            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module.inAppLanguage)
         }
     }
 }

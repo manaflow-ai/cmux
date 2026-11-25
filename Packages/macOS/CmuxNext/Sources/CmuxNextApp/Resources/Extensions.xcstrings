@@ -138,127 +138,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Chromium runtime cannot manage extensions; use Manage Extensions."
+            "value": "Extensions can't be changed from here. Use Manage Extensions."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لبيئة Chromium هذه إدارة الامتدادات؛ استخدم «إدارة الامتدادات»."
+            "value": "لا يمكن تغيير الامتدادات من هنا. استخدم «إدارة الامتدادات»."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovo Chromium okruženje ne može upravljati ekstenzijama; koristite Upravljaj ekstenzijama."
+            "value": "Ekstenzije se ne mogu mijenjati odavde. Koristite Upravljaj ekstenzijama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Chromium-runtime kan ikke administrere udvidelser; brug Administrer udvidelser."
+            "value": "Udvidelser kan ikke ændres herfra. Brug Administrer udvidelser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Chromium-Laufzeit kann keine Erweiterungen verwalten; nutze „Erweiterungen verwalten“."
+            "value": "Erweiterungen lassen sich hier nicht ändern. Nutze „Erweiterungen verwalten“."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este entorno de Chromium no puede administrar extensiones; usa Administrar extensiones."
+            "value": "Las extensiones no se pueden cambiar desde aquí. Usa Administrar extensiones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cet environnement Chromium ne peut pas gérer les extensions ; utilisez Gérer les extensions."
+            "value": "Les extensions ne peuvent pas être modifiées ici. Utilisez Gérer les extensions."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo runtime Chromium non può gestire le estensioni; usa Gestisci estensioni."
+            "value": "Le estensioni non si possono modificare da qui. Usa Gestisci estensioni."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この Chromium ランタイムは拡張機能を管理できません。「拡張機能を管理」を使用してください。"
+            "value": "ここでは拡張機能を変更できません。「拡張機能を管理」を使用してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំណើរការ Chromium នេះមិនអាចគ្រប់គ្រងផ្នែកបន្ថែមបានទេ សូមប្រើ គ្រប់គ្រងផ្នែកបន្ថែម។"
+            "value": "មិនអាចផ្លាស់ប្តូរផ្នែកបន្ថែមពីទីនេះបានទេ។ សូមប្រើ គ្រប់គ្រងផ្នែកបន្ថែម។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 Chromium 런타임은 확장 기능을 관리할 수 없습니다. 확장 기능 관리를 사용하세요."
+            "value": "여기에서는 확장 기능을 변경할 수 없습니다. 확장 기능 관리를 사용하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Chromium-kjøretiden kan ikke administrere utvidelser; bruk Administrer utvidelser."
+            "value": "Utvidelser kan ikke endres herfra. Bruk Administrer utvidelser."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "To środowisko Chromium nie może zarządzać rozszerzeniami; użyj Zarządzaj rozszerzeniami."
+            "value": "Rozszerzeń nie można zmieniać tutaj. Użyj Zarządzaj rozszerzeniami."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este runtime do Chromium não pode gerenciar extensões; use Gerenciar extensões."
+            "value": "Não é possível alterar extensões aqui. Use Gerenciar extensões."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Эта среда Chromium не может управлять расширениями; используйте «Управление расширениями»."
+            "value": "Здесь нельзя изменить расширения. Используйте «Управление расширениями»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รันไทม์ Chromium นี้จัดการส่วนขยายไม่ได้ ใช้ จัดการส่วนขยาย แทน"
+            "value": "เปลี่ยนส่วนขยายจากที่นี่ไม่ได้ ใช้ จัดการส่วนขยาย แทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Chromium çalışma ortamı uzantıları yönetemez; Uzantıları yönet’i kullanın."
+            "value": "Uzantılar buradan değiştirilemez. Uzantıları yönet’i kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Це середовище Chromium не може керувати розширеннями; скористайтеся «Керувати розширеннями»."
+            "value": "Тут не можна змінити розширення. Скористайтеся «Керувати розширеннями»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Môi trường Chromium này không thể quản lý tiện ích mở rộng; hãy dùng Quản lý tiện ích mở rộng."
+            "value": "Không thể thay đổi tiện ích mở rộng ở đây. Hãy dùng Quản lý tiện ích mở rộng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 Chromium 运行时无法管理扩展程序；请使用“管理扩展程序”。"
+            "value": "无法在此处更改扩展程序。请使用“管理扩展程序”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 Chromium 執行環境無法管理擴充功能；請使用「管理擴充功能」。"
+            "value": "無法在此處變更擴充功能。請使用「管理擴充功能」。"
           }
         }
       }
@@ -269,127 +269,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يوجد جزء محدد."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedno okno nije u fokusu."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rude er i fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kein Bereich ist ausgewählt."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun riquadro è a fuoco."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "フォーカスされているペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនមានផ្ទាំងណាត្រូវបានផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 패널이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rute er i fokus."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Żaden panel nie ma fokusu."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum painel está em foco."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaklanmış bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có ngăn nào đang được chọn."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       }
@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chromium refused the change (policy, or the extension cannot be changed)."
+            "value": "Couldn't change this extension. Try it in Manage Extensions."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "رفض Chromium التغيير (سياسة، أو لا يمكن تغيير الامتداد)."
+            "value": "تعذّر تغيير هذا الامتداد. جرّب ذلك من «إدارة الامتدادات»."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium je odbio promjenu (pravilo ili se ekstenzija ne može mijenjati)."
+            "value": "Ova ekstenzija se ne može promijeniti. Pokušajte u Upravljaj ekstenzijama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium afviste ændringen (politik, eller udvidelsen kan ikke ændres)."
+            "value": "Udvidelsen kunne ikke ændres. Prøv i Administrer udvidelser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium hat die Änderung abgelehnt (Richtlinie, oder die Erweiterung kann nicht geändert werden)."
+            "value": "Die Erweiterung konnte nicht geändert werden. Versuche es unter „Erweiterungen verwalten“."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium rechazó el cambio (política, o la extensión no se puede cambiar)."
+            "value": "No se pudo cambiar esta extensión. Prueba en Administrar extensiones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium a refusé la modification (règle, ou l’extension ne peut pas être modifiée)."
+            "value": "Impossible de modifier cette extension. Essayez dans Gérer les extensions."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium ha rifiutato la modifica (criterio, oppure l’estensione non può essere modificata)."
+            "value": "Impossibile modificare questa estensione. Prova in Gestisci estensioni."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium が変更を拒否しました（ポリシー、または拡張機能を変更できません）。"
+            "value": "この拡張機能を変更できませんでした。「拡張機能を管理」で試してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium បានបដិសេធការផ្លាស់ប្ដូរ (គោលការណ៍ ឬផ្នែកបន្ថែមមិនអាចផ្លាស់ប្ដូរបាន)។"
+            "value": "មិនអាចផ្លាស់ប្តូរផ្នែកបន្ថែមនេះបានទេ។ សាកល្បងនៅក្នុង គ្រប់គ្រងផ្នែកបន្ថែម។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium이 변경을 거부했습니다(정책 또는 변경할 수 없는 확장 기능)."
+            "value": "이 확장 기능을 변경할 수 없습니다. 확장 기능 관리에서 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium avviste endringen (policy, eller utvidelsen kan ikke endres)."
+            "value": "Kunne ikke endre utvidelsen. Prøv i Administrer utvidelser."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium odrzucił zmianę (zasada lub rozszerzenia nie można zmienić)."
+            "value": "Nie udało się zmienić rozszerzenia. Spróbuj w Zarządzaj rozszerzeniami."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Chromium recusou a alteração (política ou a extensão não pode ser alterada)."
+            "value": "Não foi possível alterar esta extensão. Tente em Gerenciar extensões."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium отклонил изменение (политика, или расширение нельзя изменить)."
+            "value": "Не удалось изменить расширение. Попробуйте в «Управление расширениями»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium ปฏิเสธการเปลี่ยนแปลง (นโยบาย หรือไม่สามารถเปลี่ยนส่วนขยายได้)"
+            "value": "เปลี่ยนส่วนขยายนี้ไม่ได้ ลองใน จัดการส่วนขยาย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium değişikliği reddetti (ilke veya uzantı değiştirilemez)."
+            "value": "Bu uzantı değiştirilemedi. Uzantıları yönet’te deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium відхилив зміну (політика, або розширення не можна змінити)."
+            "value": "Не вдалося змінити розширення. Спробуйте в «Керувати розширеннями»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium đã từ chối thay đổi (chính sách, hoặc tiện ích mở rộng không thể thay đổi)."
+            "value": "Không thể thay đổi tiện ích mở rộng này. Hãy thử trong Quản lý tiện ích mở rộng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium 拒绝了此更改（策略限制，或该扩展程序无法更改）。"
+            "value": "无法更改此扩展程序。请在“管理扩展程序”中重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chromium 拒絕了此變更（政策限制，或此擴充功能無法變更）。"
+            "value": "無法變更此擴充功能。請在「管理擴充功能」中再試一次。"
           }
         }
       }

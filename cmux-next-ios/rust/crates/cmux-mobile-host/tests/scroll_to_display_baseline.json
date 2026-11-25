@@ -1,0 +1,5 @@
+{
+  "idle": {"total_p95_ms": 4.35, "margin_ratio": 0.0, "margin_ms": 5.0},
+  "loaded": {"total_p95_ms": 4.40, "margin_ratio": 0.0, "margin_ms": 5.0},
+  "why": "Baseline: the median, over 5 runs of this test in ios-reliability-matrix's protocol job (Linux CI; jobs 137502011791, 137514651715, 137523732471, 137534688237, 137543748805), of each arm's p95 total. Idle p95s were 4.34, 3.68, 4.38, 4.35, 6.85 ms. Loaded p95s were 6.01, 4.40, 4.38, 3.60, 5.15 ms. The worst run sat 2.50 ms (idle) and 1.61 ms (loaded) above the median. The margin, 5.0 ms for both arms, is twice the larger of those, so the limit is 9.35 ms idle and 9.40 ms loaded: about 2x today's p95."
+}

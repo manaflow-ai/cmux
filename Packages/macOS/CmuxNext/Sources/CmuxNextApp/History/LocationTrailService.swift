@@ -22,6 +22,10 @@ import CmuxNextFocus
 final class LocationTrailService {
     unowned let services: AppServices
     private(set) var trail = LocationTrail()
+    /// The agent chats the user was in, oldest first, with their own cursor: what Go Back One
+    /// Session walks (history.md 4.2d). Every settled chat is a step here, whatever
+    /// `navigation.history.scope` says, so two chats in one workspace are two steps. Memory only.
+    private(set) var sessions = LocationTrail()
     private var loaded = false
     private var loading = false
     private var rereads = 0
@@ -128,6 +132,7 @@ final class LocationTrailService {
         }
         let recorded: Bool
         let time = now(), scope = stepScope
+        if isAgentSession(location) { sessions.record(location, at: time) }
         if let jump = jumpNotedAt, time.timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
             jumpNotedAt = nil
             recorded = step(location, at: time, jump: true) { $0.recordJump(location, at: time) }
@@ -178,7 +183,7 @@ final class LocationTrailService {
 
     // MARK: Navigation
 
-    enum Direction { case back, forward, last }
+    enum Direction { case back, forward, last, backSession }
 
     /// What Back and Forward walk (`navigation.historyScope`; history.md 4.2a).
     /// With workspace steps (the default) a step is a workspace or top page,
@@ -195,24 +200,36 @@ final class LocationTrailService {
     /// Forward walk it, and the trail only past its ends.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        if direction == .backSession { return backSession() }
         if direction != .last, ActionRunScope.viewChangeAllowed(), let page = pageHistory() {
             if direction == .back ? page.goBack() : page.goForward() { return true }
         }
         let scope = scope
         if scope == .surface {
             switch direction {
-            case .back, .last: return services.registry.perform("browserBack")
+            case .back, .last, .backSession: return services.registry.perform("browserBack")
             case .forward: return services.registry.perform("browserForward")
             }
         }
         let entry: LocationTrail.Entry? = switch direction {
-        case .back: trail.back(scope: scope, isAvailable: isAvailable)
+        case .back, .backSession: trail.back(scope: scope, isAvailable: isAvailable)
         case .forward: trail.forward(scope: scope, isAvailable: isAvailable)
         case .last: trail.last(scope: scope, isAvailable: isAvailable)
         }
         guard let entry else { return false }
         notify()
         if !focus(entry.location) { trail.cancelPending() }
+        return true
+    }
+
+    /// Go Back One Session (history.md 4.2d): the newest agent chat before the current one that
+    /// is still open and still a chat, in any window or workspace. Each press steps one further
+    /// back; opening another chat drops the steps after the cursor, like Back. The other trail
+    /// is left alone: the focus it causes is recorded there like any jump.
+    private func backSession() -> Bool {
+        guard ActionRunScope.viewChangeAllowed(),
+              let entry = sessions.back(isAvailable: { self.isAvailable($0) && self.isAgentSession($0) }) else { return false }
+        if !focus(entry.location) { sessions.cancelPending() }
         return true
     }
 
@@ -294,18 +311,21 @@ final class LocationTrailService {
 
     func clear(since start: Date?) {
         trail.removeAll { entry in start.map { entry.enteredAt >= $0 } ?? true }
+        sessions.removeAll { entry in start.map { entry.enteredAt >= $0 } ?? true }
         notify()
     }
 
     /// Removes every entry of one tab (Remove from History).
     func remove(_ key: HistoryLocation.Key) {
         trail.removeAll { $0.location.key == key }
+        sessions.removeAll { $0.location.key == key }
         notify()
     }
 
     /// The incognito session ended (its last window closed): its entries go.
     func forgetIncognito() {
         trail.removeAll { $0.location.isIncognito }
+        sessions.removeAll { $0.location.isIncognito }
         notify()
     }
 

@@ -27,6 +27,8 @@ import { diffItemKind, orderItemsByKind } from "./diff-kind-groups";
 import { filterDiffItems, isDiffFileFilterActive } from "./file-filter";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { codeViewOptions, workerHighlighterOptions, type DiffViewerOptions } from "./pierre-options";
+import { useDiffCodeLineHeight } from "./diff-viewer/useDiffCodeLineHeight";
+import { diffChromeRows, useDiffDensityScale } from "./diff-viewer/density";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
 import { NO_HOST_CAPABILITIES, UNCOMMITTED_BASE_REF } from "./toolbar-model";
 import {
@@ -222,6 +224,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const comments = useDiffComments({
     bridgeAvailable,
     canSend: payload.commentsSend === true,
+    commentsThreads: payload.commentsThreads === true,
     dispatch,
     latestState,
     repoRoot: commentRepoRoot,
@@ -253,8 +256,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   // The auto layout draws unified while the viewer is too narrow for two readable sides.
   const fits = splitFits(state.viewerWidth);
   const drawnOptions = useMemo(() => drawnDiffOptions(state.options, fits), [state.options, fits]);
+  // The code line at the tab's zoom (Cmd-= / Cmd-- / Cmd-0): the virtualizer's row metric follows it.
+  const codeLineHeight = useDiffCodeLineHeight();
+  // The file header bar at the app density (diff-viewer/density.ts): the virtualizer's header metric follows it.
+  const headerHeight = diffChromeRows(useDiffDensityScale()).header;
   const renderedCodeViewOptions = useMemo(() => {
-    const options = codeViewOptions(drawnOptions, appearance);
+    const options = codeViewOptions(drawnOptions, appearance, codeLineHeight, headerHeight);
     options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
       gutterClick.current(range, context)) as any;
     Object.assign(options, hunkHoverCallbacks(hunkHover));
@@ -267,7 +274,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         reportFirstHunk(diffPageClient(), latestState.current.items.length);
     }) as any;
     return options;
-  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState]);
+  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState, codeLineHeight, headerHeight]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -498,6 +505,9 @@ export function App({ config, initialStatus }: ConfigProps) {
         labels={commentLabels}
         onDelete={() => comments.remove(metadata.comment)}
         onSaveMessage={(message) => comments.editMessage(metadata.comment, message, item.fileDiff)}
+        onReply={(message) => comments.reply(metadata.comment, message)}
+        onResolve={(resolved) => comments.resolve(metadata.comment, resolved)}
+        threads={comments.threaded}
       />
     );
   };
@@ -961,6 +971,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   return (
     <div
       id="app"
+      style={{ "--cmux-diff-file-header-height": `${headerHeight}px` } as React.CSSProperties}
       data-file-search-open={state.fileSearchOpen}
       data-file-filter-active={isDiffFileFilterActive(state.fileFilter)}
     >
@@ -1104,11 +1115,25 @@ export function App({ config, initialStatus }: ConfigProps) {
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
+          commentsReview={
+            comments.canPost && comments.review
+              ? {
+                  review: comments.review,
+                  onPost: comments.post,
+                  postState: comments.postState,
+                  posted: comments.posted,
+                  postError: comments.postError,
+                }
+              : undefined
+          }
           commentsSendState={comments.sendState}
+          commentsThreads={comments.threaded}
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
           onSendComments={comments.canSend ? comments.send : undefined}
+          onReplyComment={comments.reply}
+          onResolveComment={comments.resolve}
           onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}

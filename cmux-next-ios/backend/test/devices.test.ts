@@ -3,7 +3,8 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { env } from "cloudflare:workers"
 import worker from "../src/index.ts"
-import { apnsPayload, apnsRequest, clean, collapseId, notifyFailures, sendApns, sendCloudAttention, turnPushKey } from "../src/push.ts"
+import type { Env } from "../src/env.ts"
+import { apnsConfig, apnsPayload, apnsRequest, clean, collapseId, notifyFailures, sendApns, sendCloudAttention, turnPushKey } from "../src/push.ts"
 import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
@@ -189,7 +190,7 @@ describe("APNs payload and sender", () => {
   })
 
   it("collapses a session's finished turns into one notification and keeps each ask", () => {
-    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
+    const target: PushRegistration = { deviceId: "d", space: "", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
     const done = { ...event, kind: "completed" as const, eventId: "t-s1-t9" }
     // A newer finished turn (or error, or Chief reply) of the same session replaces the older one.
     expect(collapseId(done)).toBe("turn-s1")
@@ -235,6 +236,7 @@ describe("APNs payload and sender", () => {
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY123", teamId: "TEAM123" }
     const target = (token: string, environment: "sandbox" | "production"): PushRegistration => ({
       deviceId: "d",
+      space: "",
       ownerUserId: "o",
       token,
       environment,
@@ -260,11 +262,47 @@ describe("APNs payload and sender", () => {
     expect(decodeProtectedHeader(jwt)).toMatchObject({ alg: "ES256", kid: "KEY123" })
   })
 
+  it("signs sandbox sends with the sandbox key when the Worker has one, production with the main key", async () => {
+    const main = await generateKeyPair("ES256", { extractable: true })
+    const sandbox = await generateKeyPair("ES256", { extractable: true })
+    const config = apnsConfig({
+      APNS_KEY_P8: await exportPKCS8(main.privateKey),
+      APNS_KEY_ID: "PRODKEY",
+      APNS_TEAM_ID: "TEAM789",
+      APNS_SANDBOX_KEY_P8: await exportPKCS8(sandbox.privateKey),
+      APNS_SANDBOX_KEY_ID: "SANDKEY"
+    } as Env)!
+    const target = (token: string, environment: "sandbox" | "production"): PushRegistration => ({
+      deviceId: "d",
+      space: "",
+      ownerUserId: "o",
+      token,
+      environment,
+      topic: "dev.cmux.mobile",
+      kinds: ["permission"],
+      mutedMacs: [],
+      previews: true,
+      updatedAt: ""
+    })
+    const kids = new Map<string, unknown>()
+    const fetcher = (async (req: Request) => {
+      kids.set(new URL(req.url).host, decodeProtectedHeader(req.headers.get("authorization")!.slice(7)).kid)
+      return new Response(null, { status: 200 })
+    }) as unknown as typeof fetch
+    await sendApns(config, [target("aa", "production"), target("bb", "sandbox")], event, Date.now(), fetcher)
+    expect(Object.fromEntries(kids)).toEqual({ "api.push.apple.com": "PRODKEY", "api.sandbox.push.apple.com": "SANDKEY" })
+    // Without a sandbox key, both hosts get the main key, as before.
+    kids.clear()
+    await sendApns({ ...config, sandbox: undefined }, [target("aa", "production"), target("bb", "sandbox")], event, Date.now(), fetcher)
+    expect(Object.fromEntries(kids)).toEqual({ "api.push.apple.com": "PRODKEY", "api.sandbox.push.apple.com": "PRODKEY" })
+  })
+
   it("sends Cloud attention with routing metadata only", async () => {
     const { privateKey } = await generateKeyPair("ES256", { extractable: true })
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY456", teamId: "TEAM456" }
     const target: PushRegistration = {
       deviceId: "phone",
+      space: "",
       ownerUserId: "owner",
       token: "cc".repeat(32),
       environment: "sandbox",
