@@ -957,6 +957,10 @@
     "repo": "https://github.com/manaflow-ai/cmux.git",
     "branch": "feat-cmux-next",
     "dir": "/home/cmux/cmux",
+    "bundleLists": [
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless-rolling.list",
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless.list"
+    ],
     "submodules": ["ghostty-next"],
     "aptRoots": ["libclang-dev"],
     "apt": {
