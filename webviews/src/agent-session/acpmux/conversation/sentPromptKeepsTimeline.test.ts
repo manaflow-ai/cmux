@@ -20,7 +20,9 @@ const ended = (): AcpmuxRow[] => {
   at = 0;
   return [
     row("prompt", "user", { text: "Look at the helper" }),
-    row("work", "activity", { items: [{ kind: "thought", text: "Reading it first.", startedAt: 1_500, endedAt: 2_500 }] }),
+    row("work", "activity", {
+      items: [{ kind: "thought", text: "Reading it first.", startedAt: 1_500, endedAt: 2_500 }],
+    }),
     row("reply", "assistant", { text: "Done." }),
     row("summary", "turnSummary", { status: "completed", durationMs: 3_000 }),
   ];
