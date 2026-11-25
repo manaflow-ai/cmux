@@ -577,6 +577,8 @@ pub struct Spawner {
     /// A Claude subagent here works under `/goal` until its task is done
     /// (goal.rs), unless the person turned it off; off in a bare Spawner.
     goal: bool,
+    /// Shared Claude gateway health with the Chief's turn loop.
+    gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
 }
 
 impl Spawner {
@@ -611,6 +613,7 @@ impl Spawner {
             families: BTreeMap::new(),
             user_settings: None,
             goal: false,
+            gateway: None,
         }
     }
 
@@ -757,6 +760,14 @@ impl Spawner {
     /// The harnesses the automatic picker chooses from, with their families.
     pub fn with_families(mut self, families: BTreeMap<String, crate::acpmux::Family>) -> Spawner {
         self.families = families;
+        self
+    }
+
+    pub fn with_gateway(
+        mut self,
+        gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    ) -> Spawner {
+        self.gateway = gateway;
         self
     }
 
@@ -1014,6 +1025,13 @@ impl Spawner {
                 "spawn: this Chief's subagent harness is pinned (OPTCHAT_SUBAGENT_HARNESS), so it cannot route to {what} {value}; leave out {what}"
             ));
         }
+        if what == "harness"
+            && self.gateway.as_ref().is_some_and(|gateway| {
+                matches!(gateway.route(), crate::gateway::GatewayRoute::Harness(h) if h == value)
+            })
+        {
+            return Ok(());
+        }
         let user = std::env::var_os("HOME")
             .and_then(|home| crate::agent_memory::settings::document(std::path::Path::new(&home)));
         if !routing_on(choice, user.as_ref()) {
@@ -1195,7 +1213,26 @@ impl Spawner {
         let session = loop {
             match self.agents.new_session(&spec) {
                 Err(e) if is_transient_start_failure(&e) && tries < START_RETRY_PAUSES.len() => {
-                    let pause = START_RETRY_PAUSES[tries];
+                    let pause = if s.harness.starts_with("claude") {
+                        self.gateway
+                            .as_ref()
+                            .map_or(START_RETRY_PAUSES[tries], |gateway| {
+                                let event = gateway.record_refusal(id, &e);
+                                if matches!(
+                                    event,
+                                    crate::gateway::GatewayEvent::EnteredFallback { .. }
+                                ) && let Some(text) = gateway.take_notice()
+                                {
+                                    let _ = self.to_brain(crate::brain::Input::Notice {
+                                        key: "gateway-wide".into(),
+                                        text,
+                                    });
+                                }
+                                gateway.retry_wait().max(START_RETRY_PAUSES[tries])
+                            })
+                    } else {
+                        START_RETRY_PAUSES[tries]
+                    };
                     tries += 1;
                     (self.log)(&format!(
                         "subagent {id}: {e}; starting it again in {} s (try {})",
@@ -1209,6 +1246,14 @@ impl Spawner {
                 other => break other?,
             }
         };
+        if s.harness.starts_with("claude")
+            && self.gateway.as_ref().is_some_and(|gateway| {
+                matches!(gateway.route(), crate::gateway::GatewayRoute::Primary)
+            })
+            && let Some(gateway) = &self.gateway
+        {
+            gateway.mark_healthy();
+        }
         let session_ms = session_began.elapsed().as_millis() as u64;
         let admitted = match &peer {
             Some(_) => admitted,
@@ -1848,7 +1893,7 @@ impl Orchestrator for Spawner {
                 .map(|started| format!("{refused}\n{started}"));
         }
         let given = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-        let (harness, model) = (given(harness), given(model));
+        let (mut harness, model) = (given(harness), given(model));
         let choice = self.engine_choice();
         let default_harness = choice
             .subagent_harness
@@ -1870,6 +1915,22 @@ impl Orchestrator for Spawner {
         // The automatic picker (spawn_route.rs): routing on, and the spawn
         // names no harness or model. A pinned harness never routes.
         let mut routed_note = None;
+        if harness.is_none()
+            && model.is_none()
+            && !self.pinned
+            && let Some(gateway_harness) = self.gateway.as_ref().and_then(|gateway| {
+                gateway.refresh();
+                match gateway.route_for_subagent(self.families.contains_key("codex")) {
+                    crate::gateway::GatewayRoute::Harness(harness) => Some(harness),
+                    _ => None,
+                }
+            })
+        {
+            routed_note = Some(format!(
+                "Routed to {gateway_harness} (the Claude gateway is unavailable)."
+            ));
+            harness = Some(gateway_harness);
+        }
         let (harness, model) = if harness.is_none()
             && model.is_none()
             && !self.pinned

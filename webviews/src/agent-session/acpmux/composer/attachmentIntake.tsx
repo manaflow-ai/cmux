@@ -38,6 +38,8 @@ import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { revealControls } from "../../../ui/revealCover";
+import "../../../ui/motion/motion.css";
 import { AttachmentPreviewBoundary } from "./AttachmentPreviewBoundary";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
@@ -182,6 +184,7 @@ export function PendingChip({ chip, onCancel }: { chip: PendingAttachment; onCan
     <button
       type="button"
       className="acpmux-attachment-remove"
+      ref={revealControls}
       aria-label={t(chip.failed ? ATTACHMENT_LABELS.removeAttachment : ATTACHMENT_LABELS.cancelAttachment, { name })}
       onClick={() => onCancel(chip.id)}
     >
@@ -371,6 +374,7 @@ function AttachmentFileFallback({
           <button
             type="button"
             className="acpmux-attachment-remove"
+            ref={revealControls}
             aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name: attachment.name })}
             onClick={() => onRemove(attachment.id)}
           >
@@ -463,6 +467,7 @@ function AttachmentChipPreview({
     <button
       type="button"
       className="acpmux-attachment-remove"
+      ref={revealControls}
       aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name })}
       onClick={() => onRemove(attachment.id)}
     >
@@ -751,7 +756,11 @@ function PdfAttachmentChip({
   const deliveryLabel = codex ? `${pageLabel} · ${t(ATTACHMENT_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
-      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
+      <div
+        className={`acpmux-attachment acpmux-attachment-document${remove ? " ui-reveal-host" : ""}`}
+        data-reveal-overlap={remove ? "" : undefined}
+        data-page-count={attachment.pageCount ?? undefined}
+      >
         <button
           type="button"
           className="acpmux-attachment-document-open"
@@ -762,7 +771,7 @@ function PdfAttachmentChip({
         </button>
         <span className="acpmux-attachment-document-meta">
           <FileDoc size={16} />
-          <span className="acpmux-attachment-document-name">{attachment.name}</span>
+          <span className={`acpmux-attachment-document-name${remove ? " ui-reveal-text" : ""}`}>{attachment.name}</span>
           <span className="acpmux-attachment-document-pages">{deliveryLabel}</span>
         </span>
         {remove}
