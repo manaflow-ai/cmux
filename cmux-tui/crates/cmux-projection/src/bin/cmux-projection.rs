@@ -328,8 +328,13 @@ mod cli {
             match archive::publish(store.as_ref(), &job) {
                 Ok(published) => {
                     let mut line = serde_json::to_value(&published)?;
-                    line["branch"] = branch.into();
-                    line["ms"] = u64::try_from(ms(started)).unwrap_or(u64::MAX).into();
+                    if let Some(fields) = line.as_object_mut() {
+                        fields.insert("branch".into(), branch.into());
+                        fields.insert(
+                            "ms".into(),
+                            u64::try_from(ms(started)).unwrap_or(u64::MAX).into(),
+                        );
+                    }
                     println!("{line}");
                 }
                 Err(error) => {
