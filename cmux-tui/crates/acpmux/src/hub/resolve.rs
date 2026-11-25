@@ -354,6 +354,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         preset: d.preset,
         model_request: d.model_request,
         effort_request: None,
+        capacity_fallback: None,
         cwd: d.cwd,
         additional_directories: Vec::new(),
         stop_condition: None,
@@ -467,6 +468,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_noticed: None,
         delegator: None,
         cold: None,
+        auto_session: None,
         fork_of_subagent: None,
     }
 }

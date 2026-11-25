@@ -527,6 +527,12 @@ impl Hub {
         });
     }
 
+    /// [`Self::seed_time_breakdown`] for a server test that needs a chat with a breakdown.
+    #[cfg(test)]
+    pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
+        self.seed_time_breakdown(session, false);
+    }
+
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
     /// reducer current at the append seam. A chat with no usable copy is folded from its whole
     /// log only when `backfill` says so (or its store holds no files to read): an open never
@@ -990,6 +996,12 @@ impl Hub {
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
         }
+        // Auto mode (`auto_session/record.rs`): where the chat runs and what the person can do.
+        // On every row, so the pane tells Auto off from a daemon without Auto.
+        summary.set(
+            "autoSession",
+            crate::auto_session::record::AutoRecord::row_of(m.auto_session.as_ref()),
+        );
         // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
         // unfinished closes from `ls --closed --json`.
         if m.status == SessionStatus::Closed
