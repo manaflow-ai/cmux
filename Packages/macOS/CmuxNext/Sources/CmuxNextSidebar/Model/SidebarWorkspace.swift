@@ -218,7 +218,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var taskStatus: SidebarTaskStatus?
     /// Who made the workspace, as its daemon recorded it at the create (`extra.created_by.kind`); nil without a
     /// record (the person in the app). A ``SidebarCreator/script`` row that is no chat's subagent folds behind its
-    /// list's "Automatic (N)" row while `sidebar.showAutomaticSessions` is off (``SidebarAutomaticPlanner``).
+    /// list's "From scripts (N)" row while `sidebar.showAutomaticSessions` is off (``SidebarAutomaticPlanner``).
     public var createdBy: SidebarCreator?
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
