@@ -75,7 +75,7 @@ enum DebugObjectMenu {
                 guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
                     return failure("the focused pane shows no browser page")
                 }
-                let shown = BrowserToolbarHandlers.profileMenu(for: entry, services: services)
+                let shown = BrowserToolbarHandlers.profileMenu(forTab: entry.key, services: services)
                 let anchor: NSView = entry.chrome ?? pane.view
                 let at = NSPoint(x: anchor.bounds.maxX - 120, y: anchor.isFlipped ? 40 : anchor.bounds.maxY - 40)
                 DelayedPopUp(menu: shown, at: at, in: anchor).schedule()
