@@ -6,7 +6,7 @@ use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008";
+pub const SDK_IR_SHA256: &str = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
