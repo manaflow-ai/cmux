@@ -787,7 +787,9 @@ function RowsSizer({
   const sizerId = useId();
   const previews = hasPreviews(item);
   const previewOption = previews ? shownPreview(item.options, [0]) : undefined;
-  const preview = previewOption && <OptionPreview id={sizerId} t={t} option={previewOption} inline={layout === "inline"} />;
+  const preview = previewOption && (
+    <OptionPreview id={sizerId} t={t} option={previewOption} inline={layout === "inline"} />
+  );
   return (
     <div
       className="acpmux-question-body acpmux-question-rows-sizer"
