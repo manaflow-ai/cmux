@@ -45,7 +45,7 @@ fn chromium() -> Work {
         class: Class::Other,
         local_s: Some(4.0 * 3_600.0),
         need: Some(Shape { vcpu: 32.0, mem_gib: 64.0 }),
-        cpu_s: Some(100.0 * 3_600.0),
+        cpu_s: Some(200.0 * 3_600.0),
         listens: false,
     }
 }
