@@ -705,7 +705,9 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                admission.commit();
+                // `inbox_accept` reads the shared config before it calls `accept`. Keep this
+                // prompt deferrable until that callback runs, so a config writer that never
+                // yields cannot strand the delivery past its answer deadline.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
