@@ -1952,6 +1952,11 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
+   * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
+  loopback: boolean;
+  /** Slack or Google before its client is registered: listed only with labs.connectionsUpcoming on. */
+  upcoming: boolean;
 };
 
 /** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment
@@ -2651,6 +2656,8 @@ const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable
 export const SETTINGS_SENTENCES = {
   "cmux.page.refused": OWNER_SENTENCE,
   "cmux.app.user_only": OWNER_SENTENCE,
+  // A pasted key the provider refused (acpmux `connections/key.check`): "Key rejected by OpenAI".
+  "cmux.models.key_rejected": OWNER_SENTENCE,
 } as const;
 
 /** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
