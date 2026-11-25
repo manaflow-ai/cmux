@@ -185,8 +185,14 @@ struct TerminalComposer: View {
     /// terminal theme's colors over the same Liquid Glass, so it reads as part of the pane.
     private var card: some View {
         ComposerCard(look: look.card, lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the page's inset leaves out what reaches above the
+            // field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing.").
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         } leading: {
@@ -211,7 +217,8 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
                 autocorrect: autocorrect,
-                reservedTop: model.attachments.isEmpty ? 0 : ComposerCardMetrics.attachmentStripHeight
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
         } trailing: {
             HStack(spacing: 0) {
