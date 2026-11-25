@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Popover } from "./Popover";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "./Menu";
-import { popupSize, setPopupSize } from "./PopupResize";
+import { popupSize, setPopupSize, type PopupResizeOptions } from "./PopupResize";
 import { settleReact } from "../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -88,7 +88,17 @@ const settle = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-function Dropdown({ id, side, align }: { id: string; side: "top" | "bottom"; align: "start" | "end" }) {
+function Dropdown({
+  id,
+  side,
+  align,
+  resize,
+}: {
+  id: string;
+  side: "top" | "bottom";
+  align: "start" | "end";
+  resize?: Omit<PopupResizeOptions, "id">;
+}) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   ids.add(id);
   return (
@@ -97,7 +107,15 @@ function Dropdown({ id, side, align }: { id: string; side: "top" | "bottom"; ali
         chip
       </button>
       {anchor && (
-        <Popover open onOpenChange={() => {}} anchor={anchor} label="Folders" side={side} align={align} resize={{ id }}>
+        <Popover
+          open
+          onOpenChange={() => {}}
+          anchor={anchor}
+          label="Folders"
+          side={side}
+          align={align}
+          resize={{ id, ...resize }}
+        >
           <div>rows</div>
         </Popover>
       )}
@@ -200,6 +218,25 @@ test("a kept size sizes the dropdown when it opens, never past the room it has",
   expect(node.hasAttribute("data-resized-width")).toBe(true);
 });
 
+test("a fitting popup fixes the dragged height until close and uses it as a ceiling on reopen", async () => {
+  const id = "test.fit-height";
+  const dropdown = <Dropdown id={id} side="top" align="start" resize={{ minHeight: 250, fitHeight: true }} />;
+  const doc = await render(dropdown);
+  fakeBox(popup(doc));
+  await drag(grip(doc, "y"), 0, 150);
+  expect(popupSize(id)).toEqual({ height: 250 });
+  expect(popup(doc).style.height).toContain("250px");
+
+  await act(async () => root!.render(null));
+  await act(async () => root!.render(dropdown));
+  expect(popup(doc).style.height).toBe("");
+  expect(popup(doc).style.maxHeight).toContain("250px");
+
+  await act(async () => grip(doc, "y").dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
+  expect(popupSize(id)).toEqual({});
+  expect(popup(doc).style.maxHeight).toBe("");
+});
+
 test("the grips follow where the dropdown actually opened", async () => {
   const doc = await render(<Dropdown id="test.flip" side="top" align="start" />);
   await act(async () => {
@@ -261,3 +298,25 @@ test("a press with no move keeps the size, and a popup smaller than the floor ne
   await drag(grip(doc, "y"), 0, -30);
   expect(popupSize("test.small")).toEqual({ height: 66 });
 });
+
+// A drag stops at the room the positioner gives the popup (--available-height and -width, inside its
+// collision padding and boundary), not the window's edge: the kept size is capped there, so a drag past
+// it snapped back to that line when it ended (cmux#51745 follow-up).
+for (const [side, align] of [
+  ["top", "start"],
+  ["bottom", "end"],
+] as const) {
+  test(`a drag stops at the room the dropdown has, and the size holds when it ends (${side}, ${align})`, async () => {
+    const id = `test.room.${side}.${align}`;
+    const doc = await render(<Dropdown id={id} side={side} align={align} />);
+    const node = popup(doc);
+    fakeBox(node);
+    node.parentElement!.style.setProperty("--available-height", "340px");
+    node.parentElement!.style.setProperty("--available-width", "350px");
+    await drag(grip(doc, "both"), align === "end" ? -400 : 400, side === "top" ? -400 : 400);
+    expect(popupSize(id)).toEqual({ width: 350, height: 340 });
+    // What the drag left is what the kept size gives: nothing to snap back.
+    expect(node.style.height).toBe("min(340px, var(--available-height, 340px))");
+    expect(node.style.width).toBe("min(350px, var(--available-width, calc(100vw - 24px)))");
+  });
+}

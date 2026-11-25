@@ -74,7 +74,9 @@
 //!
 //! `host150` (Leo's laptop, 2026-11-23: load 10 x cores, memory and swap pressure, 40 peers, a
 //! fork storm at about 40 processes a second) and `peerscale` (the baseline at 1, 10, 20 and 40
-//! peers) are named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
+//! peers) and `peerburst` (40 ready peer links cut in one instant; the row's `peerBurst` counts
+//! the redials in the first 250 ms and second and how long until every link is open again) are
+//! named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
 //! count (default 2). Every leg's row also carries the presence gap, link drops, peer links,
 //! frames on the wire, peer notice gauges, spawns per second and a tool call's cost
 //! (`support/duress_host150.rs`).
@@ -99,6 +101,15 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS_N",
     "ACPMUX_DURESS_PEERS",
     "ACPMUX_DURESS_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CORES",
+    "ACPMUX_DURESS_STARVE_X",
+    "ACPMUX_DURESS_STARVE_IDLE",
+    "ACPMUX_DURESS_STARVE_MEMORY_HIGH",
+    "ACPMUX_DURESS_STARVE_CPU_MAX",
+    "ACPMUX_DURESS_STARVE_DELAY_MS",
+    "ACPMUX_DURESS_STARVE_JITTER_MS",
+    "ACPMUX_DURESS_STARVE_STALL_MS",
+    "ACPMUX_DURESS_STARVE_STALL_EVERY_S",
     // The commit under test, when the runner names it (else `git rev-parse HEAD`).
     "GITHUB_SHA",
     // The fleet's output directory, not a credential.
@@ -270,6 +281,10 @@ impl Stress {
             "host150" => s.host150 = true,
             // peerscaleN: the baseline at N peers (`host150::peers_for`).
             l if l.starts_with("peerscale") => {}
+            // starved: the daemon pinned with its load, capped and far (`host150::starved`).
+            "starved" => {}
+            // peerburst: every ready link cut at once (`host150::peer_burst`).
+            "peerburst" => {}
             _ => unreachable!(),
         }
         s
@@ -1671,9 +1686,12 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         w
     };
     let mut extras =
-        host150::Extras::start(name, daemon.pid(), &wire_now(), k.cap + host150::extra_cap(name));
+        host150::Extras::start(name, daemon.pid(), &wire_now, k.cap + host150::extra_cap(name));
     notes.append(&mut extras.notes);
     stress_json.extend(extras.stress.clone());
+    if name == host150::BURST_LEG {
+        stress_json.insert("peerBurst".into(), host150::peer_burst(&proxies));
+    }
 
     // The kills: one harness and the external session's process.
     let harness_name = names.first().cloned();

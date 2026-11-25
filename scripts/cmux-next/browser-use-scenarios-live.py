@@ -26,6 +26,7 @@ import argparse, functools, hashlib, html, http.server, json, os, socket, socket
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from state_wait import wait_stable  # noqa: E402
+from browser_tab_routes import check_tab_routes  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
@@ -214,6 +215,8 @@ def scenario_search(run, base):
 
 def scenario_tabs(run, base):
     navigate(run, base + "/tabs.html", "bu-tabs")
+    if run.engine == "chromium":
+        check_tab_routes(run, base, rpc, wait)
     before = len((run.page("tabs") or {}).get("tabs") or [])
     run.act("click-new-tab-link", "click", selector="#newtab")
     grew = wait(lambda: len((run.page("tabs") or {}).get("tabs") or []) > before, 15)
