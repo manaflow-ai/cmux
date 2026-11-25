@@ -493,10 +493,11 @@ fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     let dir = tempfile::tempdir().unwrap();
     let Some(git_dir) = mirror(dir.path()) else { return };
     std::fs::create_dir_all(git_dir.join("objects/pack")).unwrap();
-    std::fs::write(git_dir.join("objects/pack/pack-abc.pack"), b"").unwrap();
-    std::fs::write(git_dir.join("objects/pack/pack-abc.idx"), b"").unwrap();
+    let pack = format!("pack-{}", "a".repeat(40));
+    std::fs::write(git_dir.join(format!("objects/pack/{pack}.pack")), b"").unwrap();
+    std::fs::write(git_dir.join(format!("objects/pack/{pack}.idx")), b"").unwrap();
     let beat = beat_repo(&git_dir, "manaflow-ai/cmux");
-    assert_eq!(beat.packs, vec!["pack-abc".to_owned()]);
+    assert_eq!(beat.packs, vec![pack]);
     assert!(beat.tips.is_empty(), "no branches yet");
     let json = serde_json::to_value(Beat {
         host: "h".into(),
@@ -506,4 +507,31 @@ fn a_heartbeat_names_the_packs_and_tips_it_holds() {
     })
     .unwrap();
     assert_eq!(json["repos"][0]["repo"], "manaflow-ai/cmux");
+}
+
+#[test]
+fn a_heartbeat_keeps_registering_with_noncanonical_pack_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let packs_dir = dir.path().join("objects/pack");
+    std::fs::create_dir_all(&packs_dir).unwrap();
+    let sha1 = format!("pack-{}", "a".repeat(40));
+    let sha256 = format!("pack-{}", "b".repeat(64));
+    let ignored = [
+        "loose-42831f7628ec33270fba5abcecbec7b4d39eae32".to_owned(),
+        "tmp_pack_abc".to_owned(),
+        "pack-abc".to_owned(),
+        format!("pack-{}", "A".repeat(40)),
+        format!("pack-{}", "g".repeat(40)),
+        format!("pack-{}", "c".repeat(41)),
+    ];
+    for name in [&sha1, &sha256].into_iter().chain(ignored.iter()) {
+        std::fs::write(packs_dir.join(format!("{name}.pack")), b"pack data").unwrap();
+    }
+    // Only files can be advertised as packs, even when a directory has a valid name.
+    std::fs::create_dir(packs_dir.join(format!("pack-{}.pack", "d".repeat(40)))).unwrap();
+    let beat = beat_repo(dir.path(), "manaflow-ai/cmux");
+    assert_eq!(beat.packs, vec![sha1, sha256]);
+    for name in ignored {
+        assert_eq!(std::fs::read(packs_dir.join(format!("{name}.pack"))).unwrap(), b"pack data");
+    }
 }
