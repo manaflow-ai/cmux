@@ -16,7 +16,8 @@ struct AgentPaneGitMergeTests {
     }
 
     /// The fake GitHub: the pull request it answers, and what it was asked.
-    final class GitHub: @unchecked Sendable {
+    // Called from the @Sendable GitHub closure off the main actor; the lock guards every field.
+    nonisolated final class GitHub: @unchecked Sendable {
         private let lock = NSLock()
         private var shown = ""
         private var asked: [String] = []
@@ -27,6 +28,20 @@ struct AgentPaneGitMergeTests {
         }
         private var afterState = "MERGED"
         private var merged = false
+        /// The read after the merge fails (`readBack`), and what GitHub answers the merge itself.
+        var readBackFails: Bool {
+            get { lock.withLock { failRead } }
+            set { lock.withLock { failRead = newValue } }
+        }
+        private var failRead = false
+        var mergeAnswer: String {
+            get { lock.withLock { answerOfMerge } }
+            set { lock.withLock { answerOfMerge = newValue } }
+        }
+        private var answerOfMerge = #"{"merged":true}"#
+        /// The scope each GraphQL read asked for.
+        var scopes: [String] { lock.withLock { askedScopes } }
+        private var askedScopes: [String] = []
 
         var calls: [String] { lock.withLock { asked } }
 
@@ -39,13 +54,15 @@ struct AgentPaneGitMergeTests {
                 case "graphql":
                     let variables = params["variables"] as? [String: any Sendable] ?? [:]
                     asked.append("graphql \(params["repo"] as? String ?? "") \(variables["number"] as? Int ?? 0)")
+                    askedScopes.append(params["scope"] as? String ?? "")
+                    if merged, failRead { return AgentPaneGitHubREST.Answer(ok: false, status: 502, message: "Bad Gateway") }
                     let pull = merged ? #"{"url":"https://github.com/o/r/pull/7","number":7,"state":"\#(afterState)"}"# : shown
                     let body = #"{"data":{"repository":{"viewerDefaultMergeMethod":"REBASE","pullRequest":\#(pull)}}}"#
                     return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(body.utf8), source: "app")
                 case "pr.merge":
                     asked.append("pr.merge \(params["repo"] as? String ?? "") \(params["number"] as? Int ?? 0) \(params["method"] as? String ?? "") \(params["head"] as? String ?? "")")
                     merged = true
-                    return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(#"{"merged":true}"#.utf8), source: "app")
+                    return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(answerOfMerge.utf8), source: "app")
                 default:
                     asked.append(op)
                     return AgentPaneGitHubREST.Answer(ok: false, status: 404, message: "Not Found")
@@ -157,6 +174,32 @@ struct AgentPaneGitMergeTests {
         let reply = try await Self.merge(rig)
         #expect((reply["value"] as? [String: Any])?["merged"] as? Bool == false, "\(reply)")
         #expect((reply["value"] as? [String: Any])?["queued"] as? Bool == true)
+    }
+
+    /// The merge's reads ask with checks' permissions: under `pulls` alone an App token reads an
+    /// empty rollup, and a red check would not stop the merge.
+    @Test func theMergeReadsChecksWithChecksScope() async throws {
+        let rig = try Self.rig()
+        _ = try await Self.merge(rig)
+        #expect(!rig.github.scopes.isEmpty)
+        #expect(rig.github.scopes.allSatisfy { $0 == "checks" }, "\(rig.github.scopes)")
+    }
+
+    /// The read after the merge fails: GitHub's own answer to the merge decides; with no word from
+    /// it, the reply does not say merged.
+    @Test func anUnreadMergeIsNotCalledMerged() async throws {
+        let rig = try Self.rig()
+        rig.github.readBackFails = true
+        let said = try await Self.merge(rig)
+        #expect((said["value"] as? [String: Any])?["merged"] as? Bool == true, "\(said)")
+
+        let quiet = try Self.rig()
+        quiet.github.readBackFails = true
+        quiet.github.mergeAnswer = "{}"
+        let reply = try await Self.merge(quiet)
+        #expect(reply["ok"] as? Bool == false, "\(reply)")
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneGitPullRequest.mergeUnconfirmedMessage,
+                "\(reply)")
     }
 
     /// No click, another pull request than the one shown, a draft, a closed one, a failing check,

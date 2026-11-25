@@ -390,6 +390,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.forbidden",
     "mesh.bad_request",
     "mesh.unknown_recipient",
+    // A message to a machine the hub revoked: gone for good (`hub/transfer_pull.rs`).
+    "mesh.recipient_revoked",
     "mesh.ambiguous",
     "mesh.conflict",
     "mesh.idempotency_conflict",
@@ -801,7 +803,10 @@ mod tests {
         let by_daemon = entry(json!({"daemonId": "d9"}));
         assert_eq!(by_daemon.policy_cap(), P::Ask, "omitted is ask");
         let sender = from(Some("d9"), Some("u1"));
-        assert_eq!(control_cap(&[by_daemon.clone()], &sender, Some("u1"), "start"), Some(P::Ask));
+        assert_eq!(
+            control_cap(std::slice::from_ref(&by_daemon), &sender, Some("u1"), "start"),
+            Some(P::Ask)
+        );
         let edits = entry(json!({"daemonId": "d9", "maxPolicy": "approve-edits"}));
         let entries = [by_daemon.clone(), edits, MeshControlFrom::same_user()];
         assert_eq!(control_cap(&entries, &sender, Some("u1"), "start"), Some(P::ApproveAll));

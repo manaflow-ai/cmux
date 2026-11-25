@@ -32,6 +32,7 @@ public struct CloudAutomationsScreen: View {
             CmuxSpinner(label: Text("Loading automations…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("automations.loading")
+                .placeholderBound("cloud.automations.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load automations", systemImage: "exclamationmark.triangle")
