@@ -874,7 +874,7 @@ class UnstartedRunTests(unittest.TestCase):
         running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
         main_runs = [dict(self.live(run_minutes_ago=5, status="in_progress"), head_branch="main", head_sha="e" * 40,
                           event=event, display_title=title)
-                     for event, title in (("schedule", "Nightly macOS build · 47 8 * * *"),
+                     for event, title in (("schedule", "Nightly macOS build · 17 * * * *"),
                                           ("workflow_dispatch", "Promote nightly-next to " + "e" * 40),
                                           ("workflow_dispatch", "Resume nightly-next run 1 attempt 1"))]
         gh = self.Flows(self, {("nightly.yml", "main"): main_runs,
@@ -1386,6 +1386,21 @@ class FeedAlarm1113Tests(unittest.TestCase):
         self.assertEqual(gh.logs_read, 0)
         quiet = watch.Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
         self.assertFalse(watch.alarm_due(dt.datetime(2026, 11, 13, 20, 0, tzinfo=dt.timezone.utc), FEED_1113, quiet, ""))
+
+    def test_a_fresh_publish_of_an_old_commit_does_not_hide_the_oldest_waiting_landing(self):
+        # 2026-11-19: build 4450292330201 of 34acb4912 (landed 06:42Z) published at 10:39:52Z. The oldest landing
+        # after it, 37788c3 (06:51:30Z), still waited; at 11:25:50Z NOW read nightly_freshness_minutes 274 while
+        # the feed was 46 min old, and the feed-age clock kept the coordinator unpaged until 12:39Z.
+        feed = dt.datetime(2026, 11, 19, 10, 39, 52, tzinfo=dt.timezone.utc)
+        since = dt.datetime(2026, 11, 19, 6, 51, 30, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2026, 11, 19, 11, 25, 50, tzinfo=dt.timezone.utc)
+        stale = watch.Stage(True, (now - since).total_seconds() / 3600, since, "Nothing was promoted to nightly-next.")
+        self.assertTrue(watch.alarm_due(now, feed, stale, ""))
+        # The first pass after the publish already pages: the landing had waited 3.8h by then.
+        self.assertTrue(watch.alarm_due(feed + dt.timedelta(minutes=10), feed, stale, ""))
+        # A landing that has waited under FEED_ALARM_AFTER behind a fresh feed pages no one yet.
+        recent = dataclasses.replace(stale, since=now - dt.timedelta(minutes=90), waited_hours=1.5)
+        self.assertFalse(watch.alarm_due(now, feed, recent, ""))
 
     def test_a_gate_job_queued_twenty_minutes_pages_before_two_hours(self):
         # 2026-11-18: the tree publication jobs of run 44289517882 sat queued on blacksmith-4vcpu-ubuntu-2404 while

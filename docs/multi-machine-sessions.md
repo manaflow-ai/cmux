@@ -4,7 +4,7 @@ Status: Draft design, October 2026. The [next PRs](#next-prs) section lists
 the order and what's in review.
 
 A user with a personal Mac, a Linux dev VM and a second build box should be
-able to say "start Claude in `~/src/api` on cosmic-gray" from any of them and
+able to say "start Claude in `~/src/api` on studio-mac" from any of them and
 have it happen. Today that takes Remote Login, hand-copied SSH keys, a
 tailnet policy edit the user may not be allowed to make, a per-app SSH
 connection entry, and, when the policy can't change, a hand-run reverse
@@ -19,25 +19,25 @@ The motivating setup, kept here because each step is a design input:
 
 | Machine | What it is | Tailnet identity |
 | --- | --- | --- |
-| cosmic-gray | Personal Mac, Tailscale GUI app, user `leoli` | Owned by the user's personal login |
-| Huge Blue | Freestyle VM (KVM guest, Ubuntu 24.04), user `leo` | Tagged device `tag:huge-blue` |
-| cmux16 | Linux build host | Saved SSH connection |
+| studio-mac | Personal Mac, Tailscale GUI app, user `alice` | Owned by the user's personal login |
+| Build VM | Cloud VM (KVM guest, Ubuntu 24.04), user `dev` | Tagged device `tag:build-vm` |
+| linux-builder | Linux build host | Saved SSH connection |
 
 1. Both machines were on the team tailnet and `tailscale ping
-   cosmic-gray` worked over DERP.
+   studio-mac` worked over DERP.
 2. SSH failed: port 22 on the Mac was closed. The GUI Tailscale app can't
    run Tailscale SSH on macOS, so Remote Login had to be turned on by hand
-   and Huge Blue's ed25519 key added to `authorized_keys`.
+   and Build VM's ed25519 key added to `authorized_keys`.
 3. It still failed. TSMP ping worked but ICMP and TCP:22 to the Mac's
-   100.x address timed out: the tailnet policy gives `tag:huge-blue` no
+   100.x address timed out: the tailnet policy gives `tag:build-vm` no
    access to the user's devices. The user can't edit that policy.
 4. What worked was a reverse tunnel from the Mac over the direction that
-   already works (Mac → Huge Blue):
-   `ssh -N -R 2222:localhost:22 leo@huge-blue`, then `ssh -p 2222
-   leoli@localhost` on Huge Blue, narrowed with `authorized_keys` options.
-   That port is open to every local user on Huge Blue.
-5. The agent app still needed cosmic-gray added as an SSH connection by hand
-   before a session on Huge Blue could start work there.
+   already works (Mac → Build VM):
+   `ssh -N -R 2222:localhost:22 dev@build-vm`, then `ssh -p 2222
+   alice@localhost` on Build VM, narrowed with `authorized_keys` options.
+   That port is open to every local user on Build VM.
+5. The agent app still needed studio-mac added as an SSH connection by hand
+   before a session on Build VM could start work there.
 
 Steps 3 and 4 are the general case, not an accident: the user's own machine
 is usually the one that can dial out but can't be dialed.
@@ -87,7 +87,7 @@ what one machine may do on another.
 signed-in user's personal account, not the selected team. A machine's
 identity is its `cmux-remote` daemon key, the key `remote enroll` already
 binds and `known-daemons` already pins, on the Mac and on Linux alike. The
-display name ("cosmic-gray", "Huge Blue") is a label on that record.
+display name ("studio-mac", "Build VM") is a label on that record.
 Hostnames, Tailscale names, 100.x addresses, relay slots and
 `~/.ssh/config` aliases are reachability hints attached to it; none of them
 authorizes anything.
@@ -107,12 +107,12 @@ approval on the other machine) binds its key. A matching Tailscale name or a
 registry row never grants access by itself.
 
 **Linux joins the same list.** The cmux-tui daemon registers a device row with
-its daemon key and `tag` = session name, and heartbeats presence. Huge Blue
-and cmux16 then show up beside cosmic-gray everywhere: the Mac sidebar, the
+its daemon key and `tag` = session name, and heartbeats presence. Build VM
+and linux-builder then show up beside studio-mac everywhere: the Mac sidebar, the
 TUI machine rail, and the iOS device list.
 
 **Per-machine facts live on the record**, learned once at setup and
-refreshed on connect: login user (`leo` vs `leoli`), home path, OS, which
+refreshed on connect: login user (`dev` vs `alice`), home path, OS, which
 transports worked last, and whether the machine is a VM. No more
 user-maintained mapping.
 
@@ -155,7 +155,7 @@ tailnet policy. It shows the change for whoever can make it, for example:
 
 ```jsonc
 // grants (preferred): let this tagged host reach one user's devices on 22
-{ "src": ["tag:huge-blue"], "dst": ["user@example.com"], "ip": ["tcp:22"] }
+{ "src": ["tag:build-vm"], "dst": ["user@example.com"], "ip": ["tcp:22"] }
 ```
 
 and says the reverse/relay path is already working without it.
@@ -177,7 +177,7 @@ and says the reverse/relay path is already working without it.
 
 ### Tagged vs user-owned joins for personal dev hosts
 
-A tagged device (Huge Blue's `tag:huge-blue`) has no owner after
+A tagged device (Build VM's `tag:build-vm`) has no owner after
 registration. Default policies give tags less access, and the key doesn't
 expire with the user's login. That's right for shared or CI hosts and is why
 it couldn't reach the Mac. A user-owned join gets the user's own-device
@@ -190,7 +190,7 @@ of join each machine has, and why it matters.
 ## Asking a machine to start a session
 
 ```sh
-cmux machine run cosmic-gray --agent claude --cwd ~/src/api [--prompt -]
+cmux machine run studio-mac --agent claude --cwd ~/src/api [--prompt -]
 ```
 
 and the same action from the sidebar's "New session on…" menu and from an
@@ -226,14 +226,14 @@ agent's own `cmux` call.
    sidebar shows the session under that machine, and `cmux session move`
    can move it later.
 
-Starting a session on Huge Blue from cosmic-gray is the easy direction: the
+Starting a session on Build VM from studio-mac is the easy direction: the
 Mac already trusts the host it SSHes into. The request still goes through the
 same typed method so there's one path.
 
 ## Reaching the user's machine from a host
 
 Use what already works: the connection the user's machine opened. When
-cosmic-gray runs `cmux ssh huge-blue` or opens Huge Blue in the machine rail,
+studio-mac runs `cmux ssh build-vm` or opens Build VM in the machine rail,
 that connection already carries the HMAC-authenticated CLI relay back to the
 Mac. The **back channel** is a new, narrow method family on that relay.
 
@@ -251,7 +251,7 @@ Mac. The **back channel** is a new, narrow method family on that relay.
   and read-only `machine.self.describe`, and only for a host whose trust tier
   allows them. Everything else stays denied.
 
-**When no connection is open** (Huge Blue wants to start work on the Mac
+**When no connection is open** (Build VM wants to start work on the Mac
 while the user is away from it), the host connects through the cmux relay.
 The Mac keeps an outbound registration there, the same outbound-only shape as
 `cmux machine-agent`, so no port opens and no tailnet change is needed. The
@@ -259,7 +259,7 @@ relay only forwards bytes: the host still authenticates to the Mac's pinned
 daemon key, and the same enrollment and trust tier apply. Iroh could later
 add a direct path for latency (`cmux-remote` already has an Iroh provider),
 but nothing here depends on it. If the Mac is asleep or offline, the
-request fails with "cosmic-gray is offline". Waking it is out of scope.
+request fails with "studio-mac is offline". Waking it is out of scope.
 
 **Plain SSH back to the Mac** (the 2026-10-18 workaround) stays a
 user-configured option for tools outside cmux, not the built-in path. If cmux
@@ -268,7 +268,7 @@ port, and only at the "shell" tier below.
 
 ## Per-host trust
 
-Reach is not symmetric. The user can do anything on Huge Blue. Huge Blue, a
+Reach is not symmetric. The user can do anything on Build VM. Build VM, a
 VM the user doesn't control end to end, shouldn't be able to do the same on
 the user's Mac. Each machine keeps its own trust record for every peer, set
 only locally on that machine (never from the peer, never from the registry):
@@ -288,7 +288,7 @@ and defaults to None toward the user's personal machine.
 **Audit trail on the target.** Every back-channel request, admitted or not,
 is logged locally with time, peer, method, folder, agent and decision, and
 shown under the machine in Settings › Devices. A session started by a peer is
-labelled "Started by Huge Blue" in the sidebar. Revoking a peer, or dropping
+labelled "Started by Build VM" in the sidebar. Revoking a peer, or dropping
 its tier, closes its live back-channel slots right away.
 
 ## Security model
@@ -368,7 +368,7 @@ authorization analysis and policy tests.
    only) and `machine.self.describe` added to the relay policy with
    deny-case tests (unmapped IDs, command params, tier None, folder outside
    the allowlist, symlink escape). Includes live verification that a request
-   from Huge Blue starts on the Mac only after approval.
+   from Build VM starts on the Mac only after approval.
 6. **"Add a machine" flow.** Settings › Devices and `cmux machine add`:
    suggestions from registry, Tailscale and ssh_config; pairing; probe;
    identity mapping; trust; optional `~/.ssh/config.d/cmux` export and

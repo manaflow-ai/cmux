@@ -45,15 +45,23 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
-# Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
-LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+# Literal labels only (no variable moves the job): a fork the hosted image; a first attempt the
+# one-job JIT nightly VM (cmux-gcp-nightly-jit-x64: ephemeral, no ingress, deleted after its job),
+# so the nightly's sign path does not queue behind vendor pools; a re-run Blacksmith Linux.
+LINUX_RUNNER = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+# The shared GitHub API call log hook (#49486): BASH_ENV loads the checkout's env.sh, else the same files at a pinned commit.
+API_CALL_LOG_ENV = "scripts/ci/api_call_log/env.sh"
+API_CALL_LOG_URL = re.compile(r"^https://raw\.githubusercontent\.com/manaflow-ai/cmux/[0-9a-f]{40}/scripts/ci/api_call_log/\$x$")
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
 # Expression contexts a shadow job may read. Nothing that names the source
 # run's ref, commit or pull requests: the tool reads those from the API.
+# github.run_attempt is this shadow run's own attempt counter (it picks the JIT label on attempt 1
+# in runs-on); it names nothing about the source run.
 ALLOWED_CONTEXTS = re.compile(
-    r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|"
+    r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|github\.run_attempt|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
     r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN)$"
 )
@@ -98,6 +106,25 @@ def contexts(text: str) -> set[str]:
     return found
 
 
+def check_workflow_env(env: dict) -> None:
+    """The workflow env carries no secret, input or event data into a shadow job.
+
+    Its keys are SOURCE_WORKFLOW_PATHS and, optionally, BASH_ENV set to the repository's GitHub API call log
+    (scripts/ci/api_call_log/env.sh, the shared hook every workflow sets). No value holds a `${{ }}` expression, and the
+    log hook fetches only that directory at a pinned commit of this repository.
+    """
+    check(set(env) <= {"SOURCE_WORKFLOW_PATHS", "BASH_ENV"},
+          f"nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS and the API call log's BASH_ENV (got {sorted(env)})")
+    for key, value in env.items():
+        check("${{" not in str(value), f"nightly-sign.yml workflow env {key} must not read an expression (secrets, inputs, event)")
+    if "BASH_ENV" in env:
+        value = str(env["BASH_ENV"])
+        check(API_CALL_LOG_ENV in value, f"nightly-sign.yml BASH_ENV must load {API_CALL_LOG_ENV} and nothing else")
+        urls = re.findall(r"https?://[^\s\"']+", value)
+        check(all(API_CALL_LOG_URL.match(url) for url in urls),
+              f"nightly-sign.yml BASH_ENV may fetch only the API call log at a pinned commit (got {urls})")
+
+
 def check_workflow() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     document = yaml.safe_load(text)
@@ -109,7 +136,7 @@ def check_workflow() -> None:
     check(document.get("permissions") == {}, "nightly-sign.yml must grant no workflow-level permissions")
     check(not re.search(r"\bsecrets\b", text), "nightly-sign.yml must not name secrets in any form")
     check(set(document) <= WORKFLOW_KEYS, f"nightly-sign.yml has unexpected top-level keys {sorted(map(str, document))}")
-    check(set(document.get("env") or {}) == {"SOURCE_WORKFLOW_PATHS"}, "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS")
+    check_workflow_env(document.get("env") or {})
     check("NIGHTLY_SIGN" in text, "nightly-sign.yml must be gated on vars.NIGHTLY_SIGN")
     check(document.get("env", {}).get("SOURCE_WORKFLOW_PATHS") == ".github/workflows/nightly.yml",
           "nightly-sign.yml must declare SOURCE_WORKFLOW_PATHS")
