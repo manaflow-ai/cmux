@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import ci_steps  # noqa: E402
+import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
@@ -286,6 +287,7 @@ class FakeStore:
         self.posts: list[tuple[str, str, str, bool]] = []
         self.lookups: list[tuple[str, str, bool]] = []
         self.write = write
+        self.error = ""
 
     def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
         self.lookups.append((key, step, audit))
@@ -389,6 +391,53 @@ class StepResultsTest(unittest.TestCase):
                             "the changed inputs are part of the key (a step's own router reads them)")
         self.assertEqual(self.key("a", ["a/x.txt", "b.txt"]), self.key("a", ["a/x.txt"]))
 
+    def test_a_refusing_store_is_named_in_the_log_and_a_plain_miss_is_not(self) -> None:
+        # 2026-11-25: the pool runners' calls were refused and every one read as a miss, so the store stayed empty
+        # with nothing in any log saying why.
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            status = 401
+
+            def do_GET(self) -> None:
+                self.send_response(Handler.status)
+                self.end_headers()
+                self.wfile.write(b'{"miss":true}' if Handler.status == 404 else b"tagged node carries no client tag")
+
+            do_POST = do_GET
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("lookup HTTP 401", out)
+        self.assertIn("nothing reused or stored", out)
+        Handler.status = 404
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("write HTTP 404", out, "a 404 lookup is a miss; the refused write still shows")
+        self.assertNotIn("lookup HTTP", out)
+        server.shutdown()
+        server.server_close()
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        calls = []
+        real = ci_steps.urllib.request.urlopen
+
+        def counted(*args, **kwargs):
+            calls.append(args)
+            return real(*args, **kwargs)
+        with mock.patch.object(ci_steps.urllib.request, "urlopen", counted):
+            code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(calls), 1, "an unreachable store is called once, then left alone")
+        self.assertIn("lookup failed", out)
+
     def test_a_pass_is_stored_then_reused_and_the_setup_skipped(self) -> None:
         store = FakeStore()
         code, out, ran = self.run_job(store)
@@ -406,6 +455,19 @@ class StepResultsTest(unittest.TestCase):
                                   io.StringIO(), logs=False)
         self.assertIn("| a | yes | pr | reused |", summary)
         self.assertIn("1 of 2 routed steps reused", out)
+
+    def test_a_skipped_alone_step_stores_no_pass(self) -> None:
+        # A skipped step never ran: storing a pass under its key would let a later run reuse a verdict nobody had.
+        self.table.steps.pop("event")
+        self.table.steps["red"] = ci_steps.Step(name="red", job="linux", run="exit 3", inputs=("b.txt",), reuse=False)
+        self.table.steps["a"] = ci_steps.Step(name="a", job="linux", run=self.table.steps["a"].run,
+                                              inputs=("a/**",), alone=True)
+        store = FakeStore()
+        code, out, ran = self.run_job(store)
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("a", ran)
+        self.assertIn("step a skipped: blocking step red failed", out)
+        self.assertEqual(store.posts, [])
 
     def test_every_step_reused_skips_setup(self) -> None:
         self.table.steps.pop("event")
@@ -455,6 +517,62 @@ class StepResultsTest(unittest.TestCase):
         event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "o/r"}}}}))
         same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
         self.assertTrue(same.write)
+
+    def test_with_an_oidc_request_url_the_store_is_the_public_route_with_a_fresh_token(self) -> None:
+        # The Linux pool is off the tailnet: its jobs reach the controller's public route with an Actions OIDC token.
+        import http.server
+        import threading
+        seen: list[tuple[str, str, str]] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            minted = 0
+
+            def answer(self, code: int, body: bytes) -> None:
+                self.send_response(code)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:
+                auth = self.headers.get("Authorization", "")
+                seen.append((self.command, self.path, auth))
+                if self.path.startswith("/github/") and self.headers.get("User-Agent", "").startswith("Python-urllib"):
+                    # Cloudflare in front of gh-events.cmux.com: 403, error code 1010, for Python's default agent.
+                    return self.answer(403, b"error code: 1010")
+                if self.path.startswith("/token"):
+                    Handler.minted += 1
+                    ok = auth == "bearer req-secret" and "audience=cmux-ci-step-results" in self.path
+                    return self.answer(200 if ok else 403, json.dumps({"value": f"tok{Handler.minted}"}).encode())
+                if not self.path.startswith("/github/step-results") or not auth.startswith("Bearer tok"):
+                    return self.answer(401, b"token refused")
+                self.answer(404 if self.command == "GET" else 204, b"")
+
+            do_POST = do_GET
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        env = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_NAME": "push",
+               "ACTIONS_ID_TOKEN_REQUEST_URL": f"{base}/token?api-version=2.0",
+               "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "req-secret", "CI_STEP_RESULTS_PUBLIC_URL": base}
+        store = ci_steps.StepResults.from_env(env)
+        self.assertEqual(store.url, f"{base}/github/step-results")
+        self.assertEqual(ci_steps.StepResults.from_env({**env, "CI_STEP_RESULTS_PUBLIC_URL": ""}).url,
+                         "https://gh-events.cmux.com/github/step-results")
+        no_oidc = {k: v for k, v in env.items() if not k.startswith("ACTIONS_ID_TOKEN")}
+        self.assertEqual(ci_steps.StepResults.from_env(no_oidc).url, ci_steps.CONTROLLER + "/v1/ci/step-results")
+        self.assertIsNone(store.lookup("0" * 64, "a"))
+        store.post("0" * 64, "a", "pass", 1.0)
+        server.shutdown()
+        server.server_close()
+        self.assertEqual(store.error, "", seen)
+        self.assertEqual([(m, a) for m, p, a in seen if p.startswith("/github")],
+                         [("GET", "Bearer tok1"), ("POST", "Bearer tok2")], "one fresh token per call")
+        code, out, _ran = self.run_job(store)
+        self.assertNotIn("req-secret", out)
+        self.assertNotIn("tok", out.replace("token", ""), "the token never reaches the log")
 
     def test_an_unreachable_controller_is_a_miss(self) -> None:
         s = ci_steps.StepResults("http://127.0.0.1:9", True, {}, timeout=1)
@@ -640,6 +758,37 @@ class SetupTest(unittest.TestCase):
         self.assertLess(out.index("::group::a"), out.index("::group::big"), out)
         self.assertLess(out.index("::group::big"), out.index("::group::last"), out)
 
+    def test_an_alone_step_is_skipped_once_a_blocking_step_failed(self) -> None:
+        # The job is red already and its re-run runs every step: a 15 to 65 minute alone step would only
+        # spend the machine (4 of 30 long red linux jobs on 11-24, 16% of their time).
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (f'[step.big]\njob = "linux"\nalone = true\nrun = "touch {tmp}/big"\n'
+                    '[step.red]\njob = "linux"\nrun = "exit 3"\n')
+            code, out = self.run_job(table(body), "linux")
+            self.assertEqual(code, 1, out)
+            self.assertFalse(Path(tmp, "big").exists(), out)
+        self.assertIn("step big skipped: blocking step red failed", out)
+        self.assertIn("::error title=red::", out)
+        self.assertNotIn("step big exited", out)
+
+    def test_a_failed_alone_step_skips_the_alone_steps_after_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            body = ('[step.first]\njob = "linux"\nalone = true\nrun = "exit 2"\n'
+                    f'[step.second]\njob = "linux"\nalone = true\nrun = "touch {tmp}/second"\n'
+                    '[step.ok]\njob = "linux"\nrun = "true"\n')
+            code, out = self.run_job(table(body), "linux")
+            self.assertEqual(code, 1, out)
+            self.assertFalse(Path(tmp, "second").exists(), out)
+        self.assertIn("step second skipped: blocking step first failed", out)
+
+    def test_a_skipped_step_reads_skipped_in_the_summary(self) -> None:
+        step = ci_steps.Step(name="big", job="linux", run="true", alone=True)
+        red = ci_steps.Step(name="red", job="linux", run="false")
+        summary = ci_steps.report([ci_steps.Result(red, 1, 1.0, ""), ci_steps.Result(step, 0, 0.0, "", skipped=True)],
+                                  "linux", io.StringIO(), logs=False)
+        self.assertIn("| big | yes | ", summary)
+        self.assertRegex(summary, r"\| big \|.*\| skipped \|")
+
     def test_the_tables_coderouter_runs_alone(self) -> None:
         # Its cargo build takes every core; broker.test.mjs's 50 ms deadline failed beside it, twice.
         self.assertTrue(ci_steps.load().steps["coderouter"].alone)
@@ -679,16 +828,22 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(set(wf.get("on", wf.get(True))), {"workflow_call"})
         self.assertEqual(wf["permissions"], {})
         job = wf["jobs"]["linux"]
-        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"},
+                         "id-token mints the step-result store's OIDC token, nothing else")
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
         runs = [i for i, s in enumerate(job["steps"]) if "ci/run run --job linux" in s.get("run", "")]
         self.assertEqual(len(runs), 1)
-        # After it only the failure-only upload of a fixit-compile patch (the web-typecheck step's), for the
-        # cmuxterm-hq reconciler, which reads a run's `fixit-compile-*` artifacts.
+        # After it only failure-only uploads: a fixit-compile patch (the web-typecheck step's), for the cmuxterm-hq
+        # reconciler, which reads a run's `fixit-compile-*` artifacts, and a failed web test shard's JUnit report.
         after = job["steps"][runs[0] + 1:]
-        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"])
+        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"] + [
+            f"Upload the web test JUnit report (shard {n})" for n in range(1, 5)])
+        for upload in after:
+            self.assertEqual(upload["if"], "${{ failure() && !cancelled() }}")
+            self.assertTrue(upload["uses"].startswith("actions/upload-artifact@"))
+            self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
         self.assertEqual(after[0]["if"], "${{ failure() && !cancelled() }}")
         self.assertTrue(after[0]["uses"].startswith("actions/upload-artifact@"))
         self.assertTrue(after[0]["with"]["name"].startswith("fixit-compile-"))
@@ -762,6 +917,15 @@ class PipelineTest(unittest.TestCase):
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
+            if name == "ios-ffi-fleet":
+                # The ios job's build fleet head start: no step, no checkout, only when the ios job runs, and
+                # never a verdict (each failure path is a warning and exit 0).
+                with self.subTest(helper=name):
+                    self.assertTrue(job["if"].startswith("${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && "))
+                    self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "") or "uses" in s])
+                    self.assertNotIn(name, wf["jobs"]["ios"]["needs"], "the ios job never waits for it")
+                    self.assertIn("exit 0", job["steps"][0]["run"])
+                continue
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
@@ -926,6 +1090,73 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
+        # while docs-only fallback still runs the reusable job directly.
+        diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
+        self.assertTrue(diff_wf["jobs"]["diff-sidecar-check"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        diff_step = steps["diff-sidecar-check"]
+        self.assertEqual(diff_step.job, "linux")
+        self.assertEqual(diff_step.timeout, 300)
+        self.assertEqual(diff_step.needs, ("bun", "rust"))
+        for path in ("Native/DiffSidecar/src/server.rs", "cmux-tui/crates/cmux-git/src/lib.rs",
+                     "webviews/src/diff/view.ts", "webviews/package.json", ".github/workflows/ci-web.yml",
+                     "scripts/ci/web_subareas.py"):
+            with self.subTest(path=path):
+                self.assertTrue(ci_steps.routed(diff_step, [path]))
+        self.assertFalse(ci_steps.routed(diff_step, ["web/app/page.tsx"]))
+        for command in ("bun install --frozen-lockfile", "rustup toolchain install 1.98.1",
+                        "run-diff-sidecar-cargo.sh fmt", "run-diff-sidecar-cargo.sh clippy",
+                        "run-diff-sidecar-cargo.sh test", "generate-diff-sidecar-types.sh --check"):
+            self.assertIn(command, diff_step.run)
+        self.assertGreaterEqual(diff_step.run.count("|| status=1"), 3)
+        self.assertIn("lint_status=1", diff_step.run)
+        # ci-web.yml's web-tests matrix and web-production-build run as table steps on feat-cmux-next pull requests
+        # only; the jobs still run on a push, a dispatch and a pull request into any other base.
+        web_jobs = diff_wf["jobs"]
+        for job in ("web-tests", "web-production-build"):
+            with self.subTest(job=job):
+                self.assertTrue(web_jobs[job]["if"].endswith(
+                    "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        self.assertEqual(web_jobs["web-tests"]["strategy"]["matrix"]["shard"], ["1/4", "2/4", "3/4", "4/4"])
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        uploads = {s.get("with", {}).get("name"): s for s in pipeline["jobs"]["linux"]["steps"] if "uses" in s}
+        for shard in range(1, 5):
+            step = steps[f"web-tests-{shard}"]
+            with self.subTest(step=step.name):
+                self.assertEqual(step.job, "linux")
+                self.assertEqual(step.timeout, 360)
+                self.assertTrue(step.alone)
+                self.assertEqual(step.needs, ("bun",))
+                self.assertEqual(step.title, f"Web tests ({shard}/4)")
+                self.assertTrue(step.run.lstrip().startswith(
+                    "python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0"))
+                self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile', step.run)
+                self.assertIn(f"./scripts/run-tests.sh --shard {shard}/4 --reporter=junit", step.run)
+                self.assertIn(f'report_dir="$RUNNER_TEMP/web-test-junit/shard{shard}"', step.run)
+                self.assertIn('exit "$status"', step.run)
+                upload = uploads[f"web-test-junit-shard{shard}-attempt${{{{ github.run_attempt }}}}"]
+                self.assertEqual(upload["if"], "${{ failure() && !cancelled() }}")
+                self.assertEqual(upload["with"]["path"], f"${{{{ runner.temp }}}}/web-test-junit/shard{shard}/junit.xml")
+                for path in ("web/app/page.tsx", "web/tests/foo.test.ts", "CHANGELOG.md",
+                             "config/iroh/managed-relay-catalog.json", "scripts/ci/web_subareas.py"):
+                    self.assertTrue(ci_steps.routed(step, [path]), path)
+                self.assertFalse(ci_steps.routed(step, ["webviews/src/main.ts"]))
+        build = steps["web-production-build"]
+        self.assertEqual(build.job, "linux")
+        self.assertEqual(build.timeout, 360)
+        # next build writes web/.next/types and web/next-env.d.ts, which the web-typecheck step reads.
+        self.assertTrue(build.alone)
+        self.assertEqual(build.needs, ("bun",))
+        self.assertTrue(build.run.lstrip().startswith(
+            "python3 -I scripts/ci/web_subareas.py has production_build || exit 0"))
+        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile', build.run)
+        self.assertIn("bun run vercel-build", build.run)
+        build_env = next(s["env"] for s in web_jobs["web-production-build"]["steps"] if s.get("run") == "bun run vercel-build")
+        for key, value in build_env.items():
+            self.assertIn(f"export {key}={value}", build.run)
+        for path in ("web/app/page.tsx", "bun.lock", "vercel.json", "package.json"):
+            self.assertTrue(ci_steps.routed(build, [path]), path)
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -944,9 +1175,10 @@ class PipelineTest(unittest.TestCase):
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
-        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "zig", "zlib"])
+        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck"}
+                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-tests-4", "web-production-build"}
         wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
@@ -1402,9 +1634,16 @@ class BunInstallLockTest(unittest.TestCase):
         # Parallel steps share bun's global cache; two installs at once failed copying from it (ENOENT).
         for name, step in ci_steps.load().steps.items():
             for line in step.run.splitlines():
-                if re.search(r"\bbun (install|i)\b", line) and not line.lstrip().startswith("#"):
+                if line.lstrip().startswith("#"):
+                    continue
+                if re.search(r"\bbun (install|i)\b", line):
                     with self.subTest(step=name, line=line.strip()):
                         self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install', line)
+                # The bounded wrapper runs `bun install` too; unlocked, web-complexity's install raced
+                # web-typecheck's in the same web/node_modules (#55938).
+                if "bun-install.sh" in line:
+                    with self.subTest(step=name, line=line.strip()):
+                        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bash ', line)
 
 
 class WebBrowserStepsTest(unittest.TestCase):
@@ -1463,7 +1702,8 @@ class WebBrowserStepsTest(unittest.TestCase):
                 self.assertTrue(wf["jobs"][name]["if"].endswith(
                     "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
         status = wf["jobs"]["web-status"]["steps"][0]["run"]
-        self.assertIn('may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})', status)
+        self.assertIn('may_skip.update({"web-typecheck", "web-tests", "web-production-build", "web-instant-navigation", '
+                      '"agent-pane-real-acpmux"})', status)
 
 
 class IosJobTest(unittest.TestCase):
@@ -1521,6 +1761,149 @@ class IosJobTest(unittest.TestCase):
                 on = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())[True]
                 self.assertNotIn("pull_request", on)
                 self.assertLessEqual(kept, set(on))
+
+
+class CrateStore:
+    def __init__(self, hits: dict[str, str] | None = None) -> None:
+        self.hits = hits or {}  # step name -> key that passed
+        self.asked: list[tuple[str, str, bool]] = []
+        self.posted: list[tuple[str, str, str, bool]] = []
+        self.error = ""
+
+    def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        self.asked.append((key, step, audit))
+        return {"key": key, "run_url": "r"} if self.hits.get(step) == key else None
+
+    def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
+        self.posted.append((key, step, outcome, audit))
+
+
+class CrateResults(unittest.TestCase):
+    """scripts/ci/crate_results.py: cmux-next-daemon-tests keyed per crate (its files, its path dependencies', what
+    its sources name outside it), so a change to one crate reruns only the crates that reach it."""
+
+    TREE = {
+        "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a", "crates/b", "crates/c"]\n'
+                               '[workspace.dependencies]\nc = { path = "crates/c" }\n',
+        "cmux-tui/Cargo.lock": "# lock\n",
+        "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n',
+        "cmux-tui/crates/a/src/lib.rs": 'const X: &str = include_str!("../../../../shared/x.txt");\n'
+                                        'fn p() { let _ = std::path::Path::new("..").join("crates"); }\n',
+        "cmux-tui/crates/a/tests/ta.rs": "#[test] fn cmux_next_a() {}\n",
+        "cmux-tui/crates/b/Cargo.toml": '[package]\nname = "b"\n[dev-dependencies]\nc = { workspace = true }\n',
+        "cmux-tui/crates/b/src/lib.rs": "pub fn b() {}\n",
+        "cmux-tui/crates/b/tests/tb.rs": "#[test] fn cmux_next_b() {}\n",
+        "cmux-tui/crates/c/Cargo.toml": '[package]\nname = "c"\n',
+        "cmux-tui/crates/c/src/lib.rs": "pub fn c() {}\n",
+        "shared/x.txt": "x\n",
+        "other/y.txt": "y\n",
+    }
+    ARGS = ["-p", "a", "-p", "b", "--lib", "--test", "ta", "--test", "tb"]
+
+    def repo(self, changes: dict[str, str] | None = None) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(root)])
+        for path, text in {**self.TREE, **(changes or {})}.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "t"], cwd=root, check=True)
+        return root
+
+    def keys(self, changes: dict[str, str] | None = None) -> dict[str, str]:
+        root = self.repo(changes)
+        ws = crate_results.Workspace(crate_results.tree_files(root), crate_results.disk_reader(root))
+        return {n: crate_results.crate_key(ws, f, n, fl, ts, crate_results.step_doc({})) for n, f, fl, ts in crate_results.crates(ws, self.ARGS)}
+
+    def test_a_crate_key_moves_with_its_files_its_path_deps_and_what_it_names_outside_it(self):
+        base = self.keys()
+        dep = self.keys({"cmux-tui/crates/c/src/lib.rs": "pub fn c() { 1; }\n"})
+        self.assertEqual(dep["a"], base["a"], "a does not reach c")
+        self.assertNotEqual(dep["b"], base["b"], "b reaches c through a workspace dev-dependency")
+        named = self.keys({"shared/x.txt": "changed\n"})
+        self.assertNotEqual(named["a"], base["a"], "a's include_str! names shared/x.txt")
+        self.assertEqual(named["b"], base["b"])
+        self.assertEqual(self.keys({"other/y.txt": "z\n"}), base, "a file no crate reads moves no key")
+        self.assertNotEqual(self.keys({"cmux-tui/Cargo.lock": "# other\n"})["a"], base["a"], "the lock moves all")
+
+    def test_crate_step_names_are_ones_the_store_takes(self):
+        # build-fleet/cmd/controller/step_results.go stepResultStepRE: a name outside it is refused, every lookup misses.
+        store = CrateStore()
+        self.plan(store)
+        self.assertTrue(store.asked)
+        for _key, step, _audit in store.asked:
+            self.assertRegex(step, r"^[A-Za-z0-9._-]{1,80}$")
+
+    def test_a_climb_to_a_folder_around_the_crate_names_nothing(self):
+        root = self.repo()
+        ws = crate_results.Workspace(crate_results.tree_files(root), crate_results.disk_reader(root))
+        self.assertNotIn("cmux-tui/crates/b/src/lib.rs", ws.inputs("cmux-tui/crates/a"))
+
+    def plan(self, store, args=None, env=None):
+        root = self.repo()
+        state = root / "state.json"
+        out = io.StringIO()
+        runs = crate_results.plan(state, list(args or self.ARGS), env or {}, root=root, store=store, out=out)
+        return runs, state, out.getvalue()
+
+    def test_a_crate_whose_key_passed_before_does_not_run(self):
+        keys = self.keys()
+        runs, state, out = self.plan(CrateStore({"crate.a": keys["a"]}))
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"])
+        self.assertIn("a reused", out)
+        store = CrateStore()
+        crate_results.post(state, {}, store=store)
+        self.assertEqual([(k, s) for k, s, *_ in store.posted], [(keys["b"], "crate.b")])
+
+    def test_every_crate_reused_runs_nothing(self):
+        keys = self.keys()
+        runs, state, _ = self.plan(CrateStore({"crate.a": keys["a"], "crate.b": keys["b"]}))
+        self.assertEqual(runs, [])
+        store = CrateStore()
+        crate_results.post(state, {}, store=store)
+        self.assertEqual(store.posted, [])
+
+    def test_an_audited_hit_runs_and_posts_as_an_audit(self):
+        keys = self.keys()
+        with mock.patch.object(crate_results.ci_steps, "audited", lambda key, env: key == keys["a"]):
+            runs, state, out = self.plan(CrateStore({"crate.a": keys["a"]}))
+        self.assertIn("-p", runs)
+        self.assertIn("a", runs)
+        store = CrateStore()
+        crate_results.post(state, {}, store=store)
+        self.assertIn((keys["a"], "crate.a", "pass", True), store.posted)
+
+    def test_what_it_cannot_split_or_ask_runs_every_crate(self):
+        self.assertEqual(self.plan(CrateStore(), ["--workspace"])[0], ["--workspace"])
+        self.assertEqual(self.plan(CrateStore(), ["-p", "nope"])[0], ["-p", "nope"])
+        self.assertEqual(self.plan(CrateStore(), ["-p", "a", "--test", "nope"])[0], ["-p", "a", "--test", "nope"])
+        with mock.patch.object(crate_results.ci_steps.StepResults, "from_env", return_value=None):
+            runs, _state, out = self.plan(None)
+        self.assertEqual(runs, self.ARGS)
+        self.assertIn("no store", out)
+
+    def test_a_broken_plan_runs_every_crate_and_only_reused_all_skips(self):
+        out = io.StringIO()
+        with mock.patch.object(crate_results, "plan", side_effect=RuntimeError("boom")), \
+                mock.patch("sys.stdout", out), mock.patch("sys.stderr", io.StringIO()):
+            crate_results.main(["plan", "/dev/null", "--", "-p", "a"])
+        self.assertEqual(out.getvalue().strip(), "-p a")
+        out = io.StringIO()
+        with mock.patch.object(crate_results, "plan", return_value=[]), mock.patch("sys.stdout", out):
+            crate_results.main(["plan", "/dev/null", "--", "-p", "a"])
+        self.assertEqual(out.getvalue().strip(), crate_results.REUSED_ALL)
+
+    def test_the_step_plans_by_crate_and_posts_only_after_a_pass(self):
+        run = ci_steps.load().steps[crate_results.STEP].run
+        self.assertIn("crate_results.py plan", run)
+        self.assertIn('[ "$plan" = REUSED_ALL ]', run)
+        self.assertIn('[ -n "$plan" ] || plan="$all_members"', run, "an empty plan runs every crate")
+        self.assertIn('[ "$status" -ne 0 ] || python3 ../scripts/ci/crate_results.py post', run)
+        self.assertLess(run.index("crate_results.py plan"), run.index("rustup toolchain install"),
+                        "a step whose crates all hit installs and compiles nothing")
+        self.assertIn("scripts/ci/crate_results.py", ci_steps.load().steps[crate_results.STEP].inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

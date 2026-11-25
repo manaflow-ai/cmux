@@ -615,6 +615,8 @@ struct TransportPage: View {
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
     @AppStorage(DeveloperOptions.forceRelayKey) private var forceRelay = false
+    @AppStorage(DeveloperOptions.proxyOnlyKey) private var proxyOnly = false
+    @AppStorage(DeveloperOptions.dropWireGuardKey) private var dropWireGuard = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
@@ -670,6 +672,14 @@ struct TransportPage: View {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             Section {
+                Toggle(isOn: $settings.lanDirect) {
+                    Text("Direct on Wi-Fi")
+                }
+                .accessibilityIdentifier("settings.transport.lanDirect")
+            } footer: {
+                Text("Talk to your Mac directly when you share a network. Off: always use the relay.")
+            }
+            Section {
                 Toggle(isOn: $settings.quietCloudConnect) {
                     Text("Quiet Cloud Connections")
                 }
@@ -710,6 +720,14 @@ struct TransportPage: View {
                     Text("Relay via cmux (HTTPS) only")
                 }
                 .accessibilityIdentifier("settings.transport.forceRelay")
+                Toggle(isOn: $proxyOnly) {
+                    Text("Proxy only")
+                }
+                .accessibilityIdentifier("settings.transport.proxyOnly")
+                Toggle(isOn: $dropWireGuard) {
+                    Text("Drop WireGuard")
+                }
+                .accessibilityIdentifier("settings.transport.dropWireGuard")
                 Toggle(isOn: $browserVideoOnChannel) {
                     Text("Browser video on channel")
                 }
@@ -753,6 +771,9 @@ struct TransportDetails: View {
             #if DEBUG
             if explainsDeveloperOptions {
                 Text("Relay only forces TURN. Block UDP uses TURN over TLS for WireGuard; WebRTC is unchanged. Both reconnect immediately.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                Text("Proxy only blocks UDP and lets TURN over TLS out only through the system's proxy. Drop WireGuard drops WireGuard over UDP while STUN still answers, as a firewall that inspects packets. Both apply at the next connection.")
                     .font(theme.type.meta)
                     .foregroundStyle(theme.colors.label2)
                 Text("Browser video on channel skips the media lane at the next connection.")

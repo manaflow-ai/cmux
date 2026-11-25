@@ -131,6 +131,51 @@ class LandTierTests(unittest.TestCase):
             "pull_request", ev, land_switch="1"))
         self.assertEqual(start, ["cheap.yml", "heavy.yml"])
 
+    def test_full_ci_added_is_the_land_handoff_from_a_lane_vm(self) -> None:
+        # A lane VM's broker never sets ready-to-land (autoland's queue) but lets a lane add full-ci, so land-judge's
+        # land_tier asks with full-ci there: the same head must run the full tier and flip cmux/land-tier to success.
+        ev = land_event(labels=("full-ci",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml", "heavy.yml"])
+        old = os.environ.get("CI_LAND_TIER")
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            self.assertEqual(pr_router.land_status(ev, decided), "success")
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER", None)
+            else:
+                os.environ["CI_LAND_TIER"] = old
+
+    def test_the_route_job_runs_on_full_ci_added_and_skips_other_labels(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
+        cond = re.search(r"^    if: \$\{\{ (.*) \}\}$", text.split("  route:", 1)[1], re.M).group(1)
+        group = re.search(r"^  group: (.*)$", text, re.M).group(1)
+
+        def ev(expr: str, action: str, label: str) -> object:
+            values = {"github.event_name": "'pull_request'", "github.event.pull_request.base.ref": "'feat-cmux-next'",
+                      "github.event.action": repr(action), "github.event.label.name": repr(label),
+                      "github.event.pull_request.number": "'7'", "github.run_id": "'99'"}
+            expr = re.sub(r"(github\.event\.changes\.[\w.]+|github\.event\.pull_request\.body)", "None", expr)
+            expr = re.sub(r"contains\(None, '[^']*'\)", "False", expr)
+            expr = re.sub(r"format\('([^']*)', ([^)]*)\)", lambda m: repr(m.group(1).replace("{0}", "99")), expr)
+            for name, value in values.items():
+                expr = expr.replace(name, value)
+            expr = expr.replace("&&", " and ").replace("||", " or ").replace("!=", " __NE__ ")
+            expr = expr.replace("!", " not ").replace(" __NE__ ", " != ")
+            return eval(expr, {"__builtins__": {}}, {})  # noqa: S307 - our own workflow's expression
+
+        for action, label, routes in (("labeled", "ready-to-land", True), ("labeled", "full-ci", True),
+                                      ("unlabeled", "ready-to-land", True), ("unlabeled", "full-ci", False),
+                                      ("labeled", "risk:low", False), ("synchronize", "", True)):
+            with self.subTest(action=action, label=label):
+                self.assertEqual(bool(ev(cond, action, label)), routes)
+                # A routed label shares the head's group (it supersedes the cheap run); another gets its own.
+                parts = re.findall(r"\$\{\{ (.*?) \}\}", group)
+                own = any(isinstance(ev(p, action, label), str) and "-label-" in ev(p, action, label) for p in parts)
+                self.assertEqual(own, action in ("labeled", "unlabeled") and not routes)
+
     def test_the_land_status(self) -> None:
         old = os.environ.get("CI_LAND_TIER")
         try:
