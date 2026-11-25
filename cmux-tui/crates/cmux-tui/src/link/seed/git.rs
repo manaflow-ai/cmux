@@ -5,7 +5,8 @@
 //! store is dropped; the plan sets its own where it needs one.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+pub(super) use std::process::Command;
+use std::process::Stdio;
 
 /// git with the plan's fixed settings and no `-C` or `--git-dir` yet.
 fn base() -> Command {
