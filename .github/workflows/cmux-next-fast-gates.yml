@@ -82,7 +82,7 @@ jobs:
     steps:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -92,8 +92,38 @@ jobs:
           # fast gate's critical path ahead of the gates themselves.
           filter: blob:none
           sparse-checkout-cone-mode: false
-          sparse-checkout: |
+          sparse-checkout: &resolve-sparse |
             /.github/runners.json
+
+      - name: "Pool mirror: checkout the merge ref"
+        if: ${{ github.event_name == 'pull_request' && startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *resolve-sparse
+        # A cmux-runner-pool VM checks out from its local git mirror (/var/lib/cmux-git), not actions/checkout: that
+        # action adds --filter=blob:none to any sparse checkout, and a partial fetch borrowing the mirror makes git copy
+        # ~3 GB of promisor objects (60-75 s a checkout on 2026-11-25, while the pool ran a git shim that keeps the
+        # filter). Unfiltered, the fetch sends only what the mirror lacks. A fresh .git each time: an earlier job's
+        # partial checkout would keep its filter on every fetch. Every other runner has no mirror and uses the action.
+        run: &pool-checkout |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -212,14 +242,23 @@ jobs:
       fast_gates: ${{ steps.route.outputs.fast_gates }}
     steps:
       - name: Checkout the merge commit's router (trees only)
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
-          sparse-checkout: |
+          sparse-checkout: &route-sparse |
             /scripts/ci/
+
+      - name: "Pool mirror: checkout the merge commit's router (trees only)"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *route-sparse
+        run: *pool-checkout
       # A router failure leaves the output empty, and the gates run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
@@ -339,6 +378,7 @@ jobs:
       # the GitHub cache or a node download at Freestyle's ~0.9 MB/s). A step past its bound fails the job then and
       # names itself, instead of the job idling to its limit with no verdict.
       - name: Checkout
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         timeout-minutes: 8
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -348,7 +388,7 @@ jobs:
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
-          sparse-checkout: |
+          sparse-checkout: &gates-sparse |
             /*
             !/*/
             /scripts/
@@ -375,6 +415,15 @@ jobs:
             /backend/apps/api/
             *.xcstrings
 
+      - name: "Pool mirror: checkout"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *gates-sparse
+        run: *pool-checkout
+
       - name: Merge with the base
         id: prepare
         timeout-minutes: 8
@@ -395,6 +444,13 @@ jobs:
       # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch,
       # or a webviews/, catalog or spec change) installs webviews'; without either
       # none of this runs.
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         timeout-minutes: 4
@@ -451,6 +507,13 @@ jobs:
         run: rm -rf ~/.bun/install/cache
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       # Node comes from the runner's tool cache, else nodejs.org (scripts/ci/ensure-setup-node.sh: sha256 checked, curl
       # bounded), not actions/setup-node: on a Freestyle VM its download from GitHub's node-versions releases took
       # 175 to 428 s, or ran into the job limit (job 137555099878, 2026-11-23), while nodejs.org is not GitHub egress.
