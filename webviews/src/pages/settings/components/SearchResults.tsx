@@ -15,6 +15,8 @@ const searchInputs = (state: SettingsState) => ({
   rows: state.rows,
   revision: state.revision,
   devBuild: state.host?.dev_build === true,
+  // Settings > Devices' join consent state: the page-only places search matches beside the rows.
+  join: state.host?.devices_join ?? null,
 });
 
 // The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
@@ -33,9 +35,9 @@ const JoinGroup = lazy(() => import("./DevicesCard").then(({ JoinGroup }) => ({ 
 // and the results take only the query.
 export const SearchResults = memo(function SearchResults({ query }: { query: string }) {
   // Only what the filter reads: the values (a search finds a row by its value), the owner's
-  // revision and whether the host is a DEV build. The host's lists, connectivity and every other
+  // revision, whether the host is a DEV build and Devices' join consent state. The host's lists, connectivity and every other
   // part of the page's state change without filtering again or drawing the results.
-  const { rows, revision, devBuild } = useSettingsSelector(searchInputs, shallowEqual);
+  const { rows, revision, devBuild, join } = useSettingsSelector(searchInputs, shallowEqual);
   const store = useStore();
   const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
   const matches = useMemo(
@@ -54,7 +56,6 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
     [devBuild, query, rows, revision],
   );
   const shown = useMemo(() => new Set(matches.flatMap((match) => match.rows.map((row) => row.key))), [matches]);
-  const join = state.host?.devices_join ?? null;
   const places = useMemo(() => filterPlaces(query, joinConsentPlaces(join)), [join, query]);
   const shownPlaces = useMemo(() => new Set(places.map((place) => place.key)), [places]);
   // Pages the words name (their title, or the words of cards that draw no schema rows, such as
