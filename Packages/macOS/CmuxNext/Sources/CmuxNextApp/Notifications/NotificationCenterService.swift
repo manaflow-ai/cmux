@@ -146,7 +146,9 @@ final class NotificationCenterService {
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         let feed = services.feed
-        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL)
+        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL,
+                                             configuration: services.cloud.auth.configuration,
+                                             machineIO: { [weak services] in services?.cloud.auth.machineIO })
         let driver = makeFeedDriver(services, principal: principal)
         feedDriver = driver
         // The install id comes with the first install token: at launch and at each sign-in.

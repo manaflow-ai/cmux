@@ -326,6 +326,7 @@ impl ResourceOperation {
             Self::CloudOwnerGithubApp => "cloud.owner.github_app",
             Self::CloudOwnerGithubRepos => "cloud.owner.github_repos",
             Self::CloudOwnerGithubConnect => "cloud.owner.github_connect",
+            Self::CloudOwnerOp => "cloud.owner.op",
             Self::CloudOwnerTurnCheckpoint => "cloud.owner.turn_checkpoint",
             Self::CloudOwnerTurnRewind => "cloud.owner.turn_rewind",
             Self::CloudOwnerTurns => "cloud.owner.turns",
