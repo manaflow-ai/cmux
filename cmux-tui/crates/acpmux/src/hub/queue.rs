@@ -1467,6 +1467,7 @@ impl Hub {
             };
             if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
                 prompt_ledger::settle_once(outcome, answer);
+                super::turns::release_acceptance(session, prompt_id, outcome);
             }
             prompt_ledger::prune(ledger);
         }
@@ -1672,6 +1673,7 @@ impl Hub {
                     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
                         prompt_ledger::settle_once(outcome, result.clone());
+                        super::turns::release_acceptance(&session, &q.prompt_id, outcome);
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
