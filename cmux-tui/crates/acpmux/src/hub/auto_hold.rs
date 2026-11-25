@@ -100,7 +100,7 @@ impl Hub {
             }
         }
         let (hub, followed) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("auto-activate-follow", async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });
