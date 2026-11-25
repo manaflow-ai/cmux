@@ -34,6 +34,7 @@ export const WALK_PATHS = {
   autoArchive: "workspaces.autoArchive.style",
   settle: "sidebar.settleFinished",
   sendPop: "agentPane.display.sendPop",
+  sendScrollsToTop: "agentPane.display.sendScrollsToTop",
 } as const;
 const P = WALK_PATHS;
 
@@ -54,6 +55,7 @@ const SHIPPED: WalkValues = {
   [P.autoArchive]: "manual",
   [P.settle]: false,
   [P.sendPop]: false,
+  [P.sendScrollsToTop]: false,
 };
 
 /** The step's settings now, by dotted path: its own choices and the host's `walk` values. */
@@ -221,15 +223,22 @@ export function noiseWrites(value: WalkNoise, opened: WalkValues, current: WalkV
 
 // MARK: Chat feel: how a sent prompt arrives (design: "Send pop (chat feel)")
 
-export type WalkChatFeel = "instant" | "pop";
-export const CHAT_FEELS: readonly WalkChatFeel[] = ["instant", "pop"];
+/** Pinned (`top`): the sent prompt scrolls to the top with room below for the reply (cmux#56827, Leo:
+ * "sent message scrolls to top"), over agentPane.display.sendScrollsToTop; it keeps the pop as opened. */
+export type WalkChatFeel = "instant" | "pop" | "top";
+export const CHAT_FEELS: readonly WalkChatFeel[] = ["instant", "pop", "top"];
 
 export function chatFeel(current: WalkValues): WalkChatFeel {
+  if (effective(current, P.sendScrollsToTop) === true) return "top";
   return effective(current, P.sendPop) === true ? "pop" : "instant";
 }
 
 export function chatFeelWrites(value: WalkChatFeel, opened: WalkValues, current: WalkValues): WalkWrite[] {
-  return diff({ [P.sendPop]: resolve(opened, P.sendPop, value === "pop") }, current);
+  const pop = value === "top" ? (opened[P.sendPop] ?? null) : resolve(opened, P.sendPop, value === "pop");
+  return diff(
+    { [P.sendPop]: pop, [P.sendScrollsToTop]: resolve(opened, P.sendScrollsToTop, value === "top") },
+    current,
+  );
 }
 
 // MARK: The screens

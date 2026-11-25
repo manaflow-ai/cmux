@@ -177,7 +177,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay, useSendScrollsToTop } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -1942,6 +1942,8 @@ function TranscriptView({
   const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
+  // A sent prompt scrolls to the view's top (Settings, off by default; roomUnder.ts `sendTop`).
+  const sendScrollsToTop = useSendScrollsToTop();
   const measuredLook = useRef(chatLook);
   // The pane's attachment view moves a prompt's attachments between its bubble and the band above
   // it (UserBubble.tsx), so a new one estimates every prompt again (model.ts reads it).
@@ -4037,6 +4039,8 @@ function TranscriptView({
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
   const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
+  const promptTail = () =>
+    measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap;
   const under = roomUnder({
     following,
     sessionSwitched,
@@ -4059,8 +4063,14 @@ function TranscriptView({
     held: heldRoom.current,
     prompt: keptAt >= 0 ? rows[keptAt]!.id : undefined,
     // From the prompt's top, so a page of older history landing above it takes none of the room.
-    promptTail: () =>
-      measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap,
+    promptTail,
+    // Opt-in (Leo, cmux#56827: "sent message scrolls to top"): a prompt this view sent sits at the view's
+    // top, THREAD_TOP under it, with the room under it the reply fills. A chat opened on an old prompt keeps
+    // its end as before: only a prompt sent here (`sentPromptIds`) is put at the top.
+    sendTop:
+      sendScrollsToTop && keptAt >= 0 && sentPromptIdsForRender.has(rows[keptAt]!.id)
+        ? () => height - promptTail() - THREAD_TOP
+        : undefined,
     foldRoom,
     newerRoom,
     dragged: draggedHeight,

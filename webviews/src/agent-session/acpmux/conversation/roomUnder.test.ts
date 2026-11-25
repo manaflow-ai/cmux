@@ -30,6 +30,34 @@ const pass = (more: Partial<RoomUnderInput> = {}): RoomUnderInput => ({
   ...more,
 });
 
+describe("roomUnder: a sent prompt scrolled to the top (agentPane.display.sendScrollsToTop)", () => {
+  test("off (no sendTop): the room is exactly as before", () => {
+    expect(roomUnder(pass({ sendTop: undefined }))).toEqual(roomUnder(pass()));
+  });
+
+  test("on: room enough that the followed view's top is the prompt's; the reply fills it", () => {
+    // The prompt and its reply so far are 100 px; the view is 600: 500 px of room under them.
+    const sent = roomUnder(pass({ sendTop: () => 600 - 100 }));
+    expect(sent.room).toBe(500);
+    // The followed view's top (total - height) is where the prompt starts in the rows.
+    expect(sent.total - 600).toBe(1000 + 32 + 500 - 600);
+    // The reply grew 300 px: the room gives it back, so the content's end (and the prompt) stay put.
+    const grown = roomUnder(pass({ rowsHeight: 1300, sendTop: () => 600 - 400 }));
+    expect(grown.room).toBe(220);
+    // Taller than the view's room: the stack's room as before, the view follows the reply's end.
+    expect(roomUnder(pass({ rowsHeight: 1600, sendTop: () => 600 - 700 })).room).toBe(220);
+  });
+
+  test("on: never while scrolled up, or on another chat's first pass", () => {
+    expect(roomUnder(pass({ following: false, sendTop: () => 500 })).room).toBe(
+      roomUnder(pass({ following: false })).room,
+    );
+    expect(roomUnder(pass({ sessionSwitched: true, sendTop: () => 500 })).room).toBe(
+      roomUnder(pass({ sessionSwitched: true })).room,
+    );
+  });
+});
+
 describe("roomUnder", () => {
   test("nothing held: the room is the stack's, and the content ends under it", () => {
     const under = roomUnder(pass());

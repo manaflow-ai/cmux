@@ -171,6 +171,9 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
 /// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
 export const SEND_POP_KEY = "agentPane.display.sendPop";
+/// A sent prompt scrolls to the top of the transcript, with room under it for the reply (off by default;
+/// Leo, cmux#56827: "sent message scrolls to top"). Read by VirtualTranscript's room under the rows.
+export const SEND_SCROLLS_TO_TOP_KEY = "agentPane.display.sendScrollsToTop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -570,6 +573,7 @@ let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
 let pinnedPlanOn = false;
+let sendScrollsToTopOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -650,6 +654,7 @@ export function setChatDisplay(value: unknown): void {
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
+  const sendScrollsToTop = raw[SEND_SCROLLS_TO_TOP_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
   setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
@@ -712,6 +717,7 @@ export function setChatDisplay(value: unknown): void {
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
     pinnedPlan === pinnedPlanOn &&
+    sendScrollsToTop === sendScrollsToTopOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
@@ -739,6 +745,7 @@ export function setChatDisplay(value: unknown): void {
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
   pinnedPlanOn = pinnedPlan;
+  sendScrollsToTopOn = sendScrollsToTop;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
@@ -907,6 +914,10 @@ export const useChangesPillOn = (): boolean =>
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
+const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
+/// Whether a sent prompt scrolls to the transcript's top (SEND_SCROLLS_TO_TOP_KEY).
+export const useSendScrollsToTop = (): boolean =>
+  useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
