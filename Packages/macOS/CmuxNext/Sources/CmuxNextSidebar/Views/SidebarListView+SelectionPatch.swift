@@ -44,6 +44,8 @@ extension SidebarListViewComponents {
             paintSecondaryFills(view, id)
         }
         revealPatchedSelection()
+        // The flare moves with the selection in this same pass (`flush-goo`, ``CornerFlush/sidebarRowFlows``).
+        reportGooeySelection()
         return true
     }
 

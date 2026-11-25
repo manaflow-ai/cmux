@@ -1,0 +1,17 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Focus",
+  "version": "2.0.0",
+  "description": "A New Tab page with one question, what you are working on, and a timed session, with buttons for a chat or a terminal.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderFocus", "title": "Focus", "symbol": "scope" }
+  },
+  "scopes": {
+    "actions:run": "Start a chat or a terminal from the page.",
+    "storage:local": "Remember what you are working on and how many sessions you finished today."
+  }
+}

@@ -508,7 +508,9 @@ def sample(count, index, key, point, frame):
     # Cold start: no card open and the coordinator idle, or the sample is not counted (a card already open would
     # read as shown in a few ms with no pending phase, as the 200 workspace cell did in step b13acff317b8d8977670a944).
     cold = wait(lambda: (lambda c: c.get("phase") == "idle" and c.get("card_showing") != "true")(cards()), 3)
-    time.sleep(0.45)  # test harness: past the quick-reshow window, so the card opens cold
+    # sleep-ok: outlasts the app's quick-reshow timer (HoverCardTiming.reshowWindow, 300 ms from the card hiding),
+    # which debug.hover_cards does not report (the phase is idle through it), so the card opens cold.
+    time.sleep(0.45)
     activate()
     start = [frame[0] + frame[2] + 40, point[1]]
     move_path(off, start, 3)

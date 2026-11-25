@@ -19,7 +19,9 @@ import designScale from "../../schemas/design-scale/design-scale.json";
 await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () => {
   /** Every popup's glass is the menu level (ui/glass/glass.css GLASS LEVELS; Leo, 2026-11-11: "the styles
    * mix and they don't look good"): its tint, over its 32 px frost, is how dense the + menu is. */
-  const MENU_TINT = (designScale.glass.find((level) => level.name === "menu")?.tint ?? 78) / 100;
+  // The menu level's clearer side: dark runs a few points under light (design-scale glass menu darkTint).
+  const menuLevel = designScale.glass.find((level) => level.name === "menu") as { tint: number; darkTint?: number };
+  const MENU_TINT = Math.min(menuLevel.tint, menuLevel.darkTint ?? menuLevel.tint) / 100;
   setDefaultTimeout(150_000);
   try {
     await (await chromium.launch({ headless: true })).close();

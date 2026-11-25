@@ -90,6 +90,22 @@ describe("with no pack keys", () => {
       "--cv-codeblock-line-height": null,
       "--cv-mono": null,
       "--cv-column": null,
+      // A transcript look's parts (transcriptLook.ts): unset, the reply and the prompt draw as the chat.
+      "--cv-reply-font-size": null,
+      "--cv-reply-line-height": null,
+      "--cv-prompt-font": null,
+      "--cv-prompt-tracking": null,
+      "--cv-prompt-font-size": null,
+      "--cv-prompt-line-height": null,
+      // The transcript look's primitives (transcriptLook.ts), none set by the cmux look.
+      "--cv-user-bubble-pad-block": null,
+      "--cv-user-bubble-pad-inline": null,
+      "--cv-look-bubble-radius": null,
+      "--cv-user-bubble-share": null,
+      "--cv-user-bubble-fill": null,
+      "--cv-user-align": null,
+      "--cv-card-radius": null,
+      "--cv-code-radius": null,
     });
     expect(chatDisplayVariables(DEFAULT_CHAT_DISPLAY)).toEqual(variables);
   });

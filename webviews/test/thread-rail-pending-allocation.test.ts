@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { RailRows, tickRows, turnRows, pendingTurn } from "../src/agent-session/acpmux/threadMinimap/railRows";
 import { tickRanges } from "../src/agent-session/acpmux/threadMinimap/tickWindow";
@@ -14,7 +15,7 @@ const held = (count: number): AcpmuxRow[] =>
   }));
 
 test("10,000 count-only turns allocate only the twelve held turns and ticks", () => {
-  const read = minimapTurns(held(12), "allocation", undefined, undefined, [], 10000);
+  const read = minimapTurns(held(12), "allocation", undefined, undefined, PromptHeads.EMPTY, 10000);
   // These are the actual model objects retained before the rail renders, not DOM nodes.
   const objects = new Set([...read.turns, ...read.ticks]);
   console.log(`rail model objects at 10000 turns: ${objects.size}`);
@@ -52,15 +53,15 @@ test("placeholder allocations follow the visible window, not the historical coun
 
 test("history replaces the pending prefix in place and streaming keeps ticks", () => {
   const rows = held(12);
-  const initial = minimapTurns(rows, "pages", undefined, undefined, [], 10000);
+  const initial = minimapTurns(rows, "pages", undefined, undefined, PromptHeads.EMPTY, 10000);
   const older = held(24);
-  const page = minimapTurns(older, "pages", initial, undefined, [], 10000);
+  const page = minimapTurns(older, "pages", initial, undefined, PromptHeads.EMPTY, 10000);
   const initialRows = tickRows(initial.ticks, initial.pendingCount!, "pages");
   const pageRows = tickRows(page.ticks, page.pendingCount!, "pages");
   expect(pageRows.length).toBe(initialRows.length);
   for (const tick of initial.ticks) expect(pageRows.keyIndex(tick.key)).toBe(initialRows.keyIndex(tick.key));
   const reply: AcpmuxRow = { id: "reply", kind: "assistant", text: "A reply", at: 1, version: 1 };
-  const streamed = minimapTurns([...older, reply], "pages", page, undefined, [], 10000);
+  const streamed = minimapTurns([...older, reply], "pages", page, undefined, PromptHeads.EMPTY, 10000);
   expect(streamed.ticks).toBe(page.ticks);
   expect(streamed.pendingCount).toBe(page.pendingCount);
 });

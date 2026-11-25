@@ -112,6 +112,8 @@ final class TerminalClipboardRequests {
     /// it asks for confirmation only when the user set `ask` (and drops the
     /// write for `deny`), so an unconfirmed write is committed silently.
     func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        // Nothing to copy: no write, and no dialog asking to copy nothing.
+        guard !TerminalPasteboard.isBlank(items) else { return }
         switch Self.writeDecision(userInitiated: userClipboardWriteInProgress,
                                   requiresConfirmation: requiresConfirmation) {
         case .write:
@@ -203,22 +205,22 @@ final class TerminalClipboardRequests {
         let message: String
         switch kind {
         case .paste:
-            title = String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module)
-            message = String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module)
+            title = String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .localizedModule)
+            message = String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .localizedModule)
         case .osc52Read:
-            title = String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .module)
-            message = String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .module)
+            title = String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .localizedModule)
+            message = String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .localizedModule)
         case .osc52Write:
-            title = String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module)
-            message = String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module)
+            title = String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .localizedModule)
+            message = String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .localizedModule)
         }
         let limit = 2_000
         let preview = text.count > limit ? String(text.prefix(limit)) + "…" : text
         return CmuxDialogSpec(usesTransientMaterial: true,
             title: title, lines: [message], fields: [.preview(preview)],
             buttons: [
-                CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),
-                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module),
+                CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .localizedModule), role: .cancel),
+                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .localizedModule),
                                  role: kind == .paste ? .default : .normal),
             ],
             identifier: "cmux.dialog.terminalClipboard")

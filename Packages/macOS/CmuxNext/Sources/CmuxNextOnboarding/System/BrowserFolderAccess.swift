@@ -59,11 +59,11 @@ public final class BrowserFolderAccess {
     /// Keep in Sync over `store`, reading through the same folder grants as an import. Imported cookies
     /// are kept in sync into `cookies` (``ImportCookieSync``, its state beside the store's); `stopped`
     /// says once that a browser's cookies stopped syncing.
-    public func historySync(store: ImportedDataStore, cookies: any CookieDestination, stopped: @escaping ImportCookieSync.Stopped,
-                            deliver: @escaping ImportHistorySync.Deliver) -> ImportHistorySync {
+    public func historySync(store: ImportedDataStore, reader: BrowserDataReader, cookies: any CookieDestination,
+                            stopped: @escaping ImportCookieSync.Stopped, deliver: @escaping ImportHistorySync.Deliver) -> ImportHistorySync {
         let cookieSync = ImportCookieSync(store: store, grants: grants, destination: cookies, keys: SafeStorageKeys().live(),
                                           stateDirectory: store.directory.appending(path: "cookie-sync", directoryHint: .isDirectory), stopped: stopped)
-        return ImportHistorySync(store: store, grants: grants, cookies: cookieSync, deliver: deliver)
+        return ImportHistorySync(store: store, grants: grants, reader: reader, cookies: cookieSync, deliver: deliver)
     }
 
     /// Puts the granted folders of the plan's browsers in scope; call the

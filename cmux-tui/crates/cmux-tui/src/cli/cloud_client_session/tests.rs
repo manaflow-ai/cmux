@@ -154,6 +154,98 @@ fn exec_mints_then_runs_the_command_with_the_identity_token_and_never_prints_it(
     assert_eq!(body, json!({ "command": "echo hi", "linuxUser": "cmux", "timeoutMs": 30000 }));
 }
 
+/// A fake cmux API and a Freestyle whose edge cuts an exec held open (524, as production did
+/// at about 125 s on 2026-11-21): with `x-freestyle-background-after-secs` the exec answers 202
+/// and its stored answer is polled.
+fn fake_long_exec() -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let base = origin.clone();
+    let (sender, requests) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(3) {
+            let mut stream = stream.unwrap();
+            let mut buffer = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            let request = loop {
+                let n = stream.read(&mut chunk).unwrap();
+                buffer.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buffer).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if buffer.len() >= end + 4 + length || n == 0 {
+                        break text;
+                    }
+                }
+            };
+            let (status, body) = if request
+                .starts_with(&format!("POST /v1/cloud/machines/{VM}/client-session "))
+            {
+                (200, json!({ "ok": true, "value": { "machine": VM, "vm_id": "fsvm-1", "linux_user": "cmux", "token": TOKEN, "expires_at": 1_800_000_000_000_u64, "api_base_url": base, "ssh": null } }).to_string())
+            } else if request.starts_with("POST /v5/vms/fsvm-1/exec-await ") {
+                if request.to_ascii_lowercase().contains("x-freestyle-background-after-secs: 60") {
+                    (202, json!({ "requestId": "bg-1", "status": "pending" }).to_string())
+                } else {
+                    (524, "error code: 524".to_owned())
+                }
+            } else if request.starts_with("GET /v5/background-requests/bg-1 ") {
+                (200, json!({ "statusCode": 0, "stdout": "done\n", "stderr": "" }).to_string())
+            } else {
+                (404, "{}".to_owned())
+            };
+            let _ = stream.write_all(format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
+            let _ = sender.send(request);
+        }
+    });
+    (origin, requests)
+}
+
+#[test]
+fn exec_longer_than_the_provider_edge_holds_a_request_runs_as_a_background_request() {
+    let (origin, requests) = fake_long_exec();
+    let command = parse(&strings(&[
+        "exec",
+        "--target",
+        VM,
+        "--timeout-ms",
+        "290000",
+        "--",
+        "sleep",
+        "200;",
+        "echo",
+        "done",
+    ]))
+    .unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code =
+        run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err).unwrap();
+    assert_eq!(
+        (code, String::from_utf8(out).unwrap()),
+        (0, "done\n".to_owned()),
+        "{}",
+        String::from_utf8_lossy(&err)
+    );
+    let _mint = requests.recv().unwrap();
+    let _exec = requests.recv().unwrap();
+    let poll = requests.recv().unwrap().to_ascii_lowercase();
+    assert!(poll.starts_with("get /v5/background-requests/bg-1 "), "{poll}");
+    assert!(
+        poll.contains(&format!(
+            "x-freestyle-identity-access-token: {}",
+            TOKEN.to_ascii_lowercase()
+        )),
+        "{poll}"
+    );
+    assert!(!poll.contains("authorization:"), "{poll}");
+}
+
 #[test]
 fn create_writes_the_token_to_a_new_private_file_and_prints_the_ssh_line() {
     use std::os::unix::fs::PermissionsExt;

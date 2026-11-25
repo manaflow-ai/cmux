@@ -1,0 +1,138 @@
+{
+  "family": "automation",
+  "ops": {
+    "automation.audit.list": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a24222bba953f4c1"
+    },
+    "automation.create": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "bbaf1949316d7fa0"
+    },
+    "automation.delete": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "b9ebdc210f7eab46"
+    },
+    "automation.deploy": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "b66c3b0401ba0395"
+    },
+    "automation.get": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "09622e5a372548fa"
+    },
+    "automation.import": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "1d6077ac00cd0ad5"
+    },
+    "automation.list": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "1d17d3bf5be73e31"
+    },
+    "automation.run": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "94f36ec000f9c700"
+    },
+    "automation.runs.list": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "8bbbea2558e3f38f"
+    },
+    "automation.secret.list": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "2562ebdab63f1722"
+    },
+    "automation.secret.remove": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "destructive",
+      "digest": "fa6865fccb710da4"
+    },
+    "automation.secret.set": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "52f4af1634589dee"
+    },
+    "automation.settings.get": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "bf1455d88af1bff4"
+    },
+    "automation.settings.set": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "33f95826c6cbb67f"
+    },
+    "automation.teleport.abort": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "8604189ae7f3992a"
+    },
+    "automation.teleport.begin": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "0e4d054585a7e896"
+    },
+    "automation.teleport.complete": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "8b0cc87aec90bd93"
+    },
+    "automation.update": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "021778954f8d3144"
+    },
+    "automation.webhook.get": {
+      "source": "cloud",
+      "owner": "cloud:SchedulerDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "734c5f125de389ca"
+    }
+  }
+}

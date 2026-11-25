@@ -129,20 +129,20 @@ def status(report: dict) -> str:
     rows = report["rows"]
     total = sum(r["delta"] for r in rows.values())
     parts = ", ".join(f"{SHORT.get(row, row)} {r['delta']:+,d}" for row, r in rows.items())
-    line = (f"Swift logic: **{total:+,d} lines** ({parts}) against the merge base "
+    line = (f"Swift logic + mirror: **{total:+,d} lines** ({parts}) against the merge base "
             f"`{report['base'][:7]}`")
     largest = [a for a in report["added"] if a["row"] == "swift_logic_lines"] or report["added"]
     if largest:
         line += "; largest: " + ", ".join(_declaration(a) for a in largest[:STATUS_LARGEST])
     body = markdown(report).split("\n", 2)[2]  # without the `###` heading and its blank line
-    return (f"{line}\n<details><summary>Swift logic by module and declaration (a report, never a gate; "
+    return (f"{line}\n<details><summary>Swift logic + mirror by module and declaration (a report, never a gate; "
             f"scripts/cmux-next/swift-logic-delta.py)</summary>\n\n{body.rstrip()}\n</details>\n")
 
 
 def not_counted(reason: str) -> str:
     """The `swift-logic` section when the count could not be made: the line says so, nothing fails."""
     reason = " ".join(reason.split())[:300]
-    return f"Swift logic: not counted ({reason})\n"
+    return f"Swift logic + mirror: not counted ({reason})\n"
 
 
 def main(argv: list[str] | None = None) -> int:

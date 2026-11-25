@@ -12,7 +12,8 @@
 //     stdin: `flip NAME` flips and prints {"flipped": NAME, "n": N}; `window` prints the window line again; `quit`.
 //
 //   tab-switch-tools windows INTERVAL_MS
-//     Every INTERVAL_MS a JSON line {"windows": [{pid, owner, layer, alpha, bounds [x, y, w, h]}]} of every on-screen window
+//     Every INTERVAL_MS a JSON line {"windows": [{pid, owner, layer, alpha, bounds [x, y, w, h], number, onscreen,
+//     store, sharing}]} of every on-screen window, front to back
 //     (CGWindowList, no grant needed): the harness leaves out rounds a window that is not the app's covered.
 //
 //   tab-switch-tools decode MP4 OUT X Y W H OUTW MX MY MW MH
@@ -230,8 +231,9 @@ func runDecode(_ a: [String]) -> Never {
 // MARK: windows
 
 /// `tab-switch-tools windows INTERVAL_MS`: every INTERVAL_MS, one JSON line {"windows": [{"pid", "owner", "layer",
-/// "alpha", "bounds": [x, y, w, h]}]} of every on-screen window (global points, top-left origin; CGWindowList needs no
-/// grant for owners and bounds), front to back. The harness decides which are foreign (tab_switch_foreign.py).
+/// "alpha", "bounds": [x, y, w, h], "number", "onscreen", "store", "sharing"}]} of every on-screen window (global
+/// points, top-left origin; CGWindowList needs no grant for owners and bounds), front to back. The harness decides
+/// which are foreign and which can hide the app's pixels (tab_switch_foreign.py).
 func runWindows(_ intervalMs: Int) -> Never {
     while true {
         var rows: [[String: Any]] = []
@@ -243,7 +245,11 @@ func runWindows(_ intervalMs: Int) -> Never {
                          "owner": info[kCGWindowOwnerName as String] as? String ?? "",
                          "layer": info[kCGWindowLayer as String] as? Int ?? 0,
                          "alpha": info[kCGWindowAlpha as String] as? Double ?? 1.0,
-                         "bounds": box(rect)])
+                         "bounds": box(rect),
+                         "number": info[kCGWindowNumber as String] as? Int ?? 0,
+                         "onscreen": info[kCGWindowIsOnscreen as String] as? Bool ?? false,
+                         "store": info[kCGWindowStoreType as String] as? Int ?? -1,
+                         "sharing": info[kCGWindowSharingState as String] as? Int ?? -1])
         }
         emit(["windows": rows])
         usleep(UInt32(max(20, intervalMs)) * 1000)

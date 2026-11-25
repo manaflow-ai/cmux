@@ -54,6 +54,12 @@ class SidebarItemRowView: NSView {
     /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
     var onMore: (() -> Void)?
     var hoverMore: OverflowButton?
+    /// A pinned workspace tile's hover Unpin, left of its more button (David Beyer 2026-11-20: pinning by drag is
+    /// awkward): `isPinned` reads the workspace's pin when the controls show, nil when the App offers no pin;
+    /// `onUnpin` runs Pin/Unpin Workspace (`SidebarModel.workspacePin`).
+    var isPinned: (() -> Bool?)?
+    var onUnpin: (() -> Void)?
+    var hoverUnpin: SidebarIconButton?
     /// A double-click on a pinned workspace's row renames it in place (`SidebarItemRowView+Rename`).
     var onRename: (() -> Void)?
     /// The inline rename's editor draws over the title, which stays hidden until it ends.
@@ -93,6 +99,9 @@ class SidebarItemRowView: NSView {
     /// the trailing column, as a workspace row does; an icon look dots its glyph with `badge`.
     let rowBadge = RowBadgeView()
     let avatarView = SidebarAvatarView()
+    /// A Chief subagent's task count (`info.taskProgress`), "3/7" before the trailing marks, as a chat row draws its
+    /// one-line status (`WorkspaceRowView.timeLabel`); a row look only.
+    let taskCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The workspace item's status: the shared indicator (`info.activity`).
     let activity: StatusIndicatorView = {
         let view = StatusIndicatorView()
@@ -142,7 +151,7 @@ class SidebarItemRowView: NSView {
         pin.imageScaling = .scaleProportionallyUpOrDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, taskCount, badge, rowBadge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -180,19 +189,24 @@ class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly || isRenaming
-        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide) : nil
+        pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
         rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
         badge.notificationDot = info.unreadDot
         badge.configure(trailingDot ? .none : unreadState)
         activity.configure(info.activity, style: info.activityStyle)
-        // VoiceOver hears the count even where no badge draws (icons).
-        setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
-        // An icon names itself (and its shortcut) in its tooltip; a tile's
-        // caption can truncate, so it keeps the full title.
-        // The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
+        let tasks = style.isIconOnly || style == .chip || style == .favorite ? nil : info.taskProgress
+        taskCount.setString(tasks?.countText ?? "")
+        taskCount.isHidden = tasks == nil
+        // VoiceOver hears the count even where no badge draws (icons), and the task count in words.
+        let unread = info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) }
+        let words = info.taskProgress.map { Strings.taskProgress(done: $0.done, total: $0.total) }
+        let value = [unread, words].compactMap(\.self).joined(separator: ", ")
+        setAccessibilityValue(value.isEmpty ? nil : value)
+        // An icon names itself (and its shortcut) in its tooltip; an item that shows its title has none (a1315's
+        // cut 2). The profile control draws no name, so its tooltip says who it is: the email.
+        themedToolTip = info.avatar?.toolTip ?? info.tooltip ?? (style.isIconOnly ? info.toolTip : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive || info.isSecondarySelected)
@@ -217,6 +231,8 @@ class SidebarItemRowView: NSView {
             chip.backgroundColor = showsSwatchDot ? info.color.map(SidebarStyle.color)?.cgColor
                 : wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
             title.textColor = SidebarStyle.titleInk
+            // Quieter than the title by a full step, as a chat row's count (`WorkspaceRowView+Rendering`).
+            taskCount.setColor(Palette.textTertiary)
             icon.alphaValue = SidebarStyle.glyphOpacity
             pin.alphaValue = SidebarStyle.glyphOpacity
             // An icon is secondary at rest and full strength under the pointer
@@ -290,16 +306,16 @@ class SidebarItemRowView: NSView {
         // One icon column for every row (Lawrence 2026-10-28, "home and pinned are not aligned"; #38061): a band row's
         // glyph and a pinned row's pin start their ink on the icon column's leading edge, the row inset (its inset plus
         // the pill inset) where text-only titles start (Lawrence 2026-11-09), and a title after that glyph starts at the
-        // one text column (`SidebarStyle.leadingTextX`). A pinned row's own icon or color dot, when it has one, takes the
-        // pin's place in that column, so its title starts at Home's label x too (`SidebarPinnedRowLeading`, #38061); the
-        // `pinThenIcon` look draws it in the text column after the pin instead.
+        // one text column (`SidebarStyle.leadingTextX`). Every pinned row draws its pin in that column, and its own icon or color
+        // dot, when it has one, in the next column (`SidebarPinnedRowLeading.pinThenIcon`, #42431: a favicon in the pin's
+        // place left the row with no pin). The Debug `ownIcon` look draws that icon in the pin's place instead.
         let columns = bandColumns(in: b)
         // A missing workspace (its fallback glyph, dimmed) keeps its pin: the glyph is not the workspace's own icon.
         let showsPin = info.leadingPin && (bare && !showsSwatchDot || info.isMissing || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         // The pin's image follows `pinGlyphSide`, which moves with the density and type scale while `configure`
         // (which sets it) can skip an unchanged row: a stale, smaller image would draw off center in its frame.
         if showsPin, pin.image?.size.width != SidebarStyle.pinGlyphSide {
-            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide)
+            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid)
         }
         let pinFrame = showsPin ? pinGlyphFrame(side: SidebarStyle.pinGlyphSide, leading: columns.lead, height: b.height) : .zero
         // After a pin, the row's own icon, color dot and title move one icon column in.
@@ -331,12 +347,12 @@ class SidebarItemRowView: NSView {
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         pill.cornerCurve = isRailButton ? .continuous : Metrics.tabCornerCurve // one curve with the tabs
         // A text-only workspace with a color draws it as its list row does: a dot before the title. A pinned row's dot
-        // in the leading column centers in the rows' one optical glyph square, on the line Home's glyph, the globe, an
-        // app icon and the pin center on (`SidebarOpticalGlyph`, #42431).
+        // centers in the rows' one optical glyph square of its column, as a favicon or emoji there does: the column after
+        // the pin by default, the pin's own in the Debug `ownIcon` look (`SidebarOpticalGlyph`, #42431).
         let dot = SidebarStyle.dotSize, dotInk = CGRect(x: 0, y: 0, width: dot, height: dot)
         let dotScale = max(1, window?.backingScaleFactor ?? 2)
         chip.frame = showsSwatchDot
-            ? NSRect(x: info.leadingPin && !showsPin
+            ? NSRect(x: info.leadingPin
                         ? ((iconFrame.minX + (SidebarStyle.rowGlyphOpticalSide - dot) / 2) * dotScale).rounded() / dotScale
                         : SidebarStyle.iconColumnGlyphX(leading: iconFrame.minX, ink: dotInk),
                      y: (b.height - dot) / 2, width: dot, height: dot)
@@ -367,10 +383,9 @@ class SidebarItemRowView: NSView {
             icon.frame = frame
         } else {
             showGlyph(side: glyphSide)
-            // A bare glyph beside a title (Home, the band's rows, a pinned workspace's own icon in the pin's place)
-            // starts its ink on the leading icon column's edge, as the pin does (`SidebarStyle.bandGlyphX`). In the
-            // `pinThenIcon` look a pinned workspace's own icon after its pin sits in the text column and starts its ink
-            // there (`SidebarStyle.iconColumnGlyphX`). A glyph in a well centers its square in the well, a tile's in its tile.
+            // A bare glyph beside a title (Home, the band's rows, a pinned workspace's own icon after its pin) centers its
+            // ink in the rows' one optical glyph square of its column (`SidebarOpticalGlyph`, #42431). A glyph in a well
+            // centers its square in the well, a tile's in its tile.
             icon.frame = style == .builtIn && !isRailButton
                 ? inkColumnGlyphFrame(side: glyphSide, column: iconFrame)
                 : alignedGlyphFrame(side: glyphSide, centeredIn: style == .list ? wellFrame : iconFrame)
@@ -412,8 +427,24 @@ class SidebarItemRowView: NSView {
         // with no drop.
         let opticalDrop = style == .builtIn && !bare && !isRailButton && SidebarStyle.capCenteredBaseline(title.font ?? SidebarStyle.titleFont, centerY: 0) == nil
             ? (SidebarStyle.titleFont.pointSize * 0.04 * scale).rounded() / scale : 0
+        let textEnd = layoutTaskCount(before: activityLeading(before: badgeX), in: b)
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY) + opticalDrop,
-                             width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+                             width: max(0, textEnd - Metrics.space2 - textX), height: th)
+    }
+
+    /// Places the task count ("3/7") on the trailing columns before `marks` (where the row's trailing marks start), as a
+    /// chat row places its count (`WorkspaceRowView.layoutTime`), and returns where the title must end.
+    private func layoutTaskCount(before marks: CGFloat, in b: NSRect) -> CGFloat {
+        guard !taskCount.isHidden else { taskCount.frame = .zero; return marks }
+        let columns = bandColumns(in: b)
+        let hasMark = !badge.isHidden || !rowBadge.isHidden || activity.showsGlyph
+        let edge = hasMark ? marks : columns.trailingEdge
+        let width = ceil(max(taskCount.intrinsicContentSize.width,
+                             taskCount.attributedStringValue.size().width + 2 * WorkspaceRowView.labelInset))
+        let height = ceil(taskCount.intrinsicContentSize.height)
+        taskCount.frame = columns.trailingFrame(before: edge, centerY: b.midY, size: CGSize(width: width, height: height))
+        taskCount.frame.origin.y = SidebarStyle.textY(taskCount, centerY: b.midY)
+        return taskCount.frame.minX
     }
 
     /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
@@ -476,7 +507,7 @@ class SidebarItemRowView: NSView {
     }
 
     /// The cache key of the pin's ink (`SidebarGlyphInk`).
-    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)|solid"
 
     /// The leading pin's frame: its drawn ink, not its square, centers in the rows' one optical glyph square starting at
     /// `leading` (`SidebarOpticalGlyph`), the line Home's glyph centers on (#42431), centered on the row, on the device
@@ -507,9 +538,15 @@ class SidebarItemRowView: NSView {
     var pinSquareFrame: CGRect? { pin.isHidden || pin.image == nil ? nil : pin.frame }
 
     /// The ink in the row's leading icon column (tests): the pin, else a color dot, else the item's glyph (Home's, a
-    /// band row's, or a pinned workspace's own icon in the pin's place, `SidebarPinnedRowLeading`).
+    /// band row's, or, in the Debug `SidebarPinnedRowLeading.ownIcon` look, a pinned workspace's own icon in the pin's place).
     var leadingInkFrame: CGRect? {
         if let pin = pinInkFrame { return pin }
+        return ownIconInkFrame
+    }
+
+    /// The row's own mark in the row's coordinates (tests): its color dot, else its glyph's ink (an emoji, a symbol, a
+    /// favicon); nil for a text-only row. On a pinned row it sits after the pin (`SidebarPinnedRowLeading.pinThenIcon`).
+    var ownIconInkFrame: CGRect? {
         if showsSwatchDot { return chip.frame }
         return glyphInkFrame
     }
@@ -654,7 +691,6 @@ class SidebarItemRowView: NSView {
     }
 
     // MARK: Pointer
-
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

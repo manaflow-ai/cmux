@@ -4,8 +4,8 @@
 // something went wrong with a retry button just above the composer ... and then it layout shifted as it
 // drew and tried to settle"). #45558 made the host's own line (HostError.tsx, `.acpmux-host-line` and
 // `.acpmux-host-line-group`, test/agent-pane-host-line-still.test.ts) lie over the transcript's foot;
-// the composer's other notices take their own height in the same stack (bottomStack.css) and are not
-// held: an app notice about the agent service (PaneNotices.tsx, `.acpmux-host-error`) and the
+// the composer's other notices take their own height in the same stack (bottomStack.css), held the same way
+// (Leo, 2026-11-22: "that message should not shift layout"; no row moves, the composer neither): an app notice about the agent service (PaneNotices.tsx, `.acpmux-host-error`) and the
 // daemon's "Retrying…" line (AutoResumeNotice.tsx, `.acpmux-switch-notice`), both of which a relaunch
 // can bring late. Each is put in the floating stack where App.tsx draws it (before the composer form),
 // with its markup; the transcript sees it through the stack's size, as it sees the real one. Real
@@ -119,11 +119,10 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         // The notice took room in the stack (it is not an empty stand-in).
         expect(came.notice).toBeGreaterThan(12);
         expect(Math.max(...came.composer)).toBeLessThanOrEqual(1);
-        // A notice lies over the free room under the newest row and covers no row (#45558's rule), so the rows
-        // move only by what it needs past that room: none for one that fits (the "Retrying…" line), and
-        // height minus room for a taller one (the agent-service card). Whether a tall notice may cover the
-        // newest row's foot instead is open (a change to #45558's rule).
-        expect(Math.max(...came.rows)).toBeLessThanOrEqual(Math.max(1, came.notice - came.gap + 1));
+        // A notice lies over the free room under the newest row (#45558's rule), and one taller than that room
+        // (the agent-service card) lies over the newest row's foot too: no row moves for any notice (Leo,
+        // 2026-11-22: "that message should not shift layout"). The room takes it once the rows move anyway.
+        expect(Math.max(...came.rows)).toBeLessThanOrEqual(1);
         const went = await change(page, undefined);
         console.log(
           `${name} went: rows moved ${went.rows.join(",")}; composer moved ${went.composer.join(",")}; settled ${went.settle} ms`,

@@ -29,8 +29,8 @@ extension BrowserChromeView {
     /// while the omnibar would drop below its minimum with Forward shown and
     /// no extension button.
     func widthLeftByToolbarButtons() -> CGFloat {
-        let metrics = Self.toolbarMetrics
-        let gap = OmnibarStyle.buttonSpacing
+        let metrics = toolbarMetrics
+        let gap = OmnibarStyle.buttonSpacing(scale: OmnibarStyle.scale(of: self))
         let roomy = BrowserToolbarLayout(visiblePinned: 0, showsForward: true)
         let level = (0...2).first { candidate in
             let width = bounds.width - toolbarButtons.width(collapse: candidate) - gap

@@ -16,6 +16,7 @@
 //     Backspace on an empty query goes up; Return chooses (a folder in folder mode; a file, or
 //     enters a folder, in the file modes); the breadcrumb navigates.
 // The widget (roles, keys, highlight, announcements) is ui/DrillList; this file is the model glue.
+import { keycapLegend } from "../ui/keycapLegend";
 import { useRef, useState } from "react";
 import type { Strings } from "../pages/shared/i18n";
 import { PrefetchCache } from "../protocol/intents/prefetch";
@@ -428,7 +429,7 @@ export function PathPicker({
             {t(E.pickerHintUp)}
           </span>
           <span className="ve-hint">
-            <kbd>↩</kbd>
+            <kbd>{keycapLegend("↩")}</kbd>
             {t(E.pickerHintChoose)}
           </span>
         </span>
