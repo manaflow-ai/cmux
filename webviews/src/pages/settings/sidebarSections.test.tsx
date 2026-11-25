@@ -68,9 +68,9 @@ test("the sidebar draws six page links, and the shown page's categories under it
       inert: boolean;
     };
   expect(children("ai").hasAttribute("data-open")).toBe(true);
-  expect(children("ai").inert).toBe(false);
+  expect(children("ai").hasAttribute("inert")).toBe(false);
   expect(children("general").hasAttribute("data-open")).toBe(false);
-  expect(children("general").inert).toBe(true);
+  expect(children("general").hasAttribute("inert")).toBe(true);
   expect(container.querySelector('[data-sidebar-page="ai"]')!.hasAttribute("data-open")).toBe(true);
   expect(container.querySelector('[data-section-link="agents"]')!.getAttribute("aria-current")).toBe("page");
 });
