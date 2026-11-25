@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import copy
+import io
 import re
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from codegen.ir import load_ir, load_ir_document
 from codegen.swift_app import emit, generate
@@ -99,7 +101,7 @@ def layout_document() -> dict[str, Any]:
 
 def layout_bindings() -> dict[str, Any]:
     return {
-        "output_root": "Sources/Requests",
+        "sources_root": "Sources/Daemon",
         "ids": {"pane": "PaneID", "split": "SplitID", "column": "ColumnID", "zoomed_pane": "PaneID"},
         "types": {"RowHeight": "RowHeightValue"},
         "families": {
@@ -345,76 +347,125 @@ class BindingErrorTests(unittest.TestCase):
         self.assert_refused("swap-pane", bindings=bindings)
 
 
-class CheckAndWriteTests(unittest.TestCase):
+class OutAndCheckTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        # The repository sits one level down, so a path that escapes it stays inside this temp folder
-        # (`../Requests` is temp/Requests, never a shared folder) and tearDown removes it.
+        # The repository sits one level down, so a path that escapes it stays inside this temp folder.
         self.root = Path(self.temp.name) / "repo"
         self.root.mkdir()
-        import json
-
-        (self.root / "schema.json").write_text(json.dumps(layout_document()), encoding="utf-8")
-        (self.root / "bindings.json").write_text(json.dumps(layout_bindings()), encoding="utf-8")
-        self.out = self.root / "Sources" / "Requests"
+        self.write_inputs(layout_bindings())
+        self.sources = self.root / "Sources" / "Daemon"
+        self.sources.mkdir(parents=True)
+        # The plugin's work folder: outside every package Sources folder.
+        self.out = Path(self.temp.name) / "plugin-work" / "Generated"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def run_mode(self, mode: str) -> list[str]:
-        return generate.run(
-            mode=mode, schema=self.root / "schema.json", bindings=self.root / "bindings.json", repo_root=self.root
-        )
+    def write_inputs(self, bindings: dict[str, Any]) -> None:
+        import json
 
-    def test_check_fails_until_written_then_passes(self) -> None:
-        self.assertTrue(any("missing" in problem for problem in self.run_mode("check")))
-        self.assertEqual(self.run_mode("write"), [])
-        self.assertEqual(self.run_mode("check"), [])
+        (self.root / "schema.json").write_text(json.dumps(layout_document()), encoding="utf-8")
+        (self.root / "bindings.json").write_text(json.dumps(bindings), encoding="utf-8")
 
-    def test_a_hand_edit_of_a_generated_file_fails_the_check(self) -> None:
-        self.run_mode("write")
-        path = self.out / "Layout" / "SwapPaneRequest.generated.swift"
-        path.write_text(path.read_text(encoding="utf-8") + "// edit\n", encoding="utf-8")
-        self.assertEqual(self.run_mode("check"), ["changed Layout/SwapPaneRequest.generated.swift"])
+    def run_mode(self, mode: str, out: Path | None = None) -> list[str]:
+        return generate.run(mode=mode, schema=self.root / "schema.json", bindings=self.root / "bindings.json",
+                            repo_root=self.root, out=out if out is not None else self.out)
 
-    def test_a_stale_owned_file_fails_the_check_and_write_removes_it(self) -> None:
-        self.run_mode("write")
+    def test_out_writes_every_file_and_a_second_run_changes_nothing(self) -> None:
+        self.assertEqual(self.run_mode("out"), [])
+        written = sorted(p.relative_to(self.out).as_posix() for p in self.out.rglob("*.swift"))
+        self.assertEqual(written, sorted(rendered()))
+        stamps = {p: p.stat().st_mtime_ns for p in self.out.rglob("*.swift")}
+        self.run_mode("out")
+        self.assertEqual(stamps, {p: p.stat().st_mtime_ns for p in self.out.rglob("*.swift")})
+
+    def test_out_restores_an_edited_file_and_deletes_a_stale_one(self) -> None:
+        self.run_mode("out")
+        edited = self.out / "Layout" / "SwapPaneRequest.generated.swift"
+        edited.write_text(edited.read_text(encoding="utf-8") + "// edit\n", encoding="utf-8")
         stale = self.out / "Old" / "OldRequest.generated.swift"
         stale.parent.mkdir(parents=True)
         stale.write_text(HEADER_MARK + "\n", encoding="utf-8")
-        self.assertEqual(self.run_mode("check"), ["stale Old/OldRequest.generated.swift"])
-        self.assertEqual(self.run_mode("write"), [])
+        self.run_mode("out")
+        self.assertEqual(edited.read_text(encoding="utf-8"), rendered()["Layout/SwapPaneRequest.generated.swift"])
         self.assertFalse(stale.exists())
+        self.assertFalse(stale.parent.exists())
 
-    def test_an_output_root_outside_the_repository_is_refused(self) -> None:
-        import json
+    def test_out_never_writes_where_swiftpm_compiles_sources(self) -> None:
+        for out in (self.sources / "Generated", self.sources, self.root / "Other" / "Sources" / "X"):
+            with self.subTest(out=out):
+                with self.assertRaises(BindingError):
+                    self.run_mode("out", out)
+                self.assertEqual(list(out.rglob("*.generated.swift")) if out.exists() else [], [])
 
-        for root in ("/abs/Requests", "../Requests", "Sources/../../Requests", ""):
+    def test_a_sources_root_outside_the_repository_is_refused(self) -> None:
+        for root in ("/abs/Sources", "../Sources", "Sources/../../X", ""):
             with self.subTest(root=root):
                 bindings = layout_bindings()
-                bindings["output_root"] = root
-                (self.root / "bindings.json").write_text(json.dumps(bindings), encoding="utf-8")
+                bindings["sources_root"] = root
+                self.write_inputs(bindings)
                 with self.assertRaises(BindingError):
-                    self.run_mode("write")
-                self.assertFalse((self.root.parent / "Requests").exists())
+                    self.run_mode("check")
 
     def test_a_hand_written_file_at_a_generated_path_is_never_replaced(self) -> None:
         path = self.out / "Layout" / "SwapPaneRequest.generated.swift"
         path.parent.mkdir(parents=True)
         path.write_text("// hand-written\n", encoding="utf-8")
-        for mode in ("check", "write"):
-            with self.subTest(mode=mode):
-                with self.assertRaises(BindingError):
-                    self.run_mode(mode)
-                self.assertEqual(path.read_text(encoding="utf-8"), "// hand-written\n")
+        with self.assertRaises(BindingError):
+            self.run_mode("out")
+        self.assertEqual(path.read_text(encoding="utf-8"), "// hand-written\n")
 
-    def test_a_generated_file_of_another_generator_is_not_owned(self) -> None:
-        self.run_mode("write")
+    def test_a_generated_file_of_another_generator_is_left_alone(self) -> None:
+        self.run_mode("out")
         other = self.out / "Layout" / "Other.generated.swift"
         other.write_text("// GENERATED by another tool\n", encoding="utf-8")
-        self.assertEqual(self.run_mode("check"), [])
-        self.run_mode("write")
+        self.run_mode("out")
         self.assertTrue(other.exists())
+
+    def test_check_passes_and_writes_nothing_when_no_type_is_also_hand_written(self) -> None:
+        (self.sources / "SwapPaneRequest+Target.swift").write_text(
+            "public enum SwapTarget {}\nextension SwapPaneRequest {}\n", encoding="utf-8")
+        self.assertEqual(self.run_mode("check"), [])
+        self.assertFalse(self.out.exists())
+
+    def test_check_refuses_a_generated_type_that_is_still_hand_written(self) -> None:
+        (self.sources / "Layout").mkdir()
+        (self.sources / "Layout" / "ZoomPane.swift").write_text(
+            "public struct ZoomPaneRequest: DaemonRequest {}\n", encoding="utf-8")
+        (self.sources / "Layout" / "Direction.swift").write_text(
+            "@frozen public enum PaneDirection: String { case up }\n", encoding="utf-8")
+        problems = self.run_mode("check")
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(any("ZoomPaneRequest is generated" in p and "ZoomPane.swift" in p for p in problems))
+        self.assertTrue(any("PaneDirection is generated" in p for p in problems))
+
+    def test_check_fails_when_a_family_cannot_generate(self) -> None:
+        bindings = layout_bindings()
+        del bindings["types"]["RowHeight"]
+        self.write_inputs(bindings)
+        with self.assertRaises(BindingError):
+            self.run_mode("check")
+
+
+class CommandLineTests(unittest.TestCase):
+    def test_write_is_gone_and_out_or_check_is_required(self) -> None:
+        for argv in ([], ["--write"]):
+            with self.subTest(argv=argv):
+                with self.assertRaises(SystemExit) as raised, \
+                        mock.patch("sys.stderr", new_callable=io.StringIO):
+                    generate.main(argv)
+                self.assertEqual(raised.exception.code, 2)
+
+    def test_the_sdk_generator_only_ever_checks_the_swift_step(self) -> None:
+        from codegen import generate as sdk_generate
+
+        for mode in ("--check", "--write"):
+            with self.subTest(mode=mode), mock.patch.object(sdk_generate, "run_generation", return_value=()), \
+                    mock.patch("codegen.page_router.main", return_value=0), \
+                    mock.patch("codegen.swift_app.generate.main", return_value=0) as swift_main:
+                self.assertEqual(sdk_generate.main([mode]), 0)
+                swift_main.assert_called_once_with(["--check"])
 
 
 class SdkGeneratorHookTests(unittest.TestCase):
@@ -443,35 +494,21 @@ class SdkGeneratorHookTests(unittest.TestCase):
 class RepositoryBindingsTests(unittest.TestCase):
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
-        self.assertTrue(generate.output_root(REPO, bindings).is_dir())
+        self.assertTrue(generate.sources_root(REPO, bindings).is_dir())
         files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
         self.assertEqual(len(files), sum(
             len(family.get("enums", {})) + len(family.get("requests", {}))
             for family in bindings.get("families", {}).values()
         ))
+        self.assertIn("Layout/SetColumnWidthRequest.generated.swift", files)
 
-    def test_the_layout_bindings_render_against_the_repository_schema(self) -> None:
-        """The binding the Layout family will use (backlog A4b) still renders against today's schema."""
-        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
-        bindings["ids"] = {"column": "ColumnID", "pane": "PaneID", "split": "SplitID", "zoomed_pane": "PaneID"}
-        bindings["types"] = {"RowHeight": "RowHeightValue"}
-        bindings["families"] = {"Layout": {
-            "enums": {"ColumnMoveDirection": {}, "PaneDirection": {}},
-            "requests": {
-                "move-column": {"name": "MoveColumnRequest", "response": "EmptyResponse"},
-                "set-column-dock": {"name": "SetColumnDockRequest", "response": "EmptyResponse"},
-                "set-row-heights": {"name": "SetRowHeightsRequest", "response": "EmptyResponse"},
-                "set-split-ratio": {"name": "SetSplitRatioRequest"},
-                "set-viewport-pane-width": {"name": "SetColumnWidthRequest", "response": "EmptyResponse"},
-                "swap-pane": {"name": "SwapPaneRequest", "fields": {"target": {"type": "PaneID"}}},
-                "undo-layout": {"name": "UndoLayoutRequest", "response": "hand-written"},
-                "zoom-pane": {"name": "ZoomPaneRequest", "response": "generate"},
-            },
-        }}
-        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
-        self.assertEqual(len(files), 10)
-        self.assertIn('public static let command = "set-viewport-pane-width"', files["Layout/SetColumnWidthRequest.generated.swift"])
-
+    def test_the_repository_passes_its_own_check(self) -> None:
+        """No generated type is still declared by hand in CmuxNextDaemon (the build would fail to compile)."""
+        self.assertEqual(
+            generate.run(mode="check", schema=generate.DEFAULT_SCHEMA, bindings=generate.DEFAULT_BINDINGS,
+                         repo_root=REPO),
+            [],
+        )
 
 if __name__ == "__main__":
     unittest.main()

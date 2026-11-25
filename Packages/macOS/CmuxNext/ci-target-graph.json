@@ -2644,6 +2644,12 @@
       "packages": [],
       "reads": []
     },
+    "DaemonWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Sources/DaemonWireTypesPlugin",
+      "targets": [],
+      "packages": []
+    },
     "SettingsSchemaPlugin": {
       "kind": "plugin",
       "path": "Packages/macOS/CmuxNext/Sources/SettingsSchemaPlugin",
