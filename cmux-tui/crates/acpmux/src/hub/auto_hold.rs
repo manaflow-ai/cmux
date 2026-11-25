@@ -100,7 +100,8 @@ impl Hub {
             }
         }
         let (hub, followed) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        // The hub's scope owns it: a closing hub ends it.
+        self.scope.spawn_named("auto-activate", async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });
