@@ -200,9 +200,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var audio: SidebarWorkspaceAudio?
     /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
     public var checklist: [SidebarChecklistItem] = []
-    /// How far its agent chat is through its task list while steps are left (`SidebarLaneStatus`,
-    /// `sidebar.taskProgress`): the row's "3/7" and the hover card's lines. Nil otherwise.
-    public var taskProgress: SidebarTaskProgress?
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
     /// Its agent chats' subagents, which the row lists under its name (`SidebarSubagentStrip`); nil without any.

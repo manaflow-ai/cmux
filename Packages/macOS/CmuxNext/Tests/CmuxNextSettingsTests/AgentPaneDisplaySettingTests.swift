@@ -28,8 +28,6 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.chatListStatusPills", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The header title as a monospace slash path (taste prototype): off, the plain title.
         Row(key: "agentPane.display.headerBreadcrumb", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
-        // The running turn's task list pinned in the chat: off, the composer's hat shows it.
-        Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
         Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
