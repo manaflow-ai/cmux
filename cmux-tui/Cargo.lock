@@ -2359,6 +2359,7 @@ name = "cmux-migrate"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -2873,8 +2874,10 @@ dependencies = [
 name = "cmux-sync"
 version = "0.1.0"
 dependencies = [
+ "diffy",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
