@@ -7,6 +7,7 @@
 
   // Everforest's darkest terminal theme, with a moss-green selection.
   "appearance.theme": "Everforest Dark Hard",
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#1e2326", "foreground": "#d3c6aa", "selection": "#3c4d3b", "accent": "#a7c080" },
   "appearance.accent": "theme",
 
