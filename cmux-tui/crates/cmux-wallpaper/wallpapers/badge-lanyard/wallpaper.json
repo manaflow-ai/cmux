@@ -1,0 +1,15 @@
+{
+  "id": "badge-lanyard",
+  "name": "Name Badge",
+  "description": "Your name badge hangs on a lanyard over a soft gradient. Grab it and throw it; it swings, turns on its strap and settles. When it rests it costs nothing.",
+  "scene": "scene.json",
+  "fps": 60,
+  "scale": 0.75,
+  "interactive": true,
+  "still": { "time": 8.0, "pointer": [0.5, 0.5] },
+  "variants": [
+    { "name": "Lavender", "accent": "#8E7CF0" },
+    { "name": "Peach", "accent": "#F08A4B" },
+    { "name": "Sky", "accent": "#5B8DEF" }
+  ]
+}

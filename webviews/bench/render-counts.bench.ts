@@ -67,6 +67,7 @@ const record = (scenario: string, per: string, counts: RenderCounts, ms: number)
   };
   pack("WHY", Object.entries(counts.why));
   pack("MOUNT", Object.entries(counts.mountsByComponent));
+  pack("STARTS", Object.entries(counts.starts ?? {}));
 };
 
 /// Two frames and a task after them: whatever the event scheduled has committed.

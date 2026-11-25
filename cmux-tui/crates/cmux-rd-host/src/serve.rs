@@ -8,6 +8,7 @@
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
 //!    "max_kbps":null,"cursor":null (the viewer's Customize wishes, src/serve_wish.rs),
+//!    "window":null (or a window id from the `windows` line: share that one window),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
@@ -45,9 +46,6 @@ use std::time::{Duration, Instant};
 
 /// How long the viewer has to connect and say hello after the host starts.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-/// Datagram size inside the link: the rd shard size minus the seal overhead fits one
-/// 1280-byte IPv6 minimum MTU path with headroom for a relay's framing.
-const MAX_DATAGRAM: usize = 1152 - cmux_rd_link::SEAL_OVERHEAD;
 
 #[derive(Deserialize)]
 struct Viewer {
@@ -57,6 +55,9 @@ struct Viewer {
 
 #[derive(Deserialize)]
 struct Setup {
+    /// Raw signed peer marker: omission preserves the legacy protocol.
+    #[serde(default)]
+    peer_carrier: crate::carrier::LinkMode,
     session: String,
     peer_key: String,
     viewer: Viewer,
@@ -78,6 +79,9 @@ struct Setup {
     /// Whether the stream shows the cursor (`a=cmux-rd-cursor`; none: it does).
     #[serde(default)]
     cursor: Option<bool>,
+    /// Share this one window (an id from the `windows` app line) instead of a display.
+    #[serde(default)]
+    window: Option<u32>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
@@ -174,17 +178,31 @@ fn linux_displays(capture: CaptureBackend, display: &str, pick: Option<&str>) ->
                 let root = &x11rb::connection::Connection::setup(&conn).roots[screen];
                 let size = (u32::from(root.width_in_pixels), u32::from(root.height_in_pixels));
                 let monitors = crate::x11_view::monitors(&conn, root.root, size);
-                crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect()
+                let sizes =
+                    crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect();
+                // The windows the viewer may share one of (the setup line's `window`).
+                let windows = crate::x11_window::list(&conn, root.root, size)
+                    .into_iter()
+                    .map(|w| cmux_rd_proto::app_line::LineWindow {
+                        id: w.id,
+                        title: w.title,
+                        width: w.rect.w,
+                        height: w.rect.h,
+                    })
+                    .collect();
+                (sizes, windows)
             }),
-        CaptureBackend::Portal => capture.available().map(|()| Vec::new()),
+        // The portal shares what the person picks in its own dialog.
+        CaptureBackend::Portal => capture.available().map(|()| (Vec::new(), Vec::new())),
     };
     match listed {
-        Ok(sizes) => {
+        Ok((sizes, windows)) => {
             // The viewer's pick is current when it is on the list (else the share refuses it).
             let current =
                 pick.and_then(|w| w.trim().parse::<usize>().ok()).filter(|&i| i < sizes.len());
             AppLine {
                 displays: Some(sizes),
+                windows: Some(windows),
                 current: Some(current.unwrap_or(0)),
                 ..AppLine::default()
             }
@@ -236,6 +254,7 @@ impl ServeCarrier {
     fn pump_app(&mut self) -> Result<(), String> {
         for later in self.app.read()? {
             if later.stop {
+                self.link.invalidate();
                 return Err("stopped by the host".into());
             }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
@@ -315,7 +334,7 @@ const WAN_START_KBPS: u32 = 8_000;
 const LAN_START_KBPS: u32 = 30_000;
 /// A round trip under this counts as LAN when the path's class does not say so (a peer
 /// first learned during the handshake is classed `direct_wan`).
-const LAN_RTT_US: u64 = 5_000;
+const LAN_RTT_US: u64 = cmux_rd_core::cc::LAN_RTT_US;
 
 /// The start bitrate when `--start-kbps` is not given, from the current path's class and
 /// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN.
@@ -377,6 +396,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     match crate::desktop::displays(&display) {
         Ok((sizes, current, ids)) => say(AppLine {
             displays: Some(sizes),
+            // The windows the viewer may share one of (the setup line's `window`).
+            windows: Some(crate::desktop::windows()),
             current: Some(current),
             display_ids: (!ids.is_empty()).then_some(ids),
             ..AppLine::default()
@@ -415,15 +436,19 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host, setup.peer_carrier)?,
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, &display, capture, view_only, &mut carrier) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
     };
-    let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
-    say(AppLine { ended: Some(reason), ..AppLine::default() });
+    if let Some(fallback) = carrier.link.take_fallback() {
+        say(AppLine { fallback: Some(fallback), ..AppLine::default() });
+    } else {
+        let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
+        say(AppLine { ended: Some(reason), ..AppLine::default() });
+    }
     // Dropping the carrier closes the link (the viewer sees the close at once).
     drop(carrier);
     Ok(())
@@ -475,25 +500,34 @@ fn session_cfg(
     // The host's ceiling (profile and `--max-kbps`), then the viewer's Customize cap within it:
     // one cap, the congestion controller's `max_bps`.
     let host_max_kbps = cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000);
-    let max_kbps = crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps);
-    let start_kbps = crate::serve_wish::start_kbps(
-        opts.num_or("start-kbps", default_start_kbps(None, None, None, max_kbps))?,
-        max_kbps,
-    );
+    // `--pin-kbps N` (bench builds) holds the controller at N: start, floor and ceiling.
+    let pin_kbps = crate::host::pin_kbps(opts)?;
+    let max_kbps =
+        pin_kbps.unwrap_or_else(|| crate::serve_wish::max_kbps(setup.max_kbps, host_max_kbps));
+    let start_kbps = match pin_kbps {
+        Some(pin) => pin,
+        None => crate::serve_wish::start_kbps(
+            opts.num_or("start-kbps", default_start_kbps(None, None, None, max_kbps))?,
+            max_kbps,
+        ),
+    };
     Ok(SessionCfg {
         display,
         display_pick: setup.display.clone(),
+        window: setup.window,
         max_fps,
         encode_profile,
         start_kbps,
         max_kbps,
+        pin_kbps,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
         content: "screen".into(),
         openh264_lib: None,
         threads: crate::encoder::default_threads(),
-        stats_every_ms: 1000,
+        // `--stats-every-ms 100` (the bench's 100 ms rate series); 100 ms is the floor.
+        stats_every_ms: opts.num_or("stats-every-ms", 1000u64)?,
         settle_us: crate::host::DEFAULT_SETTLE_US,
         upstream_record: None,
         upstream_record_max_bytes: 0,
@@ -549,14 +583,14 @@ fn serve_session(
     // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
     // descriptor never sees them.
     carrier.pump_app()?;
-    while hello.is_none() || start.is_none() {
+    while hello.is_none() || start.is_none() || !carrier.link.media_ready() {
         let left = CONNECT_TIMEOUT.saturating_sub(started.elapsed());
         if left.is_zero() {
             return Ok("the viewer did not connect within 30 s".into());
         }
-        crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos() as u64))?;
+        crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos().min(25_000_000) as u64))?;
         carrier.pump_app().map_err(|e| e.to_string())?;
-        for event in carrier.link.net.events() {
+        for event in carrier.link.events() {
             if let Some(line) = event.phase_line() {
                 println!("{line}");
             }
@@ -573,6 +607,9 @@ fn serve_session(
                     match serde_json::from_slice::<Control>(&record) {
                         Ok(h @ Control::Hello { .. }) => hello = Some(h),
                         Ok(s @ Control::Start { .. }) => start = Some(s),
+                        Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. }) => {
+                            return Ok("viewer stopped or refused the session".into())
+                        }
                         _ => {}
                     }
                 }
@@ -598,6 +635,9 @@ fn serve_session(
             say(AppLine { candidates_done: true, ..AppLine::default() });
         }
         carrier.report_paths();
+        if carrier.link.retry_ready() {
+            return Ok("carrier retry acknowledged".into());
+        }
         if answer.said && desktop.is_none() {
             let cursor = show_cursor && crate::desktop::reports_cursor();
             desktop = Some(OpenedDesktop::open(&cfg, cursor));
@@ -669,13 +709,16 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
-    cfg.start_kbps = crate::serve_wish::start_kbps(
-        opts.num_or(
-            "start-kbps",
-            default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
-        )?,
-        cfg.max_kbps,
-    );
+    // A pinned rate (`--pin-kbps`) keeps its start; else the path sets it.
+    if cfg.pin_kbps.is_none() {
+        cfg.start_kbps = crate::serve_wish::start_kbps(
+            opts.num_or(
+                "start-kbps",
+                default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
+            )?,
+            cfg.max_kbps,
+        );
+    }
     // Enough frames in flight to cover the path's round trip, at least two: the next
     // frame encodes while the last one waits for its acknowledgement.
     cfg.frames_in_flight = carrier
@@ -687,14 +730,15 @@ fn serve_session(
         Some(opened) => opened?,
         None => OpenedDesktop::open(&cfg, crate::stream::wants_cursor(&negotiated.caps))?,
     };
-    let mut media = MediaSession::on_desktop(desktop, &cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
+    let max_datagram = carrier.link.max_datagram();
+    let mut media = MediaSession::on_desktop(desktop, &cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),
         width,
         height,
-        max_datagram: MAX_DATAGRAM,
-        carrier: "link".into(),
+        max_datagram,
+        carrier: carrier.link.wire_name().into(),
         service: negotiated.service.clone(),
         caps: negotiated.caps.clone(),
     })?;
@@ -746,7 +790,12 @@ mod tests {
         })
         .unwrap();
         let mut carrier = ServeCarrier {
-            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+            link: LinkCarrier::new(
+                net,
+                crate::wg_carrier::Role::Host,
+                crate::carrier::LinkMode::Legacy,
+            )
+            .unwrap(),
             app: AppLines { buf: Vec::new() },
         };
         carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
@@ -861,16 +910,16 @@ mod tests {
         assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
         assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
         assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
-        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
+        // A peer learned in the handshake is classed WAN; a sub-10 ms round trip is LAN.
         assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
-        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
+        assert_eq!(default_start_kbps(None, None, Some(9_999), 50_000), 30_000);
     }
 
     #[test]
     fn other_paths_keep_the_old_start_and_max_caps_both() {
         assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
         assert_eq!(
-            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
+            default_start_kbps(Some("direct_wan"), Some("routed"), Some(10_000), 50_000),
             8_000
         );
         assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);

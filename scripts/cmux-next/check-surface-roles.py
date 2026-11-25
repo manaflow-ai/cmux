@@ -25,8 +25,11 @@ CSS_FILE = "webviews/src/ui/glass/glass.css"
 SWIFT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole.swift"
 DESIGN_SCALE = "schemas/design-scale/design-scale.json"
 TRANSIENT_FILE = "Packages/Shared/CmuxTheme/Sources/CmuxTheme/TransientMaterial.swift"
+# The Swift copy of the design scale's content surface levels (`surfaces`): the iPhone chat's cards,
+# code blocks and chips draw them (CmuxMobileDesign/ContentSurface.swift).
+LEVELS_FILE = "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ContentSurfaceLevel.swift"
 # What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
-INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE, TRANSIENT_FILE)
+INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE, TRANSIENT_FILE, LEVELS_FILE)
 BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check-surface-roles.py checks it). */"
 END = "/* surface-roles:end */"
 # The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil. The web reads them
@@ -34,6 +37,12 @@ END = "/* surface-roles:end */"
 # neutral role mixes the one material at its own opacity and names no color of its own.
 DARK_GRAY, LIGHT_GRAY = 0.11, 0.99
 FIELDS = {"name", "for", "tone", "cornerDepth", "webRadius", "castsShadow", "reduceTransparency"}
+# The web variables every role resolves to (--surface-<role>-<kebab>): the one complete set the Surface primitive
+# (webviews/src/ui/surface/surface.css) styles from. Values are references to the design scale, never literals.
+WEB_KEYS = ("material", "fill", "stroke", "radius", "elevation", "pad", "gap", "titleFont", "bodyFont", "enter")
+MATERIALS = ("window", "floating", "content")
+WEB_ONLY_FIELDS = {"name", "for", "webOnly", "webRadius", "web"}
+LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|(?<![\w-])\d*\.?\d+(?:px|rem|em|ms|s)\b|\b(?:rgb|hsl)a?\(")
 NEUTRAL_FIELDS = FIELDS | {"style", "veil", "rim"}
 # A neutral role may tint its veil with the theme's surface ("theme") instead of the gray ("gray", the default).
 VEIL_TINTS = ("gray", "theme")
@@ -48,6 +57,12 @@ def load():
     styles = []
     for role in data["roles"]:
         assert role["name"].isidentifier(), role["name"]
+        check_web(role)
+        if role.get("webOnly"):
+            # A web-only role has no native twin: the Swift copy never sees it.
+            assert set(role) == WEB_ONLY_FIELDS and role["webOnly"] is True, role
+            continue
+        role = {key: value for key, value in role.items() if key != "web"}
         # A native corner is a level of the one concentric corner rule, never a literal radius.
         assert isinstance(role["cornerDepth"], int) and role["cornerDepth"] >= 0, role
         if role["tone"] == "neutral":
@@ -78,11 +93,44 @@ def load():
             continue
         match = re.search(r"public let " + re.escape(key) + r": Double = ([0-9.]+)", native)
         assert match and float(match[1]) == value, f"{TRANSIENT_FILE} {key} must match the design scale"
+    for exception in data["exceptions"]:
+        # A named exception is drift that is known and left alone: its file must still carry it.
+        with open(os.path.join(ROOT, exception["file"])) as handle:
+            assert exception["contains"] in handle.read(), "%s no longer carries the drift %r: remove the exception" % (
+                exception["file"], exception["contains"])
+    levels = {level["name"]: level for level in scale["surfaces"]["levels"]}
+    with open(os.path.join(ROOT, LEVELS_FILE)) as handle:
+        swift_levels = handle.read()
+    cases = re.findall(r"^    case (\w+)$", swift_levels, re.M)
+    assert cases == list(levels), f"{LEVELS_FILE} cases {cases} must be the design scale's levels {list(levels)}"
+    for key in ("fill", "line"):
+        body = re.search(r"public var " + key + r": Double \{(.*?)\n    \}", swift_levels, re.S)
+        assert body, f"{LEVELS_FILE} has no {key}"
+        for name, level in levels.items():
+            match = re.search(r"case \." + name + r": return ([0-9.]+)", body[1])
+            assert match and float(match[1]) == level.get(key, 0) / 100, \
+                f"{LEVELS_FILE} {name}.{key} must be the design scale's {level.get(key, 0)}%"
     toast = next(role for role in data["roles"] if role["name"] == "toast")
     for appearance in ("dark", "light"):
         assert toast["veil"][appearance] == transient[appearance + "VeilAlpha"], "toast and transient veil differ"
         assert toast["rim"][appearance] == [transient[appearance + "RimTop"], transient[appearance + "RimBottom"]], "toast and transient rim differ"
     return data
+
+
+def kebab(name):
+    return re.sub(r"([A-Z])", lambda m: "-" + m[1].lower(), name)
+
+
+def check_web(role):
+    web = role["web"]
+    assert tuple(sorted(web)) == tuple(sorted(WEB_KEYS)) or set(web) == set(WEB_KEYS) - {"radius"}, (role["name"], sorted(web))
+    assert web["material"] in MATERIALS, (role["name"], web["material"])
+    for key, value in web.items():
+        if key == "material":
+            continue
+        assert not LITERAL.search(value), "%s web.%s is a literal, use a design scale reference: %s" % (role["name"], key, value)
+        assert "var(" in value or value in ("0",), (role["name"], key, value)
+    assert "radius" in web or role.get("webRadius") is not None, "%s has no radius" % role["name"]
 
 
 def takes_theme_tint(role):
@@ -98,6 +146,7 @@ def num(value):
 
 
 def swift(data):
+    data = dict(data, roles=[role for role in data["roles"] if not role.get("webOnly")])
     cases = "\n".join("    /// %s.\n    case %s" % (doc(role["for"]), role["name"]) for role in data["roles"])
     neutral = [role for role in data["roles"] if role["tone"] == "neutral"]
     style_cases = "\n".join("        case .%s: return .%s" % (role["name"], role["style"]) for role in neutral)
@@ -223,12 +272,16 @@ def css_block(data):
         "   material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */",
         ":root {",
         "  --surface-near-opaque: %s%%;" % num(round(data["nearOpaque"] * 100, 2)),
+        "  --surface-hairline: %s; /* the one stroke of every role: the glass's ring, resolved here so a surface can name it without a cycle */" % data["hairline"],
+        "  --surface-elevation-flat: %s; /* the content roles: no shadow */" % data["elevationFlat"],
     ]
     for role in data["roles"]:
         prefix = "  --surface-%s" % role["name"]
         if role["webRadius"] is not None:
             lines.append("%s-radius: %spx; /* %s */" % (prefix, num(role["webRadius"]), role["for"]))
-        if role["tone"] == "neutral":
+        elif role["web"].get("radius"):
+            lines.append("%s-radius: %s; /* %s */" % (prefix, role["web"]["radius"], role["for"]))
+        if role.get("tone") == "neutral":
             if takes_theme_tint(role):
                 lines.append("%s-veil: light-dark(%s, %s);" % (
                     prefix, theme_veil(role["veil"]["light"]), theme_veil(role["veil"]["dark"])))
@@ -239,6 +292,10 @@ def css_block(data):
             dark_top, dark_bottom = role["rim"]["dark"]
             lines.append("%s-rim-top: light-dark(%s, %s);" % (prefix, gray(1, light_top), gray(1, dark_top)))
             lines.append("%s-rim-bottom: light-dark(%s, %s);" % (prefix, gray(0, light_bottom), gray(1, dark_bottom)))
+        for key in WEB_KEYS:
+            if key == "radius":
+                continue
+            lines.append("%s-%s: %s;" % (prefix, kebab(key), role["web"][key]))
     lines += ["}", END]
     return "\n".join(lines)
 

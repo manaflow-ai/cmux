@@ -345,6 +345,12 @@ fn template_scene(kind: &str) -> Result<Value, String> {
                     vm.resolve(cb, true, &json!({ "value": value }))
                         .map_err(|e| format!("{e:?}"))?;
                 }
+                // The daemon's signals cache serves `workspaces()`; this host has none, so the
+                // watch falls back to a plain `workspace.list` call, answered above.
+                FromHost::Watch { watch, .. } => {
+                    vm.watch_state(watch, &json!({ "fallback": true }))
+                        .map_err(|e| format!("{e:?}"))?;
+                }
                 FromHost::Fatal { .. } => return Err(format!("{message:?}")),
                 _ => {}
             }

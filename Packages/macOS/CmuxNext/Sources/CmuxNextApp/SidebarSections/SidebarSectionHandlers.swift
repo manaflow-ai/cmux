@@ -51,8 +51,8 @@ enum SidebarSectionHandlers {
         let services = context.services
         let sidebarDoc = services.sidebarDoc
         ChiefSidebar.shared.bind(into: registry, host: chiefHost(services))
-        // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
-        // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
+        // Agent chats on other machines are not sidebar rows (Lawrence 2026-10-26): only the Labs Hosts section
+        // (`labs.hostsSidebar`, off by default) binds `RemoteMachinesSidebar`, per window, never in the document.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.

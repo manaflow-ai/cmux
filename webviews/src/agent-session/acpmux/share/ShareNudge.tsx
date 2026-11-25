@@ -9,7 +9,9 @@
 // its animation's end, or at once when no animation runs; unmount ends it either way.
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { Icon } from "../icons/Icon";
 import { Notice } from "../NoticeSlot";
+import "../conversation/cardFit.css";
 import "./shareNudge.css";
 
 /** The shipped line, and the gallery's two alternatives (ShareNudge.gallery.tsx). */
@@ -60,13 +62,15 @@ export function ShareNudge({
         <span className="acpmux-share-nudge__text">{t("shareNudge.body")}</span>
       </>
     ) : (
-      <span className="acpmux-share-nudge__text">{t("shareNudge.text")}</span>
+      <span className="acpmux-share-nudge__text cv-fit-text">{t("shareNudge.text")}</span>
     );
+  const share = t("shareNudge.share");
   return (
     <Notice id="share-nudge" tier="hint" when={present}>
       <div
         ref={node}
-        className="acpmux-share-nudge"
+        // Its own width decides the layout (cardFit.css): a narrow pane puts the actions under the line.
+        className="acpmux-share-nudge cv-fit"
         data-look={look}
         data-state={closing ? "closing" : "open"}
         onAnimationEnd={(event) => {
@@ -74,11 +78,19 @@ export function ShareNudge({
         }}
       >
         <div className="acpmux-share-nudge__fold">
-          <output className="acpmux-share-nudge__row" aria-live="polite">
+          <output className="acpmux-share-nudge__row cv-fit-row" aria-live="polite">
             {lines}
-            <span className="acpmux-share-nudge__actions">
-              <button type="button" className="acpmux-share-nudge__action" disabled={closing} onClick={onShare}>
-                {t("shareNudge.share")}
+            <span className="acpmux-share-nudge__actions cv-fit-actions">
+              <button
+                type="button"
+                className="acpmux-share-nudge__action"
+                title={share}
+                aria-label={share}
+                disabled={closing}
+                onClick={onShare}
+              >
+                <Icon name="action.share" size={12} />
+                <span className="cv-fit-label">{share}</span>
               </button>
               <button type="button" className="acpmux-share-nudge__action" disabled={closing} onClick={onInvite}>
                 {t("shareNudge.invite")}

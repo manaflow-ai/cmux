@@ -88,7 +88,7 @@ fn claude_path() -> Option<PathBuf> {
     })
 }
 
-fn which_on_path(program: &str) -> Option<PathBuf> {
+pub(crate) fn which_on_path(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")
         .into_iter()
         .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
@@ -112,7 +112,7 @@ async fn fetch(url: &str) -> Result<String> {
     // The workspace builds reqwest with `rustls-no-provider` (as `managed_codex::install`).
     let _ = rustls::crypto::ring::default_provider().install_default();
     // HTTPS only, redirects included: the body runs as bash, so no hop may be plaintext.
-    let client = reqwest::Client::builder().https_only(true).build()?;
+    let client = crate::happy_dial::http_client().https_only(true).build()?;
     let text = client.get(url).send().await?.error_for_status()?.text().await?;
     if !text.starts_with("#!") {
         bail!("{url} did not answer with an installer script")
