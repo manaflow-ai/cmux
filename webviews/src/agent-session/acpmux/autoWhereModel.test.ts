@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   PLACE_CHAT_METHOD,
+  autoAddingMachineLine,
   autoTargets,
   decideAuto,
   keepCloudLanding,
@@ -40,6 +41,12 @@ test("a reply reads into a decision; anything else is none", () => {
   expect(parseAutoDecision({ placement: { at: "there" }, reason: { code: "x" } })).toBeUndefined();
   expect(parseAutoDecision({ placement: { at: "here" }, reason: {} })).toBeUndefined();
   expect(parseAutoDecision("here")).toBeUndefined();
+});
+
+test("a scale-up admission becomes Auto's machine line only while scalingUp is true", () => {
+  expect(autoAddingMachineLine({ warning: "a machine is being added", scalingUp: true })).toBe("auto.addingMachine");
+  expect(autoAddingMachineLine({ warning: "lane is over cap", scalingUp: false })).toBeUndefined();
+  expect(autoAddingMachineLine({ warning: "lane is over cap" })).toBeUndefined();
 });
 
 test("only Cloud is a place the page starts a chat on; any other place runs here", () => {
@@ -104,15 +111,27 @@ function memoryStorage(): Storage {
   };
 }
 
-test("a Cloud landing is taken once, by the chat whose first prompt it is, while fresh", () => {
+test("each Cloud start can claim only its own Auto landing, once, in either arrival order", () => {
   scope.localStorage = memoryStorage();
-  const landing = { went: "cloud" as const, code: "over_budget", why: "busy" };
-  keepCloudLanding(landing, " fix the build ", 1000);
-  expect(takeCloudLanding("another chat", 1000)).toBeUndefined();
-  expect(takeCloudLanding("fix the build", 2000)).toEqual(landing);
-  expect(takeCloudLanding("fix the build", 2000)).toBeUndefined();
-  keepCloudLanding(landing, "fix the build", 0);
-  expect(takeCloudLanding("fix the build", 31 * 60_000)).toBeUndefined();
+  const first = { went: "cloud" as const, code: "over_budget", why: "CPU busy" };
+  const second = { ...first, why: "Low memory" };
+  keepCloudLanding(first, "auto-1", 1000);
+  keepCloudLanding(second, "auto-2", 1100);
+  expect(takeCloudLanding(undefined, 2000)).toBeUndefined();
+  expect(takeCloudLanding("explicit-cloud", 2000)).toBeUndefined();
+  expect(takeCloudLanding("auto-2", 2000)).toEqual(second);
+  expect(takeCloudLanding("auto-1", 2000)).toEqual(first);
+  expect(takeCloudLanding("auto-1", 2000)).toBeUndefined();
+});
+
+test("a stale or legacy prompt-only Cloud landing cannot label a chat", () => {
+  scope.localStorage = memoryStorage();
+  const landing = { went: "cloud" as const, code: "over_budget" };
+  localStorage.setItem("cmux.autoWhere.cloudLanding", JSON.stringify({ ...landing, prompt: "fix the build", at: 0 }));
+  expect(takeCloudLanding("fix the build", 1000)).toBeUndefined();
+  keepCloudLanding(landing, "expired", 0);
+  expect(takeCloudLanding("expired", 31 * 60_000)).toBeUndefined();
+  expect(takeCloudLanding("expired", 1000)).toBeUndefined();
 });
 
 test("a decided send that does not go clears the decision; one that goes keeps it", async () => {

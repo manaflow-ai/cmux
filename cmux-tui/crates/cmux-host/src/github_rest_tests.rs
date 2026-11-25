@@ -132,3 +132,68 @@ fn a_tail_keeps_the_end_and_a_refusal_keeps_githubs_words() {
     assert_eq!(refusal_message(r#"{"errors":[{"message":"nope"}]}"#).as_deref(), Some("nope"));
     assert_eq!(refusal_message("not json"), None);
 }
+
+#[test]
+fn a_review_is_the_persons_and_only_a_comment_may_be_said_by_the_app() {
+    let head = "a".repeat(40);
+    let approve = ok(json!({"op": "review.submit", "repo": "o/r", "number": 7, "event": "APPROVE",
+        "head": head}));
+    assert_eq!((approve.method, approve.path.as_str()), ("POST", "repos/o/r/pulls/7/reviews"));
+    assert_eq!(approve.author, Author::PersonOnly);
+    assert_eq!(approve.body.as_ref().unwrap()["commit_id"], head.as_str());
+    assert_eq!(approve.scope.permissions()["pull_requests"], "write");
+    assert!(approve.scope.writes());
+    let changes = ok(json!({"op": "review.submit", "repo": "o/r", "number": 7,
+        "event": "REQUEST_CHANGES", "body": "fix"}));
+    assert_eq!(changes.author, Author::PersonOnly);
+    let comment = ok(
+        json!({"op": "review.submit", "repo": "o/r", "number": 7, "event": "COMMENT", "body": "hi"}),
+    );
+    assert_eq!(comment.author, Author::Person);
+    for bad in [
+        json!({"op": "review.submit", "repo": "o/r", "number": 7, "event": "DISMISS", "body": "x"}),
+        json!({"op": "review.submit", "repo": "o/r", "number": 7, "event": "COMMENT"}),
+        json!({"op": "review.submit", "repo": "o/r", "number": 7, "event": "APPROVE", "head": "main"}),
+    ] {
+        assert!(plan(&bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_thread_reply_and_resolve_are_fixed_mutations_on_one_thread() {
+    let reply =
+        ok(json!({"op": "thread.reply", "repo": "o/r", "thread": "PRRT_kw1", "body": "done"}));
+    let body = reply.body.unwrap();
+    assert!(body["query"].as_str().unwrap().contains("addPullRequestReviewThreadReply"));
+    assert_eq!(
+        (body["variables"]["thread"].as_str(), body["variables"]["body"].as_str()),
+        (Some("PRRT_kw1"), Some("done"))
+    );
+    assert_eq!(
+        (reply.path.as_str(), reply.author, reply.scope),
+        ("graphql", Author::Person, Scope::Review)
+    );
+    let resolve =
+        ok(json!({"op": "thread.resolve", "repo": "o/r", "thread": "PRRT_kw1", "resolved": true}));
+    assert!(resolve.body.unwrap()["query"].as_str().unwrap().contains("resolveReviewThread(input"));
+    let reopen =
+        ok(json!({"op": "thread.resolve", "repo": "o/r", "thread": "PRRT_kw1", "resolved": false}));
+    assert!(reopen.body.unwrap()["query"].as_str().unwrap().contains("unresolveReviewThread"));
+    for bad in [
+        json!({"op": "thread.reply", "repo": "o/r", "thread": "a\") { x } #", "body": "b"}),
+        json!({"op": "thread.reply", "repo": "o/r", "thread": "PRRT_kw1"}),
+        json!({"op": "thread.resolve", "repo": "o/r", "thread": "PRRT_kw1"}),
+    ] {
+        assert!(plan(&bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn issues_are_read_with_issues_read_alone() {
+    for path in ["issues?state=open&per_page=50", "issues/12", "issues/12/comments?per_page=100"] {
+        let p = ok(json!({"op": "get", "repo": "o/r", "path": path}));
+        assert_eq!((p.scope, p.author), (Scope::Issues, Author::Any), "{path}");
+        assert_eq!(p.scope.permissions(), json!({"metadata": "read", "issues": "read"}));
+        assert!(!p.scope.writes());
+    }
+}

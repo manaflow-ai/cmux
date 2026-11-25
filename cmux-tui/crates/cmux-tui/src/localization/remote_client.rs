@@ -42,11 +42,9 @@ pub(crate) struct RemoteClientMessages {
     pub relay_credential_pair_required: &'static str,
     pub multiple_relay_credentials_require_routes: &'static str,
     pub route_scoped_relay_credential_pair_required: &'static str,
-    pub(super) relay_credential_limit: &'static str,
     pub(super) relay_route_not_relay: &'static str,
     pub(super) relay_route_repeated: &'static str,
     pub(super) invitation_relay_route_repeated: &'static str,
-    pub(super) relay_route_limit: &'static str,
     pub(super) invitation_daemon_mismatch: &'static str,
     pub invitation_no_routes: &'static str,
     pub(super) daemon_no_routes: &'static str,
@@ -260,10 +258,6 @@ impl RemoteClientMessages {
         self.relay_shorthand_requires_relay_route.replace("{route}", route)
     }
 
-    pub(crate) fn relay_credential_limit(&self, maximum: usize) -> String {
-        self.relay_credential_limit.replace("{maximum}", &maximum.to_string())
-    }
-
     pub(crate) fn relay_route_not_relay(&self, route: &str) -> String {
         self.relay_route_not_relay.replace("{route}", route)
     }
@@ -274,10 +268,6 @@ impl RemoteClientMessages {
 
     pub(crate) fn invitation_relay_route_repeated(&self, route: &str) -> String {
         self.invitation_relay_route_repeated.replace("{route}", route)
-    }
-
-    pub(crate) fn relay_route_limit(&self, maximum: usize) -> String {
-        self.relay_route_limit.replace("{maximum}", &maximum.to_string())
     }
 
     pub(crate) fn invitation_daemon_mismatch(&self, fingerprint: &str) -> String {
@@ -491,11 +481,9 @@ for up to two relay fallbacks
     relay_credential_pair_required: "each relay credential needs one --relay-slot and one relay credential source",
     multiple_relay_credentials_require_routes: "multiple relay credentials require one --relay-route per credential group",
     route_scoped_relay_credential_pair_required: "each route-scoped relay credential needs one --relay-route, one --relay-slot, and one credential source",
-    relay_credential_limit: "a client supports at most {maximum} relay credentials",
     relay_route_not_relay: "relay credential route {route} is not a relay route",
     relay_route_repeated: "relay credential route {route} is repeated",
     invitation_relay_route_repeated: "invitation repeats relay bootstrap route {route}",
-    relay_route_limit: "a client supports at most {maximum} relay credential routes including invitation bootstrap routes",
     invitation_daemon_mismatch: "invitation daemon fingerprint does not match --daemon {fingerprint}",
     invitation_no_routes: "invitation contains no usable route hints",
     daemon_no_routes: "daemon {fingerprint} has no stored routes; pass a route or enroll again",
@@ -786,11 +774,9 @@ ID とセッション:
     relay_credential_pair_required: "各リレー認証情報には --relay-slot と認証情報ソースを 1 つずつ指定してください",
     multiple_relay_credentials_require_routes: "複数のリレー認証情報には、認証情報グループごとに --relay-route を 1 つ指定してください",
     route_scoped_relay_credential_pair_required: "ルート別の各リレー認証情報には --relay-route、--relay-slot、認証情報ソースを 1 つずつ指定してください",
-    relay_credential_limit: "クライアントが使用できるリレー認証情報は最大 {maximum} 個です",
     relay_route_not_relay: "リレー認証情報のルート {route} はリレールートではありません",
     relay_route_repeated: "リレー認証情報のルート {route} が重複しています",
     invitation_relay_route_repeated: "招待内のリレーブートストラップルート {route} が重複しています",
-    relay_route_limit: "招待のブートストラップルートを含め、クライアントが使用できるリレー認証情報ルートは最大 {maximum} 個です",
     invitation_daemon_mismatch: "招待のデーモンフィンガープリントが --daemon {fingerprint} と一致しません",
     invitation_no_routes: "招待に使用可能なルート候補がありません",
     daemon_no_routes: "デーモン {fingerprint} に保存済みルートがありません。ルートを指定するか、再登録してください",
