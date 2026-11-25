@@ -17,10 +17,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-/// The harness executables under a user's home: Claude Code's native installer link, acpmux's managed Codex, and a
-/// Codex link beside Claude's.
-pub const HOME_HARNESSES: &[&str] =
-    &[".local/bin/claude", ".acpmux/codex-runtime/current/codex", ".local/bin/codex"];
+/// The harness executables under a user's home: Claude Code's native installer link and a Codex link beside it.
+pub const HOME_HARNESSES: &[&str] = &[".local/bin/claude", ".local/bin/codex"];
 /// The system-wide installs (an npm global Claude Code or Codex, and the Node that runs them).
 pub const SYSTEM_HARNESSES: &[&str] =
     &["/usr/local/bin/claude", "/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/node"];
