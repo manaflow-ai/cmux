@@ -396,6 +396,8 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.cloudPick":
+            self = .newTabCloudPick
         case "newTab.warm":
             // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
             // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.
@@ -424,6 +426,11 @@ extension AgentPaneRequest {
                 // The project of a chat the person picked and started (a page choice like the agent pick).
                 var pick = AgentPaneRememberedPick(agent: "")
                 pick.started = started
+                self = .rememberNewTab(pick)
+            } else if let cloud = params?["cloudStarted"] as? String, AgentPaneRememberedPick.isCloudPick(cloud) {
+                // The folder or repository of a Cloud chat the person started (Cloud's own default, cmux#53226).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.cloudStarted = cloud
                 self = .rememberNewTab(pick)
             } else if params?["harnessHint"] as? String == "dismissed" {
                 // Integrate a harness dismissed for good (a page choice like the agent pick).
@@ -461,10 +468,13 @@ extension AgentPaneRequest {
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.setUp":
             // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
-            if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
+            // The picker's set up button sends no key; a key that is sent must be a start's.
+            let key = params?["key"] as? String
+            if key.map({ UUID(uuidString: $0) != nil }) ?? (params?["key"] == nil), let action = params?["action"] as? String,
                CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
                 self = .cloudSetUp(key: key, action: action, family: family)
             } else { self = .unsupported(method) }
+        case "cloud.setupState": self = .cloudSetupState
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
