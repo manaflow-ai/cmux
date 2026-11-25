@@ -16,9 +16,10 @@ public final class MacFilterMemo {
         public let id: String
         public let title: String
         public let detail: String
-        /// Its dot: green when reachable, red when not (``ComputerDots``). Leo, 2026-11-24:
-        /// "red dot green dot when you switch between your computers' stuff".
-        public var isUp = true
+        /// Its dot in the Filter menu: green when reachable (or on its way), red when not
+        /// (``ComputerDots/isUp(_:listedOnline:)``). Leo, 2026-11-24: "red dot green dot when you
+        /// switch between your computers' stuff".
+        public var isOnline: Bool = false
     }
 
     /// Everything a Filter row's text depends on. `minute` makes offline
@@ -109,7 +110,7 @@ public final class MacFilterMemo {
             let reach = MacReachability.resolve(mac: mac, connection: input.connection[mac.id], failure: input.failure[mac.id],
                                                 live: input.live, phoneOffline: input.phoneOffline)
             return Entry(id: mac.id, title: names.displayName(mac), detail: detail,
-                         isUp: ComputerDots.isUp(reach, listedOnline: mac.isOnline))
+                         isOnline: ComputerDots.isUp(reach, listedOnline: mac.isOnline))
         }
         entriesKey = input
         entryComputations += 1

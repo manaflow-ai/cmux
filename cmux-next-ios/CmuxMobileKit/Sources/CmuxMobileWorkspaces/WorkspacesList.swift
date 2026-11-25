@@ -286,30 +286,18 @@ public struct WorkspacesList: View {
     }
 
     /// The header: a green or red dot and the name of the computer shown by default (the
-    /// filtered one, else the one the current workspace lives on), then the filtered computer's
-    /// presence or "2 need you". Never "x of x Macs online" (Leo, 2026-11-24: "red dot green dot
-    /// when you switch between your computers' stuff ... i dont need to see the others"). A
+    /// filtered one, else the one the current workspace lives on), then "2 need you" when no
+    /// computer is chosen. No presence or link words, the dot says them (#55034), and never
+    /// "x of x Macs online" (Leo, 2026-11-24: "red dot green dot when you switch between your
+    /// computers' stuff ... i dont need to see the others"). A
     /// refresh adds no words: the rows update in place, and a failed one retries on its own
     /// (Leo, 2026-11-16: "this needs to shut up").
     var header: ComputerDots.Header {
         let workspaceMacID = rememberedWorkspaceID.flatMap { store.workspace(id: $0)?.macID }
         let linkedMacID = linking.flatMap { linking in macs.first { linking.isLinkTarget($0.id) }?.id }
         return ComputerDots.header(macs: macs, scopedMacID: scopedMac?.id, workspaceMacID: workspaceMacID, linkedMacID: linkedMacID,
-                                   needsYou: inbox.needsYouCount, scopedLine: scopedMac.map(scopedLine),
+                                   needsYou: inbox.needsYouCount,
                                    name: { displayName($0) }, reach: { store.macReachability($0) })
-    }
-
-    /// The filtered computer's presence beside its name.
-    private func scopedLine(_ mac: MacDevice) -> String {
-        let now = MinuteClock.shared.now
-        let reach = store.macReachability(mac)
-        // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
-        // that bullshit fucking connecting messages. they are way too long and unactionable").
-        // While the Mac's panel shows, it carries the last-seen time and what to do: the
-        // header keeps to a few words, so it never truncates (cmux#52200 walk, step 2).
-        return reach == .connecting
-            ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-            : showsRecovery(mac) ? reach.shortStatus : reach.statusText(now: now)
     }
 
     /// The header as the navigation subtitle: the dot, then its text.
@@ -433,6 +421,7 @@ public struct WorkspacesList: View {
         ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
     /// The inbox as the UIKit list shows it: one collection view with a
@@ -656,7 +645,8 @@ public struct WorkspacesList: View {
             AnyView(SkeletonList(rows: 4, leadingSquare: nil,
                                  delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
                 .allowsHitTesting(false)
-                .accessibilityIdentifier("workspaces.loading"))
+                .accessibilityIdentifier("workspaces.loading")
+                .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
 
@@ -1313,8 +1303,7 @@ struct WorkspacesToolbar: View, Equatable {
     }
 }
 
-/// The Mac filter: All Macs, then each Mac (online first) with its presence
-/// (and the live link line) as the subtitle.
+/// The Mac filter: All Macs, then each Mac (online first) with a green or red dot.
 struct WorkspacesFilterMenu: View, Equatable {
     let model: WorkspacesToolbar.Model
     let host: WorkspacesList
@@ -1354,22 +1343,20 @@ struct WorkspacesFilterMenu: View, Equatable {
     @ViewBuilder private var macToggles: some View {
         Section {
             // Toggles, not an inline Picker: a Picker drops each Mac's
-            // presence subtitle. The chosen row shows the checkmark.
+            // dot. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in
-                // A title and a subtitle Text directly in the label: a menu
-                // shows the second as the subtitle (not inside a Label).
+                // The Mac's name and a green (online) or red (offline) dot: no presence or link
+                // words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+                // stuff"). The words stay for VoiceOver.
                 Toggle(isOn: host.chosen(.mac(mac.id))) {
                     Text(mac.title)
-                    Text(mac.detail)
-                    // Its dot, green or red, where the user switches computers (Leo, 2026-11-24:
-                    // "red dot green dot when you switch between your computers' stuff"). A menu
-                    // draws a template image in the label color, so the dot is an original-color image.
-                    Image(uiImage: ComputerDotImage.image(isUp: mac.isUp))
+                    Image(uiImage: MacPresenceDot.image(online: mac.isOnline))
                 }
+                .accessibilityValue(Text(mac.detail))
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }
         }

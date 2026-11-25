@@ -89,17 +89,6 @@ public struct ComputerDotLine: View {
     }
 }
 
-/// A computer's dot as an original-color image, for a menu row: a menu draws template images
-/// in its label color, so a plain SwiftUI dot would lose its green or red.
-public enum ComputerDotImage {
-    public static func image(isUp: Bool) -> UIImage {
-        let color = (isUp ? theme.colors.success : theme.colors.danger).uiColor
-        let config = UIImage.SymbolConfiguration(pointSize: 9, weight: .regular)
-        return (UIImage(systemName: "circle.fill", withConfiguration: config) ?? UIImage())
-            .withTintColor(color, renderingMode: .alwaysOriginal)
-    }
-}
-
 /// Up to five 7 pt dots, 4 pt apart (green online, red offline), then "+N"; "No Macs" when empty.
 public struct MacPresenceDots: View {
     let dots: [Bool]
@@ -129,6 +118,16 @@ public struct MacPresenceDots: View {
             }
         }
         .frame(height: 16)
+    }
+}
+
+/// One Mac's presence as a menu image: green online, red offline. A Menu draws its item
+/// images as templates, so the color is baked into the image (`.alwaysOriginal`).
+public enum MacPresenceDot {
+    public static func image(online: Bool) -> UIImage {
+        let config = UIImage.SymbolConfiguration(pointSize: 9, weight: .regular)
+        let dot = UIImage(systemName: "circle.fill", withConfiguration: config) ?? UIImage()
+        return dot.withTintColor(online ? .systemGreen : .systemRed, renderingMode: .alwaysOriginal)
     }
 }
 #endif
