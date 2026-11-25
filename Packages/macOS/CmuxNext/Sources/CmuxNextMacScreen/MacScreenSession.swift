@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextRemoteView
 public import CmuxScreenKit
 import CmuxNextCompat
@@ -592,7 +593,7 @@ public final class MacScreenSession {
 /// The link bridge's Unix socket as the remote view transport's byte stream.
 nonisolated enum MacScreenUnixStream {
     static func open(path: String) async throws -> RemoteRdByteStream {
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let connection = CmuxEgress.connection(to: .unix(path: path), using: .tcp, site: "CmuxNextMacScreen.MacScreenSession")
         // The stream's bytes: the next decoded frame waits for them.
         let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
