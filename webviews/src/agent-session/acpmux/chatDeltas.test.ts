@@ -139,7 +139,7 @@ function encode(frames: Frame[]): Frame[] {
     const p = frame.params;
     if (frame.method === "_acpmux/event") {
       const update = p.msg?.params?.update;
-      const chunk = /_chunk$/.test(update?.sessionUpdate ?? "") && update?.content?.type === "text";
+      const chunk = (update?.sessionUpdate ?? "").endsWith("_chunk") && update?.content?.type === "text";
       if (!chunk) {
         out.push(frame);
         continue;
