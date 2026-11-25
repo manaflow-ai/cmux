@@ -140,7 +140,6 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
     if (!bridge) return;
     bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: state.userCSS });
-    bridge.applySessionStatus?.(state.sessionStatus === true);
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
@@ -243,10 +242,8 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
       : undefined;
   if (initialChat) {
     const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
-    const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(state.userCSS);
-    setSessionStatus(state.sessionStatus === true);
     setChatDisplay(state.display ?? {});
   }
   // mount.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,
