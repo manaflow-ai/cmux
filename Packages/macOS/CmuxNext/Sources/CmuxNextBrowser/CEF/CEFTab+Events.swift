@@ -116,9 +116,15 @@ extension CEFTab {
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
-            documentFaviconReported()
-            machine.apply(.faviconChanged(faviconURL))
-            loadFavicon(faviconURL)
+            // An empty report (a single-page app swapping its <head>, Chromium's list for a document without icon
+            // links) keeps the icon the tab has: the state machine clears it when the host changes, and the
+            // document read below answers a document that has none (the tab went back to the globe after a
+            // GitHub Turbo navigation).
+            if faviconURL != nil || state.faviconURL == nil {
+                documentFaviconReported()
+                machine.apply(.faviconChanged(faviconURL))
+                loadFavicon(faviconURL)
+            }
         case .progress(_, let value):
             machine.apply(.progress(value))
         case .fullscreen(_, let entering):
