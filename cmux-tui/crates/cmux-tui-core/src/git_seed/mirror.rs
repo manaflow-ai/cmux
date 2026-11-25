@@ -33,7 +33,6 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use fs4::FileExt as _;
 use sha2::{Digest as _, Sha256};
 
 use super::{Failure, Seed, clean_folder};
@@ -138,7 +137,8 @@ impl Seed {
     /// failed (access not proven); `Err(Some(stage))`: the mirror is not this remote's.
     fn refresh(&mut self, mirror: &Path, url: &str) -> Result<(), Option<&'static str>> {
         let origin = self.git.quiet(Some(mirror), &self.chosen, &["config", "remote.origin.url"]);
-        if origin.map(|out| String::from_utf8_lossy(&out).trim().to_owned()).as_deref() != Ok(url) {
+        let origin = origin.map(|out| String::from_utf8_lossy(&out).trim().to_owned()).ok();
+        if origin.as_deref() != Some(url) {
             return Err(Some("origin"));
         }
         let args = ["fetch", "--progress", "--prune", "--tags", "--filter=blob:none", "origin"];
@@ -359,7 +359,7 @@ fn lock(path: &Path) -> Option<std::fs::File> {
         OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).ok()?;
     let deadline = Instant::now() + LOCK_WAIT;
     loop {
-        match file.try_lock() {
+        match fs4::FileExt::try_lock(&file) {
             Ok(()) => return Some(file),
             Err(fs4::TryLockError::WouldBlock) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(50));
