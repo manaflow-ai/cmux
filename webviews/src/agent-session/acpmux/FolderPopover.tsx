@@ -8,7 +8,8 @@ import { MenuFolderIcon, PlusIcon } from "./ComposerPickers";
 import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
-import { githubFolder, matchingRepos } from "./githubRepos";
+import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -26,11 +27,19 @@ import { SourcePicker, type SourcePickerOptions } from "./SourcePicker";
 import { matchesSourceQuery } from "./sourcePickerModel";
 
 const NO_FOLDERS: FolderChoice[] = [];
+const NO_REPOS: readonly AddedRepo[] = [];
+/// A folder named by a bare UUID (a chat's or a workspace's private folder): never a project to pick (cmux#53226).
+const UUID_FOLDER = /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/*$/i;
 
 /// A folder the popover offers: its path (`id`), name and, when known, its repository.
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 
 /// The composer folder chip. Projects scroll above the actions, and Add project opens the source picker.
+/// One list, most recently used first (cmux#53226): the folders, and among them the GitHub repositories the
+/// person added as a project (addedRepos.ts), never every repository on the account and never under a
+/// section of their own. A folder that is a clone of a GitHub repository (its `origin`) is that repository's
+/// one row, with the GitHub glyph; a repository is listed apart only while no folder here is a clone of it.
+/// Nothing is read from GitHub until Add project opens. A Cloud machine's folders keep their machine's heading.
 export function FolderPopover({
   label,
   menu,
@@ -46,6 +55,7 @@ export function FolderPopover({
   extra,
   sources,
   cloningRepository,
+  pendingRepository,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -69,6 +79,8 @@ export function FolderPopover({
   /// New-chat project sources. Other consumers open directly on the folder list.
   sources?: SourcePickerOptions;
   cloningRepository?: string;
+  /// A GitHub repository picked with This Mac picked, not checked out yet: Return checks it out (cmux#53226).
+  pendingRepository?: string;
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -104,7 +116,7 @@ export function FolderPopover({
   // change with every chat that works in another one, and grouping thousands of them by repository on each change
   // of a menu nobody opened cost each page about 7 ms a second at 10K chats (bench/session-scale-typing.bench.ts).
   const offered = useMemo(
-    () => (open ? folders.filter((folder) => !/^\/+$/.test(folder.id)) : NO_FOLDERS),
+    () => (open ? folders.filter((folder) => !/^\/+$/.test(folder.id) && !UUID_FOLDER.test(folder.id)) : NO_FOLDERS),
     [open, folders],
   );
   const groups = useMemo(() => groupByRepo(offered, current, "main"), [offered, current]);
@@ -151,11 +163,22 @@ export function FolderPopover({
     });
   };
   const typedPath = !cloud && /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  const showRepos = github?.state.status?.state === "ready" && !github.state.error;
-  const loadedRepos = showRepos ? github.state.repos : undefined;
+  // The GitHub repositories added as projects, read as the menu opens.
+  const [added, setAdded] = useState<readonly AddedRepo[]>(NO_REPOS);
+  // The repositories a listed folder is a clone of: that folder is their row. Listing the account's
+  // repositories beside the folders drew this Mac's clone of one twice, once by folder, once by name.
+  const cloned = useMemo(
+    () => new Set(offered.flatMap((folder) => (folder.repo?.github ? [folder.repo.github.toLowerCase()] : []))),
+    [offered],
+  );
   const githubRows = useMemo(
-    () => new Map(matchingRepos(loadedRepos ?? [], typed).map((repo) => [GITHUB_REPO + repo.fullName, repo])),
-    [loadedRepos, typed],
+    () =>
+      new Map(
+        added
+          .filter((repo) => !cloned.has(repo.fullName.toLowerCase()) && matchesSourceQuery(repo.fullName, typed))
+          .map((repo) => [GITHUB_REPO + repo.fullName, repo]),
+      ),
+    [added, cloned, typed],
   );
   const cloudRows = useMemo(
     () =>
@@ -168,22 +191,23 @@ export function FolderPopover({
   );
   const sections = useMemo(() => {
     const headings = new Map<string, string>();
-    const firstRepo = githubRows.keys().next().value;
-    if (firstRepo) headings.set(firstRepo, t("cloudRepository.github"));
     let previousPeer: string | undefined;
     for (const [value, folder] of cloudRows) {
       if (folder.peer !== previousPeer) headings.set(value, folder.machine);
       previousPeer = folder.peer;
     }
     return headings;
-  }, [cloudRows, githubRows, t]);
+  }, [cloudRows]);
   // Actions stay under the folders; the arrows reach them after the last folder.
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
   const pinned = sources ? [ACTION_ADD, ...(onNoProject ? [ACTION_NONE] : [])] : onBrowse ? [ACTION_BROWSE] : [];
-  const listValues = cloud
-    ? [...githubRows.keys(), ...cloudRows.keys()]
-    : [...shown.keys(), ...(typedPath ? [typedPath] : []), ...githubRows.keys()];
+  const listValues = useMemo(
+    () => orderedRows({ cloud, cloudRows, githubRows, shown, typed, typedPath }),
+    [cloud, cloudRows, githubRows, shown, typed, typedPath],
+  );
+  // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
+  const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
   const actionCount = pinned.length + (!cloud ? (extra?.folders.length ?? 0) : 0);
   // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
@@ -229,8 +253,10 @@ export function FolderPopover({
     if (next && sourcesOpen) return;
     if (next) {
       setHighlightBy("none");
-      // Each open reads whether GitHub is connected, and its repositories once it is.
       if (!open) {
+        // The repositories added as projects, as they are now: one added since the last open is listed.
+        // Only where a repository can be picked: none in a Sandboxed chat (no GitHub source), or a menu with no sources.
+        setAdded(github ? readAddedRepos() : NO_REPOS);
         // The closed menu grouped nothing: find the current folder's repository once, at the open.
         const opening = groupByRepo(
           folders.filter((folder) => !/^\/+$/.test(folder.id)),
@@ -238,7 +264,6 @@ export function FolderPopover({
           "main",
         ).find((group) => group.members.some((member) => member.id === current));
         if (opening && opening.lead.id !== current) setExpanded(new Set([opening.key]));
-        github?.onOpen();
       }
     }
     if (!next) {
@@ -265,17 +290,15 @@ export function FolderPopover({
   };
   const submit = (value: string) => {
     if (value === ACTION_ADD) {
-      if (github?.state.query && showRepos) github.onSearch(null);
+      // GitHub is read here, as its repositories are offered, never before (cmux#53226).
+      github?.onOpen();
+      if (github?.state.query) github.onSearch(null);
       close();
       setSourcesOpen(true);
       return;
     }
     if (value === ACTION_BROWSE) {
       browse();
-      return;
-    }
-    if (showRepos && github.state.truncated && typed && !typedPath && githubRows.size === 0 && value === query) {
-      github.onSearch(typed);
       return;
     }
     const cloudFolder = cloudRows.get(value);
@@ -285,6 +308,7 @@ export function FolderPopover({
     else if (value === ACTION_WORKTREE) onNewWorktree?.();
     else if (cloudFolder) sources?.onCloudFolder?.(cloudFolder);
     else if (repo) {
+      rememberAddedRepo(repo);
       const folder = githubFolder(repo.fullName);
       if (folder !== current) onPick(folder);
     } else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
@@ -330,6 +354,7 @@ export function FolderPopover({
           // tooltip-allow: machine folders can share a name and their path can exceed the menu width.
           title={cloudFolder?.id}
           data-section={sections.get(value)}
+          data-divider={dividerOf(value)}
           data-github={githubRepo ? "" : undefined}
           data-current={checked ? "" : undefined}
         >
@@ -388,15 +413,27 @@ export function FolderPopover({
     const suffix = leadSuffix(folder);
     const { disclosure } = place;
     const repo = folderRepo(folder);
+    // With Cloud picked the chip names a clone of a GitHub repository by that repository.
+    const leadCurrent =
+      folder.id === current ||
+      (repo?.github !== undefined && githubFolderRepo(current)?.toLowerCase() === repo.github.toLowerCase());
     return (
       <span
         className="acpmux-location-row"
         // tooltip-allow: the row shows the folder's name; the tooltip is its full path
         title={folder.id}
-        data-current={folder.id === current ? "" : undefined}
+        data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
+        data-github={repo?.github ? "" : undefined}
       >
-        <ProjectBadge project={{ cwd: folder.id, label: folder.label, repo }} />
+        {repo?.github ? (
+          // A clone of a GitHub repository reads as one, like a repository added as a project.
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <GitHubGlyph />
+          </span>
+        ) : (
+          <ProjectBadge project={{ cwd: folder.id, label: folder.label, repo }} />
+        )}
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{group.name}</span>
           {suffix && (
@@ -442,7 +479,7 @@ export function FolderPopover({
           </button>
         )}
         <span className="acpmux-location-check" aria-hidden="true">
-          {folder.id === current && <CheckIcon />}
+          {leadCurrent && <CheckIcon />}
         </span>
       </span>
     );
@@ -467,13 +504,17 @@ export function FolderPopover({
         aria-label={label}
         // tooltip-allow: the fixed footer column may truncate a long folder name; with none picked the
         // tooltip names the control, so its key (data-tooltip-shortcut) still shows.
-        title={current || label}
+        title={pendingRepository || current || label}
         data-tooltip-shortcut={shortcut}
         {...press}
       >
         {cloningName ? (
           <span className="acpmux-source-cloning">
             <GitHubGlyph /> {cloningName} · {t("source.url.cloning")}
+          </span>
+        ) : pendingRepository ? (
+          <span className="acpmux-source-cloning" data-pending-repository="">
+            <GitHubGlyph /> {pendingRepository}
           </span>
         ) : (
           face
@@ -525,8 +566,6 @@ export function FolderPopover({
           onQuery={(next) => {
             setQuery(next);
             if (next.trim() !== typed && searchCollapsed.size) setSearchCollapsed(new Set());
-            const asked = github?.state.query;
-            if (showRepos && asked && !next.trim().toLowerCase().includes(asked.toLowerCase())) github.onSearch(null);
           }}
           onSubmit={submit}
           onCancel={close}
@@ -568,7 +607,11 @@ export function FolderPopover({
           inline
           // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
           // A heading changes a row's margin, not its box: the row is measured again when it changes.
-          virtualRows={{ estimate: 28, sizeKey: (value) => sections.get(value) ?? "" }}
+          // A heading with its hairline is taller than one without: either change measures it again.
+          virtualRows={{
+            estimate: 28,
+            sizeKey: (value) => (sections.get(value) ?? "") + (dividerOf(value) ?? "\u0000"),
+          }}
           // The empty line sits in the list's place, over the actions.
           listEnd={
             listValues.length === 0 ? (
@@ -587,6 +630,13 @@ export function FolderPopover({
           onClose={() => setSourcesOpen(false)}
           onBrowse={onBrowse && browse}
           onPick={(value) => {
+            // A GitHub repository added as a project is listed in this menu from now on (cmux#53226).
+            const name = githubFolderRepo(value);
+            if (name)
+              rememberAddedRepo({
+                fullName: name,
+                private: github?.state.repos?.find((repo) => repo.fullName === name)?.private ?? false,
+              });
             if (value !== current) onPick(value);
           }}
           onCloning={setCloning}
@@ -595,6 +645,55 @@ export function FolderPopover({
       )}
     </span>
   );
+}
+
+/// The list's values in order: each
+/// repository's rows (its lead, New Worktree, its open worktrees) kept together and placed by when its newest
+/// folder was used, the added repositories among them by theirs; with words typed, the folders in the search's
+/// order, the typed path, then the repositories that match. Cloud adds each machine's folders after them.
+function orderedRows({
+  cloud,
+  cloudRows,
+  githubRows,
+  shown,
+  typed,
+  typedPath,
+}: {
+  cloud: boolean;
+  cloudRows: ReadonlyMap<string, unknown>;
+  githubRows: ReadonlyMap<string, AddedRepo>;
+  shown: ReadonlyMap<string, { group: { key: string; members: readonly FolderChoice[] } }>;
+  typed: string;
+  typedPath: string | undefined;
+}): string[] {
+  const repos: { repo: AddedRepo; block: string[] }[] = [];
+  githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
+  const blocks: { block: string[]; at: number | undefined }[] = [];
+  let previous: string | undefined;
+  shown.forEach((place, value) => {
+    const group = place.group;
+    if (group.key !== previous) {
+      blocks.push({ block: [], at: newestUse(group.members) });
+      previous = group.key;
+    }
+    blocks[blocks.length - 1]!.block.push(value);
+  });
+  const path = typedPath ? [typedPath] : [];
+  // Cloud: the machines' own folders under their headings, after the one list.
+  const machines = cloud ? [...cloudRows.keys()] : [];
+  if (typed)
+    return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block), ...machines];
+  return [...mergeByRecentUse(blocks, repos).flat(), ...path, ...machines];
+}
+
+/// When a chat here last worked in any of `members`, if one did.
+function newestUse(members: readonly FolderChoice[]): number | undefined {
+  let at: number | undefined;
+  members.forEach((member) => {
+    const used = folderUsedAt(member.id);
+    if (used !== undefined && (at === undefined || used > at)) at = used;
+  });
+  return at;
 }
 
 function focusFolderField(input: HTMLInputElement | null): void {

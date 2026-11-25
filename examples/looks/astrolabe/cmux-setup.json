@@ -1,0 +1,50 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/astrolabe-look",
+  "name": "Astrolabe",
+  "tagline": "A calm, ceremonial look for agent chats: deep navy, gold hairline frames, airy serif replies and near-square cards like plates in a ledger.",
+  "description": "A whole cmux look built only from public surfaces: theme files for color (Astrolabe, dark, the default; Astrolabe Dawn), settings for an airy serif chat and Markdown viewer and a sectioned sidebar, a stylesheet of cmux.agentPane.style/1 tokens that frames the prompt and cards in gold hairlines with small corners, and a customize view for a titled hover card and quiet sidebar rows. Remove it and everything you had comes back.",
+  "version": "0.1.0",
+  "license": "MIT",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "astrolabe",
+
+    // The chat: serif replies at 15 px with an airy 1.75 line height in a 720 px column, the
+    // interface in a humanist sans, and code a step smaller.
+    "agentPane.display.font.ui": "source-sans",
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.75,
+    "agentPane.display.code.scale": 0.88,
+    "agentPane.display.width": 720,
+    "agentPane.display.minimap": "off",
+    // The thinking line glows slowly, a wide soft band.
+    "agentPane.display.thinking.shimmer": "continuous",
+    "agentPane.display.thinking.shimmerPeriod": 2200,
+    "agentPane.display.thinking.shimmerBand": 160,
+
+    // The Markdown viewer in the same hand: serif, airy, a reading column.
+    "markdown.font.preset": "serif",
+    "markdown.font.size": 16,
+    "markdown.font.lineHeight": 1.75,
+    "markdown.layout.width": 76,
+
+    // The sidebar: folders as titled sections over a hairline, roomy rows, the age of each.
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "folder",
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.showTimestamps": true,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.delay": 500,
+    // Pending cmux#46879: menus in the theme's colors.
+    // "sidebar.drawnMenus": true,
+
+    "ui.animationSpeed": "normal"
+  }
+}

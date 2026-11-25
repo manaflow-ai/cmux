@@ -38,11 +38,16 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-        view.autocorrectionType = .no
+        // GUI text, so autocorrect and spell check are on, as in every other text app (Leo,
+        // 2026-11-23: "you need to not ... entirely disable autocorrect in the gui"; the
+        // terminal's composer keeps it off). No capitals and no curly quotes or long dashes:
+        // a prompt holds code, paths and flags (full verify D5).
+        view.autocorrectionType = .yes
+        view.spellCheckingType = .yes
         view.autocapitalizationType = .none
         view.smartQuotesType = .no
         view.smartDashesType = .no
+        ComposerTextTraits.blockSiriSuggestions(view)
         view.returnKeyType = .default
         view.accessibilityIdentifier = Self.accessibilityIdentifier
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -54,6 +59,10 @@ struct ChatComposerField: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
@@ -65,8 +74,8 @@ struct ChatComposerField: UIViewRepresentable {
             view.refreshPlaceholderFont()
             view.invalidateIntrinsicContentSize()
         }
-        if view.text != text {
-            view.text = text
+        if view.differs(from: text) {
+            view.takeDraft(text)
             if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
@@ -124,13 +133,19 @@ struct ChatComposerField: UIViewRepresentable {
                 // A line came or went: the field grows (or shrinks) on the same short spring the
                 // stack and the transcript above it take, one motion (`ComposerLineMotion`).
                 parent.onLineChange?()
-                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = textView.text }
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = Self.draft(of: textView) }
             } else {
-                parent.text = textView.text
+                parent.text = Self.draft(of: textView)
             }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerReturnTextView)?.followCaret()
+        }
+
+        /// A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+        static func draft(of textView: UITextView) -> String {
+            (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
