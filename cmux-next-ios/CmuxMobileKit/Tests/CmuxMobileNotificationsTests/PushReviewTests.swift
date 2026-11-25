@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+#if canImport(UserNotifications)
 import UserNotifications
+#endif
 @testable import CmuxMobileNotifications
 
 /// Security and correctness review of #24156: retries live in the app's own
@@ -62,6 +64,7 @@ import UserNotifications
 
     // MARK: L2
 
+    #if canImport(UserNotifications)
     @Test func requireFaceIDMakesReplyAndDenyForeground() {
         let plain = PushActions()
         let locked = PushActions(requireFaceID: true)
@@ -73,6 +76,7 @@ import UserNotifications
         #expect(!plain.action(.reply).options.contains(.foreground))
         #expect(locked.opensApp(.deny) && locked.opensApp(.reply) && !plain.opensApp(.deny))
     }
+    #endif
 
     @Test func theAppLockChoiceIsSharedWithTheExtension() {
         let suite = UserDefaults(suiteName: "push-review-\(UUID().uuidString)")!
@@ -83,6 +87,7 @@ import UserNotifications
 
     // MARK: L1
 
+    #if canImport(UserNotifications)
     @Test func previewsOffShowNoPayloadButtons() {
         var hidden = question
         hidden.previews = false
@@ -91,6 +96,7 @@ import UserNotifications
         // Snapshots load only while the phone is unlocked, whatever previews says.
         #expect(PushForm.loadsSnapshot(unlocked: true) && !PushForm.loadsSnapshot(unlocked: false))
     }
+    #endif
 
     // MARK: L4
 

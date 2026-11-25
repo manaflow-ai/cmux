@@ -68,8 +68,6 @@ pub(super) fn retry_delay(failures: u32) -> Duration {
 
 /// The layout document in the state directory.
 const LAYOUT_FILE: &str = "apps-widgets-layout.json";
-/// The most widgets one place holds.
-pub(super) const MAX_PER_PLACE: usize = 32;
 /// The largest settings object one tile keeps (serialized).
 pub(super) const MAX_SETTINGS_BYTES: usize = 4 * 1024;
 /// The longest instance id a page may mount with (a placed tile's, or a gallery preview's).
@@ -309,12 +307,8 @@ pub(super) fn apply(
                     format!("{app}'s widget has no size for the {}", place.as_str())
                 })?,
             };
-            if layout.place(place).len() >= MAX_PER_PLACE {
-                return Err(format!(
-                    "the {} holds at most {MAX_PER_PLACE} widgets",
-                    place.as_str()
-                ));
-            }
+            // No count limit: only a person's gesture adds a tile, a tile is one layout entry
+            // (settings at most MAX_SETTINGS_BYTES), and a tile that is not shown gets no tick.
             layout.next = layout.next.saturating_add(1);
             let item =
                 Item { instance: format!("w{}", layout.next), app, size, settings: Map::new() };

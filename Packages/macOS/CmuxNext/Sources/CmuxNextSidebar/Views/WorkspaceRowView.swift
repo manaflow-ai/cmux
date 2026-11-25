@@ -402,7 +402,9 @@ final class WorkspaceRowView: SidebarRowView {
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
         metaLabel.setString(shown.meta ?? "")
-        activity.configure(badgesLead || pill != nil ? .idle : shown.activity, style: badgesLead || pill != nil ? nil : ws.activityStyle)
+        let activityHidden = badgesLead || pill != nil
+        activity.configure(activityHidden ? .idle : shown.activity, style: activityHidden ? nil : ws.activityStyle,
+                           glyph: activityHidden ? nil : ws.activityGlyph)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
