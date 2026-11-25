@@ -347,6 +347,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .padding(.top, 160)
         .accessibilityIdentifier("feed.connecting")
+        .placeholderBound("feed.connecting", .milliseconds(0))
     }
 
     @ViewBuilder

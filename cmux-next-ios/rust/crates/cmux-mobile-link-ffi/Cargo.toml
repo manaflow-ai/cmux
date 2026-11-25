@@ -28,6 +28,8 @@ cmux-auto-session.workspace = true
 cmux-composer-send.workspace = true
 cmux-follow-cam.workspace = true
 cmux-mobile-auto.workspace = true
+# The launch's last place (src/last_place.rs).
+cmux-mobile-last-place.workspace = true
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-link.workspace = true
