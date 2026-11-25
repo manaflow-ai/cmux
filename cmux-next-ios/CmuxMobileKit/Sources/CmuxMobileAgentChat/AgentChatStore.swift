@@ -195,8 +195,9 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
-    /// Messages with files on their way to the Mac, oldest first: each shows at once with its
-    /// upload's progress until the Mac echoes it (`userMessage`) or it comes back (`promptNotSent`).
+    /// Messages on their way to the Mac, oldest first: each shows at once (with files, its
+    /// upload's progress) until the Mac echoes or queues it (`userMessage`, `queued`) or it comes
+    /// back to the composer (`promptNotSent`).
     public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
@@ -630,7 +631,11 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
-        if !attachments.isEmpty, !outgoing.contains(where: { $0.id == promptID }) {
+        // Every message shows the moment Send is tapped, not when the Mac's echo comes back
+        // (Leo, 2026-11-24: "i think the send loading is... hm. i think we can maybe be more
+        // optimistic sometimes. it is a bit slow on ios."). A text-only one draws as a quiet
+        // pending bubble; the transcript's own copy takes its place at the echo.
+        if !outgoing.contains(where: { $0.id == promptID }) {
             outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
         }
         // One of the agent's own slash commands waits for the turn and runs as its own.
@@ -665,6 +670,9 @@ public final class AgentChatStore {
     /// never sent again under that id.
     private func reached(_ promptID: String) {
         seenPromptIDs.insert(promptID)
+        // It shows in the transcript or the queue now: its pending copy goes (a queued or
+        // replayed prompt has no `userMessage` echo yet).
+        if outgoing.contains(where: { $0.id == promptID }) { outgoing.removeAll { $0.id == promptID } }
         guard let pending = resendable, pending.promptID == promptID else { return }
         resendable = nil
         let draft = returnedDraft?.promptID == promptID ? returnedDraft : nil
@@ -1978,11 +1986,13 @@ extension AgentChatStore {
     }
 }
 
-/// A message with files the phone is sending (``AgentChatStore/outgoing``).
+/// A message the phone is sending (``AgentChatStore/outgoing``): shown at once, until the Mac has it.
 public struct OutgoingMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public let text: String
     public let attachments: [AgentAttachment]
+    /// No files to upload: it draws as a pending bubble, with no progress bar or Stop.
+    public var isTextOnly: Bool { attachments.isEmpty }
     /// The current file's upload; nil until its first step.
     public var progress: AgentUploadProgress?
 

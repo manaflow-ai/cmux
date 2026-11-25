@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
 
-/// A message with files shows the moment Send is tapped, with its upload's progress, until the
+/// A message shows the moment Send is tapped (with files, its upload's progress) until the
 /// Mac echoes it or it comes back (Leo 2026-11-24: "it just blocked me endlessly on a send").
 @MainActor
 @Suite struct OutgoingMessageTests {
@@ -53,9 +53,46 @@ import Testing
         #expect(store.returnedDraft?.attachments == [Self.video])
     }
 
-    @Test func aTextOnlyMessageShowsNoCard() {
-        let store = AgentChatStore(source: Recorder())
+    /// A text message shows at once, before the Mac answers (Leo, 2026-11-24: "i think we can
+    /// maybe be more optimistic sometimes. it is a bit slow on ios."), and goes at the echo.
+    @Test func aTextOnlyMessageShowsAtOnceUntilTheEcho() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
         store.send(prompt: "hi")
+        let id = try sentID(source)
+        #expect(store.outgoing.map(\.id) == [id])
+        #expect(store.outgoing.first?.isTextOnly == true)
+        #expect(store.outgoing.first?.text == "hi")
+
+        store.apply(.userMessage(text: "hi", promptId: id, turnId: "t1", attachments: [], at: Date()))
         #expect(store.outgoing.isEmpty)
+        #expect(store.turns.count == 1)
+    }
+
+    /// Sent while a turn runs, it waits in the queue: drawn there, not also as a pending bubble.
+    @Test func aQueuedTextMessageMovesToTheQueue() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
+        store.send(prompt: "next")
+        let id = try sentID(source)
+        store.apply(.queued(text: "next", promptId: id, position: 0))
+        #expect(store.outgoing.isEmpty)
+        #expect(store.queue.map(\.id) == [id])
+    }
+
+    /// A send that fails comes back to the composer with its reason: that is the retry.
+    @Test func aFailedTextMessageComesBackToTheComposer() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
+        store.send(prompt: "hi")
+        let id = try sentID(source)
+        store.apply(.promptNotSent(text: "hi", attachments: [], promptID: id, reason: "Not sent: the Mac is offline."))
+        #expect(store.outgoing.isEmpty)
+        #expect(store.returnedDraft?.text == "hi")
+        #expect(store.clientError == "Not sent: the Mac is offline.")
+        // Sent again, it keeps its id (acpmux runs it once) and shows at once again.
+        store.send(prompt: "hi")
+        #expect(try sentID(source) == id)
+        #expect(store.outgoing.map(\.id) == [id])
     }
 }
