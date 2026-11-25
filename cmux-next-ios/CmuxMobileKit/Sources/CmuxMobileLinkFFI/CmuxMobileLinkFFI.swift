@@ -5483,6 +5483,18 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      */
     func takeReplies()  -> Data
     
+    /**
+     * The transcript as one document (none while no rows are kept).
+     */
+    func transcriptPaint()  -> TranscriptPaint?
+    
+    /**
+     * Rows of the full-screen app's transcript above its screen: what the
+     * phone scrolls up to with no round trip (0: none kept, or not on the
+     * alternate screen).
+     */
+    func transcriptRowsAbove()  -> UInt32
+    
 }
 open class TerminalProjection: TerminalProjectionProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -5726,6 +5738,30 @@ open func stats() -> ProjectionStats  {
 open func takeReplies() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_take_replies(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The transcript as one document (none while no rows are kept).
+     */
+open func transcriptPaint() -> TranscriptPaint?  {
+    return try!  FfiConverterOptionTypeTranscriptPaint.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_transcript_paint(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Rows of the full-screen app's transcript above its screen: what the
+     * phone scrolls up to with no round trip (0: none kept, or not on the
+     * alternate screen).
+     */
+open func transcriptRowsAbove() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_transcript_rows_above(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -8813,6 +8849,81 @@ public func FfiConverterTypeTimingMark_lower(_ value: TimingMark) -> RustBuffer 
 
 
 /**
+ * A full-screen app's transcript as one document for a fresh surface of
+ * the Mac's grid (`ESC c` first): its scrollback is the rows the app
+ * scrolled away, its screen the app's screen.
+ */
+public struct TranscriptPaint: Equatable, Hashable {
+    public var bytes: Data
+    /**
+     * The document's rows.
+     */
+    public var rows: UInt32
+    /**
+     * The document row the app's screen begins at.
+     */
+    public var screenTop: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(bytes: Data, 
+        /**
+         * The document's rows.
+         */rows: UInt32, 
+        /**
+         * The document row the app's screen begins at.
+         */screenTop: UInt32) {
+        self.bytes = bytes
+        self.rows = rows
+        self.screenTop = screenTop
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TranscriptPaint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptPaint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptPaint {
+        return
+            try TranscriptPaint(
+                bytes: FfiConverterData.read(from: &buf), 
+                rows: FfiConverterUInt32.read(from: &buf), 
+                screenTop: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TranscriptPaint, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.bytes, into: &buf)
+        FfiConverterUInt32.write(value.rows, into: &buf)
+        FfiConverterUInt32.write(value.screenTop, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptPaint_lift(_ buf: RustBuffer) throws -> TranscriptPaint {
+    return try FfiConverterTypeTranscriptPaint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptPaint_lower(_ value: TranscriptPaint) -> RustBuffer {
+    return FfiConverterTypeTranscriptPaint.lower(value)
+}
+
+
+/**
  * The window's layout at one size.
  */
 public struct WindowLayout: Equatable, Hashable {
@@ -11594,6 +11705,30 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer {
+    typealias SwiftType = TranscriptPaint?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTranscriptPaint.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTranscriptPaint.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLastPlaceScreen: FfiConverterRustBuffer {
     typealias SwiftType = LastPlaceScreen?
 
@@ -13438,6 +13573,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_paint() != 19776) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_rows_above() != 55469) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_composeroutbox_new() != 19978) {
