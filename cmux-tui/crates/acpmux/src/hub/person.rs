@@ -282,8 +282,8 @@ use super::*;
 
 pub use super::start_gate::{
     CALLER_ENV_KEYS, CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD,
-    StartMode, caller_env, caller_proves, caller_token, host_label, mode_person_required,
-    take_caller,
+    StartMode, StartModeAsk, caller_env, caller_proves, caller_token, host_label,
+    mode_person_required, take_caller,
 };
 use cmux_json::JsonSet as _;
 

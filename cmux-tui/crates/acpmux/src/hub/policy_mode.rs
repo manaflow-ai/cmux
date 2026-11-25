@@ -621,24 +621,38 @@ impl Hub {
             _ => None,
         };
         let Some(mode) = mode.and_then(Value::as_str) else { return Ok(()) };
-        let default = self.config.read().await.permission_policy;
-        let meta = session.meta();
-        let Some(policy) = narrow_policy(&meta, default) else { return Ok(()) };
-        if granted && meta.remote_origin && policy != PermissionPolicy::DenyAll {
+        let Some(policy) = self.wider_mode_policy(&session.meta(), mode, granted).await else {
             return Ok(());
-        }
-        let family = crate::web_modes::mode_family(&meta);
-        let offered = super::start_mode::offered_ids(&meta);
-        let table = self.web_modes();
-        if policy_mode(policy, &family, &offered).is_none()
-            || super::start_mode::asks_in(mode, &family, table.modes(&family))
-        {
-            return Ok(());
-        }
+        };
         Err(RpcError::invalid_params(format!(
             "mode {mode:?} does not ask before it acts, and this chat's permission policy is {policy}: set the policy to approve-all first"
         ))
         .with_data(json!({"reason": "policy_mode", "policy": policy.to_string()})))
+    }
+
+    /// The narrower policy of chat `meta` that refuses a move into `mode` (`refuse_wider_mode_as`),
+    /// or `None` when it may run it. Also read before a Claude Code start spawns in the mode its
+    /// `session/new` named (`start_mode.rs` `claude_spawn_asked_mode`).
+    pub(super) async fn wider_mode_policy(
+        &self,
+        meta: &SessionMeta,
+        mode: &str,
+        granted: bool,
+    ) -> Option<PermissionPolicy> {
+        let default = self.config.read().await.permission_policy;
+        let policy = narrow_policy(meta, default)?;
+        if granted && meta.remote_origin && policy != PermissionPolicy::DenyAll {
+            return None;
+        }
+        let family = crate::web_modes::mode_family(meta);
+        let offered = super::start_mode::offered_ids(meta);
+        let table = self.web_modes();
+        if policy_mode(policy, &family, &offered).is_none()
+            || super::start_mode::asks_in(mode, &family, table.modes(&family))
+        {
+            return None;
+        }
+        Some(policy)
     }
 }
 

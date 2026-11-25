@@ -647,6 +647,47 @@ impl Hub {
         self.start_mode_of(&meta).await
     }
 
+    /// The mode a fresh Claude Code chat whose `session/new` names one (`StartModeAsk`) spawns in
+    /// (`--permission-mode`), or `None` to start as before and let `start_in_mode` set it. Only
+    /// a mode `start_in_mode` would then grant as is: one of Claude Code's own, full access only
+    /// where it is allowed, none a narrower policy refuses (`refuse_wider_mode`), and without the
+    /// person only what `start_mode_check` grants. Set after the spawn, it was a
+    /// `set_permission_mode` that Claude Code answers only once booted: every Cloud start names its
+    /// mode, and its `session/new` waited that boot out (1.1 to 1.4 s here, 2 to 9 s on a VM).
+    pub(super) async fn claude_spawn_asked_mode(
+        &self,
+        session: &Session,
+        ask: &super::person::StartModeAsk,
+    ) -> Option<String> {
+        let mut meta = session.meta();
+        if crate::web_modes::mode_of(&meta).is_some() {
+            return None;
+        }
+        let mode = ask.start.mode.as_str();
+        if !crate::claude_stdio::MODES.iter().any(|(id, ..)| *id == mode) {
+            return None;
+        }
+        if is_full_access(mode) && !self.full_access_allowed() {
+            return None;
+        }
+        let modes: Vec<Value> = crate::claude_stdio::MODES
+            .iter()
+            .map(|(id, ..)| serde_json::json!({"id": id}))
+            .collect();
+        meta.modes = Some(serde_json::json!({ "availableModes": modes }));
+        if self.wider_mode_policy(&meta, mode, false).await.is_some() {
+            return None;
+        }
+        if !ask.person {
+            let family = crate::web_modes::family_of(&meta);
+            let target = super::start_gate::LevelTarget::Session(&meta);
+            self.start_mode_check(ask.caller.as_deref(), &family, target, false, &ask.start)
+                .await
+                .ok()?;
+        }
+        Some(mode.to_owned())
+    }
+
     async fn start_mode_of(&self, meta: &crate::store::SessionMeta) -> Option<String> {
         let offered = available(meta);
         if offered.is_empty() {

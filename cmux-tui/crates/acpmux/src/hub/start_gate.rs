@@ -165,6 +165,19 @@ impl StartMode {
     }
 }
 
+/// The start mode a `session/new` names (`StartMode`), with who asks it, carried into the start
+/// (`NewRequest::start_mode_ask`): a fresh Claude Code chat spawns in it when it passes the same
+/// checks `Hub::start_in_mode` runs after the start (`start_mode.rs` `claude_spawn_asked_mode`),
+/// so no `set_permission_mode` waits out Claude Code's boot. `start_in_mode` still checks it.
+#[derive(Clone, Debug)]
+pub struct StartModeAsk {
+    pub(crate) start: StartMode,
+    /// The connection is the person (`Conn::is_person`).
+    pub(crate) person: bool,
+    /// The proven caller session (`Conn::caller`).
+    pub(crate) caller: Option<String>,
+}
+
 /// What a start-level grant checks (`Hub::names_start_level`): the request as it
 /// resolves now, or the session as it started.
 #[derive(Clone, Copy)]
@@ -522,6 +535,22 @@ impl Hub {
         }
     }
 
+    /// The start mode `params` names, for a spawn in it (`StartModeAsk`): never a preset's (its
+    /// approval is bound to what the session resolved, `preset_bind.rs`) nor an adopt's.
+    pub(crate) async fn start_mode_ask(
+        &self,
+        person: bool,
+        caller: Option<&str>,
+        params: &Value,
+    ) -> Option<StartModeAsk> {
+        let start = StartMode::of(params, &*self.config.read().await)?;
+        (start.preset.is_none() && !start.adopts).then(|| StartModeAsk {
+            start,
+            person,
+            caller: caller.map(str::to_owned),
+        })
+    }
+
     /// A new session's start mode (`hub/person.rs` (a), (b)):
     /// `_meta.acpmux.mode`, else its preset's. The request check ran
     /// against the harness the request resolved to; this checks again
@@ -543,6 +572,12 @@ impl Hub {
         // (`policy_mode.rs`): the chat keeps its policy's mode and starts anyway.
         let wanted = json!({"modeId": start.mode});
         if let Err(e) = self.refuse_wider_mode(s, method::SESSION_SET_MODE, &wanted).await {
+            // Spawned in that mode (`claude_spawn_asked_mode`, a policy changed since): it never
+            // runs wider than its policy, so the start fails as a refused mode does.
+            if !adopting && spawned_in(s, &start.mode) {
+                let _ = self.kill(s, true).await;
+                return Err(e);
+            }
             tracing::warn!(session = %s.id, mode = %start.mode, "start mode skipped: {}", e.message);
             self.append(
                 s,
@@ -567,7 +602,7 @@ impl Hub {
             .await
         };
         let applied = match checked {
-            Ok(grant) => match self.set_mode(s, &start.mode).await {
+            Ok(grant) => match self.start_set_mode(s, &start.mode, adopting).await {
                 // The bridge's mode set on what runs now: `set_mode` may have respawned the
                 // harness from a profile changed since the check.
                 Ok(_)
@@ -604,6 +639,29 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// `set_mode` for `start_in_mode`. A chat that spawned in the mode (`claude_spawn_asked_mode`)
+    /// already runs it: the switch's own gates (`forward_as`) run, and nothing goes to the agent,
+    /// whose answer would come only once Claude Code booted.
+    async fn start_set_mode(
+        self: &Arc<Self>,
+        s: &Arc<Session>,
+        mode: &str,
+        adopting: bool,
+    ) -> Result<Value, RpcError> {
+        if adopting || !spawned_in(s, mode) {
+            return self.set_mode(s, mode).await;
+        }
+        let params = json!({"modeId": mode});
+        if super::start_mode::requests_full_access(method::SESSION_SET_MODE, &params)
+            && !self.off_latch().allows_full_access()
+        {
+            return Err(super::start_mode::full_access_off());
+        }
+        self.refuse_wider_mode(s, method::SESSION_SET_MODE, &params).await?;
+        self.append(s, "mux", "mode", params.clone());
+        Ok(params)
     }
 
     /// Whether session `caller` runs in the mode cmux last set on it (`SessionMeta::mode_set_by_cmux`).
@@ -647,4 +705,12 @@ impl Hub {
         }
         e
     }
+}
+
+/// Whether `s` runs `mode` because cmux set it (`SessionMeta::mode_set_by_cmux`), as a Claude Code
+/// chat spawned in its start mode does (`lifecycle.rs`).
+fn spawned_in(s: &Session, mode: &str) -> bool {
+    let m = s.meta();
+    m.mode_set_by_cmux.as_deref() == Some(mode)
+        && crate::web_modes::mode_of(&m).as_deref() == Some(mode)
 }
