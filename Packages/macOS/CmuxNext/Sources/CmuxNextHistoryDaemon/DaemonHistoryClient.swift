@@ -20,7 +20,8 @@ public struct DaemonHistoryClient: Sendable {
         relay = ResourceRelayClient(connection: connection)
     }
 
-    public func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?) async throws -> DaemonHistoryList {
+    public func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?,
+                     actor: HistoryActorFilter = .mine) async throws -> DaemonHistoryList {
         var params: [String: JSONValue] = [
             "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)),
             "range": .string(range.rawValue),
@@ -28,6 +29,8 @@ public struct DaemonHistoryClient: Sendable {
         ]
         if !text.isEmpty { params["text"] = .string(text) }
         if let limit { params["limit"] = .number(Double(min(max(limit, 1), 5_000))) }
+        // Mine is the daemon's default; only the other filters are sent.
+        if actor != .mine { params["actor"] = .string(actor.rawValue) }
         let result = try await relay.send(operation: "history.entries.list", params: params, idempotencyKey: nil)
         return try await Self.decode(DaemonHistoryList.self, from: result)
     }
