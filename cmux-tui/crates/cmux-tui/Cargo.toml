@@ -99,6 +99,8 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # Only for `hotpatch` (see the feature).
 cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
+# The three-tree sync rule and the synced-revision store (link sync pull, base.rs).
+cmux-sync.workspace = true
 cmux-migrate.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true

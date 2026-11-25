@@ -47,6 +47,36 @@ fn claude_profile_variant_carries_its_project_file() {
 }
 
 #[test]
+fn claude_subagent_transcripts_travel_beside_the_project_file() {
+    let src_home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let dir = src_home.path().join(".claude/projects/-src");
+    put(&dir.join(format!("{sid}.jsonl")), "{\"type\":\"user\"}\n");
+    put(&dir.join(sid).join("subagents/agent-a1.jsonl"), "{\"agentId\":\"a1\"}\n");
+    // Another session's children stay behind.
+    put(&dir.join("other-session/subagents/agent-b1.jsonl"), "{}\n");
+    let here = meta("claude", "claude", sid, "/src");
+    let found = native::locate_in(&here, src_home.path());
+    let mut found_labels = labels(&found);
+    found_labels.sort();
+    assert_eq!(found_labels, ["claude-project", "claude-subagent"]);
+
+    let bundle = tempfile::tempdir().unwrap();
+    for (label, src) in &found {
+        native::copy_into_from(src, &bundle.path().join("native"), label, src_home.path()).unwrap();
+    }
+    let dst_home = tempfile::tempdir().unwrap();
+    let there = meta("claude", "claude", sid, "/elsewhere/dst");
+    assert_eq!(native::restore_in(bundle.path(), &there, dst_home.path()).unwrap(), 2);
+    let moved = dst_home.path().join(".claude/projects/-elsewhere-dst");
+    assert_eq!(
+        std::fs::read_to_string(moved.join(sid).join("subagents/agent-a1.jsonl")).unwrap(),
+        "{\"agentId\":\"a1\"}\n"
+    );
+    assert!(moved.join(format!("{sid}.jsonl")).exists());
+}
+
+#[test]
 fn codex_acp_profile_carries_its_rollout() {
     let home = tempfile::tempdir().unwrap();
     let sid = "019a3c2e-7f41-7a2b-9c3d-5e6f7a8b9c0d";

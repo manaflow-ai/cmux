@@ -91,6 +91,10 @@ pub(super) trait Cloud {
     /// `{stdout, stderr, exit_code}`, the credential redacted.
     fn exec(&mut self, machine: &str, command: &str, timeout_ms: u64) -> Result<Value, Value>;
     fn team(&self) -> Option<String>;
+    /// How the last [`Cloud::create`] got its machine ([`spare_origin`]), when the platform said.
+    fn last_create(&self) -> Option<Value> {
+        None
+    }
     fn new_key(&mut self) -> String {
         cmux_cloud_client::client_key()
     }
@@ -240,27 +244,32 @@ impl DirectRunner<'_> {
     }
 
     /// The machine `--name` or `--target` names, made or started, once it runs with a host.
-    fn machine(&mut self, args: &[String]) -> Result<Row, Value> {
-        let row = if let Some(target) = flag(args, "--target") {
+    /// Also how the machine came: `{"from": "existing"}`, or a create's [`spare_origin`].
+    fn machine(&mut self, args: &[String]) -> Result<(Row, Value), Value> {
+        let existing = json!({"from": "existing"});
+        let (row, origin) = if let Some(target) = flag(args, "--target") {
             let id = target
                 .strip_prefix("machine:")
                 .or_else(|| target.strip_prefix("vm:"))
                 .unwrap_or(target);
-            self.cloud.get(id)?
+            (self.cloud.get(id)?, existing)
         } else if let Some(name) = flag(args, "--name") {
             let found =
                 self.cloud.list()?.into_iter().find(|row| row.name.as_deref() == Some(name));
             match found {
-                Some(row) => row,
+                Some(row) => (row, existing),
                 None => {
                     let key = self.cloud.new_key();
-                    self.cloud.create(name, &key)?
+                    let row = self.cloud.create(name, &key)?;
+                    let origin =
+                        self.cloud.last_create().unwrap_or_else(|| json!({"from": "unknown"}));
+                    (row, origin)
                 }
             }
         } else {
             return Err(error("usage.invalid", "cloud start-session needs --name or --target"));
         };
-        self.running(row)
+        Ok((self.running(row)?, origin))
     }
 
     fn running(&mut self, mut row: Row) -> Result<Row, Value> {
@@ -312,8 +321,8 @@ impl DirectRunner<'_> {
             ));
         }
         let agent = flag(args, "--agent").unwrap_or("claude");
-        let row = match self.machine(args) {
-            Ok(row) => row,
+        let (row, origin) = match self.machine(args) {
+            Ok(made) => made,
             Err(error) => return refused(error),
         };
         let session = format!("chat-{}", &self.cloud.new_key().replace('-', "")[..12]);
@@ -351,6 +360,7 @@ impl DirectRunner<'_> {
             "workspace_id": Value::Null,
             "tab_id": Value::Null,
             "route": "direct",
+            "machine_origin": origin,
         }))
     }
 }
@@ -472,6 +482,8 @@ pub(super) struct Api {
     sessions: HashMap<String, (cmux_cloud_api::session::Session, Instant)>,
     /// Machines on a provider with no client sessions: the exec route.
     route_only: Vec<String>,
+    /// The last create's [`spare_origin`].
+    last_create: Option<Value>,
 }
 
 /// A client session is minted for this long and reused for most of it.
@@ -484,6 +496,57 @@ fn api_error(error: cmux_cloud_client::ApiError) -> Value {
         "message": format!("cmux: {}", error.message),
         "retryable": error.retryable,
     })
+}
+
+/// How a create's answer says its machine came (the platform's `spare_path` and `claim`, CloudCore withSpareAnswer):
+/// `from` is `spare` (a warm spare: `path` running or resumed), `fresh` (made new: `fallback` says why no spare), or
+/// `unknown` (the answer names no claim: a replayed create, or a caller the platform hands no spare).
+pub(super) fn spare_origin(answer: &Value) -> Value {
+    let claim = answer.get("claim");
+    let path = claim
+        .and_then(|c| c.get("path"))
+        .or_else(|| answer.get("spare_path"))
+        .and_then(Value::as_str);
+    let from = match path {
+        Some("running" | "resumed") => "spare",
+        Some("created") => "fresh",
+        _ => "unknown",
+    };
+    let fallback = claim
+        .and_then(|c| c.get("fallback"))
+        .filter(|v| !v.is_null())
+        .or_else(|| answer.get("spare_fallback").filter(|v| !v.is_null()));
+    let mut origin = json!({"from": from});
+    if let Some(path) = path {
+        origin["path"] = json!(path);
+    }
+    if let Some(fallback) = fallback {
+        origin["fallback"] = fallback.clone();
+    }
+    if let Some(ms) = claim.and_then(|c| c.get("ms")).filter(|v| v.is_number()) {
+        origin["claim_ms"] = ms.clone();
+    }
+    origin
+}
+
+/// cloud.machine.create read whole: the generated result keeps only `machine`, and the claim fields
+/// ([`spare_origin`]) ride beside it.
+struct CreateWhole;
+
+impl cmux_cloud_wire::Op for CreateWhole {
+    const NAME: &'static str = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::NAME;
+    const CLASS: cmux_cloud_wire::WireClass =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::CLASS;
+    const IDEMPOTENCY: cmux_cloud_wire::WireIdempotency =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::IDEMPOTENCY;
+    const OWNER: &'static str =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::OWNER;
+    const RISK: &'static str = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::RISK;
+    const PRINCIPALS: &'static [cmux_cloud_wire::WirePrincipal] =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::PRINCIPALS;
+    type Params = cmux_cloud_wire::CloudMachineCreateParams;
+    type Result = Value;
+    type Error = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::Error;
 }
 
 fn row_of(machine: cmux_cloud_wire::CloudMachine) -> Row {
@@ -541,6 +604,7 @@ impl Api {
             team,
             sessions: HashMap::new(),
             route_only: Vec::new(),
+            last_create: None,
         })
     }
 
@@ -597,7 +661,7 @@ impl Cloud for Api {
     }
 
     fn create(&mut self, name: &str, key: &str) -> Result<Row, Value> {
-        use cmux_cloud_wire::{CloudMachineCreateOp, CloudMachineCreateParams, CloudMachineSize};
+        use cmux_cloud_wire::{CloudMachineCreateParams, CloudMachineSize};
         let (cpu, memory_mb, disk_mb) = super::super::cloud_journey::start_size_from_env();
         let params = CloudMachineCreateParams {
             name: Some(name.to_owned()),
@@ -611,7 +675,12 @@ impl Cloud for Api {
             origin: None,
             ttl_seconds: None,
         };
-        self.call::<CloudMachineCreateOp>(params, Some(key)).map(|made| row_of(made.machine))
+        let whole = self.call::<CreateWhole>(params, Some(key))?;
+        self.last_create = Some(spare_origin(&whole));
+        let machine = whole.get("machine").cloned().unwrap_or(Value::Null);
+        serde_json::from_value::<cmux_cloud_wire::CloudMachine>(machine).map(row_of).map_err(|e| {
+            error("cloud.bad_answer", format!("cmux: the create's machine did not parse: {e}"))
+        })
     }
 
     fn start(&mut self, machine: &str, key: &str) -> Result<Row, Value> {
@@ -701,6 +770,9 @@ impl Cloud for Api {
         }))
     }
 
+    fn last_create(&self) -> Option<Value> {
+        self.last_create.clone()
+    }
     fn team(&self) -> Option<String> {
         self.team.clone()
     }
