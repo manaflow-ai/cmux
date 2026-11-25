@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.remoteDesktop.maxFps.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أقصى عدد من الإطارات في الثانية تطلبه جلسة مشاركة الشاشة. يتبع الوضع التلقائي معدل تحديث هذه الشاشة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Najveći broj sličica u sekundi koji sesija dijeljenja ekrana traži. Automatski prati brzinu osvježavanja ovog ekrana."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Det højeste antal billeder pr. sekund, en skærmdelingssession beder om. Auto følger denne skærms opdateringshastighed."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die meisten Bilder pro Sekunde, die eine Bildschirmfreigabe anfordert. Automatisch folgt der Bildwiederholrate dieses Displays."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El máximo de fotogramas por segundo que pide una sesión de pantalla compartida. Automático sigue la frecuencia de actualización de esta pantalla."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le nombre maximal d’images par seconde demandé par une session de partage d’écran. Auto suit la fréquence de rafraîchissement de cet écran."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il numero massimo di fotogrammi al secondo che una sessione di condivisione schermo richiede. Automatico segue la frequenza di aggiornamento di questo schermo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画面共有セッションが要求する1秒あたりの最大フレーム数です。自動はこのディスプレイのリフレッシュレートに従います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួនស៊ុមច្រើនបំផុតក្នុងមួយវិនាទីដែលវគ្គចែករំលែកអេក្រង់ស្នើ។ ស្វ័យប្រវត្តិធ្វើតាមអត្រាផ្ទុកឡើងវិញរបស់អេក្រង់នេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "화면 공유 세션이 요청하는 초당 최대 프레임 수입니다. 자동은 이 디스플레이의 재생률을 따릅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Det høyeste antallet bilder per sekund en skjermdelingsøkt ber om. Auto følger denne skjermens oppdateringsfrekvens."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Największa liczba klatek na sekundę, o jaką prosi sesja udostępniania ekranu. Automatycznie oznacza częstotliwość odświeżania tego ekranu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O máximo de quadros por segundo que uma sessão de compartilhamento de tela pede. Automático segue a taxa de atualização desta tela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наибольшее число кадров в секунду, которое запрашивает сеанс демонстрации экрана. «Авто» следует частоте обновления этого дисплея."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำนวนเฟรมต่อวินาทีสูงสุดที่เซสชันการแชร์หน้าจอขอ อัตโนมัติจะตามอัตรารีเฟรชของจอนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir ekran paylaşımı oturumunun istediği en fazla saniyedeki kare sayısı. Otomatik bu ekranın yenileme hızını izler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Найбільша кількість кадрів за секунду, яку запитує сеанс демонстрації екрана. «Авто» відповідає частоті оновлення цього дисплея."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Số khung hình mỗi giây tối đa mà một phiên chia sẻ màn hình yêu cầu. Tự động theo tần số quét của màn hình này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "屏幕共享会话请求的最高每秒帧数。自动跟随此显示器的刷新率。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "螢幕共享工作階段要求的最高每秒影格數。自動會跟隨此顯示器的更新頻率。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.nowPlaying.otherApps.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also shows what plays in apps like Spotify or Music."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض أيضًا ما يتم تشغيله في تطبيقات مثل Spotify أو Music."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje i ono što svira u aplikacijama poput Spotify ili Music."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser også, hvad der afspilles i apps som Spotify eller Music."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt auch, was in Apps wie Spotify oder Music läuft."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "También muestra lo que suena en apps como Spotify o Music."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche aussi ce qui est lu dans des apps comme Spotify ou Music."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra anche ciò che è in riproduzione in app come Spotify o Music."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spotify や Music などのアプリで再生中のものも表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​ក្នុង​កម្មវិធី​ដូចជា Spotify ឬ Music ផង​ដែរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spotify, Music 같은 앱에서 재생 중인 항목도 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser også det som spilles i apper som Spotify eller Music."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje też, co gra w aplikacjach takich jak Spotify lub Muzyka."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Também mostra o que toca em apps como Spotify ou Music."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывать и то, что играет в приложениях вроде Spotify или Music."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงสิ่งที่กำลังเล่นในแอปอย่าง Spotify หรือ Music ด้วย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Spotify veya Music gibi uygulamalarda çalanı da gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показувати й те, що грає в програмах на кшталт Spotify чи «Музика»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị cả nội dung đang phát trong ứng dụng như Spotify hoặc Music."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "同时显示 Spotify 或 Music 等应用中正在播放的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "同時顯示 Spotify 或 Music 等 App 中正在播放的內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

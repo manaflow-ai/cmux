@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "permission.fullAccessStillAsks" : {
+      "comment" : "Agent pane: a muted line under a permission card's title when the chat runs its highest permission mode and the ask still came to the person (the mode does not answer it, for example because Claude Code marks it as needing the person). {mode} is the harness's native highest-permission mode label, such as 'Bypass permissions' or 'Full access'. 'Allow once' is the card's button label (permission.allowOnce).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يشمل {mode} هذا الطلب. «السماح مرة واحدة» يتيح تشغيله هذه المرة فقط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} ne pokriva ovaj zahtjev. Dozvoli jednom ga pušta samo ovaj put."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} dækker ikke denne. Tillad én gang lader den køre kun denne gang."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} deckt diese Anfrage nicht ab. Einmal erlauben lässt sie nur dieses Mal laufen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{mode} doesn't cover this one. Allow once lets it run this time only."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} no cubre esta solicitud. Permitir una vez la deja ejecutarse solo esta vez."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} ne couvre pas cette demande. Autoriser une fois la laisse s'exécuter cette fois seulement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} non copre questa richiesta. Consenti una volta la lascia eseguire solo questa volta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} はこの要求を対象外としています。「1 回だけ許可」で今回だけ実行できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} មិនគ្របដណ្ដប់សំណើនេះទេ។ អនុញ្ញាតម្តង អនុញ្ញាតឱ្យវាដំណើរការតែលើកនេះប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode}에서도 이 요청은 허용되지 않습니다. 한 번 허용하면 이번에만 실행됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} dekker ikke denne. Tillat én gang lar den kjøre bare denne gangen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} nie obejmuje tej prośby. Zezwól raz pozwala ją wykonać tylko tym razem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} não cobre esta solicitação. Permitir uma vez deixa executar só desta vez."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} не распространяется на этот запрос. «Разрешить один раз» пропустит его только сейчас."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} ไม่ครอบคลุมคำขอนี้ อนุญาตครั้งเดียวจะให้ทำงานเฉพาะครั้งนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} bu isteği kapsamıyor. Bir kez izin ver yalnızca bu seferlik çalıştırır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} не поширюється на цей запит. «Дозволити один раз» пропустить його лише зараз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} không áp dụng cho yêu cầu này. Cho phép một lần chỉ cho chạy lần này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} 不涵盖此请求。“允许一次”仅允许这次运行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{mode} 不涵蓋此請求。「允許一次」僅允許這次執行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
