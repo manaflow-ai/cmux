@@ -12,7 +12,7 @@
 //! `git status` there sees it unchanged, not deleted, and no byte of it ever leaves the Mac (RFD
 //! 0007, "Tracked files the skip rules keep home").
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::io::Read as _;
 
 use serde::{Deserialize, Serialize};
@@ -350,7 +350,6 @@ impl Manifest {
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
             let mut before: Option<&Entry> = None;
-            let mut folded = BTreeSet::new();
             for ((child, seen), node) in seen
                 .iter_mut()
                 .enumerate()
@@ -367,10 +366,6 @@ impl Manifest {
                         "entry {index}'s children are not sorted"
                     );
                 }
-                anyhow::ensure!(
-                    folded.insert(node.name.to_lowercase()),
-                    "entry {index}'s children collide by case"
-                );
                 before = Some(node);
             }
         }
@@ -408,10 +403,11 @@ fn ensure_case_unique(
     path: &str,
 ) -> anyhow::Result<()> {
     let folded = name.to_lowercase();
-    anyhow::ensure!(
-        used.insert(folded, name.to_owned()).is_none(),
-        "{path} collides by case with another path"
-    );
+    if let Some(previous) = used.get(&folded) {
+        anyhow::ensure!(previous == name, "{path} collides by case with another path");
+    } else {
+        used.insert(folded, name.to_owned());
+    }
     Ok(())
 }
 
