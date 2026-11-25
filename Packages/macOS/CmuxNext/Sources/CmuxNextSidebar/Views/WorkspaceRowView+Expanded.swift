@@ -14,7 +14,7 @@ extension WorkspaceRowView {
         // Each detail line adds exactly its own height (`SidebarDensityTokens.rowHeightWithSubtitle`), with no gap
         // between stacked lines; the labels' own line spacing separates them.
         let sh = SidebarStyle.detailLineHeight
-        let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
+        let lines = Self.stackedDetailLines(expanded: isExpanded, subtitle: hasSubtitle, meta: hasMeta)
         let stackTop = (b.height - th - CGFloat(lines) * sh) / 2
         // The title centers its capitals on its line of the stack (#27598).
         let titleCenter = stackTop + th / 2
@@ -29,7 +29,17 @@ extension WorkspaceRowView {
         return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
-    var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+    var hasMeta: Bool { !metaLabel.stringValue.isEmpty }
+
+    /// The detail lines the title stacks with. An expanded row is always two lines tall (`SidebarLayoutMetrics.rowStep`), so
+    /// it stacks its title over one detail line's room even while it has none: a summary or preview arriving late (a chat's
+    /// first message, a notification's text) fills that room and never moves the title, the icon or the trailing marks,
+    /// which center on the title's line (Leo 2026-11-24: "we need to have more things decoupled from possible shifts").
+    /// A third line (meta) grows the row by itself, and the title stays where it was.
+    static func stackedDetailLines(expanded: Bool, subtitle: Bool, meta: Bool) -> Int {
+        let lines = (subtitle ? 1 : 0) + (meta ? 1 : 0)
+        return expanded ? max(1, lines) : lines
+    }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {

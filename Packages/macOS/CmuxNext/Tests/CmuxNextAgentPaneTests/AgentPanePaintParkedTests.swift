@@ -38,6 +38,22 @@ struct AgentPanePaintParkedTests {
         #expect(await waiting.value, "the wait did not end with the page's first paint")
     }
 
+    /// cmux#55519: while it waits to paint, the parked page is held drawing (``AgentPaneView/holdsPageAway``), so its engine
+    /// never reports it hidden and throttles it; the hold ends with the wait. RED before: nothing held it, and a Cloud start's
+    /// chat page reported hidden once its document drew, then painted only when the 20 s bound gave up.
+    @Test func aParkedPageIsHeldDrawingUntilItPaintsThenLetGo() async throws {
+        let (view, window) = try Self.page()
+        defer { window.close() }
+        #expect(!view.holdsPageAway)
+        let waiting = Task { await view.paintParked(in: window, size: CGSize(width: 320, height: 240), within: .seconds(60)) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(view.holdsPageAway, "the parked page was not held drawing while it waited")
+        view.model.markPainted()
+        #expect(await waiting.value)
+        #expect(!view.holdsPageAway, "the hold outlived the wait")
+        #expect(await view.paintParked(in: window, size: CGSize(width: 320, height: 240), within: .milliseconds(50)) || !view.holdsPageAway)
+    }
+
     @Test func aPageThatNeverPaintsShowsAfterTheBound() async throws {
         let (view, window) = try Self.page()
         defer { window.close() }

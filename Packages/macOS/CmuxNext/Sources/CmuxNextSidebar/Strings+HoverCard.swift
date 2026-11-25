@@ -42,14 +42,6 @@ extension Strings {
     static var hoverCardGroupAgents: String { String(localized: "sidebar.hoverCard.tab.group.agents", defaultValue: "Agents", bundle: .localizedModule) }
     static var hoverCardGroupPages: String { String(localized: "sidebar.hoverCard.tab.group.pages", defaultValue: "Pages", bundle: .localizedModule) }
     static var hoverCardGroupOther: String { String(localized: "sidebar.hoverCard.tab.group.other", defaultValue: "Other", bundle: .localizedModule) }
-    /// An agent chat's next action under its rolling summary ("Next: Open the PR").
-    nonisolated static func summaryNext(_ next: String) -> String {
-        String(format: String(localized: "sidebar.hoverCard.summaryNext", defaultValue: "Next: %@", bundle: .localizedModule), next)
-    }
-    /// An expanded row's line: the rolling summary, then its next action.
-    nonisolated static func summaryWithNext(_ summary: String, _ next: String) -> String {
-        String(format: String(localized: "sidebar.row.summaryWithNext", defaultValue: "%1$@ → %2$@", bundle: .localizedModule), summary, next)
-    }
     /// The summary header's running count ("2 running").
     static func hoverCardRunning(_ value: Int) -> String {
         String(localized: "sidebar.hoverCard.tab.running", defaultValue: "\(value) running", bundle: .localizedModule)

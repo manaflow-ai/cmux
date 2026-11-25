@@ -5,6 +5,7 @@
     media_polish.py pair BEFORE AFTER [VARIANT ...] --out-dir DIR [--label NAME ...] [--fit] [--canvas WxH]
     media_polish.py grid SRC [SRC ...] --out OUT [--label NAME ...] [--metric TEXT ...] [--cols N] [--fit]
     media_polish.py trim CLIP --out OUT.mp4 (--start S --end E | --event-start-frame F --event-end-frame F)
+    media_polish.py sbs BEFORE AFTER --out OUT.mp4 [--pad 2] [--max 15] [--label before --label after]
     media_polish.py redact SRC --out OUT --rect X,Y,W,H [--rect ...] --scale DPR [--style box|blur]
     media_polish.py scan FILE [FILE ...]
 
@@ -25,6 +26,12 @@ the event under test. Each subcommand closes one of those:
 - trim cuts a clip to the event: its frames or times plus about 300 ms lead-in and lead-out, as an MP4 (h264,
   yuv420p, even dimensions, faststart), a GIF no wider than 720 px (palettegen, made with scripts/pr-media.py's
   encoder and size ladder) and a poster PNG.
+- sbs takes a BEFORE and an AFTER clip of the same scenario, finds where they first and last differ (frames
+  decoded at --analysis-fps, downscaled gray; a frame differs when more than --min-fraction of its pixels move
+  by more than --threshold levels), keeps --pad seconds around that span, and writes ONE labeled side-by-side
+  clip (before | after, identical size) no longer than --max seconds, plus a GIF and a poster. Leo,
+  2026-11-22, on cmux#49596: "that clip goes for 1 minute long and the only relevant and differentiating bit is
+  at the last 10 seconds." Clips that never differ are refused: a before/after that shows nothing is suspect.
 - redact fills (or blurs) --rect boxes. Cropping is still the better fix: crop so the sidebar with machine or
   account names is outside the frame. scan reads no text and refuses nothing; it prints what each file's
   sidecar says and reminds you to run the privacy check (scripts/ci/pr_media_privacy.py check), which
@@ -863,6 +870,183 @@ def make_gif(mp4: Path, gif: Path, width: int, ctx: Context) -> None:
             return
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Side by side, trimmed to where before and after differ
+
+DEFAULT_PAD = 2.0
+DEFAULT_SBS_MAX = 15.0
+DEFAULT_ANALYSIS_FPS = 10.0
+DEFAULT_ANALYSIS_WIDTH = 160
+DEFAULT_THRESHOLD = 24
+DEFAULT_MIN_FRACTION = 0.02
+DEFAULT_CUT_FRACTION = 0.9
+
+
+def analysis_size(media: Media, width: int) -> tuple[int, int]:
+    width = max(8, min(width, media.w))
+    return width, max(2, even_up(round(width * media.h / media.w)))
+
+
+def gray_frames(media: Media, size: tuple[int, int], fps: float, ctx: Context) -> list[bytes]:
+    """The clip decoded at `fps` to `size` 8-bit gray frames (ffmpeg rawvideo on stdout)."""
+    if shutil.which("ffmpeg") is None and ctx.run is subprocess.run:
+        raise PolishError("ffmpeg is needed; install ffmpeg")
+    argv = ffmpeg(["-i", str(media.path), "-vf", f"fps={fps:g},scale={size[0]}:{size[1]}:flags=area,format=gray",
+                   "-f", "rawvideo", "-pix_fmt", "gray", "-"])
+    done = ctx.run(argv, capture_output=True, env=tool_env())
+    if done.returncode != 0:
+        detail = done.stderr.decode("utf-8", "replace") if isinstance(done.stderr, bytes) else str(done.stderr)
+        raise PolishError(f"ffmpeg could not decode {media.path.name}: {detail.strip()[-300:]}")
+    data = done.stdout if isinstance(done.stdout, bytes) else bytes(done.stdout or b"")
+    step = size[0] * size[1]
+    return [data[i:i + step] for i in range(0, len(data) - step + 1, step)]
+
+
+def changed_fraction(a: bytes, b: bytes, threshold: int) -> float:
+    if not a:
+        return 0.0
+    return sum(1 for x, y in zip(a, b) if abs(x - y) > threshold) / len(a)
+
+
+def cut_frames(frames: Sequence[bytes], threshold: int, cut_fraction: float) -> set[int]:
+    """Frames at a whole-picture change (first paint, a cut) and the two frames either side of it."""
+    cuts = {i for i in range(1, len(frames)) if changed_fraction(frames[i - 1], frames[i], threshold) >= cut_fraction}
+    return {j for i in cuts for j in range(i - 2, i + 3)}
+
+
+def divergence(before: Sequence[bytes], after: Sequence[bytes], *, threshold: int, min_fraction: float,
+               cut_fraction: float = 1.01) -> tuple[int, int, list[float]] | None:
+    """(first, last) frame index where the two clips differ, and every frame's changed fraction; None if never.
+
+    Where both clips make the same whole-picture change (>= cut_fraction of the pixels since the frame before:
+    the first paint, a page load) within two frames of each other, those frames are not compared: the arms
+    painting a frame apart is not the difference under test. A whole-picture change in one clip only counts."""
+    fractions = [changed_fraction(a, b, threshold) for a, b in zip(before, after)]
+    skip = cut_frames(before, threshold, cut_fraction) & cut_frames(after, threshold, cut_fraction)
+    differing = [i for i, value in enumerate(fractions) if value >= min_fraction and i not in skip]
+    if not differing:
+        return None
+    return differing[0], differing[-1], fractions
+
+
+@dataclass(frozen=True)
+class SbsWindow:
+    start: float
+    end: float
+    diverge_start: float
+    diverge_end: float
+    pad: float
+    capped: str | None
+
+
+def sbs_window(diverge_start: float, diverge_end: float, duration: float, *, pad: float,
+               limit: float) -> SbsWindow:
+    """The cut: --pad around the differing span, shrinking the pad (then cutting the span's tail) to fit `limit`."""
+    if pad < 0:
+        raise PolishError("--pad cannot be negative")
+    if limit <= 0:
+        raise PolishError("--max must be positive")
+    span = diverge_end - diverge_start
+    capped = None
+    used_pad = pad
+    if span + 2 * pad > limit:
+        used_pad = max(0.0, (limit - span) / 2)
+        capped = f"pad shrunk from {pad:g}s to {used_pad:.2f}s to stay within {limit:g}s"
+    start = max(0.0, diverge_start - used_pad)
+    end = min(duration, diverge_end + used_pad)
+    if end - start > limit:
+        lead = min(pad, 1.0, diverge_start)
+        start = max(0.0, diverge_start - lead)
+        end = min(duration, start + limit)
+        capped = (f"the clips differ for {span:.2f}s, longer than {limit:g}s: cut to {lead:.2f}s before the first "
+                  f"difference and the {limit:g}s after it")
+    return SbsWindow(round(start, 3), round(end, 3), round(diverge_start, 3), round(diverge_end, 3),
+                     round(used_pad, 3), capped)
+
+
+def cmd_sbs(args: argparse.Namespace, ctx: Context) -> int:
+    paths = [args.before, args.after]
+    before, after = (probe(path, ctx.run) for path in paths)
+    for media in (before, after):
+        if media.kind != "video" or media.path.suffix.lower() == ".gif":
+            raise PolishError(f"{media.path.name}: sbs takes two clips (mp4, mov, webm)")
+    output_kind(args.out, "video")
+    scales = input_scales(args, 2)
+    canvas, placements = plan_canvas([(before.w, before.h), (after.w, after.h)], fit=args.fit,
+                                     scales=scales, even=True)
+    if args.analysis_fps <= 0 or args.threshold < 0 or not 0 < args.min_fraction <= 1:
+        raise PolishError("--analysis-fps must be positive, --threshold >= 0, --min-fraction in (0, 1]")
+    duration = min(before.duration or 0.0, after.duration or 0.0)
+    if duration <= 0:
+        raise PolishError("ffprobe gave no duration for one of the clips")
+    size = analysis_size(before, args.analysis_width)
+    found = divergence(gray_frames(before, size, args.analysis_fps, ctx),
+                       gray_frames(after, size, args.analysis_fps, ctx),
+                       threshold=args.threshold, min_fraction=args.min_fraction, cut_fraction=args.cut_fraction)
+    if found is None:
+        raise PolishError(
+            f"{before.path.name} and {after.path.name} never differ (no frame with >= {args.min_fraction:g} of "
+            f"pixels changed by > {args.threshold} levels at {args.analysis_fps:g} fps). A before/after that "
+            f"shows nothing measured nothing: check the arms really differ, or lower --threshold/--min-fraction")
+    first, last, fractions = found
+    step = 1 / args.analysis_fps
+    window = sbs_window(first * step, min(duration, (last + 1) * step), duration, pad=args.pad, limit=args.max)
+    labels = default_labels(paths, args.label)
+    metrics = list(args.metric or [])
+    if metrics and len(metrics) != 2:
+        raise PolishError(f"--metric was given {len(metrics)} times; give one per clip (before, then after)")
+    prepare_out(args.out, paths, ctx)
+    gap = even_up(max(0, args.gap))
+    background_rgb = hex_color(args.background)
+    background = "0x" + "".join(f"{c:02x}" for c in background_rgb)
+    font = label_scale(canvas[0], labels + metrics)
+    band = band_height(2 if metrics else 1, font)
+    length = window.end - window.start
+    with tempfile.TemporaryDirectory(prefix="media-polish-") as work_dir:
+        work = Path(work_dir)
+        band_inputs: list[str] = []
+        for index, label in enumerate(labels):
+            text = [(label, (255, 255, 255))] + ([(metrics[index], (190, 190, 190))] if metrics else [])
+            band_file = work / f"label-{index}.ppm"
+            band_file.write_bytes(render_band(text, canvas[0], band, font, background_rgb))
+            band_inputs += ["-loop", "1", "-i", str(band_file)]
+        parts = [place_filter(i, (m.w, m.h), placements[i], canvas, background, f"f{i}")
+                 for i, m in enumerate((before, after))]
+        parts += [f"[{2 + i}:v]format=rgb24,setsar=1[l{i}]" for i in range(2)]
+        parts += [f"[l{i}][f{i}]vstack=inputs=2:shortest=1[c{i}]" for i in range(2)]
+        parts.append(f"[c0][c1]xstack=inputs=2:layout=0_0|{canvas[0] + gap}_0:fill={background}:shortest=1,"
+                     f"pad=iw+{2 * gap}:ih+{2 * gap}:{gap}:{gap}:color={background},format=yuv420p[out]")
+        inputs = sum((["-ss", f"{window.start:.3f}", "-t", f"{length:.3f}", "-i", str(m.path)]
+                      for m in (before, after)), [])
+        ctx.ffmpeg(ffmpeg([*inputs, *band_inputs, "-filter_complex", ";".join(parts), "-map", "[out]",
+                           "-t", f"{length:.3f}", *VIDEO_ENCODE, str(args.out)]))
+    gif = args.out.with_suffix(".gif")
+    poster = args.out.with_suffix(".poster.png")
+    poster_at = max(0.0, min(length, window.diverge_end - window.start) - 0.1)
+    ctx.ffmpeg(ffmpeg(["-ss", f"{poster_at:.3f}", "-i", str(args.out), "-frames:v", "1", "-update", "1",
+                       str(poster)]))
+    make_gif(args.out, gif, GIF_MAX_WIDTH, ctx)
+    dims = (2 * canvas[0] + 3 * gap, canvas[1] + band + 2 * gap)
+    gif_dims = dims if args.dry_run else probe_dims(gif, ctx, dims)
+    trim = {"start": window.start, "end": window.end, "diverge_start": window.diverge_start,
+            "diverge_end": window.diverge_end, "source_duration": round(duration, 3), "pad": window.pad,
+            "pad_requested": args.pad, "max": args.max, "capped": window.capped,
+            "threshold": args.threshold, "min_fraction": args.min_fraction,
+            "cut_fraction": args.cut_fraction, "analysis_fps": args.analysis_fps,
+            "peak_changed_fraction": round(max(fractions), 4), "poster_at": round(window.start + poster_at, 3)}
+    outputs = {"mp4": private_path(args.out), "gif": private_path(gif), "poster": private_path(poster)}
+    for out, out_dims in ((args.out, dims), (gif, gif_dims), (poster, dims)):
+        ctx.write_json(sidecar_path(out), sidecar(
+            args, command="sbs", source=[private_path(path) for path in paths], dims=out_dims,
+            scale=recorded_scale(scales), labels=labels,
+            extra={"trim": trim, "outputs": outputs, "metrics": metrics or None, "fit": bool(args.fit),
+                   "cell": {"w": canvas[0], "h": canvas[1]}}))
+    note = f" ({window.capped})" if window.capped else ""
+    print(f"sbs: the clips differ from {window.diverge_start:.2f}s to {window.diverge_end:.2f}s of "
+          f"{duration:.2f}s; kept {window.start:.2f}s to {window.end:.2f}s ({length:.2f}s){note}", file=ctx.out)
+    return 0
+
+
 def cmd_redact(args: argparse.Namespace, ctx: Context) -> int:
     media = probe(args.source, ctx.run)
     output_kind(args.out, media.kind)
@@ -1024,6 +1208,36 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     trim.add_argument("--scale", type=float, help="the clip's device pixel ratio, recorded")
     trim.add_argument("--label", help="a name for this clip, recorded in labels")
 
+    sbs = commands.add_parser("sbs", parents=[common], help="before | after, one clip cut to where they differ",
+                              description="Find where BEFORE and AFTER first and last differ, keep --pad seconds "
+                                          "around it (at most --max), and write one labeled side-by-side OUT.mp4, "
+                                          "OUT.gif and OUT.poster.png, each with a sidecar recording the cut. "
+                                          "Refuses clips that never differ.")
+    sbs.add_argument("before", type=Path)
+    sbs.add_argument("after", type=Path)
+    sbs.add_argument("--out", type=Path, required=True, help="the .mp4; the gif and poster go beside it")
+    sbs.add_argument("--pad", type=float, default=DEFAULT_PAD, help="seconds kept around the difference (default 2)")
+    sbs.add_argument("--max", type=float, default=DEFAULT_SBS_MAX,
+                     help="longest output in seconds (default 15): the pad shrinks, then the tail is cut")
+    sbs.add_argument("--threshold", type=int, default=DEFAULT_THRESHOLD,
+                     help="gray levels (0-255) a pixel must move to count as changed (default 24)")
+    sbs.add_argument("--min-fraction", type=float, default=DEFAULT_MIN_FRACTION,
+                     help="share of a frame's pixels that must change for it to differ (default 0.02; below "
+                          "it, one row landing a frame early in one arm reads as a difference)")
+    sbs.add_argument("--cut-fraction", type=float, default=DEFAULT_CUT_FRACTION,
+                     help="a whole-picture change (first paint) both clips make within two frames of each "
+                          "other, at least this share of pixels, is not compared (default 0.9)")
+    sbs.add_argument("--analysis-fps", type=float, default=DEFAULT_ANALYSIS_FPS,
+                     help="frames per second compared (default 10)")
+    sbs.add_argument("--analysis-width", type=int, default=DEFAULT_ANALYSIS_WIDTH,
+                     help="width the frames are compared at (default 160)")
+    sbs.add_argument("--label", action="append", help="twice: before's, then after's (default before, after)")
+    sbs.add_argument("--metric", action="append", help="text under each label, twice")
+    sbs.add_argument("--fit", action="store_true", help="letterbox clips of different sizes instead of refusing")
+    sbs.add_argument("--scale", type=float, action="append", help="device pixel ratio: once, or once per clip")
+    sbs.add_argument("--gap", type=int, default=8, help="px between and around the two (default 8)")
+    sbs.add_argument("--background", default=BACKGROUND[2:], help="RRGGBB (default 111111)")
+
     redact = commands.add_parser("redact", parents=[common], help="box or blur regions",
                                  description="Fill (default) or blur --rect regions. Cropping them out is better.")
     redact.add_argument("source", type=Path)
@@ -1043,8 +1257,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-COMMANDS = {"crop": cmd_crop, "pair": cmd_pair, "grid": cmd_grid, "trim": cmd_trim, "redact": cmd_redact,
-            "scan": cmd_scan}
+COMMANDS = {"crop": cmd_crop, "pair": cmd_pair, "grid": cmd_grid, "trim": cmd_trim, "sbs": cmd_sbs,
+            "redact": cmd_redact, "scan": cmd_scan}
 
 
 def main(argv: Sequence[str] | None = None, runner: Runner | None = None, out=None) -> int:

@@ -31,6 +31,12 @@
 #                              CMUX_NEXT_LANGUAGE_PACKS_OUT, pinned to
 #                              CMUX_NEXT_LANGUAGE_PACKS_BASE_URL (default
 #                              https://files-next.cmux.com/language-packs), before the app is sealed
+#   CMUX_NEXT_TOOL_PACKS       "1" moves bin/cmux-mobile-host (the iPhone host, off unless
+#                              Allow iPhone Connections is on) into a tool pack
+#                              (scripts/cmux-next/tool-packs.py) written to
+#                              CMUX_NEXT_LANGUAGE_PACKS_OUT/tools, pinned to
+#                              CMUX_NEXT_TOOL_PACKS_BASE_URL (default
+#                              https://files-next.cmux.com/tool-packs), before the app is sealed
 #   CMUX_SIGN_MODE             "all" (default) or "main-only" (re-seal only the
 #                              main bundle, keeping every nested signature).
 #
@@ -196,7 +202,7 @@ if [[ "$SIGN_MODE" == "all" ]]; then
     fi
     # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
     # the app's CEF framework, which it links through a symlink: its five helper apps
-    # with CEF's per-helper entitlements (allow-jit for the plain, GPU and Renderer helpers), then the host
+    # with CEF's per-helper entitlements (allow-jit for the plain, GPU and Renderer helpers, and disable-library-validation for the plain one, which loads the Widevine CDM), then the host
     # app, all with the hardened runtime and a secure timestamp (rbh_sign).
     for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
       [[ -d "$rb_host" ]] || continue
@@ -224,6 +230,20 @@ if [[ "$SIGN_MODE" == "all" ]]; then
       python3 -I "$SCRIPT_DIR/cmux-next/language-packs.py" split "$APP_PATH" \
         "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_LANGUAGE_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}" \
         --base-url "${CMUX_NEXT_LANGUAGE_PACKS_BASE_URL:-https://files-next.cmux.com/language-packs}"
+    fi
+  fi
+
+  # 4c. Tools few people use download on first use (bundle size). Step 1 signed each one; its
+  # signature travels inside the pack, bin/<name> becomes a link to cmux (which answers to the
+  # name: cmux-tui-core tool_packs.rs) and step 5 seals the pin. Same re-sign rule as 4b.
+  if [[ "${CMUX_NEXT_TOOL_PACKS:-}" == 1 ]]; then
+    if [[ -f "$APP_PATH/Contents/Resources/tool-packs.json" ]]; then
+      echo "==> tool packs: already split (Contents/Resources/tool-packs.json)"
+    else
+      echo "==> moving tools few people use into tool packs"
+      python3 -I "$SCRIPT_DIR/cmux-next/tool-packs.py" split "$APP_PATH" \
+        "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_TOOL_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}/tools" \
+        --base-url "${CMUX_NEXT_TOOL_PACKS_BASE_URL:-https://files-next.cmux.com/tool-packs}"
     fi
   fi
 fi

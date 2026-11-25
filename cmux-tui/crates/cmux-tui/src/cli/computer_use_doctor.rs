@@ -11,14 +11,14 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, caller, legacy, with_machine};
 use crate::cli::OutputMode;
 
-/// The one fixed folder every build stages the helper in (`cmux_signed_bundle::helper_folder`,
-/// the app's `SignedHelperStaging`, cmux-tui-core `computer_use_host/macos.rs`):
-/// `~/Library/Application Support/cmux-next/helper/<bundle id>/<bundle name>.app`.
-const STAGED_SEGMENT: &str = "/Library/Application Support/cmux-next/helper/";
-/// The per-build layout before the fixed path
-/// (`.../cmux-next/screen-sharing/<bundle id>/computer-use/<16 hex>/`): a copy there was
-/// started by an older cmux daemon.
-const LEGACY_SEGMENT: &str = "/cmux-next/screen-sharing/";
+/// The staging roots used by current and older cmux stagers. The fixed helper folder is
+/// `~/Library/Application Support/cmux-next/helper/<bundle id>/`; the older per-build copy lives
+/// under `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`.
+const STAGED_SEGMENTS: [&str; 3] = [
+    "/Library/Application Support/cmux-next/helper/",
+    "/cmux-next/helper/",
+    "/cmux-next/screen-sharing/",
+];
 /// The macOS helper's executable (the verified copy runs from the staging folder).
 const MAC_HELPER_EXE: &str = "cmux-screen-sharing";
 /// The marker beside the staged copy: the content digest it was checked to have.
@@ -315,10 +315,13 @@ pub(super) fn helper(body: &Value, marker: &dyn Fn(&str) -> Marker) -> Check {
     if exe.rsplit('/').next() != Some(MAC_HELPER_EXE) {
         return pass("helper", exe.to_owned());
     }
-    let staged = exe.find(STAGED_SEGMENT).map(|at| {
-        let rest = &exe[at + STAGED_SEGMENT.len()..];
-        rest.split('/').next().unwrap_or("").to_owned()
-    });
+    let staged = STAGED_SEGMENTS
+        .iter()
+        .find_map(|segment| exe.find(segment).map(|at| (at, segment)))
+        .map(|(at, segment)| {
+            let rest = &exe[at + segment.len()..];
+            rest.split('/').next().unwrap_or("").to_owned()
+        });
     match (staged, marker(exe)) {
         (Some(bundle), Marker::Matches | Marker::Unread) if !bundle.is_empty() => {
             pass("helper", format!("{exe} (staged, verified copy for {bundle})"))
@@ -330,17 +333,17 @@ pub(super) fn helper(body: &Value, marker: &dyn Fn(&str) -> Marker) -> Check {
             ),
             RESTAGE_FIX,
         ),
-        _ if exe.contains(LEGACY_SEGMENT) => fail(
+        _ if exe.contains("/cmux-next/screen-sharing/") => fail(
             "helper",
             format!(
-                "{exe} is an older cmux's copy, not the one staged at ~{STAGED_SEGMENT}<bundle id>/"
+                "{exe} is an older cmux's copy, not the one staged at ~/Library/Application Support/cmux-next/helper/<bundle id>/"
             ),
             RESTAGE_FIX,
         ),
         _ if os == "macos" => fail(
             "helper",
             format!(
-                "{exe} is not the staged, verified copy (~{STAGED_SEGMENT}<bundle id>/): macOS checks the grants of the app it runs inside"
+                "{exe} is not the staged, verified copy (~ /Library/Application Support/cmux-next/helper/<bundle id>/): macOS checks the grants of the app it runs inside"
             ),
             RESTAGE_FIX,
         ),

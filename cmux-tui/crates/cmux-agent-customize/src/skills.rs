@@ -242,7 +242,7 @@ fn claude(homes: &Homes, cwd: Option<&Path>) -> Vec<Skill> {
             Some((short.as_str(), id.as_str())),
             &mut out,
         );
-        for skill in &mut out[start..] {
+        for skill in out.iter_mut().skip(start) {
             skill.enabled = on;
         }
     }
