@@ -3697,6 +3697,666 @@
         }
       }
     },
+    "signIn.plan.body": {
+      "comment": "ChatGPT signed in: one line on where Codex usage is billed and managed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex in cmux uses your ChatGPT plan. Manage usage in your ChatGPT settings."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم Codex في cmux خطة ChatGPT الخاصة بك. أدِر الاستخدام من إعدادات ChatGPT."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex u cmuxu koristi vaš ChatGPT plan. Potrošnjom upravljajte u postavkama ChatGPT-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex i cmux bruger din ChatGPT-plan. Administrer forbruget i dine ChatGPT-indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex in cmux nutzt deinen ChatGPT-Tarif. Die Nutzung verwaltest du in deinen ChatGPT-Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex en cmux usa tu plan de ChatGPT. Gestiona el uso en la configuración de ChatGPT."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex dans cmux utilise votre forfait ChatGPT. Gérez l'utilisation dans les paramètres ChatGPT."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex in cmux usa il tuo piano ChatGPT. Gestisci l'utilizzo nelle impostazioni di ChatGPT."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の Codex は ChatGPT プランを使用します。使用量は ChatGPT の設定で管理できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex ក្នុង cmux ប្រើគម្រោង ChatGPT របស់អ្នក។ គ្រប់គ្រងការប្រើប្រាស់នៅក្នុងការកំណត់ ChatGPT។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux의 Codex는 ChatGPT 플랜을 사용합니다. 사용량은 ChatGPT 설정에서 관리하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex i cmux bruker ChatGPT-abonnementet ditt. Administrer bruken i ChatGPT-innstillingene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex w cmux korzysta z Twojego planu ChatGPT. Użyciem zarządzasz w ustawieniach ChatGPT."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Codex no cmux usa seu plano do ChatGPT. Gerencie o uso nas configurações do ChatGPT."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex в cmux использует ваш тариф ChatGPT. Управляйте использованием в настройках ChatGPT."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex ใน cmux ใช้แพ็กเกจ ChatGPT ของคุณ จัดการการใช้งานได้ในการตั้งค่า ChatGPT"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'taki Codex, ChatGPT planınızı kullanır. Kullanımı ChatGPT ayarlarınızdan yönetin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex у cmux використовує ваш план ChatGPT. Керуйте використанням у налаштуваннях ChatGPT."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex trong cmux dùng gói ChatGPT của bạn. Quản lý mức sử dụng trong cài đặt ChatGPT."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 中的 Codex 使用你的 ChatGPT 套餐。可在 ChatGPT 设置中管理用量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 中的 Codex 使用你的 ChatGPT 方案。可在 ChatGPT 設定中管理用量。"
+          }
+        }
+      }
+    },
+    "signIn.plan.gotIt": {
+      "comment": "Button: dismiss the ChatGPT plan notice (OpenAI's wording)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Got It"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حسنًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razumijem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forstået"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verstanden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entendido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ho capito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjønner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozumiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entendi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Понятно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รับทราบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anladım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зрозуміло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã hiểu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知道了"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知道了"
+          }
+        }
+      }
+    },
+    "signIn.plan.manage": {
+      "comment": "Link to chatgpt.com/settings/usage (OpenAI's wording)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage usage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدارة الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravljaj potrošnjom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administrer forbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung verwalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionar uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer l'utilisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestisci utilizzo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量を管理"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រប់គ្រងការប្រើប្រាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량 관리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administrer bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zarządzaj użyciem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerenciar uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управление использованием"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดการการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımı yönet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керувати використанням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quản lý mức sử dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理用量"
+          }
+        }
+      }
+    },
+    "signIn.plan.signedInWith": {
+      "comment": "ChatGPT signed in: the account's provider line over or under the email",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in with ChatGPT"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول باستخدام ChatGPT"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavljeni putem ChatGPT-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget ind med ChatGPT"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit ChatGPT angemeldet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada con ChatGPT"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté avec ChatGPT"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso eseguito con ChatGPT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT でサインイン済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចូលដោយប្រើ ChatGPT"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT로 로그인됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget på med ChatGPT"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalogowano przez ChatGPT"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado com o ChatGPT"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход выполнен через ChatGPT"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ด้วย ChatGPT แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT ile oturum açıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід виконано через ChatGPT"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đăng nhập bằng ChatGPT"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 ChatGPT 登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 ChatGPT 登入"
+          }
+        }
+      }
+    },
+    "signIn.plan.title": {
+      "comment": "ChatGPT signed in: notice title (OpenAI's suggested wording)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're using your ChatGPT plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنت تستخدم خطة ChatGPT الخاصة بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite svoj ChatGPT plan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bruger din ChatGPT-plan"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du nutzt deinen ChatGPT-Tarif"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estás usando tu plan de ChatGPT"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous utilisez votre forfait ChatGPT"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stai usando il tuo piano ChatGPT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT プランを使用しています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកកំពុងប្រើគម្រោង ChatGPT របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT 플랜을 사용 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bruker ChatGPT-abonnementet ditt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korzystasz ze swojego planu ChatGPT"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você está usando seu plano do ChatGPT"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы используете свой тариф ChatGPT"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณกำลังใช้แพ็กเกจ ChatGPT ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT planınızı kullanıyorsunuz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви використовуєте свій план ChatGPT"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn đang dùng gói ChatGPT của mình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你正在使用你的 ChatGPT 套餐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你正在使用你的 ChatGPT 方案"
+          }
+        }
+      }
+    },
     "signIn.ready.failed": {
       "comment": "Onboarding readiness: failed; %@ is the short reason",
       "extractionState": "manual",
@@ -5546,133 +6206,133 @@
       }
     },
     "signIn.title.codex": {
-      "comment": "Device sign-in card title for ChatGPT/Codex (OpenAI account)",
+      "comment": "Device sign-in card title for ChatGPT/Codex (OpenAI account); OpenAI's recommended label",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign In to ChatGPT"
+            "value": "Sign in with ChatGPT"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسجيل الدخول إلى ChatGPT"
+            "value": "تسجيل الدخول باستخدام ChatGPT"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prijava na ChatGPT"
+            "value": "Prijava putem ChatGPT-a"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Log ind på ChatGPT"
+            "value": "Log ind med ChatGPT"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bei ChatGPT anmelden"
+            "value": "Mit ChatGPT anmelden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar sesión en ChatGPT"
+            "value": "Iniciar sesión con ChatGPT"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se connecter à ChatGPT"
+            "value": "Se connecter avec ChatGPT"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accedi a ChatGPT"
+            "value": "Accedi con ChatGPT"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPTにサインイン"
+            "value": "ChatGPT でサインイン"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចូល ChatGPT"
+            "value": "ចូលដោយប្រើ ChatGPT"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT에 로그인"
+            "value": "ChatGPT로 로그인"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logg på ChatGPT"
+            "value": "Logg på med ChatGPT"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zaloguj się do ChatGPT"
+            "value": "Zaloguj się przez ChatGPT"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entrar no ChatGPT"
+            "value": "Entrar com o ChatGPT"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход в ChatGPT"
+            "value": "Войти через ChatGPT"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ลงชื่อเข้าใช้ ChatGPT"
+            "value": "ลงชื่อเข้าใช้ด้วย ChatGPT"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ChatGPT’de Oturum Aç"
+            "value": "ChatGPT ile oturum aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вхід у ChatGPT"
+            "value": "Увійти через ChatGPT"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đăng nhập ChatGPT"
+            "value": "Đăng nhập bằng ChatGPT"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录 ChatGPT"
+            "value": "使用 ChatGPT 登录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "登入 ChatGPT"
+            "value": "使用 ChatGPT 登入"
           }
         }
       }

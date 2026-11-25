@@ -285,7 +285,18 @@ pub(crate) fn dir_size(dir: &std::path::Path, max: usize) -> (u64, bool) {
 pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<Sample>, bool) {
     let read = |p: &str| std::fs::read_to_string(p).ok();
     let (mut samples, mut pids_read, mut truncated) = (Vec::new(), 0usize, false);
-    for slice in [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE] {
+    let mut slices: Vec<String> =
+        [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+    // Each session's own slice (`session_total.rs`) holds its scopes under the sessions slice.
+    slices.extend(
+        crate::session_total::session_slices(manager)
+            .into_iter()
+            .map(|(name, _)| format!("{}/{name}", crate::session_scope::SESSIONS_SLICE)),
+    );
+    for slice in &slices {
         let Ok(entries) = std::fs::read_dir(format!("{manager}/{slice}")) else { continue };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
