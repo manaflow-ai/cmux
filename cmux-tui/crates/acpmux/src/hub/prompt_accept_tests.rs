@@ -97,6 +97,42 @@ async fn a_prompt_behind_one_about_to_start_its_turn_is_accepted_queued_at_once(
     assert_eq!(order, [json!("g1-a"), json!("g1-b")]);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance() {
+    let (hub, session) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let (accepted_tx, accepted) = tokio::sync::oneshot::channel();
+    let prompt = prompt(&hub, &session, "idle-config-deadline", "blocked config", accepted_tx);
+
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    // Keep direct dispatch parked after it claims the turn slot.
+
+    let accepted = tokio::time::timeout(Duration::from_secs(8), accepted)
+        .await
+        .expect("the prompt is accepted before its answer deadline")
+        .unwrap();
+    assert_eq!(
+        (&accepted["queued"], &accepted["state"], &accepted["deferred"]),
+        (&json!(true), &json!("queued"), &json!(true)),
+        "{accepted}"
+    );
+    assert!(release.send(()).is_err(), "the blocked setup was dropped");
+
+    let result = tokio::time::timeout(WAIT, prompt).await.unwrap().unwrap().unwrap();
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    assert!(!session.turn_claimed(), "deferral cleans up the speculative turn claim");
+    let messages = hub
+        .events(&session.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|record| record.kind == "user_message")
+        .map(|record| record.msg["promptId"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(messages, [json!("idle-config-deadline")]);
+}
+
 /// Two prompts sent while a turn is ahead of them both queue. The first of them waits in
 /// `queue_slot` for that whole turn; it must not keep the admission order's lock while it
 /// waits, or the second is never accepted (ten live moves: "q-2 never queued").

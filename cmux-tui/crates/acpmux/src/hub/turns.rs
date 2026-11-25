@@ -922,7 +922,6 @@ impl Hub {
             admitted();
         }
         admission.enter("queue");
-        admission.commit();
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
@@ -1090,6 +1089,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // After publishing the turn, finish its journal entry and acceptance together.
+        // Until here a stalled direct dispatch can still release its speculative claim.
+        admission.commit();
         if let Err(e) =
             self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
         {
