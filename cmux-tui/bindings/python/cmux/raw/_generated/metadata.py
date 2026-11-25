@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4'
+IR_SHA256 = 'e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008'
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1081,7 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
+            'op_id': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -1673,6 +1674,16 @@ COMMANDS = {
             'w': CommandFieldMetadata(None, None),
             'x': CommandFieldMetadata(None, None),
             'y': CommandFieldMetadata(None, None),
+        },
+    ),
+    'flush-launch-snapshot': CommandMetadata(
+        'flush-launch-snapshot',
+        'control',
+        12,
+        'launch-snapshot-flush-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
         },
     ),
     'focus-direction': CommandMetadata(

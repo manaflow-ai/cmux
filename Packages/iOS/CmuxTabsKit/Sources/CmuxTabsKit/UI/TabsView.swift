@@ -457,6 +457,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             safeAreaInsets: EdgeInsets(top: insets.resting.top, leading: 0, bottom: insets.resting.bottom, trailing: 0),
             chromeInsets: EdgeInsets(top: insets.live.top, leading: 0, bottom: insets.live.bottom, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
+            isOnPage: zoomState.pageInteractive,
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,
             toolbarEdge: theme.metrics.barEdge,

@@ -119,6 +119,10 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
+    // A name nothing live here answers to goes to the session that took it over or claimed it,
+    // and a session on a peer that is down is looked up on the mesh hub first (`send_check.rs`).
+    let asked = target.clone();
+    let (target, unchecked) = super::send_check::route(hub, &mut request, target).await?;
     // Team-scoped addresses are always hub-routed and are never resolved as
     // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
@@ -172,6 +176,8 @@ pub(super) async fn handle(
             );
         }
     }
+    // The hub did not answer the post, or the book could not tell: the name was not checked.
+    let unchecked = unchecked.or_else(|| hub_post.as_ref().map(|(_, why)| why.clone()));
     // A peer that is down now: queued and tried again, and the answer says so.
     let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
@@ -267,6 +273,7 @@ pub(super) async fn handle(
     if host_unreachable {
         status.set("hostUnreachable", json!(true));
     }
+    super::send_check::note(&mut status, &asked, &delivery.target, unchecked);
     Ok(status)
 }
 
@@ -2113,3 +2120,6 @@ mod relay_tests;
 #[cfg(test)]
 #[path = "outbox_hub_queue_tests.rs"]
 mod hub_queue_tests;
+#[cfg(test)]
+#[path = "lost_message_tests.rs"]
+mod lost_message_tests;

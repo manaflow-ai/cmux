@@ -1057,6 +1057,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")

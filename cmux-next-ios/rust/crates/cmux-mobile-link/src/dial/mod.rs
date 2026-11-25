@@ -38,7 +38,7 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -244,6 +244,14 @@ pub struct DialOptions {
     /// dialed with [`crate::LinkConfig::aligned`] pings on every 10 s beat
     /// instead ([`crate::keepalive`]).
     pub aligned_keepalives: bool,
+    /// WireGuard: the idle air gap for the tunnel's routine path probes
+    /// (`cmux_wg::WgNet::set_idle_air_gap`), [`IDLE_AIR_GAP`] by default;
+    /// `None` probes on schedule.
+    pub idle_air_gap: Option<Duration>,
+    /// WireGuard, the dialing phone only: the longest its tunnel stays
+    /// silent (`cmux_wg::WgNet::set_air_floor`), [`PHONE_AIR_FLOOR`] by
+    /// default; `None` leaves only the persistent keepalive.
+    pub air_floor: Option<Duration>,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -280,6 +288,22 @@ impl UltraSetting {
     }
 }
 
+/// The phone's air floor: LTE and NR carriers put an idle radio to sleep
+/// after 5 to 12 s of nothing on the air (an LTE RRC inactivity timer; Huang
+/// et al., MobiSys 2012, measured 11.6 s), and the next key then waits for
+/// the radio's promotion (about 260 ms) and, for the echo, a paging slot (up
+/// to 1.28 s). Something goes on the air at least this often, below the
+/// shortest timer: at most 13 empty 32-byte keepalives a minute on an idle
+/// link, about 25 KB an hour. `typing_echo --radio lte --radio-tail-ms 5000`:
+/// 22 radio wakes in 5 min and a first-key p90 of 190 ms without it, 1 wake
+/// and 74 ms with it.
+pub const PHONE_AIR_FLOOR: Duration = Duration::from_millis(4500);
+
+/// The idle air gap for routine path probes: with the air floor holding the
+/// radio awake, a probe gap only saves bytes, and 20 s saved as much as 30 s
+/// (a third of an idle link's datagrams in `typing_echo`).
+pub const IDLE_AIR_GAP: Duration = Duration::from_secs(20);
+
 impl Default for DialOptions {
     fn default() -> Self {
         Self {
@@ -310,6 +334,8 @@ impl Default for DialOptions {
             stock_ice_waits: false,
             ultra: UltraSetting::Auto,
             aligned_keepalives: false,
+            idle_air_gap: Some(IDLE_AIR_GAP),
+            air_floor: Some(PHONE_AIR_FLOOR),
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
@@ -406,6 +432,17 @@ pub struct TunnelKeys {
     pub answerer: String,
 }
 
+/// The WireGuard overlay a link rides, for its own datagram ports (viewport sync, 7424).
+#[derive(Clone)]
+pub struct Overlay {
+    pub net: std::sync::Arc<cmux_wg::WgNet>,
+    /// The other side's overlay address.
+    pub peer_ip: std::net::IpAddr,
+}
+
+/// Runs once the link exists (see [`Dialed::on_link`]).
+pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -426,10 +463,15 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// Runs once the link exists (a WireGuard tunnel's lease learns how its
+    /// link closes, [`wireguard::dormant`]).
+    pub on_link: Option<OnLink>,
     /// Both sides listed [`crate::RELIABLE_LANE`].
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The tunnel's overlay (WireGuard links only).
+    pub overlay: Option<Overlay>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -636,6 +678,8 @@ pub struct Connected {
     pub resumed: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The WireGuard overlay this link rides (`None` on WebRTC).
+    pub overlay: Option<Overlay>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -711,6 +755,9 @@ async fn connect_on(
     let (dialed, session_id) = dial_transport(signaling, mac, kind, options, early).await?;
     let link_config = reliable_config(link_config, dialed.reliable, None);
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -731,6 +778,7 @@ async fn connect_on(
         webrtc_media: dialed.webrtc_media,
         resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -762,6 +810,10 @@ pub async fn resume(
     link.resume_carrier(dialed.stream, Some(dialed.guard))
         .await
         .map_err(|error| DialError::Transport(error.to_string()))?;
+    // The new tunnel's lease learns how this link closes.
+    if let Some(on_link) = dialed.on_link {
+        on_link(link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -778,6 +830,7 @@ pub async fn resume(
         webrtc_media: dialed.webrtc_media,
         resumed: true,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -863,6 +916,9 @@ pub async fn answer(
             crate::Accepted::New(link) => (link, false),
             crate::Accepted::Resumed(link) => (link, true),
         };
+        if let Some(on_link) = dialed.on_link {
+            on_link(&link);
+        }
         // A resumed link's new carrier is a new transport: its hook replaces
         // the last carrier's.
         if let Some(hold) = dialed.hold {
@@ -884,10 +940,14 @@ pub async fn answer(
             webrtc_media: dialed.webrtc_media,
             resumed,
             tunnel_keys: dialed.tunnel_keys,
+            overlay: dialed.overlay,
         });
     }
     let link =
         Link::new(dialed.stream, Role::Mac, reliable_config(link_config, false, None), Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -908,7 +968,31 @@ pub async fn answer(
         webrtc_media: dialed.webrtc_media,
         resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
+}
+
+/// Run a link on a stream dialed or accepted off signaling (the LAN path,
+/// [`crate::lan`]): no session to unsubscribe and no media beside it.
+pub(crate) fn run_dialed(
+    dialed: Dialed,
+    role: Role,
+    link_config: LinkConfig,
+    transport: TransportKind,
+) -> Connected {
+    let link = Link::new(dialed.stream, role, link_config, Some(dialed.guard));
+    follow_lane(&link, dialed.lane);
+    Connected {
+        link,
+        transport,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id: uuid::Uuid::new_v4().to_string(),
+        webrtc_media: false,
+        resumed: false,
+        tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
+    }
 }
 
 #[cfg(test)]
@@ -1028,7 +1112,7 @@ mod tests {
                 channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
                 match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
                     Ok(Some(ChannelEvent::Data(bytes))) => {
-                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}");
                     }
                     other => panic!("{label}: unexpected {other:?}"),
                 }

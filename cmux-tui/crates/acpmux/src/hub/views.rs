@@ -474,7 +474,14 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true)
+        self.summary_with_tools(session, true, false)
+    }
+
+    /// The whole row of a chat for the `session_changed` that follows one of its records: its
+    /// summary, with the time breakdown only when the row owes it
+    /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
+    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, true, true)
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -702,7 +709,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false)
+        self.summary_with_tools(session, false, false)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -716,7 +723,9 @@ impl Hub {
         Some(cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some())
     }
 
-    fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
+    /// `change_row`: the row follows a record (`session_change_summary`), so it carries the
+    /// time breakdown only when owed.
+    fn summary_with_tools(&self, session: &Session, with_tools: bool, change_row: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
@@ -972,7 +981,15 @@ impl Hub {
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
             usage_stats: self.usage_stats_of(session, &m),
             // A detail/attach read seeds this lazily; census rows never scan journals.
-            time_breakdown: with_tools.then(|| self.cached_time_breakdown(session)).flatten(),
+            time_breakdown: match (with_tools, change_row) {
+                (false, _) => None,
+                (true, false) => self.cached_time_breakdown(session),
+                (true, true) => session
+                    .time_breakdown
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .row_snapshot(crate::store::now_ms()),
+            },
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -1297,6 +1314,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
+            // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
+            "fleetHold": self.fleet_hold_shown(),
         })
     }
 }

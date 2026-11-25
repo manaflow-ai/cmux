@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4";
+inline constexpr std::string_view kProtocolIrSha256 = "e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -429,6 +429,8 @@ struct FeedLocalHandoffDoneRequest;
 struct FeedLocalListRequest;
 struct FeedLocalReadRequest;
 struct FloatPaneRequest;
+struct FlushLaunchSnapshotRequest;
+struct FlushLaunchSnapshotResult;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -2494,6 +2496,7 @@ struct ConversationInboxChangedEvent {
 struct ConversationInboxOpRequest {
     std::string conversation{};
     std::optional<JsonValue> op{};
+    Field<std::string> op_id{};
     friend bool operator==(const ConversationInboxOpRequest&, const ConversationInboxOpRequest&) = default;
 };
 
@@ -3145,6 +3148,15 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
+};
+
+struct FlushLaunchSnapshotRequest {
+    friend bool operator==(const FlushLaunchSnapshotRequest&, const FlushLaunchSnapshotRequest&) = default;
+};
+
+struct FlushLaunchSnapshotResult {
+    bool flushed{};
+    friend bool operator==(const FlushLaunchSnapshotResult&, const FlushLaunchSnapshotResult&) = default;
 };
 
 enum class PaneDirection {
@@ -9313,6 +9325,18 @@ template <>
 struct Codec<FloatPaneRequest> {
     static Result<Json> encode(const FloatPaneRequest& value);
     static Result<FloatPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotRequest> {
+    static Result<Json> encode(const FlushLaunchSnapshotRequest& value);
+    static Result<FlushLaunchSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotResult> {
+    static Result<Json> encode(const FlushLaunchSnapshotResult& value);
+    static Result<FlushLaunchSnapshotResult> decode(const Json& value);
 };
 
 template <>
