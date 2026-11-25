@@ -129,8 +129,8 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"] + arguments
         app.launch()
 
-        let escape = app.buttons["terminal.key.escape"]
-        XCTAssertTrue(escape.waitForExistence(timeout: 30), "the terminal's key row\n\(app.debugDescription)")
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal's composer\n\(app.debugDescription)")
         let tabs = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "the tabs button\n\(app.debugDescription)")
         let screen = app.windows.firstMatch.frame
@@ -167,7 +167,7 @@ final class TabZoomFrameTimeUITests: XCTestCase {
             let frame = bar.frame
             app.coordinate(withNormalizedOffset: .zero)
                 .withOffset(CGVector(dx: frame.maxX - 24, dy: frame.midY)).tap()
-            XCTAssertTrue(tabs.waitForExistence(timeout: 10) && escape.waitForExistence(timeout: 10),
+            XCTAssertTrue(tabs.waitForExistence(timeout: 10) && field.waitForExistence(timeout: 10),
                           "back on the terminal page, cycle \(cycle)\n\(app.debugDescription)")
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         }
@@ -225,7 +225,7 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         shown.name = "keyboard-up"
         shown.lifetime = .keepAlways
         add(shown)
-        XCTAssertFalse(tabs.exists && tabs.isHittable, "the keyboard covers the tabs button\n\(app.debugDescription)")
+        XCTAssertTrue(tabs.exists && tabs.isHittable, "the tabs button above the keyboard\n\(app.debugDescription)")
     }
 
     /// The app's `Documents/tabs-zoom-frames.jsonl`, found in the booted simulator's data containers.
