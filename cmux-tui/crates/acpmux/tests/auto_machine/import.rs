@@ -118,6 +118,7 @@ async fn a_takeover_brings_the_log_and_the_folder_and_goes_on_with_the_cut_turn_
     assert_eq!((view.id.as_str(), view.epoch, &view.holder), (laptop.id.as_str(), 2, &vm()));
 
     let imported = side.importer.import(&view, ImportReason::Takeover).await.unwrap();
+    side.hub.auto_accept_import(&view.id);
     assert_eq!((imported.session_id.as_str(), imported.epoch), (laptop.id.as_str(), 2));
     assert_eq!((imported.last_seq, imported.snapshot), (view.last_seq, view.snapshot));
 
@@ -150,6 +151,7 @@ async fn a_takeover_brings_the_log_and_the_folder_and_goes_on_with_the_cut_turn_
 
     // The same import again answers the same and runs nothing more.
     let again = side.importer.import(&view, ImportReason::Takeover).await.unwrap();
+    side.hub.auto_accept_import(&view.id);
     assert_eq!(again, imported);
     assert_eq!(prompts(&side.hub.events(&laptop.id, 0, 100_000).unwrap()), texts);
 }
@@ -161,6 +163,7 @@ async fn a_tool_call_only_the_snapshot_knows_of_is_named_in_the_continuation() {
     let side = machine_side(&laptop.owner, &root);
     let view = assigned(&side).await;
     side.importer.import(&view, ImportReason::Takeover).await.unwrap();
+    side.hub.auto_accept_import(&view.id);
     let log =
         log_when(&side.hub, &laptop.id, "the continuation", |log| turns_ended(log) >= 2).await;
     let texts = prompts(&log);
@@ -183,6 +186,7 @@ async fn a_copy_with_a_chunk_missing_leaves_no_chat_and_no_folder() {
     // The store has the chunk again: the same import now goes through.
     side.agent.find(Kind::Chunk);
     side.importer.import(&view, ImportReason::Takeover).await.unwrap();
+    side.hub.auto_accept_import(&view.id);
     assert!(side.hub.resolve(&laptop.id).is_ok());
 }
 
@@ -211,6 +215,7 @@ async fn a_handback_puts_the_machines_work_into_the_laptops_own_chat_and_folder(
     let side = machine_side(&owner, &root);
     let view = assigned(&side).await;
     side.importer.import(&view, ImportReason::Takeover).await.unwrap();
+    side.hub.auto_accept_import(&view.id);
     let on_machine = side.hub.resolve(&id).unwrap();
     send(&side.hub, &on_machine, "m1", "from the machine").await;
     let done = |log: &[_]| {
@@ -238,6 +243,7 @@ async fn a_handback_puts_the_machines_work_into_the_laptops_own_chat_and_folder(
         Importer::new(Arc::clone(&laptop_hub), Arc::new(owner.clone()), repos.path("unused"));
     let view = owner.get(&id).await.unwrap();
     let imported = importer.import(&view, ImportReason::Handback).await.unwrap();
+    laptop_hub.auto_accept_import(&id);
     assert_eq!((imported.session_id.as_str(), imported.last_seq), (id.as_str(), machine_last));
 
     // The same chat, in the same folder, now with the machine's turn in its log.

@@ -107,6 +107,15 @@ impl Hub {
         self.resume_queues();
     }
 
+    /// What the holder loop does once it accepted the import of chat `id` (`effects.rs`): for a
+    /// caller that drives the importer itself, as the machine-side tests do. An import alone
+    /// leaves the chat frozen until this.
+    pub fn auto_accept_import(self: &Arc<Self>, id: &str) {
+        if let Some(session) = self.auto_session(id) {
+            self.auto_activate(&session);
+        }
+    }
+
     /// Frees every chat Auto froze at startup: no holder loop runs to say which are this
     /// machine's (`auto_session/laptop.rs`).
     pub(crate) fn auto_release_all(&self) {
