@@ -5645,6 +5645,10 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        if !webView.isLoading {
+            navigationDelegate?.webViewDidStopLoading(webView)
+        }
+
         let genAtEnd = loadingGeneration
         let startedAt = loadingStartedAt ?? Date()
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -6412,8 +6416,10 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
+        let navigationDelegate = navigationDelegate
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
+            navigationDelegate?.webViewWillAbandonNavigation(webView)
         }
     }
 }

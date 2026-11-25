@@ -52,7 +52,17 @@ public final class BrowserSingleSignOnNavigationGate {
     ///   will; otherwise the next owner is admitted at once.
     public typealias Admission = @MainActor (_ admitted: Bool) -> Bool
 
+    private struct Waiter {
+        weak var owner: AnyObject?
+        let admission: Admission
+    }
+
     private let isSingleSignOnURL: @MainActor (URL) -> Bool
+    // Weak, so a web view that went away without reporting an outcome no longer
+    // blocks the next navigation that asks.
+    private weak var holder: AnyObject?
+    private var isHeld = false
+    private var waiters: [Waiter] = []
 
     /// Creates a gate that asks macOS which URLs an Extensible SSO extension
     /// has registered.
@@ -83,7 +93,21 @@ public final class BrowserSingleSignOnNavigationGate {
     ///   - admission: Called at most once with the decision to apply, and
     ///     not at all while the owner keeps waiting.
     public func admit(url: URL?, owner: AnyObject, admission: @escaping Admission) {
-        _ = admission(true)
+        cancelWaiters(of: owner)
+        guard let url,
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              isSingleSignOnURL(url) else {
+            _ = admission(true)
+            return
+        }
+        releaseIfHolderIsGone()
+        let waiter = Waiter(owner: owner, admission: admission)
+        if isHeld, holder !== owner {
+            waiters.append(waiter)
+            return
+        }
+        hold(waiter)
+        admitWaitersWhileFree()
     }
 
     /// Records that the owner's navigation has an outcome: it started
@@ -91,11 +115,57 @@ public final class BrowserSingleSignOnNavigationGate {
     ///
     /// - Parameter owner: The web view that reported the outcome. Ignored
     ///   unless it holds the gate.
-    public func resolve(_ owner: AnyObject) {}
+    public func resolve(_ owner: AnyObject) {
+        guard isHeld, holder === owner else { return }
+        release()
+        admitWaitersWhileFree()
+    }
 
     /// Cancels the owner's waiting navigation and frees the gate if it holds it.
     ///
     /// - Parameter owner: A web view whose navigation was given up: it was
     ///   stopped, lost its content process, or is being closed or replaced.
-    public func abandon(_ owner: AnyObject) {}
+    public func abandon(_ owner: AnyObject) {
+        cancelWaiters(of: owner)
+        resolve(owner)
+    }
+
+    private func cancelWaiters(of owner: AnyObject) {
+        let cancelled = waiters.filter { $0.owner === owner }
+        guard !cancelled.isEmpty else { return }
+        waiters.removeAll { $0.owner === owner }
+        for waiter in cancelled {
+            _ = waiter.admission(false)
+        }
+    }
+
+    private func hold(_ waiter: Waiter) {
+        guard let owner = waiter.owner else {
+            _ = waiter.admission(false)
+            return
+        }
+        // Set before the call: allowing a navigation may report its outcome re-entrantly.
+        holder = owner
+        isHeld = true
+        if !waiter.admission(true), isHeld, holder === owner {
+            release()
+        }
+    }
+
+    private func release() {
+        holder = nil
+        isHeld = false
+    }
+
+    private func releaseIfHolderIsGone() {
+        guard isHeld, holder == nil else { return }
+        release()
+        admitWaitersWhileFree()
+    }
+
+    private func admitWaitersWhileFree() {
+        while !isHeld, !waiters.isEmpty {
+            hold(waiters.removeFirst())
+        }
+    }
 }

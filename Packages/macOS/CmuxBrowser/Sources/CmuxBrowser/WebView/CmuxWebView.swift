@@ -34,6 +34,31 @@ public final class CmuxWebView: CmuxUndoableWebView {
     public var browserViewportModel: BrowserViewportModel?
     public var onBrowserViewportHierarchyChanged: (() -> Void)?
 
+    /// How many times loading has been stopped.
+    ///
+    /// Stopping voids a navigation that is still awaiting its policy decision,
+    /// and WebKit reports nothing for it. A navigation delegate that decides
+    /// later compares the count it read when asked, so it does not allow a
+    /// navigation that no longer exists.
+    public private(set) var stopLoadingCount = 0
+
+    public override func stopLoading() {
+        super.stopLoading()
+        didStopLoading()
+    }
+
+    public override func stopLoading(_ sender: Any?) {
+        super.stopLoading(sender)
+        didStopLoading()
+    }
+
+    private func didStopLoading() {
+        stopLoadingCount &+= 1
+        // WebKit keeps the page loading until a navigation that waits at the
+        // gate is decided, so the stop has to end that wait itself.
+        configuration.websiteDataStore.singleSignOnNavigationGate.abandon(self)
+    }
+
     /// One-shot app-owned internal navigations (file/data/blob/etc.) that
     /// must pass the browser URL policy's trusted-load seam. Page callbacks
     /// never add to this set.

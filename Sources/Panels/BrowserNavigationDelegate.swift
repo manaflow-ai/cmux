@@ -59,12 +59,33 @@ import WebKit
     private var trustedInternalNavigationURL: URL?
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
+    // WebKit voids a main-frame navigation still awaiting its decision when the
+    // web view starts another, and reports nothing. A decision made later
+    // compares this count to know. A redirect of a load already under way
+    // counts too, as it does for the local-file encoding probe.
+    private var mainFrameNavigationActionCount = 0
 
     init(
         externalNavigationHandler: BrowserExternalNavigationHandler
     ) {
         self.externalNavigationHandler = externalNavigationHandler
         super.init()
+    }
+
+    private func singleSignOnGate(for webView: WKWebView) -> BrowserSingleSignOnNavigationGate {
+        webView.configuration.websiteDataStore.singleSignOnNavigationGate
+    }
+
+    /// The web view stopped loading. WebKit reports nothing else when an SSO
+    /// extension aborts the navigation it took, so this is that outcome too.
+    func webViewDidStopLoading(_ webView: WKWebView) {
+        singleSignOnGate(for: webView).resolve(webView)
+    }
+
+    /// The web view is going away without being stopped, which voids a
+    /// navigation of its own that is still waiting for a decision.
+    func webViewWillAbandonNavigation(_ webView: WKWebView) {
+        singleSignOnGate(for: webView).abandon(webView)
     }
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
@@ -119,6 +140,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        singleSignOnGate(for: webView).resolve(webView)
         activeMainFrameNavigation = navigation
         (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
@@ -128,6 +150,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        singleSignOnGate(for: webView).resolve(webView)
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
@@ -164,6 +187,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        singleSignOnGate(for: webView).resolve(webView)
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
         // Treat committed-navigation failures the same as provisional ones so
@@ -179,6 +203,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        singleSignOnGate(for: webView).resolve(webView)
         let isCurrentNavigation = isCurrentMainFrameNavigation(navigation)
         if isCurrentNavigation {
             trustedInternalNavigationURL = nil
@@ -290,6 +315,7 @@ import WebKit
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        singleSignOnGate(for: webView).abandon(webView)
 #if DEBUG
         cmuxDebugLog("browser.webcontent.terminated panel=\(String(describing: self))")
 #endif
@@ -340,6 +366,10 @@ import WebKit
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
+
+        if navigationAction.targetFrame?.isMainFrame == true {
+            mainFrameNavigationActionCount &+= 1
+        }
 
         // Who makes each opaque document (data:, about:, an opaque blob:):
         // a browser REPL session's domain policy judges it by its maker.
@@ -830,6 +860,8 @@ import WebKit
             // accepted main-frame action while the bounded file probe runs so
             // other navigation policy branches remain synchronous.
             let encodingPolicy = owner.localFileEncodingPolicy
+            let actionCount = mainFrameNavigationActionCount
+            let stopCount = (webView as? CmuxWebView)?.stopLoadingCount
             Task { @MainActor [weak owner, weak webView, weak self, encodingPolicy] in
                 guard let owner, let webView, let self,
                       owner.webView === webView else {
@@ -848,8 +880,26 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
-                self.recordAllowedNavigationRequest(navigationAction)
-                decisionHandler(.allow)
+                // WebKit drops the navigation an SSO extension is still
+                // answering when a second one reaches it (#53548).
+                self.singleSignOnGate(for: webView).admit(url: url, owner: webView) { [weak self, weak owner, weak webView] admitted in
+                    // Since this navigation was asked about, its web view may
+                    // have started another or been stopped. Allowing it then
+                    // would start an authorization for a navigation that is gone.
+                    guard admitted, let self, let owner, let webView, owner.webView === webView,
+                          self.mainFrameNavigationActionCount == actionCount,
+                          (webView as? CmuxWebView)?.stopLoadingCount == stopCount else {
+                        decisionHandler(.cancel)
+                        return false
+                    }
+                    self.recordAllowedNavigationRequest(navigationAction)
+                    decisionHandler(.allow)
+                    // WebKit parks the authorization of a web view that is in
+                    // no window until it is shown, which may be never, so that
+                    // web view must not keep the others waiting. The next
+                    // sign-in on its store displaces it, as it always has.
+                    return webView.isLoading && webView.window != nil
+                }
             }
             return
         }
