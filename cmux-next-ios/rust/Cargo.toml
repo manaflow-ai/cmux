@@ -32,6 +32,8 @@ cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 # The per-stream seq/ack/replay core of the reliable link (pure; no runtime).
 cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
+# The relay's sealed snapshot and delta envelopes (RFD 0142 R2, R9): the phone opens, the Mac seals.
+cmux-relay-snapshot = { path = "../../cmux-tui/crates/cmux-relay-snapshot" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 # Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).
 cmux-deadline = { path = "../../cmux-tui/crates/cmux-deadline", features = ["tokio"] }
