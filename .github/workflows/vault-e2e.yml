@@ -39,7 +39,7 @@ jobs:
       name: cmux-next-vm-image-dev
       deployment: false
     runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       # The tree that is built: the machine side's branch. The script comes from this run's own commit (e2e/).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -77,15 +77,36 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
-      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
-      - name: Give this runner instance its own CARGO_HOME
-        uses: ./.github/actions/runner-cargo-home
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The compiled dependencies come from R2 (public reads, no credentials), as cloud-journey-pr.yml restores
+      # them: run 45689034736 built cold for 80 min and hit the job's timeout.
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        continue-on-error: true
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
-          workspaces: cmux-tui
-          cache-bin: false
-          # The build is most of the run; a failed proof keeps it for the next try.
-          cache-on-failure: true
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
       - name: Build cmux (cmux-tui) with the vault's device and machine sides
         working-directory: cmux-tui
         env:
