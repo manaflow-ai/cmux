@@ -288,6 +288,8 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
             "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign", "CmuxMobileMarkdown",
+            // TypingUnderLinkChurnTests: the workspace list and tabs source on screen while typing.
+            "CmuxMobileWorkspaces",
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
