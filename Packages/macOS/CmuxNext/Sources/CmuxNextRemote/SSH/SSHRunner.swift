@@ -121,7 +121,7 @@ public struct SSHProcessRunner {
         }
         // An upload's progress is how far the child has read its stdin file: the child shares the
         // file's offset, and a remote `cat > file` prints nothing while it receives.
-        nonisolated(unsafe) let readFile = inputFile
+        let readFile = inputFile
         let upload: @Sendable () -> Int = { Int((try? readFile?.offset()) ?? 0) }
         let exit = ExitLatch()
         process.terminationHandler = { exit.finish($0.terminationStatus) }
@@ -167,7 +167,7 @@ public struct SSHProcessRunner {
 
     private static func size(of file: URL?) -> Int {
         guard let file else { return 0 }
-        return ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? NSNumber)?.intValue ?? 0
+        return ((try? FileManager.checked.attributesOfItem(atPath: file.path)[.size]) as? NSNumber)?.intValue ?? 0
     }
 
     private struct Output {
@@ -212,6 +212,7 @@ final class ExitLatch: Sendable {
 /// The window restarts whenever progress moved, so total time is unbounded while bytes move.
 func withIdleDeadline<T: Sendable>(_ idle: Duration, label: String, progress: @escaping @Sendable () -> Int,
                                    _ operation: @escaping @Sendable () async -> T) async throws -> T {
+    // concurrency-allow: the operation waits on the exit latch inside a cancellation handler that stops the process, so cancelling the group ends it.
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask { await operation() }
         group.addTask {
