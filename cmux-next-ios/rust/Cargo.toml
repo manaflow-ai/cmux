@@ -62,6 +62,8 @@ cmux-follow-cam = { path = "../../cmux-tui/crates/cmux-follow-cam" }
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 # A message's Markdown as one line of words, shared with the daemon's Home rows (the Chief's push body).
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
+# Wake on intent (cmux-mobile-link-ffi cloud_wake.rs): the Mac's wake hint rules, one ledger per app process.
+cmux-cloud-handlers = { path = "../../cmux-tui/crates/cmux-cloud-handlers" }
 # Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
 cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
 # The phone's userspace tailnet node (crates/cmux-mobile-tailnet): the join checks it shares with the
