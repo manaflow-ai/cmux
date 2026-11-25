@@ -313,14 +313,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
-    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s inference
-    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762). `team` is
-    /// the backend team the start's machines are made in (the install token's): a team's gateway serves only its own
-    /// machines, so the active team's would wave through a start no gateway serves.
-    public func inferenceGatewayServes(team: String) async -> Set<String>? {
-        await inferenceGatewayRead(team: team).serves
-    }
-
     /// ``inferenceGatewayServes(team:)`` with why a read gave no `serves`: the status's own error code and message,
     /// or how the run ended (the start gate logs it, so a refused start says which read failed; hq cloud-chat-works).
     public func inferenceGatewayRead(team: String) async -> (serves: Set<String>?, why: String?) {
@@ -336,18 +328,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
             return (nil, "exit \(result.status) \(code) \(message.prefix(200))")
         }
         return (Set(serves), nil)
-    }
-
-    /// What the gateways of TEAMS serve together (nil teams skipped, each asked once), nil when none answers. A start's
-    /// machine can land in either the install token's team or the person's own team: production made every
-    /// cloud-chat-replies-production machine in the personal team while the install token named another (cmuxterm-hq
-    /// probe rows 2026-11-22/23), and a gateway online there was refused as "No Cloud connection serves claude".
-    public func inferenceGatewayServes(teams: [String?]) async -> Set<String>? {
-        var asked: Set<String> = [], serves: Set<String>?
-        for team in teams.compactMap({ $0 }) where asked.insert(team).inserted {
-            if let answer = await inferenceGatewayServes(team: team) { serves = (serves ?? []).union(answer) }
-        }
-        return serves
     }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
@@ -459,15 +439,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
         return machine
     }
 
-    /// A start's wait on a spare warm's login copy onto `machine` (Rust's `wait-copy`, at most 80 s): returns once no
-    /// copy of `provider`'s login onto it is in flight, at once for a provider the warm does not copy.
-    public func startChatWaitCopy(machine: String, provider: String) async {
-        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let wait: [String: Any] = ["account": "wait", "waitCopy": ["machine": machine, "provider": provider]]
-        guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]) else { return }
-        _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
-    }
-
     /// The teams the Cloud wire subscribes in (Rust's `wireTeams`, the `install` token on stdin): `active` first, then
     /// the install token's team when it is another. Nil on any failure (the caller keeps `active` alone).
     public func startChatWireTeams(active: String?, install: String?) async -> [String]? {
@@ -486,18 +457,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
         guard let binary else { return nil }
         let install = try? await identity.installToken()
         return await CloudMoveCLI(binary: binary).startChatWireTeams(active: active, install: install)
-    }
-
-    /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
-    /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
-    public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {
-        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        var ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
-        if let scope { ask["scope"] = scope }
-        guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
-              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil),
-              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return false }
-        return reply["installed"] as? Bool == true
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.
@@ -560,10 +519,6 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {
         (try await run(["verb": "start-chat-create-refused", "key": key, "account": account, "createKey": createKey]).answer, ())
-    }
-
-    public func startChatTargetPane(key: String, account: String, machine: String, pane: String) async throws -> (Answer, Void) {
-        (try await run(["verb": "start-chat-target-pane", "key": key, "account": account, "machine": machine, "pane": pane]).answer, ())
     }
 
     /// `cmux link start-chat import`: hands cmux-tui the sends this App kept itself before (`entries`, their JSON).

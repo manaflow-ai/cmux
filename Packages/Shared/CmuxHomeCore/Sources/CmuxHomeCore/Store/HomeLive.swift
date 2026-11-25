@@ -150,12 +150,4 @@ public struct HomeLiveRun: Hashable, Sendable {
     /// until the next thought; nil when there is none.
     /// Home's running indicator shows its headline as the Chief's progress narration.
     public var thought: String? = nil
-
-    /// The reply so far as HomeStore's running reply, so the view grows it as
-    /// it grows a `conversation-draft` and lands the posted reply in it.
-    public var turnDraft: HomeTurnDraft {
-        var draft = HomeTurnDraft(participant: participant, turn: turn)
-        draft.segments[0] = text
-        return draft
-    }
 }

@@ -164,11 +164,6 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         return Hit(slot: place.slot, zone: .after, target: Self.target(place.slot, .after), refusal: nil)
     }
 
-    /// The level a drop of `hit` lands at: a member of the group it goes into, else its slot's level.
-    func dropLevel(_ hit: Hit) -> Int {
-        hit.zone == .into ? level(of: hit.slot) + 1 : level(of: hit.slot)
-    }
-
     /// The slot under `point` (or the nearest one above or below the
     /// slots), its zone and the move a drop there makes.
     ///

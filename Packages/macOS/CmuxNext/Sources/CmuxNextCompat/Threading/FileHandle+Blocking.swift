@@ -43,18 +43,6 @@ extension FileHandle {
         return availableData // concurrency-allow: the checked seam; assertBlockingAllowed reports a main-thread call
     }
 
-    /// Reads to the end, like `readDataToEndOfFile()`, as a checked blocking call
-    /// (``assertBlockingAllowed(_:fileID:line:)``).
-    ///
-    /// - Parameters:
-    ///   - fileID: The calling code's `#fileID` (names the call site).
-    ///   - line: The calling code's `#line`.
-    @inlinable
-    public func blockingReadDataToEndOfFile(fileID: StaticString = #fileID, line: UInt = #line) -> Data {
-        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
-        return readDataToEndOfFile() // concurrency-allow: the checked seam; assertBlockingAllowed reports a main-thread call
-    }
-
     /// Writes the bytes, like `write(_:)`, as a checked blocking call
     /// (``assertBlockingAllowed(_:fileID:line:)``).
     ///

@@ -121,9 +121,6 @@ nonisolated struct ClosingPanesRules {
 
     private let handle = ClosingPanesHandle()
 
-    /// Whether panes the last change began closing wait for its cameras.
-    var hasAwaiting: Bool { cmux_closing_panes_has_awaiting(handle.pointer) != 0 }
-
     /// The hash of the whole state (every side, travel and carry, the close order and the panes awaiting the cameras):
     /// the corpus tests compare it after each call.
     var stateHash: UInt64 { cmux_closing_panes_state_hash(handle.pointer) }

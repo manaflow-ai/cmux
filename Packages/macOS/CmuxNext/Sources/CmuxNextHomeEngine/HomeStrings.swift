@@ -28,9 +28,6 @@ public nonisolated enum HomeStrings {
     public static var unavailable: String {
         String(localized: "home.unavailable", defaultValue: "Conversations need a newer cmux daemon.", table: "Home", bundle: .localizedModule)
     }
-    public static var newConversationTitle: String {
-        String(localized: "home.newConversation.title", defaultValue: "New Conversation", table: "Home", bundle: .localizedModule)
-    }
     /// Home's notice while an older build's own Chief still runs.
     static var chiefMergeBlocked: String {
         String(localized: "home.chief.mergeBlocked", defaultValue: "Quit older cmux DEV builds to merge Chief history", table: "Home", bundle: .localizedModule)
@@ -63,10 +60,6 @@ public nonisolated enum HomeStrings {
         String(format: String(localized: "home.chief.stillStarting", defaultValue: "The machine is busy. The Chief is still starting (%lld s).",
                               table: "Home", bundle: .localizedModule), seconds)
     }
-    public static var archiveDefaultChief: String {
-        String(localized: "home.chief.archive.default", defaultValue: "Make another Chief the default before archiving this one.",
-               table: "Home", bundle: .localizedModule)
-    }
     public static var archiveFailed: String {
         String(localized: "home.chief.archive.failed", defaultValue: "The Chief couldn’t be archived. Try again.", table: "Home",
                bundle: .localizedModule)
@@ -91,12 +84,6 @@ public nonisolated enum HomeStrings {
     public static var deleteChiefButton: String {
         String(localized: "home.chief.delete.button", defaultValue: "Delete Chief", table: "Home", bundle: .localizedModule)
     }
-    /// The welcome's call-out of Go to Workspace; the argument is its shortcut (`⌘P`).
-    static func chiefWelcomeGoTo(_ keys: String) -> String {
-        String(format: String(localized: "home.chief.welcome.goTo",
-                              defaultValue: "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn.",
-                              table: "Home", bundle: .localizedModule), keys)
-    }
     /// A chord in the welcome's shortcut list, as Markdown: `` `⌘J` then `S` ``.
     static func chiefWelcomeChord(_ first: String, _ second: String) -> String {
         String(format: String(localized: "home.chief.welcome.chord", defaultValue: "`%1$@` then `%2$@`",
@@ -112,21 +99,5 @@ public nonisolated enum HomeStrings {
     /// The heading over the welcome's other shortcuts.
     static var chiefWelcomeShortcuts: String {
         String(localized: "home.chief.welcome.shortcuts", defaultValue: "More shortcuts:", table: "Home", bundle: .localizedModule)
-    }
-    /// The heading over the welcome's example requests.
-    static var chiefWelcomeExamplesHeader: String {
-        String(localized: "home.chief.welcome.examplesHeader", defaultValue: "Things you can ask me:", table: "Home", bundle: .localizedModule)
-    }
-    /// The welcome's example requests, one Markdown list item per line.
-    static var chiefWelcomeExamples: String {
-        String(localized: "home.chief.welcome.examples",
-               defaultValue: "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace",
-               table: "Home", bundle: .localizedModule)
-    }
-    /// The welcome's last line: what the Chief answers.
-    static var chiefWelcomeAsk: String {
-        String(localized: "home.chief.welcome.ask",
-               defaultValue: "Ask me anything about cmux: how a feature works, managing your coding agents, or your browsers. Type below to start.",
-               table: "Home", bundle: .localizedModule)
     }
 }

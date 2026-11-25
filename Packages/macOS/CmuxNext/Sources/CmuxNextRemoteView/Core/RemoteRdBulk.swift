@@ -9,8 +9,6 @@ public import Foundation
 /// when welcome lists the `bulk` cap. No I/O, threads or timers inside; not
 /// thread-safe: one actor owns an instance, like `RemoteRdCore`.
 public nonisolated final class RemoteRdBulkSender {
-    /// Bytes of queued, unsent upload data one sender holds.
-    public static let maxQueuedBytes = Int(CMUX_RD_BULK_MAX_QUEUED)
     /// The largest framed chunk `popFrame` returns.
     static let frameMax = Int(CMUX_RD_BULK_FRAME_MAX)
 
@@ -93,8 +91,6 @@ public nonisolated final class RemoteRdBulkReceiver {
         public var credit: Data?
     }
 
-    /// Transfers one receiver tracks at once (`finish` frees a slot).
-    public static let maxTransfers = Int(CMUX_RD_BULK_MAX_TRANSFERS)
     private static let creditMax = Int(CMUX_RD_BULK_CREDIT_MAX)
 
     private let handle: OpaquePointer

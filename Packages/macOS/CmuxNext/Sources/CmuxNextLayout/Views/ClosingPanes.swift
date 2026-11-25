@@ -54,8 +54,6 @@ struct ClosingPanes {
     private var lastNumber: UInt64 = 0
 
     var isEmpty: Bool { entries.isEmpty }
-    /// Whether panes this change began closing wait for its cameras (`ScreenContentView.settleClosing`).
-    var hasAwaiting: Bool { rules.hasAwaiting }
 
     /// The resize handles of `geometry`: its split dividers, column edges and row edges.
     static func handles(of geometry: ScreenGeometry) -> Set<DividerHandleView.Kind> {

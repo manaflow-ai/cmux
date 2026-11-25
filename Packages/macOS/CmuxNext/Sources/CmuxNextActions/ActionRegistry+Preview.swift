@@ -32,9 +32,6 @@ extension ActionRegistry {
         previews[canonicalID(for: id)] != nil
     }
 
-    /// The action previewed now, if any.
-    public var previewedAction: ActionID? { activePreview?.id }
-
     /// Shows the preview of `id`; nil, or an action with no preview, ends
     /// the one on screen (the highlight moved to another row).
     public func showPreview(_ id: ActionID?) {

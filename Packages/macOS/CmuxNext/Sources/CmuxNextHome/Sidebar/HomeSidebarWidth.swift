@@ -42,11 +42,6 @@ public struct HomeSidebarWidth: Sendable {
         return min(proposed, widest)
     }
 
-    /// The narrowest Home column that shows the list at its minimum and the transcript at its own.
-    public static func columnMinimum(listMinimum: CGFloat = minimum, divider: CGFloat = 1) -> CGFloat {
-        listMinimum + divider + transcriptMinimum
-    }
-
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {

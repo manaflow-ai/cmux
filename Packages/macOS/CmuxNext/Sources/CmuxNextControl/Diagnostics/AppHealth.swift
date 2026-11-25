@@ -112,7 +112,6 @@ public final class AppHealth: Sendable {
     public static let sessionDaemonID = "sessionDaemon"
     public static let acpmuxID = "acpmux"
     public static let pageHostID = "pageHost"
-    public static let rosterID = "roster"
 
     private struct Box {
         let model = Model()

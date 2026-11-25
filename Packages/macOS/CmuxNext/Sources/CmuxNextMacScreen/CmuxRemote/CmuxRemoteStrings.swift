@@ -16,13 +16,6 @@ enum CmuxRemoteStrings {
     static var done: String { String(localized: "remote.done", defaultValue: "Done", table: "CmuxRemote", bundle: .localizedModule) }
     static var allow: String { String(localized: "remote.allow", defaultValue: "Allow", table: "CmuxRemote", bundle: .localizedModule) }
 
-    static func confirmShare() -> (String, String) {
-        (String(localized: "remote.confirm.share.title", defaultValue: "Share This Mac?", table: "CmuxRemote", bundle: .localizedModule),
-         String(localized: "remote.confirm.share.bodyOwn",
-                defaultValue: "Your devices on this account can see or control this Mac. cmux Remote shows who is connected.",
-                table: "CmuxRemote", bundle: .localizedModule))
-    }
-
     /// Sharing another Mac of this account, confirmed on this device.
     static func confirmShareOther(device: String) -> (String, String) {
         (String(format: String(localized: "remote.confirm.shareOther.title", defaultValue: "Share %@'s screen with your devices?", table: "CmuxRemote", bundle: .localizedModule), device),

@@ -46,17 +46,6 @@ public struct PaneSplitCommand: Sendable {
         swapTowards != nil && daemon.supports(DaemonCapability.splitBefore.rawValue)
     }
 
-    /// The optimistic split (`split-client-keys-v1`, plans/cmux-next/remote-state-ownership.md
-    /// S3): the store shows `provisional` beside the pane at once (its intent log), and the split
-    /// goes out under the provisional pane's client-minted ids, so the daemon's pane replaces it
-    /// under the same public id. A refusal removes it exactly.
-    /// A close of the provisional pane first cancels the split (``DaemonService/cancelCreation(pane:)``):
-    /// the reply's surface goes to that close at once, and this throws ``PaneSplitCancelled``, so
-    /// nothing focuses or sizes the split the person closed.
-    public func sendIntended(on daemon: DaemonService, provisional: ProvisionalPane) async throws -> SurfaceCreated {
-        try await intendNow(on: daemon, provisional: provisional)()
-    }
-
     /// ``sendIntended(on:provisional:)`` in two steps (Cmd-D, instant-new-surfaces): the
     /// provisional pane is in the store's visible records when this returns, in the caller's
     /// turn, so the window can lay it out in the key's frame; the returned work sends the split.

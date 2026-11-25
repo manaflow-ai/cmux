@@ -65,11 +65,4 @@ public struct HomeStreamRow: Hashable, Sendable, Identifiable {
 
     /// The turn key.
     public var id: IdempotencyKey { turn }
-
-    /// The row as a running reply for views that grow a ``HomeTurnDraft``.
-    public var turnDraft: HomeTurnDraft {
-        var draft = HomeTurnDraft(participant: author, turn: turn)
-        draft.segments[0] = text
-        return draft
-    }
 }

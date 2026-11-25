@@ -87,9 +87,6 @@ final class DaemonRecoveryNotice {
         end()
     }
 
-    /// The toast this notice shows, if any (tests).
-    var shownToast: CmuxToast? { handle.flatMap { $0.isDismissed ? nil : $0.toast } }
-
     /// What `daemon`'s state asks for. Reads the startup, the connection and the recovery only.
     static func shown(_ daemon: DaemonService) -> Shown {
         // Before the first connection the launch window shows the failure and its own controls.

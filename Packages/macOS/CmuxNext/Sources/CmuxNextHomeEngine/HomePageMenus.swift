@@ -48,29 +48,6 @@ public enum HomePageMenus {
         Set(composeItems.map(\.0)).union(["home.showHiddenConversations", "openTeamPicker"])
     }
 
-    /// ``backgroundMenu(registry:)`` as entries, for a page that draws its own menu: the teams come
-    /// flat after a separator, the active one checked.
-    public static func composeEntries(registry: ActionRegistry) -> [HomeMenuEntry] {
-        var entries: [HomeMenuEntry] = []
-        for (id, _) in composeItems {
-            if id == "home.inviteToTeam", registry.unavailableReason(for: id) != nil { continue }
-            guard let title = registry.descriptor(for: id)?.title else { continue }
-            entries.append(HomeMenuEntry(action: id, title: title))
-        }
-        if let title = registry.descriptor(for: "home.showHiddenConversations")?.title {
-            entries.append(HomeMenuEntry(action: "home.showHiddenConversations", title: title, separatorBefore: !entries.isEmpty))
-        }
-        let action: ActionID = "openTeamPicker"
-        let teams = registry.argumentSuggestions?(ActionSuggestions.cloudTeams) ?? []
-        guard teams.count > 1, registry.descriptor(for: action) != nil, registry.unavailableReason(for: action) == nil else { return entries }
-        let active = registry.choiceState?(action, nil)
-        for (index, team) in teams.enumerated() {
-            entries.append(HomeMenuEntry(action: action, title: team.title, arguments: ["team": .string(team.value)],
-                                         separatorBefore: index == 0, checked: team.value == active))
-        }
-        return entries
-    }
-
     /// Switch Active Team (`openTeamPicker`, the palette's and the CLI's one path) as a submenu
     /// of the account's teams, or nil with fewer than two teams or while it is unavailable.
     static func teamMenu(registry: ActionRegistry) -> NSMenuItem? {

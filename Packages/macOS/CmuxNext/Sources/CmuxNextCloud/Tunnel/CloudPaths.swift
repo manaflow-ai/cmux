@@ -41,21 +41,6 @@ public struct CloudPaths: Sendable {
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-link-\(hash).sock")
     }
 
-    func linkDeviceFingerprint(machineID: String) -> URL {
-        let hash = SHA256.hash(data: Data(machineID.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-        return linkState.appendingPathComponent("device-fingerprint-\(hash)")
-    }
-
-    func loadLinkDeviceFingerprint(machineID: String) -> String? {
-        guard let text = try? String(contentsOf: linkDeviceFingerprint(machineID: machineID), encoding: .utf8) else { return nil }
-        let fingerprint = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return fingerprint.isEmpty ? nil : fingerprint
-    }
-
-    func clearLinkDeviceFingerprint(machineID: String) {
-        try? FileManager.default.removeItem(at: linkDeviceFingerprint(machineID: machineID))
-    }
-
     /// Makes the root and link-state folders (0700). Disk I/O: off the main thread (``CloudDeviceID`` reads
     /// the install id on the files lane at launch).
     func prepare() throws {

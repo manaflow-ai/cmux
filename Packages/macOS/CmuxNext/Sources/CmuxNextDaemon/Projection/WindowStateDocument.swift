@@ -68,10 +68,6 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         }
     }
 
-    public mutating func removeWindow(id: String) {
-        windows.removeAll { $0.id == id }
-    }
-
     /// Drops workspaces that no longer exist from every window, then every
     /// window with none left. A window exists only while it holds a
     /// workspace, so a record that never listed one (the empty state of

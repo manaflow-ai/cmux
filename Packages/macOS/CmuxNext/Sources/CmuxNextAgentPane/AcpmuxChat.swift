@@ -142,13 +142,4 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         let fields: [String?] = [displayName, title, id, sessionID, harness, cwd, accounts.joined(separator: " "), roots.joined(separator: " ")]
         return fields.compactMap { $0?.localizedLowercase }.contains { $0.localizedStandardRange(of: query.localizedLowercase) != nil }
     }
-
-    /// A stable group label; nil means the record has no value for this grouping.
-    public func groupValue(_ grouping: AcpmuxChatGrouping) -> String? {
-        switch grouping {
-        case .harness: return harness
-        case .folder: return cwd
-        case .account: return accounts.first
-        }
-    }
 }

@@ -23,13 +23,11 @@ public nonisolated struct TypeScale: Sendable {
     @MainActor public static var bodyLineHeight: CGFloat { Base.bodyLineHeight * Typography.userScale }
     /// The browser address bar's text.
     @MainActor public static var field: CGFloat { Base.field * Typography.userScale }
-    @MainActor public static var fieldLineHeight: CGFloat { Base.fieldLineHeight * Typography.userScale }
     /// Card and panel titles, search fields.
     @MainActor public static var title: CGFloat { Base.title * Typography.userScale }
     @MainActor public static var titleLineHeight: CGFloat { Base.titleLineHeight * Typography.userScale }
     /// Page headings.
     @MainActor public static var heading: CGFloat { Base.heading * Typography.userScale }
-    @MainActor public static var headingLineHeight: CGFloat { Base.headingLineHeight * Typography.userScale }
 
     /// Reference sizes for off-main probes and surfaces that apply their own text scale.
     public nonisolated struct Base: Sendable {
@@ -41,11 +39,9 @@ public nonisolated struct TypeScale: Sendable {
         public static let body: CGFloat = 13
         public static let bodyLineHeight: CGFloat = 18
         public static let field: CGFloat = 14
-        public static let fieldLineHeight: CGFloat = 18
         public static let title: CGFloat = 15
         public static let titleLineHeight: CGFloat = 20
         public static let heading: CGFloat = 20
-        public static let headingLineHeight: CGFloat = 26
     }
 
     /// Unscaled token values, small to large. The named steps follow Interface Size live.

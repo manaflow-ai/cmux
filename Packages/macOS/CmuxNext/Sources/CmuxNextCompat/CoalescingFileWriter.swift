@@ -71,7 +71,6 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     public init(queue: DispatchQueue? = nil, window: TimeInterval = CoalescingFileWriter.defaultWindow,
                 maximumQueuedBytes: Int = CoalescingFileWriter.defaultMaximumQueuedBytes,
                 onError: @escaping @Sendable (URL, any Error) -> Void = { _, _ in }) {
-
         self.queue = queue ?? DispatchQueue(label: "com.cmuxterm.app.next.coalescing-file-writer", qos: .utility)
         self.window = window
         self.maximumQueuedBytes = maximumQueuedBytes
@@ -105,9 +104,6 @@ public nonisolated final class CoalescingFileWriter: Sendable {
 
     /// How many writes reached the disk (tests, measurement).
     public var diskWrites: Int { state.withLock { $0.diskWrites } }
-
-    /// How many pending writes a newer one replaced (tests, measurement).
-    public var replacedWrites: Int { state.withLock { $0.replaced } }
 
     /// Starts running what is pending without waiting for the window, and returns at once.
     public func flushNow() {

@@ -18,16 +18,10 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.fromFiles", defaultValue: "Import from Another Browser…", bundle: .localizedModule)
     }
     static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .localizedModule) }
-    static var fullDiskAccessSubtitle: String { String(localized: "onboarding.import.fda.subtitle", defaultValue: "Needs Full Disk Access", bundle: .localizedModule) }
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .localizedModule) }
 
-    static var importWaiting: String { String(localized: "onboarding.import.waiting", defaultValue: "Waiting", bundle: .localizedModule) }
-    static var importRowFailed: String { String(localized: "onboarding.import.rowFailed", defaultValue: "Couldn’t read", bundle: .localizedModule) }
     static var importedNothing: String {
         String(localized: "onboarding.import.importedNothing", defaultValue: "Done. These profiles had nothing new to bring.", bundle: .localizedModule)
-    }
-    static var importSomeFailed: String {
-        String(localized: "onboarding.import.someFailed", defaultValue: "Some profiles couldn’t be read; hover one for why.", bundle: .localizedModule)
     }
     /// "Imported: Bookmarks 1,204 · History 8,311".
     static func imported(_ counts: String) -> String {
@@ -37,41 +31,15 @@ enum OnboardingStrings {
     static var importWithoutPasswords: String {
         String(localized: "onboarding.button.importWithoutPasswords", defaultValue: "Import Without Passwords", bundle: .localizedModule)
     }
-    /// Only Firefox profiles chosen: no Keychain item to allow.
-    static var passwordsFirefoxOnly: String {
-        String(localized: "onboarding.passwords.firefoxOnly",
-               defaultValue: "Import asks you to confirm with Touch ID or your password. Firefox keeps its key in the profile, so macOS asks for no Keychain item. If a Firefox profile has a primary password, cmux asks for it once and does not keep it.",
-               bundle: .localizedModule)
-    }
-    /// Follows the Keychain paragraph when the choice mixes Chromium browsers and Firefox.
-    static var passwordsFirefoxPrimary: String {
-        String(localized: "onboarding.passwords.firefoxPrimary",
-               defaultValue: "If a Firefox profile has a primary password, cmux asks for it once and does not keep it.", bundle: .localizedModule)
-    }
     /// macOS shows it as “cmux is trying to …” in the Touch ID sheet.
     static var passwordsAuthReason: String {
         String(localized: "onboarding.passwords.authReason", defaultValue: "import saved passwords from your other browsers", bundle: .localizedModule)
-    }
-    static var passwordsAuthDenied: String {
-        String(localized: "onboarding.passwords.authDenied",
-               defaultValue: "Nothing was read: the confirmation didn’t finish. Click Begin Importing to try again, or import without passwords.",
-               bundle: .localizedModule)
     }
     /// "Already saved with a different password: 2. cmux kept the saved password."
     static func passwordsConflicts(_ count: String) -> String {
         String(format: String(localized: "onboarding.import.passwordsConflicts",
                               defaultValue: "Already saved with a different password: %@. cmux kept the saved password.",
                               bundle: .localizedModule), count)
-    }
-    /// The finished line's password counts, counts only: skipped (other than conflicts), then
-    /// differing passwords that were kept. Empty when there is neither.
-    static func passwordsSummary(_ reports: [PasswordImportReport]) -> String {
-        let skipped = reports.reduce(0) { $0 + $1.notImportedOtherThanConflicts }
-        let conflicts = reports.reduce(0) { $0 + $1.conflicts }
-        var parts: [String] = []
-        if skipped > 0 { parts.append(passwordsSkipped(skipped.formatted(.number))) }
-        if conflicts > 0 { parts.append(passwordsConflicts(conflicts.formatted(.number))) }
-        return parts.joined(separator: " ")
     }
     /// "Passwords skipped: 9" (already saved, or not a web sign-in).
     static func passwordsSkipped(_ count: String) -> String {
@@ -81,20 +49,6 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.passwordsNotRead",
                defaultValue: "Some passwords weren’t imported: macOS didn’t allow the key, or the file couldn’t be read.", bundle: .localizedModule)
     }
-    /// The row menu's first item: the source's own new cmux profile, with its name, color and picture.
-    static var newMatchingProfile: String {
-        String(localized: "onboarding.import.target.new", defaultValue: "New Profile", bundle: .localizedModule)
-    }
-    /// The checkbox under the kinds: imported history keeps following the other browser.
-    static var keepHistoryInSync: String {
-        String(localized: "onboarding.import.keepInSync", defaultValue: "Keep history in sync", bundle: .localizedModule)
-    }
-    static var keepHistoryInSyncHelp: String {
-        String(localized: "onboarding.import.keepInSync.help",
-               defaultValue: "New pages you visit in these browsers show up in cmux too. Everything stays on this Mac.", bundle: .localizedModule)
-    }
-    /// The row menu's accessibility label.
-    static var importInto: String { String(localized: "onboarding.import.target.label", defaultValue: "Import Into", bundle: .localizedModule) }
     static func kind(_ kind: ImportDataKind) -> String {
         switch kind {
         case .bookmarks: String(localized: "onboarding.kind.bookmarks", defaultValue: "Bookmarks", bundle: .localizedModule)

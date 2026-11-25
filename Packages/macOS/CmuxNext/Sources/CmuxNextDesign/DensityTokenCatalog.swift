@@ -180,15 +180,6 @@ public nonisolated struct DensityTokenCatalog: Sendable {
     /// The entry for `key`.
     public static func entry(_ key: String) -> Entry? { all.first { $0.key == key } }
 
-    /// The token keys the app reads from a density that the playground does not list: internal flags and ratios
-    /// a person should not tune by hand (`densityScale` scales a preset; baselines are font-metric ratios).
-    public static let unlistedKeys: Set<String> = [
-        "sidebarLineBoxBaseline", "omnibarLineBoxBaseline", "omnibarChromeColumn", "tabStripHeight",
-        "omnibarFieldTrailingGap", "omnibarTrailingPadding", "omnibarTrailingIconSize", "omnibarIconViewSize", "omnibarIconLeading",
-        "omnibarEdgeInset", "omnibarPopupTopOutset", "omnibarPopupSideOutset", "omnibarPopupRowGap", "omnibarPopupBottomPadding",
-        "omnibarPopupCornerRadius", "omnibarPopupRowCornerRadius", "omnibarPopupRowHeight", "composerMaxWidth", "foreground",
-    ]
-
     private static let sidebar = "Sidebar rows", paneList = "Pane tab list", strip = "Tab strip", tab = "Tab content"
     private static let scale = "Scale", toolbar = "Toolbar and omnibar", palette = "Command palette", chat = "Chats", window = "Window and panes"
 

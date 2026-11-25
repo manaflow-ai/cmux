@@ -111,25 +111,6 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         }
     }
 
-    /// Hands a raw connection back to the line consumer after a v2 fallback.
-    /// `prefix` is delivered before any bytes read after the handback; no bytes
-    /// are interpreted beyond the existing newline framing.
-    public func handBackToLines(prefix: Data, onLine: @escaping @Sendable (Data) -> Void,
-                                onClose: @escaping @Sendable () -> Void) {
-        queue.async { [self] in
-            guard rawMode, !closed else { return }
-            rawMode = false
-            onBytes = nil
-            self.onLine = onLine
-            self.onClose = onClose
-            if rawReadSuspended {
-                rawReadSuspended = false
-                source?.resume()
-            }
-            consumeLines(prefix)
-        }
-    }
-
     /// Sends another JSON-lines request on a live long-lived connection.
     public func send(_ data: Data) {
         queue.async { [self] in write(data) }

@@ -23,7 +23,6 @@ public final class SidebarTabThumbnails {
     /// less often (``uncachedRefreshInterval``).
     public var refreshInterval: Duration = SidebarTabThumbnails.cachedRefreshInterval
     public static let cachedRefreshInterval: Duration = .seconds(1)
-    public static let uncachedRefreshInterval: Duration = .seconds(3)
 
     /// How many tabs' pictures stay: a few cards' worth, about 6 MB at most of 640 px pictures.
     static let capacity = 24

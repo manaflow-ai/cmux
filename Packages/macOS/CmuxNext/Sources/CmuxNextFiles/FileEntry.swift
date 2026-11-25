@@ -34,9 +34,6 @@ public struct FileEntry: Sendable, Hashable, Identifiable {
     /// The file extension, lowercased; empty for none.
     public var pathExtension: String { (name as NSString).pathExtension.lowercased() }
 
-    /// True for a folder that opens in place (not a package such as an app).
-    public var opensAsFolder: Bool { kind == .folder }
-
     /// Makes an entry.
     /// - Parameters:
     ///   - url: The item's file URL.

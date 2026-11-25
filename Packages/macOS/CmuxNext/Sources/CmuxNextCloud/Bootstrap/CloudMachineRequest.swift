@@ -95,14 +95,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
         return (max(cpu, min(chatSize.cpu, chatPlanMax?.cpu ?? cpu)), max(memoryMb, min(chatSize.memoryMb, chatPlanMax?.memoryMb ?? memoryMb)), disk)
     }
 
-    /// A machine name `cloud new-machine` takes: 1-64 of letters, digits, `.`, `_` and `-`, not
-    /// starting with `-`, so it is also a host name and a shell word in the commands it prints.
-    /// `true` is what a bare `--name` with no value becomes on its way to the app.
-    public static func isPlainName(_ name: String) -> Bool {
-        name != "true" && (1...64).contains(name.count) && !name.hasPrefix("-")
-            && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
-    }
-
     public init(name: String? = nil, size: String? = nil, memoryMb: Int? = nil, persistent: Bool = false,
                 bootstrapPath: String? = nil, bootstrapKind: CloudMachineBootstrap.Kind = .plain, repo: CloudMachineRepo? = nil) {
         self.name = name
@@ -156,11 +148,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
         guard environment != nil, let name else { return .free }
         if !listCurrent() { await refresh() }
         return Self.namedCreate(name, listCurrent: listCurrent(), machines: machines(), creating: creating(name))
-    }
-
-    /// A quoted `~/boot.sh` reaches the app unexpanded (`--bootstrap-script`, `--machine-config`).
-    public static func expandingHome(_ path: String) -> String {
-        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
     }
 
     /// A file this request names (``bootstrapPath``, ``machineConfigPath``) could not be read, is

@@ -396,11 +396,4 @@ public final class WebBundleServedViews {
         }
         return views.count
     }
-
-    /// Reloads every served view that shows a document from the folder now active. Returns how
-    /// many it reloaded.
-    @discardableResult
-    public func reloadServed(overlay: WebBundleOverlay = .shared) -> Int {
-        reload(shown, to: overlay.serving(tree: overlay.activeTree))
-    }
 }

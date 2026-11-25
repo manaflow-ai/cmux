@@ -116,9 +116,6 @@ extension CloudMachineSecrets {
         String(SHA256.hash(data: Data("\(key)\nok \(count)".utf8)).map { String(format: "%02x", $0) }.joined().prefix(32))
     }
 
-    /// The receiver's terminal: wide enough that no marker line wraps, whatever the person's panes are.
-    public static let terminalColumns = 120
-
     /// 32 random hex digits (128 bits).
     public static func randomHex() -> String {
         var generator = SystemRandomNumberGenerator()

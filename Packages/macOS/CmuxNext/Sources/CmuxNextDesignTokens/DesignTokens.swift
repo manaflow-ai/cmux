@@ -15,18 +15,5 @@ public struct DesignTokens: Sendable {
     public static let space5: CGFloat = 24
     public static let space6: CGFloat = 32
 
-    public static let controlIcon: CGFloat = 20
-    public static let controlCompact: CGFloat = 24
     public static let controlRow: CGFloat = 28
-    public static let controlPrimary: CGFloat = 32
-
-    public static let radiusControl: CGFloat = 6
-    public static let radiusPopup: CGFloat = 8
-    public static let radiusCard: CGFloat = 14
-    public static let radiusComposer: CGFloat = 18
-
-    public static let glassPlainTint: CGFloat = 0.6
-    public static let glassPlainBlur: CGFloat = 20
-    public static let glassLensTint: CGFloat = 0.4
-    public static let glassLensBlur: CGFloat = 6
 }
