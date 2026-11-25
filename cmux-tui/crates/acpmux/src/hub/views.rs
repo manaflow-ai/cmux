@@ -57,6 +57,8 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
             *title = summary_title(title);
         }
     }
+    // A census row's composer status: the whole one rides only with tools.
+    census_composer_status(&mut summary);
     summary
 }
 
@@ -387,6 +389,43 @@ pub fn decide(summary: &mut Value) {
     summary.set("indicator", indicator);
     let lane = lane(summary);
     summary.set("lane", lane);
+}
+
+/// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
+/// fixed set of key reads and at most a handful of items and nine facts, whatever the row holds.
+/// `whole` for a read with tools; else the census form (`composer_status::census`), and no
+/// member at all when it has nothing worth a census row.
+pub(crate) fn set_composer_status(summary: &mut Value, whole: bool) {
+    use crate::protocol::composer_status::{SessionFacts, census, composer_status};
+    if !summary.is_object() {
+        return;
+    }
+    let status = composer_status(&SessionFacts::from_summary(summary));
+    let status = if whole { Some(status) } else { census(status) };
+    put_composer_status(summary, status);
+}
+
+/// A census row's `composerStatus` (`composer_status::census`) from the whole one it carries.
+fn census_composer_status(row: &mut Value) {
+    use crate::protocol::composer_status::{ComposerStatus, census};
+    let Some(value) = row.get("composerStatus").filter(|v| !v.is_null()) else { return };
+    let status = <ComposerStatus as serde::Deserialize>::deserialize(value).ok().and_then(census);
+    put_composer_status(row, status);
+}
+
+fn put_composer_status(
+    summary: &mut Value,
+    status: Option<crate::protocol::composer_status::ComposerStatus>,
+) {
+    let Some(row) = summary.as_object_mut() else { return };
+    match status.and_then(|status| serde_json::to_value(status).ok()) {
+        Some(value) => {
+            row.insert("composerStatus".to_owned(), value);
+        }
+        None => {
+            row.remove("composerStatus");
+        }
+    }
 }
 
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
@@ -990,6 +1029,8 @@ impl Hub {
                     .unwrap_or_else(|e| e.into_inner())
                     .row_snapshot(crate::store::now_ms()),
             },
+            // Set from the row's own fields below (`set_composer_status`).
+            composer_status: None,
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -1033,6 +1074,11 @@ impl Hub {
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         summary.set("heldMessages", super::native_messaging::held_messages(session));
+        // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
+        // a message past its deadline red, from this field in one `ls` call.
+        let (overdue, due_at) = super::inbox::deadline_row(session);
+        summary.set("inboxOverdue", json!(overdue));
+        summary.set("inboxDueAt", json!(due_at));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
         let waiting = self.subsessions_waiting(session);
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
@@ -1079,6 +1125,7 @@ impl Hub {
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
+        set_composer_status(&mut summary, with_tools);
         summary
     }
 
@@ -1529,3 +1576,7 @@ mod time_breakdown_tests {
 #[cfg(test)]
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
+
+#[cfg(test)]
+#[path = "composer_status_cost_tests.rs"]
+mod composer_status_cost_tests;

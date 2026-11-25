@@ -271,11 +271,11 @@ import Testing
         #expect(row["servesCloud"] == .bool(true))
     }
 
-    @Test func aClaudeTokenNeedsItsPrefixAndNoWhitespace() async throws {
+    @Test func aClaudeTokenNeedsItsShape() async throws {
         let daemon = Daemon()
         let keys = Keys()
         let models = make(daemon: daemon, keys: keys)
-        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-two words", "sk-ant-oat01-a\tb", " sk-ant-oat01-lead", ""] {
+        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-", "sk-ant-oatxx-abc", "sk-ant-oat01-a│b", "sk-ant-oat01-a\"", "  \n ", ""] {
             await #expect(throws: PageError.self) {
                 _ = try await models.run(["action": "addClaudeToken", "token": .string(token)], context: click)
             }
@@ -288,6 +288,22 @@ import Testing
             _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-abc"], context: click)
         }
         #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test"])
+    }
+
+    @Test func aWrappedOrPaddedClaudeTokenIsSavedWithoutItsWhitespace() async throws {
+        // Leo, 2026-11-25: "your terminal sometimes gets cut off with spaces and the text entry doesnt
+        // strip spaces". A token wrapped across lines, padded with spaces or a zero-width space is the
+        // one token the terminal printed.
+        let token = "sk-ant-oat01-ABCdef_0123-456789xyz"
+        let pasted = "  sk-ant-oat01-ABCdef_0123\n   -456789\u{200B}xyz \r\n\t"
+        #expect(SettingsModels.withoutWhitespace(pasted) == token)
+        #expect(SettingsModels.isClaudeToken(SettingsModels.withoutWhitespace(pasted)))
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "addClaudeToken", "token": .string(pasted)], context: click)
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
     }
 
     @Test func claudeSetupTokenOpensATerminalTabRunningIt() async throws {
