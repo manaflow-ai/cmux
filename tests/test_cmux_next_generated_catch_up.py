@@ -39,6 +39,8 @@ KEYWISE_DRIVERS = {
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
     "cmux-insertions-v1": "scripts/merge-insertions.py",
+    # Cargo.lock: package-wise, written in cargo's own order (scripts/merge-cargo-lock.py).
+    "cmux-cargo-lock-v1": "scripts/merge-cargo-lock.py",
     # The Mac-only exports (settings schema, docs/mdm): a three-way merge, never one side.
     "cmux-export-v1": "scripts/merge-insertions.py",
     # Generated files: three-way when clean, else this branch's copy for the rebuild (never `true`).

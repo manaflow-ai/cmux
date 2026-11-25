@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { describedText, visibleLabelText } from "./support/factsCard";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -53,7 +54,7 @@ async function render(kind: string) {
       </SessionCwdContext.Provider>,
     ),
   );
-  return [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent);
+  return [...host.querySelectorAll(".cv-tool__text")].map(visibleLabelText);
 }
 
 test("a tool row names a file in the session's folder by its path from there", async () => {
@@ -61,10 +62,10 @@ test("a tool row names a file in the session's folder by its path from there", a
 });
 
 // Since the 2026-11-14 change a Read row names its file by its name alone, the full path on hover.
-test("a Read row names its file by its name, with its full path as the title", async () => {
+test("a Read row names its file by its name, with its full path in the accessible description", async () => {
   expect(await render("read")).toEqual(["Read guide.md", "Read notes.md"]);
-  const titles = [...host.querySelectorAll(".cv-tool__file")].map((node) => node.getAttribute("title"));
-  expect(titles).toEqual(["/Users/you/src/app/docs/guide.md", "/Users/you/notes.md"]);
+  const descriptions = [...host.querySelectorAll(".cv-tool__file")].map(describedText);
+  expect(descriptions).toEqual(["/Users/you/src/app/docs/guide.md", "/Users/you/notes.md"]);
 });
 
 test("a failed read or a read of several files is no flat read row, so its row still opens", async () => {
