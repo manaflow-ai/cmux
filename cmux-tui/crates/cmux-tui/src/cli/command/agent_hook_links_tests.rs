@@ -15,6 +15,8 @@ fn env(dir: &Path) -> Env {
         claude_config_dir: None,
         codex_home: None,
         xdg_config_home: None,
+        pi_dir: None,
+        gemini_home: None,
         exe: PathBuf::from("/Applications/cmux NEXT.app/Contents/Resources/bin/cmux"),
         args: vec!["acp".to_owned(), "acpmux-mcp".to_owned()],
         acpmux_home: Some(dir.join(".acpmux")),
