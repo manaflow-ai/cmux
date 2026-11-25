@@ -133,22 +133,20 @@ final class LandscapeUITests: XCTestCase {
         let plain = Self.values(demo)
         print("LANDSCAPE d plain before=\(before) after=\(plain)")
         let plainMoved = (plain["panX"] ?? 0) > (before["panX"] ?? 0) || (plain["lastCol"] ?? 0) > (before["lastCol"] ?? 0)
-        XCTExpectFailure("gap: wide output pans only once Wide is on (the key row's Wide key or the page menu's " +
+        // Not a gap to close: on the phone's own grid Ghostty rewraps the
+        // table to the page's width, so nothing is off screen to pan to. A
+        // grid wider than the page (the Mac's under Prefer this Mac, or a
+        // full-screen app at the Mac's width) pans under a plain swipe with
+        // Wide off (TerminalHostGridLayout.maxPanX follows hostColumns).
+        XCTExpectFailure("by design: wide output pans only once Wide is on (the key row's Wide key or the page menu's " +
                          "Wide View); a plain swipe over a fitted grid has nothing to pan", strict: false) {
             XCTAssertTrue(plainMoved, "a plain left swipe moves the output sideways: before \(before), after \(demo)")
         }
 
-        // d3: Wide on (the key row's Wide key), then the same swipe.
-        let wideKey = app.buttons["terminal.key.wide"]
-        if wideKey.waitForExistence(timeout: 10) {
-            let keyRow = app.buttons["terminal.key.escape"]
-            var swipes = 0
-            while !wideKey.isHittable, swipes < 10 {
-                (keyRow.exists ? keyRow : app.windows.firstMatch).swipeLeft()
-                swipes += 1
-            }
-            if wideKey.isHittable { wideKey.tap() }
-        }
+        // d3: Wide on (the key row's Wide key), then the same swipe. The key
+        // row shows only over the soft keyboard (#53325): with the keyboard
+        // down there was no Wide key to tap, and the grid stayed the phone's.
+        TerminalWideOutputUITests.tapWideKey(app)
         demo = wait(probe, timeout: 15) { (Self.values($0)["cols"] ?? 0) >= 180 }
         let wideStart = Self.values(demo)
         attach(app, "d3-wide-on", probe: probe)
