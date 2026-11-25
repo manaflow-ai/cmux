@@ -48,7 +48,7 @@
 .compare-matrix-heading h2 small { margin-left: 7px; color: var(--compare-muted); font-size: var(--text-caption); font-weight: 450; letter-spacing: 0; }
 .compare-capture-receipt { max-width: min(590px, 50%); color: var(--compare-muted); font-size: var(--text-caption); line-height: 1.45; text-align: right; letter-spacing: var(--text-caption--letter-spacing); }
 .compare-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin: 0; padding: 0; list-style: none; }
-.compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-solid, Canvas); transition: border-color 120ms ease, box-shadow 120ms ease; }
+.compare-candidate { min-width: 0; overflow: hidden; border: 1px solid var(--compare-line); border-radius: 10px; background: var(--cmux-surface-solid, Canvas); transition: border-color var(--cmux-motion-micro, 120ms) ease, box-shadow var(--cmux-motion-micro, 120ms) ease; }
 .compare-candidate[data-selected]:not([data-selected=""]) { border-color: color-mix(in srgb, var(--compare-ink) 45%, var(--compare-line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--compare-ink) 10%, transparent); }
 .compare-candidate-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px 11px; }
 .compare-candidate-select { display: flex; align-items: center; gap: 9px; min-width: 0; border: 0; background: transparent; padding: 0; text-align: left; cursor: default; }

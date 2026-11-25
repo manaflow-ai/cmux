@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import { fillKind, glassContextRules, targetsRequiredGlass, type Block } from "./check-glass-never-opaque";
 import { isIconSelector } from "./check-icon-scale";
-import { normalizePxMs, propertyFamily, tokenFor, type TokenFamily } from "./design-token-values";
+import { designTokens, normalizePxMs, propertyFamily, tokenFor, type TokenFamily } from "./design-token-values";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
@@ -185,7 +185,8 @@ interface ParsedBlock {
   selector: string;
   context: string[];
   line: number;
-  declarations: { property: string; value: string; line: number }[];
+  /** `start`/`end`: the declaration's raw span in the sheet (`property: value`, before its `;` or `}`). */
+  declarations: { property: string; value: string; line: number; start: number; end: number }[];
 }
 
 /** Small CSS scanner. It preserves selectors and at-rule context, including minified sheets. */
@@ -195,9 +196,12 @@ function parse(text: string): ParsedBlock[] {
   let buf = "";
   let line = 1;
   let i = 0;
+  let segment = 0;
   const flush = () => {
     const raw = buf.trim();
     buf = "";
+    const start = segment;
+    segment = i + 1;
     const block = stack.at(-1)?.block;
     const colon = raw.indexOf(":");
     if (!block || colon < 1) return;
@@ -209,6 +213,8 @@ function parse(text: string): ParsedBlock[] {
         .replace(/\s+/g, " ")
         .replace(/\s*!important$/, ""),
       line,
+      start,
+      end: i,
     });
   };
   while (i < text.length) {
@@ -240,6 +246,7 @@ function parse(text: string): ParsedBlock[] {
       };
       blocks.push(block);
       stack.push({ prelude: selector, block });
+      segment = i + 1;
     } else if (ch === "}") {
       flush();
       stack.pop();
@@ -1032,7 +1039,218 @@ function report(current: Map<string, number>, baseline: Map<string, number>, fin
   return errors.filter((error) => !error.startsWith("  ")).length;
 }
 
-if (import.meta.main) {
+/*
+ * --fix: rewrite a stylesheet literal to the token that holds exactly that value, everywhere the token
+ * applies, so a migration shrinks the baseline instead of only holding it (fixers before baselines).
+ * A literal is rewritten only when all of these hold:
+ *   - it is a top-level px/ms/s value of a declaration (not inside var(), calc() or any function), in
+ *     a `.css` file under src/; TSX inline styles, tests and scripts are left alone;
+ *   - it is a duration (transition/animation, their -duration/-delay) equal to one motion-scale step
+ *     (--cmux-motion-quick/micro/standard/large). Every duration is a step by design. A px token names
+ *     one place's measurement, so a literal that equals it is often a coincidence (see the token-copy
+ *     note above), and a radius swap keeps its radius row (the scale reads the fallback) while other
+ *     ratchets that key on the declaration's text (check-concentric-containers) would read it as new:
+ *     px literals are left for a person;
+ *   - the token is pinned: its own `:root` literal is its only definition anywhere a page or a look can
+ *     set it (webviews/src, galleries included, and examples/ for looks and themes; tests aside). A token
+ *     density scaling (pageDensity.css), a look, a theme, a media query, a component or a script sets
+ *     again is not pinned, so --grid-half-step, --ds-space-*, --ds-radius-*, --cmux-focus-ring-width and
+ *     the menu highlight metrics are never written in;
+ *   - the literal is not in a settle item (`--cmux-ease-settle`): its 180 ms is the settle's, not the
+ *     standard step's, and the settle token is not pinned (a gallery sets it).
+ * A ratchet row is keyed by the declaration's whole value, so a declaration the fix leaves with a
+ * finding (a token duration beside an `ease` keyword is now an easing row) would look new. --fix carries that declaration's
+ * own allowance to its new value in the baseline, one for one, only for the lines it rewrote, and
+ * never adds a finding the declaration did not already have; its token-copy row empties and
+ * --update-baseline drops it.
+ * The rewrite keeps the literal as the fallback, `var(--cmux-motion-micro, 120ms)`, so a page that never
+ * loads the token's sheet still computes the same value. Easing keywords are not rewritten: `ease-out`
+ * draws the same curve as --cmux-ease-out but computes to a different string.
+ * Then run --update-baseline to drop the rows the fix emptied.
+ */
+const FIX_LITERAL = /(?<![\w.#$-])(-?(?:\d+\.?\d*|\.\d+))(px|ms|s)(?![\w-])/y;
+const MOTION_STEPS = ["--cmux-motion-quick", "--cmux-motion-micro", "--cmux-motion-standard", "--cmux-motion-large"];
+const EXAMPLES = join(ROOT, "..", "examples");
+
+/** Every product file a token could be set in: webviews/src (tests aside) and the looks and themes in examples/. */
+function definitionSources(): string[] {
+  const walk = (dir: string): string[] =>
+    existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+          if (entry.isDirectory() && entry.name === "node_modules") return [];
+          const path = join(dir, entry.name);
+          if (entry.isDirectory()) return walk(path);
+          return /\.(?:css|tsx?|json|js|mjs|html)$/.test(entry.name) && !/\.test\./.test(entry.name) ? [path] : [];
+        })
+      : [];
+  return [...walk(SRC), ...walk(EXAMPLES)];
+}
+
+let pinnedCache: Map<string, number> | undefined;
+
+/**
+ * How many places set each custom property: `--x:` in a sheet or a CSS string, `"--x":` as an object key,
+ * `setProperty("--x", ...)`. A dynamic setProperty(name) names no token, so none of those is counted; the
+ * ones in src/ set diff and syntax colours (appearance.ts) or a gallery's own knobs, not px or ms tokens.
+ */
+function definitionCounts(): Map<string, number> {
+  if (pinnedCache) return pinnedCache;
+  const out = new Map<string, number>();
+  for (const path of definitionSources()) {
+    // Comments are prose (`//   --cmux-motion-standard: the stylised wipe`), not definitions.
+    const text = readFileSync(path, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+    for (const match of text.matchAll(
+      /(?<![\w-])(--[\w-]+)\s*:|["'`](--[\w-]+)["'`]\s*:|setProperty\(\s*["'`](--[\w-]+)["'`]/g,
+    )) {
+      const name = match[1] ?? match[2] ?? match[3]!;
+      out.set(name, (out.get(name) ?? 0) + 1);
+    }
+  }
+  pinnedCache = out;
+  return out;
+}
+
+/** A token whose one plain `:root` literal is the only place anything sets it. */
+export function isPinnedToken(name: string): boolean {
+  return designTokens().some((token) => token.name === name) && definitionCounts().get(name) === 1;
+}
+
+/** The token a top-level literal in `property` can become, if the swap is pixel-identical (see above). */
+function fixToken(property: string, literal: string, item: string): string | undefined {
+  if (propertyFamily(property) !== "duration" || !/^-?[\d.]+m?s$/i.test(literal) || /settle/.test(item))
+    return undefined;
+  const number = Number(literal.replace(/m?s$/i, ""));
+  const ms = /ms$/i.test(literal) ? number : Math.round(number * 1e6) / 1e3;
+  const step = designTokens().find((token) => MOTION_STEPS.includes(token.name) && token.value === `${ms}ms`);
+  return step && isPinnedToken(step.name) ? step.name : undefined;
+}
+
+/** `value` with each fixable top-level literal swapped for `var(<token>, <literal>)`. */
+function fixValue(property: string, value: string): { value: string; swaps: number } {
+  let out = "";
+  let depth = 0;
+  let swaps = 0;
+  let itemStart = 0;
+  const itemAt = (from: number) => {
+    let end = from;
+    for (let d = 0; end < value.length && !(d === 0 && value[end] === ","); end++) {
+      if (value[end] === "(") d++;
+      else if (value[end] === ")") d--;
+    }
+    return value.slice(itemStart, end);
+  };
+  for (let i = 0; i < value.length;) {
+    const ch = value[i]!;
+    if (ch === '"' || ch === "'") {
+      const end = value.indexOf(ch, i + 1);
+      const stop = end < 0 ? value.length : end + 1;
+      out += value.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "," && depth === 0) itemStart = i + 1;
+    if (depth === 0) {
+      FIX_LITERAL.lastIndex = i;
+      const match = FIX_LITERAL.exec(value);
+      if (match) {
+        const token = fixToken(property, match[0], itemAt(i));
+        out += token ? `var(${token}, ${match[0]})` : match[0];
+        if (token) swaps++;
+        i += match[0].length;
+        continue;
+      }
+    }
+    out += ch;
+    i++;
+  }
+  return { value: out, swaps };
+}
+
+/** One stylesheet's text with its pixel-identical token swaps made. */
+export function fixStylesheet(text: string): { text: string; swaps: number } {
+  const edits: { start: number; end: number; text: string }[] = [];
+  let swaps = 0;
+  for (const block of parse(text)) {
+    if (block.selector.startsWith("@") || /^(?:from|to|\d+(?:\.\d+)?%)/.test(block.selector)) continue;
+    for (const declaration of block.declarations) {
+      if (declaration.property.startsWith("--")) continue;
+      const raw = text.slice(declaration.start, declaration.end);
+      const lead = /^(?:\s|\/\*[\s\S]*?\*\/)*/.exec(raw)![0].length;
+      const body = raw.slice(lead);
+      const colon = body.indexOf(":");
+      // A comment inside the declaration: leave it to a person.
+      if (colon < 1 || body.includes("/*")) continue;
+      const fixed = fixValue(declaration.property, body.slice(colon + 1));
+      if (!fixed.swaps) continue;
+      swaps += fixed.swaps;
+      const start = declaration.start + lead + colon + 1;
+      edits.push({ start, end: declaration.end, text: fixed.value });
+    }
+  }
+  let out = text;
+  for (const edit of edits.sort((a, b) => b.start - a.start))
+    out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
+  return { text: out, swaps };
+}
+
+/**
+ * The baseline after a fix rewrote `rel`: each ratchet finding on a rewritten declaration (same line,
+ * selector and property) moves its allowance from the old value's key to the new one. A finding with
+ * no match afterwards simply empties; a match of another kind is only taken where the old allowance
+ * existed, so the move never grows the total.
+ */
+export function carryAllowances(
+  baseline: Map<string, number>,
+  before: Finding[],
+  after: Finding[],
+): Map<string, number> {
+  const out = new Map(baseline);
+  const place = (finding: Finding) => [finding.line, finding.selector, finding.property].join("\t");
+  const remaining = new Map<string, Finding[]>();
+  for (const finding of after) remaining.set(place(finding), [...(remaining.get(place(finding)) ?? []), finding]);
+  for (const finding of before) {
+    const { line: _line, ...oldRest } = finding;
+    const oldKey = key(oldRest);
+    const next = remaining.get(place(finding))?.shift();
+    if (!next) continue;
+    const { line: _l, ...newRest } = next;
+    const newKey = key(newRest);
+    const allowed = out.get(oldKey) ?? 0;
+    if (newKey === oldKey || allowed <= 0) continue;
+    if (allowed === 1) out.delete(oldKey);
+    else out.set(oldKey, allowed - 1);
+    out.set(newKey, (out.get(newKey) ?? 0) + 1);
+  }
+  return out;
+}
+
+function fixAll(): void {
+  let files = 0;
+  let total = 0;
+  let baseline = loadBaseline();
+  for (const path of cssFiles()) {
+    const rel = relative(SRC, path).replaceAll("\\", "/");
+    const before = readFileSync(path, "utf8");
+    const { text, swaps } = fixStylesheet(before);
+    if (!swaps || text === before) continue;
+    const old = findingsForFile(path);
+    writeFileSync(path, text);
+    baseline = carryAllowances(baseline, old, findingsForFile(path));
+    files++;
+    total += swaps;
+    console.log(`fixed ${swaps} in ${rel}`);
+  }
+  if (files) writeBaseline(baseline, new Map());
+  console.log(`Design token fix: ${total} literals in ${files} sheets; run --update-baseline to shrink the baseline.`);
+}
+
+if (import.meta.main && process.argv.includes("--fix")) {
+  fixAll();
+} else if (import.meta.main) {
   const currentFindings = findDesignTokenViolations();
   const current = counts(currentFindings);
   const baseline = loadBaseline();

@@ -9,7 +9,7 @@
 .cmux-gallery-media-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .cmux-gallery-media-card{min-width:0;overflow:hidden;border:1px solid color-mix(in srgb,currentColor 13%,transparent);border-radius:12px;background:color-mix(in srgb,currentColor 5%,transparent)}
 .cmux-gallery-media-stage{position:relative;display:block;width:100%;aspect-ratio:16/10;padding:0;overflow:hidden;border:0;background:#10131d;color:#fff;cursor:default}
-.cmux-gallery-media-stage img{display:block;width:100%;height:100%;transition:opacity .18s ease-out}
+.cmux-gallery-media-stage img{display:block;width:100%;height:100%;transition:opacity var(--cmux-motion-standard, .18s) ease-out}
 .cmux-gallery-media-stage:hover img{opacity:.88}
 .cmux-gallery-media-stage:focus-visible,.cmux-gallery-media-filter button:focus-visible,.cmux-gallery-media-action:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .cmux-gallery-media-stage-top{position:absolute;inset:8px 8px auto;display:flex;justify-content:space-between;align-items:center;color:#fff;font:500 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;text-shadow:0 1px 4px #000;pointer-events:none}

@@ -163,7 +163,7 @@
   border: 1px solid var(--page-separator);
   border-radius: 12px;
   background: color-mix(in srgb, var(--page-elevated) 28%, transparent);
-  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+  transition: border-color var(--cmux-motion-micro, 120ms) ease, background var(--cmux-motion-micro, 120ms) ease, transform var(--cmux-motion-micro, 120ms) ease;
 }
 
 .apps-card:hover {
