@@ -77,6 +77,11 @@
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:var(--weight-emphasis)}
 .nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
+.nt-chats-evac{margin-left:auto;display:flex;align-items:center}
+.nt-chats-evac:empty{display:none}
+.nt-chats-evac + .nt-chats-all{margin-left:0}
+.nt-chats-evac-body{margin-bottom:var(--ds-space-2)}
+.nt-chats-evac-body:empty{display:none}
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
@@ -391,6 +396,13 @@
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:var(--ds-space-3);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
+/* Status Pills in All Chats (agentPane.display.chatListStatusPills, Taste Board #19): a live chat's state as a small tinted pill at the row's end, in the status palette. */
+.nt-all-pill{--nt-pill:var(--agent-muted);flex:none;margin-left:auto;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--nt-pill) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--nt-pill) 28%,transparent);color:var(--nt-pill);font-size:var(--text-detail);font-weight:500;line-height:18px;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
+.nt-all-state+.nt-all-pill{margin-left:var(--ds-space-2)}
+.nt-all-pill[data-tone=running]{--nt-pill:var(--agent-accent)}
+.nt-all-pill[data-tone=input]{--nt-pill:var(--agent-status-warning)}
+.nt-all-pill[data-tone=done]{--nt-pill:var(--agent-status-success)}
+.nt-all-pill[data-tone=failed]{--nt-pill:var(--agent-status-failure)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
