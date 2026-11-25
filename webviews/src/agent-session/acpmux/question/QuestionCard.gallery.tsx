@@ -109,6 +109,52 @@ const fenced = (question: AgentQuestion): AgentQuestion => ({
   })),
 });
 
+/// Three questions of very different lengths in one ask (cmux#56534): a long title with two short
+/// options, a one-line title with four options and their details, and a short one with no Other. The
+/// card keeps one size, and its rows, last row and buttons one place, on every page.
+const pagingUneven: AgentQuestion = {
+  ...(pending4 as unknown as AgentQuestion),
+  id: "perm_toolu_paging",
+  items: [
+    {
+      id: "p0",
+      header: "Migration",
+      prompt:
+        "The settings migration rewrites every saved workspace layout on first launch, and a layout written by the new build cannot be read by the old one. Should the first launch keep a backup of the old file so a downgrade can restore it, even though that doubles the file on disk for a release?",
+      options: [
+        { id: "backup", label: "Keep a backup" },
+        { id: "none", label: "No backup" },
+      ],
+      multiSelect: false,
+      allowsOther: true,
+    },
+    {
+      id: "p1",
+      header: "Platforms",
+      prompt: "Which platforms first?",
+      options: [
+        { id: "macOS", label: "macOS", detail: "Native AppKit app, the one the team dogfoods every day." },
+        { id: "iOS", label: "iOS", detail: "iPhone and iPad, through the paired Mac." },
+        { id: "Linux", label: "Linux", detail: "Terminal client only, no GUI." },
+        { id: "Web", label: "Web", detail: "Read-only viewer in the browser." },
+      ],
+      multiSelect: true,
+      allowsOther: true,
+    },
+    {
+      id: "p2",
+      header: "Flag",
+      prompt: "Ship behind a flag?",
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+      ],
+      multiSelect: false,
+      allowsOther: false,
+    },
+  ],
+} as AgentQuestion;
+
 /// A Claude Code AskUserQuestion of a sub-session, answered by the session that started it
 /// (acpmux `subsession_answer.rs`): the record names that session, never a person.
 const answeredBySession: AgentQuestion = {
@@ -373,6 +419,10 @@ export default componentEntry({
       "Previews sent inside a Markdown fence: the box stands for the fence, so no backticks show.",
     ),
     "pending-4-questions": variant(pending4, "Four questions in one ask."),
+    "pending-paging-uneven": variant(
+      pagingUneven,
+      "Three questions of very different lengths: the card is as tall as the tallest on every page, and Next moves nothing.",
+    ),
     "codex-user-input": variant(
       codexUserInput,
       "A Codex user-input request: two questions, the second free text only (no options).",

@@ -236,7 +236,12 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     if (scope) height += 2 + text(scope, inner, body.lineHeight, body.size);
     return height + 28;
   }
-  let height = 16 + 28 + 2 + text(item.prompt, inner, titleLine, contentSize) + 8;
+  // An ask of several questions is as tall on every page (QuestionCard `RowsSizer`): its title takes
+  // the tallest question's lines and its rows the tallest question's rows (the first one's with its
+  // preview).
+  const others = question.items.slice(1);
+  const title = Math.max(...question.items.map((each) => text(each.prompt, inner, titleLine, contentSize)));
+  let height = 16 + 28 + 2 + title + 8;
   // The rows and the preview share the body, inside the card's 8 px padding (questionCard.css). The
   // preview the card opens with is the first row's, else the first one (QuestionCard `shownPreview`).
   const box = width - 16;
@@ -248,19 +253,20 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
   const beside = flex !== undefined && box >= flex[0]! + 8 + flex[2]!;
   const rowsWidth = beside ? flex[0]! + ((box - flex[0]! - 8 - flex[2]!) * flex[1]!) / (flex[1]! + flex[3]!) : box;
   // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap.
-  const rowRoom = Math.max(1, rowsWidth - 46);
-  let rows = item.options.reduce(
-    (sum, option, index) =>
-      sum +
-      (index ? 2 : 0) +
-      Math.max(
-        36,
-        16 +
-          text(option.label, rowRoom, body.lineHeight, body.size) +
-          (option.detail ? text(option.detail, rowRoom, detail.lineHeight, detail.size) : 0),
-      ),
-    0,
-  );
+  const rowsHeight = (options: readonly QuestionOption[], room: number) =>
+    options.reduce(
+      (sum, option, index) =>
+        sum +
+        (index ? 2 : 0) +
+        Math.max(
+          36,
+          16 +
+            text(option.label, room, body.lineHeight, body.size) +
+            (option.detail ? text(option.detail, room, detail.lineHeight, detail.size) : 0),
+        ),
+      0,
+    );
+  let rows = rowsHeight(item.options, Math.max(1, rowsWidth - 46));
   if (preview) {
     // Inline opens under its row, 2 px below it, past the mark; beside, the taller column sets the
     // height; under the rows, 8 px below them, the body's width.
@@ -268,6 +274,8 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     else if (beside) rows = Math.max(rows, previewHeight(preview, box - rowsWidth - 8));
     else rows += 8 + previewHeight(preview, box);
   }
+  // The other questions' rows draw at the body's width, with no preview beside them.
+  for (const each of others) rows = Math.max(rows, rowsHeight(each.options, Math.max(1, box - 46)));
   height += rows;
   // The last row (8 px gap with its hairline, unless it is the only row); a narrow card wraps Skip
   // and Send under the typed answer.
