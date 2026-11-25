@@ -33,7 +33,7 @@ extension UpdaterService {
         // the windows leave as the quit starts, the relaunched app restores them the normal way; a failed install brings them back (`UpdateWindowHandoff`).
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow() } // layout first (LayoutCacheWriter)
-        handoff.savesBeforeLeaving = { [weak services] in if let services { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.isIncognito($0, in: services) }; await services.cache.savePageFramesForQuit() } }; handoff.cameBack = { [weak services] in services?.launchImages.pictures?.resume() }; handoff.attach(to: self) // pictures saved on screen: an ordered-out window shows no chat (blank agent panes, Leo 2026-11-24)
+        handoff.savesBeforeLeaving = { [weak services] in if let services { await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.isIncognito($0, in: services) }; await services.cache.savePageFramesForQuit() } }; handoff.pausesPictures = { [weak services] in services?.launchImages.pictures?.stop() }; handoff.cameBack = { [weak services] in services?.launchImages.pictures?.resume() }; handoff.attach(to: self) // pictures saved on screen, at the click (ask-ad4a68e740): an ordered-out window shows no chat (blank agent panes, Leo 2026-11-24)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
