@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // The model scout: keeps the live model catalog current and finds new models we should serve.
 // User 2026-11-19 (chat 40603): "we need a live models backend that we control and an automation
-// that will keep adding new models". It runs as the cmux automation `models-scout` (every 6 h, this
-// Mac's runner; scripts/models/run-scout.sh) and by hand: `bun scripts/models/scout.ts [--dry-run]`.
+// that will keep adding new models". It runs as the cmux automation `models-scout` (every 6 h, on a
+// team Cloud machine; scripts/models/run-scout.sh) and by hand: `bun scripts/models/scout.ts [--dry-run]`.
 //
 // One run:
 //  1. Reads models.dev (Anthropic, OpenAI, Google, opencode and ~300 more providers) and projects it
@@ -18,8 +18,15 @@
 //  5. Reports the run to cloud-api (POST /internal/v1/models/runs), so GET /v1/models/catalog/health
 //     says when it last ran and what it found; exits 3 when anything failed (the runner then shows it).
 //
-// Secrets come from ~/.secrets (mode 600): the catalog admin token and the e2e accounts' sign-in.
-// Vertex uses this Mac's gcloud login. State: ~/.local/state/cmux/models-scout/state.json.
+// Secrets: environment variables first (a Cloud automation gets its per-automation secrets that way:
+// `cmux automation secret set models-scout NAME --target cloud`), then ~/.secrets (mode 600) on a Mac:
+//   MODELS_CATALOG_TOKEN_STAGING, MODELS_CATALOG_TOKEN_PRODUCTION  catalog publish and run reports
+//   CMUX_E2E_EMAIL, CMUX_E2E_PASSWORD                             the production e2e account (router smoke)
+//   VERTEX_RELAY_KEY                                              the console's keyless Vertex relay (smoke)
+//   GH_TOKEN                                                      push a branch, open a draft PR
+// Vertex: smoke turns go through the console's relay (Workload Identity, no Google key anywhere). The
+// model list is Vertex's own when a gcloud login exists (a Mac), else models.dev's google-vertex list.
+// State: $MODELS_SCOUT_STATE or ~/.local/state/cmux/models-scout/state.json.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -55,7 +62,10 @@ const E2E: Record<Env, { stack: string; account: string }> = {
   production: { stack: "cmuxterm.env", account: "cmux-next-e2e-cloudchief-prod.env" },
 };
 const VERTEX_PROJECT = "cmux-489202";
-const VERTEX_CHAT = `https://aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/global/endpoints/openapi/chat/completions`;
+/** The production console's Vertex relay (backend/apps/dashboard/src/lib/vertex-relay.ts): the router's own path to Vertex. */
+const VERTEX_RELAY = "https://console.cmux.dev/api/vertex/chat/completions";
+/** Production Stack Auth project and publishable client key: public values (the web app ships them). */
+const STACK_PRODUCTION = { project: "9790718f-14cd-4f7e-824d-eaf527a82b82" };
 const REPO = "manaflow-ai/cmux";
 const BASE_BRANCH = "feat-cmux-next";
 
@@ -70,7 +80,13 @@ const log = (msg: string, extra?: Record<string, unknown>) => console.log(JSON.s
 
 function secretsFile(name: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const line of readFileSync(join(homedir(), ".secrets", name), "utf8").split("\n")) {
+  let text = "";
+  try {
+    text = readFileSync(join(homedir(), ".secrets", name), "utf8");
+  } catch {
+    return out;
+  }
+  for (const line of text.split("\n")) {
     const t = line.trim();
     if (!t || t.startsWith("#") || !t.includes("=")) continue;
     const [k, ...v] = t.replace(/^export /, "").split("=");
@@ -79,27 +95,45 @@ function secretsFile(name: string): Record<string, string> {
   return out;
 }
 
-const adminToken = (env: Env) => secretsFile(`cmux-next-api-${env}.env`).MODELS_CATALOG_TOKEN ?? "";
+/** An environment variable, else `key` of a ~/.secrets file; "" when neither has it. */
+const secret = (name: string, file: string, key: string = name): string => process.env[name]?.trim() || secretsFile(file)[key] || "";
+
+const adminToken = (env: Env) => secret(`MODELS_CATALOG_TOKEN_${env.toUpperCase()}`, `cmux-next-api-${env}.env`, "MODELS_CATALOG_TOKEN");
 
 async function e2eToken(env: Env): Promise<string> {
   const stack = secretsFile(E2E[env].stack);
-  const account = secretsFile(E2E[env].account);
+  const email = secret("CMUX_E2E_EMAIL", E2E[env].account, "CMUX_UITEST_STACK_EMAIL");
+  const password = secret("CMUX_E2E_PASSWORD", E2E[env].account, "CMUX_UITEST_STACK_PASSWORD");
+  const project = stack.NEXT_PUBLIC_STACK_PROJECT_ID || (env === "production" ? STACK_PRODUCTION.project : "");
+  const clientKey = process.env.CMUX_STACK_PUBLISHABLE_KEY?.trim() || stack.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY || "";
+  if (!email || !password || !project || !clientKey) throw new Error(`no e2e sign-in for ${env} (set CMUX_E2E_EMAIL, CMUX_E2E_PASSWORD, CMUX_STACK_PUBLISHABLE_KEY)`);
   const res = await fetch("https://api.stack-auth.com/api/v1/auth/password/sign-in", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-stack-project-id": stack.NEXT_PUBLIC_STACK_PROJECT_ID!,
-      "x-stack-publishable-client-key": stack.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY!,
+      "x-stack-project-id": project,
+      "x-stack-publishable-client-key": clientKey,
       "x-stack-access-type": "client",
     },
-    body: JSON.stringify({ email: account.CMUX_UITEST_STACK_EMAIL, password: account.CMUX_UITEST_STACK_PASSWORD }),
+    body: JSON.stringify({ email, password }),
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error(`e2e sign-in on ${env} answered ${res.status}`);
   return ((await res.json()) as { access_token: string }).access_token;
 }
 
-const gcloudToken = () => execFileSync("gcloud", ["auth", "print-access-token"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+/** This machine's gcloud login, or null where there is none (a Cloud machine). */
+const gcloudToken = (): string | null => {
+  const out = spawnSync("gcloud", ["auth", "print-access-token"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 30_000 });
+  return out.status === 0 && out.stdout.trim() ? out.stdout.trim() : null;
+};
+
+/** Google's models on Vertex: Vertex's own list with a gcloud login, else models.dev's google-vertex provider. */
+async function vertexModelIds(feed: Record<string, any>): Promise<{ ids: Array<string>; source: "vertex" | "models.dev" }> {
+  const token = gcloudToken();
+  if (token) return { ids: await listVertexGoogleModels(token), source: "vertex" };
+  return { ids: Object.keys(feed["google-vertex"]?.models ?? {}).filter((id) => id.startsWith("gemini-")), source: "models.dev" };
+}
 
 async function listVertexGoogleModels(token: string): Promise<Array<string>> {
   const ids: Array<string> = [];
@@ -182,6 +216,10 @@ function notify(title: string, body: string) {
 /** Opens a draft PR that adds `id` to the router (catalog entry + staging allowlist); returns its URL. */
 function openRouterPr(id: string, price: NonNullable<ReturnType<typeof feedPrice>>, result: SmokeResult): string | null {
   const branch = `models-scout/google-${id}`;
+  // GH_TOKEN (a Cloud automation secret): gh reads it itself; git gets it from a helper that reads the
+  // environment, so the token never appears in a command line.
+  const ghToken = process.env.GH_TOKEN?.trim();
+  const auth = ghToken ? ["-c", "credential.helper=", "-c", 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'] : [];
   const existing = spawnSync("gh", ["pr", "list", "--repo", REPO, "--head", branch, "--state", "all", "--json", "url", "--jq", ".[0].url"], { encoding: "utf8" }).stdout.trim();
   if (existing) return existing;
   const dir = mkdtempSync(join(tmpdir(), "models-scout-"));
@@ -198,8 +236,8 @@ function openRouterPr(id: string, price: NonNullable<ReturnType<typeof feedPrice
     writeFileSync(catalogPath, catalog);
     writeFileSync(wranglerPath, wrangler);
     git("add", catalogPath, wranglerPath);
-    git("commit", "-q", "-m", `Model router: add ${price.name} from our Vertex AI (proposed by the model scout)`);
-    git("push", "-q", "origin", `HEAD:${branch}`);
+    git("-c", "user.name=cmux models-scout", "-c", "user.email=models-scout@users.noreply.github.com", "commit", "-q", "-m", `Model router: add ${price.name} from our Vertex AI (proposed by the model scout)`);
+    git(...auth, "push", "-q", `https://github.com/${REPO}.git`, `HEAD:${branch}`);
     const body = [
       `The model scout found **${price.name}** (\`${id}\`) new on Google's Vertex AI and it passed a tool-call smoke turn on our project (${result.ms} ms).`,
       "",
@@ -275,14 +313,17 @@ async function main(): Promise<number> {
   const unserved: Array<string> = [];
   const proposals: Array<{ id: string; pr: string | null }> = [];
   try {
-    const gtoken = gcloudToken();
-    const vertexIds = await listVertexGoogleModels(gtoken);
-    const fresh = newVertexModels(vertexIds, routerIds, state, (id) => feedPrice(feed, id)?.releaseDate);
-    summary.vertex = { models: vertexIds.length, chatCandidates: vertexIds.filter(isChatCandidate).length, new: fresh, firstRun: state === null };
+    const relayKey = secret("VERTEX_RELAY_KEY", "cmux-inference-relay.env", "INFERENCE_VERCEL_RELAY_KEY_PRODUCTION");
+    if (!relayKey) throw new Error("no VERTEX_RELAY_KEY for the console's Vertex relay");
+    const { ids: vertexIds, source } = await vertexModelIds(feed);
+    // Models the router catalog already has (staging-only ones too) are not new, even on a first run.
+    const inCatalog = [...readFileSync(join(repoRoot, "backend/apps/api/src/inference/catalog.ts"), "utf8").matchAll(/id: "(google\/[^"]+)"/g)].map((m) => m[1]!);
+    const fresh = newVertexModels(vertexIds, [...routerIds, ...inCatalog], state, (id) => feedPrice(feed, id)?.releaseDate);
+    summary.vertex = { source, models: vertexIds.length, chatCandidates: vertexIds.filter(isChatCandidate).length, new: fresh, firstRun: state === null };
     const proposed = new Set(state?.proposed ?? []);
     for (const id of fresh) {
       const price = feedPrice(feed, id);
-      const result = await smoke(VERTEX_CHAT, gtoken, `google/${id}`, { labels: { cmux_service: "models-scout" } });
+      const result = await smoke(VERTEX_RELAY, relayKey, `google/${id}`, { labels: { cmux_service: "models-scout", cmux_env: "production" } });
       if (!result.ok) {
         unserved.push(`${id} (${result.error})`);
         continue;
@@ -333,7 +374,10 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (error) => {
-    log("scout crashed", { error: String(error?.stack ?? error).slice(0, 1000) });
+    // `stack ?? error` logged "" for an error with an empty stack (a local run, 2026-11-20 10:03): name every part.
+    const e = error as { name?: unknown; message?: unknown; stack?: unknown; cause?: unknown } | undefined;
+    const text = [e?.name, e?.message, e?.cause && `cause: ${String((e.cause as { message?: unknown }).message ?? e.cause)}`, e?.stack].filter((x) => typeof x === "string" && x.length > 0);
+    log("scout crashed", { error: (text.length ? [...new Set(text)].join(" | ") : String(error) || typeof error).slice(0, 1000) });
     process.exit(1);
   },
 );

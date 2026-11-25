@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -59,7 +60,7 @@ public final class PresenceListener {
         self.init(clock: clock,
                   signalRequest: { try await api.signalRequest(teamID: teamID, deviceID: deviceID) },
                   fetchMacs: { try await api.macs(teamID: teamID) },
-                  makeSocket: { URLSession.shared.webSocketTask(with: $0) }, onUpdate: onUpdate)
+                  makeSocket: { CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxMobileLive.PresenceListener"), with: $0, site: "CmuxMobileLive.PresenceListener") }, onUpdate: onUpdate)
     }
 
     init(clock: any Clock<Duration>,

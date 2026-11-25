@@ -1,0 +1,188 @@
+# Deploys the cmux-next-ios mobile Worker (cmux-next-ios/backend) to production,
+# `cmux-mobile-api-prod` (https://mobile-api.cmux.dev), from feat-cmux-next only.
+#
+# Why: production was a hand deploy (`bunx wrangler@4 deploy --env prod` from one Mac that holds a
+# wrangler login). A merged Worker fix did not run in production until someone with that login
+# deployed it, so cmux#45108 (the optional sandbox APNs key) sat merged and undeployed while the
+# ios-push-e2e probe waited on it, and no lane VM could deploy it. This workflow lets any team member
+# ask for the same deploy with the token the other production Workers use. A Worker change merging
+# does not deploy it: production still moves only when someone asks for it, in one of two ways:
+#
+# - Land a PR to feat-cmux-next that adds or changes .github/mobile-worker-prod-deploy/request (one
+#   dated line: what it ships). The PR records who asked and why. This file lands without one, so merging
+#   it deploys nothing.
+# - Dispatch it by hand, which needs this file on the default branch first, since GitHub registers a
+#   dispatch-only workflow only from main:
+#
+#       gh workflow run mobile-worker-prod-deploy.yml --repo manaflow-ai/cmux --ref feat-cmux-next
+#
+# The job runs the README's gates first (frozen install, typecheck, the vitest suite on workerd),
+# then `wrangler deploy --env prod` with the wrangler pinned in the package's lockfile, then checks that
+# https://mobile-api.cmux.dev/v1/health serves the API version wrangler.jsonc declares for prod. A
+# failed health check rolls the Worker back to the version deployed before this one.
+#
+# Migrations: the README's rule is to apply a migration to a database before deploying the Worker that
+# reads it. The prod Worker reads the `mobile_*` tables of cmux-next-vitess `production` through
+# Hyperdrive. This job holds no database credentials, so PROD_DB_LATEST_MOBILE_MIGRATION records the
+# newest backend/db/drizzle-mysql migration touching `mobile_*` tables that is applied to `production`;
+# a tree with a newer one stops before the deploy. Apply it (`bun migrate-mysql.ts --branch production`
+# in backend/db, or a deploy request), then raise PROD_DB_LATEST_MOBILE_MIGRATION in the same PR.
+#
+# Credentials: CLOUDFLARE_API_TOKEN (Workers Scripts:Edit on account 0c1675e0def6de1ab3a50a4e17dc5656),
+# the token backend.yml and device-hub.yml use for production Workers on the same account, in the GitHub
+# environment cmux-next-production, whose branch policy bounds who gets it
+# (tests/test_supplychain_security.py wants every dispatchable credential job in an environment).
+# Worker secrets (TURN, APNs including APNS_SANDBOX_KEY_*, Stack) are set once with `wrangler secret
+# put --env prod` and survive every deploy; this workflow never reads or writes them.
+
+name: Mobile Worker prod deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/mobile-worker-prod-deploy/request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-worker-prod-deploy
+  cancel-in-progress: false
+
+env:
+  # Newest backend/db/drizzle-mysql migration touching mobile_* tables that is applied to
+  # cmux-next-vitess production. 0004_mobile_build_space is applied to development, staging and
+  # production (deploy request #6, 2026-11-18; mobile-worker-dev-deploy.yml).
+  PROD_DB_LATEST_MOBILE_MIGRATION: "0004_mobile_build_space"
+
+jobs:
+  deploy-prod:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
+    environment: cmux-next-production
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: cmux-next-ios/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      # Wrangler and workerd need Node >= 22.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::The mobile Worker prod deploy needs CLOUDFLARE_API_TOKEN (environment cmux-next-production or the repository): an API token with Workers Scripts:Edit on account 0c1675e0def6de1ab3a50a4e17dc5656."
+            exit 1
+          fi
+
+      - name: No mobile migration newer than the production database
+        working-directory: backend/db/drizzle-mysql
+        run: |
+          latest="$(grep -lE '\bmobile_' -- [0-9][0-9][0-9][0-9]_*.sql | sort | tail -n 1)"
+          latest="${latest%.sql}"
+          echo "Newest drizzle-mysql migration touching mobile_* tables: ${latest:-none}; applied to production: $PROD_DB_LATEST_MOBILE_MIGRATION"
+          if [ -z "$latest" ]; then
+            echo "::error::No drizzle-mysql migration mentions mobile_* tables; the check no longer matches the tree."
+            exit 1
+          fi
+          if [[ "$latest" > "$PROD_DB_LATEST_MOBILE_MIGRATION" ]]; then
+            echo "::error::backend/db/drizzle-mysql/$latest.sql changes mobile_* tables and is newer than what production has ($PROD_DB_LATEST_MOBILE_MIGRATION). Apply it to production first, then raise PROD_DB_LATEST_MOBILE_MIGRATION in this workflow."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc -p .
+
+      - name: Tests (vitest on workerd)
+        # The pool's slower hosts spend ~130 s importing the suite, so a first request outlasts vitest's 5 s default
+        # (the dev deploy, run 45503849278); 30 s per test keeps a real hang a failure.
+        run: bunx vitest run --testTimeout=30000 --hookTimeout=30000
+
+      - name: Deploy to prod
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          set -o pipefail
+          # The wrangler pinned in bun.lock (wrangler 4), not a fresh download.
+          bunx wrangler deploy --env prod 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          # `|| true`: a log without the line must reach the warning below, not end the step under pipefail.
+          version="$(grep -oE 'Current Version ID: [0-9a-f-]+' "$RUNNER_TEMP/deploy.log" | tail -n 1 | sed 's/.*: //' || true)"
+          if [ -z "$version" ]; then
+            echo "::warning::wrangler printed no Current Version ID."
+            version=unknown
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Deployed cmux-mobile-api-prod version $version at $GITHUB_SHA"
+          echo "Deployed \`cmux-mobile-api-prod\` version \`$version\` at \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+
+      # /v1/health's API_VERSION alone would also pass for an older release with the same version, so
+      # the check also requires that this run's version id serves all traffic.
+      - name: Health check
+        id: health
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          DEPLOYED_VERSION: ${{ steps.deploy.outputs.version }}
+        run: |
+          if [ -z "$DEPLOYED_VERSION" ] || [ "$DEPLOYED_VERSION" = unknown ]; then
+            echo "::error::The deploy printed no version id, so this run cannot prove its version is live."
+            exit 1
+          fi
+          # --json prints the latest deployment: {"versions":[{"version_id":...,"percentage":...}],...}.
+          bunx wrangler deployments status --env prod --json > "$RUNNER_TEMP/status.json" || true
+          live="$(node -e 'try{const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write((d.versions||[]).filter(v=>v.percentage===100).map(v=>v.version_id).join(" "))}catch{}' "$RUNNER_TEMP/status.json")"
+          if [ "$live" != "$DEPLOYED_VERSION" ]; then
+            echo "::error::cmux-mobile-api-prod serves '${live:-nothing readable}' at 100%, not this run's version $DEPLOYED_VERSION."
+            exit 1
+          fi
+          echo "Version $DEPLOYED_VERSION serves 100% of traffic."
+          expected="$(node -e 'const fs=require("fs");const t=fs.readFileSync("wrangler.jsonc","utf8");const m=t.slice(t.indexOf("\"prod\":")).match(/"API_VERSION":\s*"([^"]+)"/);process.stdout.write(m?m[1]:"")')"
+          for attempt in 1 2 3 4 5 6; do
+            body="$(curl -fsS --max-time 10 https://mobile-api.cmux.dev/v1/health || true)"
+            served="$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version??""))}catch{}})')"
+            if [ -n "$expected" ] && [ "$served" = "$expected" ]; then
+              echo "/v1/health serves API $served"
+              echo "/v1/health serves API \`$served\`." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt: /v1/health served '${served:-nothing}', expected '$expected'"
+            sleep 5
+          done
+          echo "::error::https://mobile-api.cmux.dev/v1/health did not serve API $expected after the deploy."
+          exit 1
+
+      - name: Roll back on a failed health check
+        if: failure() && steps.deploy.outcome == 'success' && steps.deploy.outputs.version != 'unknown' && steps.health.outcome == 'failure'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          # With no version id, wrangler rolls back to the version deployed before this one.
+          bunx wrangler rollback --env prod --message "mobile-worker-prod-deploy: health check failed at $GITHUB_SHA"
+          echo "Rolled \`cmux-mobile-api-prod\` back to the previous version after a failed health check." >> "$GITHUB_STEP_SUMMARY"

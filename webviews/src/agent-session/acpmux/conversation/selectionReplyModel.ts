@@ -157,22 +157,51 @@ const EDGE = 2;
 /// How many lines past the rows next to the end the chip looks beside the selection for a free spot.
 const FARTHER = 3;
 
+/// The transcript's scroller: the first scrolling ancestor of `node` (a handful of elements up from
+/// the text), or undefined outside one.
+export function transcriptScroller(doc: Document, node: Node | null): Element | undefined {
+  const view = doc.defaultView;
+  for (let element = elementOf(node); element && element !== doc.body; element = element.parentElement) {
+    const overflow = view?.getComputedStyle?.(element).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return element;
+  }
+  return undefined;
+}
+
+/// The whole transcript a selection is in: its outer scroller, never a card that scrolls inside one
+/// row (an opened agent message), whose rows are not the transcript's.
+export function transcriptRoot(doc: Document, node: Node | null): Element | undefined {
+  return elementOf(node)?.closest(".acpmux-scroll") ?? transcriptScroller(doc, node);
+}
+
+/// The same spot for the same text: placing the chip again would move nothing.
+export function sameReplyTarget(a: SelectionReplyTarget, b: SelectionReplyTarget): boolean {
+  return (
+    a.text === b.text &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.end?.right === b.end?.right &&
+    a.end?.top === b.end?.top &&
+    a.end?.bottom === b.end?.bottom &&
+    a.start?.top === b.start?.top &&
+    a.start?.bottom === b.start?.bottom &&
+    a.column?.left === b.column?.left &&
+    a.column?.right === b.column?.right
+  );
+}
+
 /// The part of the viewport where the transcript shows: its scroller's box, above a composer dock
 /// floating over it. The chip never leaves it. Read once per placed chip.
 export function transcriptClip(doc: Document, node: Node | null): { top: number; bottom: number } {
   const view = doc.defaultView;
   let top = 0;
   let bottom = doc.documentElement.clientHeight || view?.innerHeight || 0;
-  // The first scrolling ancestor (a handful of elements up from the text).
-  for (let element = elementOf(node); element && element !== doc.body; element = element.parentElement) {
-    const overflow = view?.getComputedStyle?.(element).overflowY;
-    if (overflow !== "auto" && overflow !== "scroll") continue;
-    const box = element.getBoundingClientRect();
-    if (box.height) {
-      top = Math.max(top, box.top);
-      bottom = Math.min(bottom, box.bottom);
-    }
-    break;
+  const scroller = transcriptScroller(doc, node);
+  const box = scroller?.getBoundingClientRect();
+  if (box?.height) {
+    top = Math.max(top, box.top);
+    bottom = Math.min(bottom, box.bottom);
   }
   // A composer dock drawn over the transcript's foot (bottomStack.css `data-dock="float"`).
   const dock = doc.querySelector(".acpmux-dock");

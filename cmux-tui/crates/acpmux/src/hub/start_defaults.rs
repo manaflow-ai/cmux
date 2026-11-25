@@ -160,17 +160,29 @@ impl Hub {
         model: &str,
         pick: bool,
     ) -> Result<Value, RpcError> {
+        // As the catalog names it (`model_alias.rs`); the reply's `modelRewrite` says so, for
+        // the CLI's `model X -> Y` line.
+        let given = model;
+        let canonical = self.rewrite_session_model(session, given, "set_model").await?;
+        let model = canonical.as_str();
+        let rewrite = (model != given.trim()).then(|| json!({"from": given.trim(), "to": model}));
+        let with_rewrite = |mut r: Value| {
+            if let (Some(rewrite), Some(obj)) = (&rewrite, r.as_object_mut()) {
+                obj.insert("modelRewrite".into(), rewrite.clone());
+            }
+            r
+        };
         let runs = super::model_options::current_model(&session.meta()).or_else(|| {
             session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model.clone()
         });
         if runs.as_deref() == Some(model) {
-            return Ok(json!({}));
+            return Ok(with_rewrite(json!({})));
         }
         let r = self.set_model(session, model).await?;
         if pick {
             self.note_pick(session, Some(model), None).await;
         }
-        Ok(r)
+        Ok(with_rewrite(r))
     }
 
     /// `session/set_config_option`. From the app pane (`pick`), an effort the

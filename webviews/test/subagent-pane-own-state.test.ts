@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, replies and subagent names, not shipped UI.
 // A subagent's own pane (a tab on the chat's session that opens on `subagent:<id>`,
-// subagents/subagentPanes.ts) shows the subagent with a composer of its own (Leo 2026-11-03:
+// subagents/subagentPanes.ts) shows the subagent with the chat's Composer relayed to it (Leo 2026-11-03:
 // "currently it says "read only" on the subagents in cmux-next. we should improve that"). It never
 // draws the chat's composer, queue or pull request bars: they are the chat's. What is typed in the
 // subagent's composer goes to the chat as a SendMessage relay naming the subagent's agentId
@@ -141,14 +141,18 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     return page;
   };
   /// What the pane's bottom shows: the chat's composer, its queued prompt and its pull request bar,
-  /// and a subagent's own composer: its placeholder and the line naming the chat that passes it on.
+  /// and a subagent's composer (the same Composer, relayed): its name, and no line under it.
   const bottom = (page: Page) =>
     page.evaluate(() => ({
-      composer: document.querySelectorAll(".acpmux-composer:not(.acpmux-subagent-composer)").length,
+      composer: document.querySelectorAll(".acpmux-composer:not([data-composer-relay])").length,
       queued: [...document.querySelectorAll(".acpmux-queued")].map((row) => row.textContent ?? ""),
-      subagent: document.querySelectorAll(".acpmux-subagent-composer").length,
+      subagent: document.querySelectorAll('.acpmux-composer[data-composer-relay][data-cmux-component="Composer"]')
+        .length,
       placeholder:
-        document.querySelector(".acpmux-subagent-composer [aria-label]")?.getAttribute("aria-label")?.trim() ?? "",
+        document
+          .querySelector('.acpmux-composer[data-composer-relay] [role="combobox"]')
+          ?.getAttribute("aria-label")
+          ?.trim() ?? "",
       via: document.querySelector(".cv-subagent-composer-via")?.textContent?.trim() ?? "",
       text: document.body.textContent ?? "",
     }));
@@ -217,7 +221,7 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     await page.close();
   });
 
-  test("a subagent's pane shows its own composer, with none of the chat's queue or bars", async () => {
+  test("a subagent's pane shows the chat's Composer relayed to it, with none of the chat's queue or bars", async () => {
     const page = await open();
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     await page.evaluate(() =>
@@ -225,16 +229,22 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
         "subagent:a1",
       ),
     );
-    await page.locator(".cv-subagent-of").waitFor({ timeout: 10_000 });
+    await page.locator(".acpmux-composer[data-composer-relay]").waitFor({ timeout: 10_000 });
     const shown = await bottom(page);
     expect(shown.composer).toBe(0);
     expect(shown.queued).toEqual([]);
     expect(shown.subagent).toBe(1);
     expect(shown.text).not.toContain("Read only");
     expect(shown.placeholder).toBe("Message Reviewer");
-    expect(shown.via).toContain("Release review");
-    // "Subagent of" shows the chat in this pane: the chat's composer, queue and bar are back.
-    await page.locator(".cv-subagent-of__pill").click();
+    // The same composer as the chat's, with no line under it naming the chat (Leo 2026-11-22: "we
+    // should align things better").
+    expect(shown.via).toBe("");
+    // Its pane draws no line naming the chat (Leo, 2026-11-22) and no × of its own (its tab closes
+    // it). Escape closes it to the chat (subagentEscape.ts): with no app to focus the opening chat's
+    // tab, this pane shows the chat, and the chat's composer, queue and bar are back.
+    expect(await page.locator(".cv-subagent-corner__close").count()).toBe(0);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Escape");
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     const chat = await bottom(page);
     expect(chat.composer).toBe(1);
@@ -249,13 +259,13 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
         "subagent:a1",
       ),
     );
-    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    await page.locator(".acpmux-composer[data-composer-relay]").waitFor({ timeout: 10_000 });
     prompts.length = 0;
     const arrived = promptWith("Also check the retry tests");
-    await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
+    await page.locator('[data-composer-relay] [aria-label="Message Reviewer"]').click();
     await page.keyboard.type("Also check the retry tests");
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => !document.querySelector(".acpmux-subagent-composer .ProseMirror")?.textContent);
+    await page.waitForFunction(() => !document.querySelector("[data-composer-relay] .ProseMirror")?.textContent);
     // The test's own timeout ends a wait for a prompt that never comes.
     const sent = await arrived;
     expect(sent).toContain(CHAT);
@@ -275,9 +285,9 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
         "subagent:a1",
       ),
     );
-    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    await page.locator(".acpmux-composer[data-composer-relay]").waitFor({ timeout: 10_000 });
     const arrived = promptWith(RUNNING_TURN);
-    await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
+    await page.locator('[data-composer-relay] [aria-label="Message Reviewer"]').click();
     await page.keyboard.type(RUNNING_TURN);
     await page.keyboard.press("Enter");
     await arrived;

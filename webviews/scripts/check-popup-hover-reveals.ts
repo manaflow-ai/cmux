@@ -75,6 +75,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/modelPicker.css|.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star",
     "favourite toggle",
   ],
+  // A harness update row's Update (HarnessUpdates.tsx) starts that update on the click; it opens no menu.
+  [
+    "agent-session/acpmux/harnessUpdates.css|.acpmux-harness-update:is(:hover, :focus-within) .acpmux-harness-update-run[data-reveal]",
+    "update button",
+  ],
   // Suggestion rows sit in .nt-popover, which the New Tab page's ContextMenu ignores: no menu opens from them.
   ["agent-session/acpmux/newtab/screen.css|.nt-row:hover .nt-row-action", "suggestion row hint"],
   [
@@ -87,11 +92,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ],
   // An inline attachment chip's ×, Retry and Expand are plain buttons (composer/inlineAttachments.tsx).
   ["agent-session/acpmux/markdownField.css|.acpmux-md-inline-chip:hover .acpmux-md-inline-remove", "remove affordance"],
-  [
-    "agent-session/acpmux/composerLook.css|.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots",
-    "look affordance",
-  ],
-  ["agent-session/acpmux/composerLook.css|.acpmux-composer-under:hover .acpmux-look-dots", "look affordance"],
   ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close", "close affordance"],
   [
     "agent-session/acpmux/needsYou/needsYou.css|.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools",
@@ -112,7 +112,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/subagents/subagents.css|.cv-subagent-done-row:hover .cv-subagent-done__actions",
     "copy affordance",
   ],
-  ["agent-session/acpmux/prototype/prototype.css|.proto-tab:hover .proto-tab-close", "close affordance"],
   ["pages/settings/styles.css|.backdrop-pending:hover .backdrop-thumb", "pending wallpaper brightness"],
   ["pages/settings/styles.css|.backdrop-own:hover .backdrop-remove:not(:disabled)", "remove affordance"],
   ["gallery/fixtures/VisualMediaBoard.css|.cmux-gallery-media-stage:hover img", "gallery preview brightness"],

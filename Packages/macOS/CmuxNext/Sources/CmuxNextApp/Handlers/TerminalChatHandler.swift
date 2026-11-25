@@ -4,7 +4,8 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextTabs
-import CmuxNextWindowRules
+import CmuxNextTerminal
+public import CmuxNextWindowRules // the two faces conform to its ports (bottom of the file)
 import Foundation
 
 /// Open Terminal as Chat (`palette.openTerminalChatView`; the palette and `cmux agent
@@ -20,6 +21,38 @@ enum TerminalChatHandler {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bindEffect("palette.openTerminalChatView", requires: nil, effect: { try open($0, context: context) })
         registry.bindEffect("palette.toggleTerminalChat", requires: nil, effect: { try toggle($0, context: context, watches: true) })
+        // Each row reads as the way it goes (user 2026-11-20, the switch back "inside the 3 dots thing"): Switch to
+        // Chat on a terminal, Switch to Terminal on a chat, in the pane's ⋮, the tab's right-click and the palette.
+        // The CLI and MCP keep the catalog's title and id.
+        ActionTargetTitles.set("palette.toggleTerminalChat", in: registry) { invocation in
+            targetTab(invocation, context: context).flatMap { switchTitle(of: $0, services: context.services) }
+        }
+        ActionTargetTitles.setPaletteTitle("palette.toggleTerminalChat", in: registry) {
+            targetTab(ActionInvocation(), context: context).flatMap { switchTitle(of: $0, services: context.services) }
+        }
+    }
+
+    /// The row's title on `tab`, the way Toggle goes from it: a terminal running a Claude Code or Codex session
+    /// switches to its chat, a chat with such a session to its terminal; nil (the catalog's "Toggle Terminal and Chat")
+    /// for any other tab. Reads only the tab and its session: a palette title must not walk every machine's agents.
+    static func switchTitle(of tab: TabModel, services: AppServices) -> String? {
+        if tab.kind == .pty {
+            guard tab.agent?.harnessSessionID != nil, let agent = tab.agent?.agent, WindowRules().agentHarness(agent) != nil else { return nil }
+            return MiscHandlerStrings.terminalChatSwitchToChat
+        }
+        guard services.agentTabs.isAgentTab(tab.id), let session = chatSession(of: tab, services: services),
+              WindowRules().agentHarness(session.harness) != nil else { return nil }
+        return MiscHandlerStrings.terminalChatSwitchToTerminal
+    }
+
+    /// The tab `invocation` names (a menu row's), else the focused pane's selected tab (the palette's).
+    private static func targetTab(_ invocation: ActionInvocation, context: AppActionContext) -> TabModel? {
+        if let target = invocation.target, target.kind == .tab {
+            // A named machine never falls back to a same-id tab of another (a fork keeps its ids).
+            return context.targetTab(target.id, invocation)?.0
+        }
+        guard let (pane, id) = context.scope(invocation).tab else { return nil }
+        return pane.tab(id)
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws -> ActionEffect {
@@ -52,17 +85,19 @@ enum TerminalChatHandler {
         case .toTerminal?:
             if let key { tabs.terminalHandOffs[key] = nil } // a terminal reports the session: any hand-off is over
             // Showing it is a view change; a headless run leaves the user's focus alone.
-            guard !invocation.allowsViewChange || terminals.contains(where: { services.revealTab($0) }) else {
-                throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal)
+            guard invocation.allowsViewChange else { return .done }
+            // The terminal it places is the one it shows first: a live one (its view is built).
+            let live = terminals.filter { services.cache.existingTerminal($0) != nil }, order = live + terminals.filter { !live.contains($0) }
+            return try swap(placing(chat: tab.id, terminal: order.first, services), toTerminal: true) {
+                order.contains(where: { services.revealTab($0) })
             }
-            return .done
         case .toChat(let harness, let session)?:
             tabs.terminalHandOffs["\(harness):\(session)"] = nil // the terminal reports the session
             let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session, watch: watches ? true : nil)
             // A tab that already resumes this session is shown instead of a duplicate.
             if let existing = services.agentTabs.tab(resuming: adopt) ?? chat(running: session, services: services) {
-                if invocation.allowsViewChange { _ = services.revealTab(existing) }
-                return .done
+                guard invocation.allowsViewChange else { return .done }
+                return try swap(placing(chat: existing, terminal: tab.id, services), toTerminal: false) { _ = services.revealTab(existing); return true }
             }
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, adopt: adopt))
             let pending: AgentTabPending
@@ -101,7 +136,7 @@ enum TerminalChatHandler {
         facts.running = !terminals.isEmpty
         facts.busy = tab.agentSession.map(turnOpen) ?? false
         facts.handOff = handOff
-        facts.handOffOpen = handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false
+        facts.handOffOpen = handOff.flatMap { made in made.tab.flatMap { id in made.machine.flatMap { services.locateTab(id, onMachine: $0) } } } != nil // its own machine's
         facts.now = Date().timeIntervalSince1970
         return (facts, key, terminals)
     }
@@ -136,6 +171,22 @@ enum TerminalChatHandler {
             .compactMap { services.agentTabs.tab(showing: $0.id) }.first
     }
 
+    /// A swap of a pair lands at the same turn in the other view (``TerminalChatPlacing``, Rust's
+    /// `tabs::place`): the face about to show moves first, then `reveal` shows it; at once when nothing moves.
+    private static func swap(_ placing: TerminalChatPlacing, toTerminal: Bool, reveal: @escaping @MainActor @Sendable () -> Bool) throws -> ActionEffect {
+        if placing.settled { if reveal() { return .done }; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal) }
+        // action-wait-allow: the chat page (its own process) names its turn before either face shows, 60 ms at most in all
+        return .waiting(.externalProcess) {
+            if toTerminal { await placing.placeTerminal() } else { await placing.placeChat() }
+            return reveal() ? nil : "\(MiscHandlerStrings.terminalChatNoTerminal)"
+        }
+    }
+
+    private static func placing(chat: String?, terminal: String?, _ services: AppServices) -> TerminalChatPlacing {
+        TerminalChatPlacing(chat: chat.flatMap { services.agentTabs.existingView($0) }.map(AgentPaneTogglePlace.init),
+                            terminal: terminal.flatMap { services.cache.existingTerminal($0)?.session })
+    }
+
     /// Whether chat `ref` has a turn open: working, or waiting on a permission or a question.
     private static func turnOpen(_ ref: AgentSessionRef) -> Bool {
         let store = AgentTurnStateStore.shared
@@ -163,7 +214,7 @@ enum TerminalChatHandler {
             target.newTerminalTab(cwd: cwd, typing: resumeHere(acpmux, run: run) + "\r",
                                   placementOwner: HomeDockOpens.opensBeside(target.pane, services: services),
                                   then: HomeDockOpens.placing(target.pane, services: services, focus: true, then: { surface in
-                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id }
+                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id; tabs.terminalHandOffs[key]?.machine = target.daemon.machineID }
             }))
         }
         if work.isEmpty { tabs.terminalHandOffs[key] = nil; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoPane) }
@@ -180,3 +231,7 @@ enum TerminalChatHandler {
         return (env + [quote(acpmux.executable.path), "resume-here", quote(run)]).joined(separator: " ")
     }
 }
+
+/// The two faces of a pair, as a swap reads and moves them (``TerminalChatPlacing``).
+extension TerminalSession: TogglePlaceTerminal {}
+extension AgentPaneTogglePlace: TogglePlaceChat {}

@@ -1,7 +1,7 @@
 """New Mac rows parity flows (feat-cmux-next-ios-new-mac-rows-parity, cmux#25834: Mac features
 after 2026-10-26): Settings → Automations and Artifacts (the account's own cmux Cloud calls),
 Home's Delete Conversation from List / Show Hidden Conversations, the next-step card, Continue on
-a failed turn, New Agent Chat on…, Move Workspace Above… / Below…, Reveal in Workspaces List,
+a failed turn, New Agent Chat ›, Move Workspace Above… / Below…, Reveal in Workspaces List,
 Compact Workspace List, Toggle Prompt Queueing, Long-Press Menus, Copy Logs, Connect GitHub and
 Fork Conversation to New Column Right.
 
@@ -363,8 +363,8 @@ def continue_(j, label):
 
 
 def newchaton(j, label):
-    """Workspaces → New Workspace (hold). After: New Agent Chat on… › this Mac › a folder starts a
-    chat there (acpmux `session/new` in that folder) in a new workspace."""
+    """Workspaces → New Workspace (hold). After: New Agent Chat › a folder (one Mac), or › a Mac ›
+    a folder (several), starts a chat there (acpmux `session/new` in that folder) in a new workspace."""
     before = {s["sessionId"] for s in c.sessions()}
     e = j.sim.wait(ident="workspaces.new", timeout=10)
     check(e, "no New Workspace button")
@@ -380,12 +380,20 @@ def newchaton(j, label):
         return out
     j.sim.tap_el(on[0]); time.sleep(1.2)
     pq.shot("newchaton-after-macs")
-    macs = [x for x in j.sim.find(kind="Button") if (x.ident or "").startswith("workspaces.newAgentChatOn.")]
-    check(macs, f"no Mac under New Agent Chat on…: {labels(j)[:20]}")
-    j.sim.tap_el(macs[0]); time.sleep(1.2)
+    def folder_rows():
+        # One Mac: its folders right here (workspaces.newAgentChat.<folder>); several: under each Mac.
+        return [x for x in j.sim.find(kind="Button")
+                if x.label == "proj" and ((x.ident or "").startswith("workspaces.newAgentChat.")
+                                          or (x.ident or "").startswith("workspaces.newAgentChatOn."))]
+    folders = folder_rows()
+    if not folders:
+        macs = [x for x in j.sim.find(kind="Button") if (x.ident or "").startswith("workspaces.newAgentChatOn.")]
+        check(macs, f"no folder or Mac under New Agent Chat: {labels(j)[:20]}")
+        j.sim.tap_el(macs[0]); time.sleep(1.2)
+        pq.shot("newchaton-after-macs")
+        folders = folder_rows()
     pq.shot("newchaton-after-folders")
-    folders = [x for x in j.sim.find(kind="Button") if (x.ident or "").startswith("workspaces.newAgentChatOn.") and x.label == "proj"]
-    check(folders, f"no folder under the Mac: {labels(j)[:20]}")
+    check(folders, f"no folder under New Agent Chat: {labels(j)[:20]}")
     out["folder"] = folders[0].label
     j.sim.tap_el(folders[0])
     pq.wait_opened(j, timeout=120)

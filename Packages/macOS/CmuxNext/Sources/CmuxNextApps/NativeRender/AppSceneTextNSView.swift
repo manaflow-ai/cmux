@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 /// `Text`: a chrome label in the chrome type scale (`font`: a text style name or a point size;
-/// `weight`, `italic`, `monospaced`, `strikethrough`), the `color` tone (primary by default), `lineLimit` lines (no
-/// limit by default) and `truncation`.
+/// `weight`, `italic`, `monospaced`, `strikethrough`, `fontDesign` `rounded`/`serif`/`monospaced`), the `color` tone
+/// (primary by default), `lineLimit` lines (no limit by default) and `truncation`. With a `date` it is a host-ticking
+/// Text (`dateStyle`, ``AppSceneDateText``): its string comes from the date and ``AppSceneClock`` ticks it.
 final class AppSceneTextNSView: AppSceneNodeNSView {
     let label = ChromeLabel(wrappingLabelWithString: "")
 
@@ -12,11 +13,24 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         addSubview(label)
     }
 
+    /// The ticking date this Text shows, if any.
+    private var dateText: AppSceneDateText?
+
+    /// The text the label shows now: the date's at this second, or the app's `text`.
+    private var shownText: String { dateText?.text(at: Date()) ?? node.string("text") ?? "" }
+
     override func configure(_ node: AppSceneNode) {
         let before = label.stringValue
         super.configure(node)
-        let text = node.string("text") ?? ""
-        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile { transitionContent(from: before, to: text) }
+        dateText = AppSceneDateText(node)
+        updateTicking()
+        let text = shownText
+        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile {
+            transitionContent(from: before, to: text)
+        } else if let motion = changeMotion, previousNode?.props["text"] != node.props["text"] || previousNode?.props["color"] != node.props["color"] {
+            // With an `animation`, a new text or color crossfades in place (a label's color is no layer property).
+            Motion.appScenes.sceneCrossfade(motion, on: label.layer, in: window)
+        }
         label.stringValue = text
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0
@@ -32,7 +46,43 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { performWithTheme { paintContent() } }
+        updateTicking()
+        if window != nil {
+            if dateText != nil { label.stringValue = shownText }
+            performWithTheme { paintContent() }
+        }
+    }
+
+    /// The scene clock this Text ticks on while it is in a window.
+    private weak var clock: AppSceneClock?
+
+    /// Ticks only while a ticking Text is in a window, on its mounted scene's clock.
+    private func updateTicking() {
+        var host = superview
+        while let view = host, !(view is AppSceneNativeView) { host = view.superview }
+        let next = dateText != nil && window != nil ? (host as? AppSceneNativeView)?.clock : nil
+        guard next !== clock else { return }
+        clock?.remove(self)
+        clock = next
+        next?.add(self)
+    }
+
+    /// One second of the shared clock: a new string re-lays the scene only when its length changes.
+    func tick(_ now: Date) {
+        guard let dateText else { return }
+        let text = dateText.text(at: now)
+        guard text != label.stringValue else { return }
+        let resize = text.count != label.stringValue.count
+        label.stringValue = text
+        performWithTheme { paintContent() }
+        guard resize else { return }
+        var view: NSView? = self
+        while let current = view {
+            current.needsLayout = true
+            current.invalidateIntrinsicContentSize()
+            if current is AppSceneNativeView { break }
+            view = current.superview
+        }
     }
 
     override func paint() {
@@ -50,7 +100,7 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = label.maximumNumberOfLines == 1 ? label.lineBreakMode : .byWordWrapping
         label.attributedStringValue = NSAttributedString(
-            string: node.string("text") ?? "",
+            string: label.stringValue,
             attributes: [
                 .font: label.font ?? Typography.body,
                 .foregroundColor: color,
@@ -88,38 +138,45 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override func layoutContent(in rect: CGRect) { label.frame = rect }
 
-    /// The node's font: a text style name (chrome sizes for body, caption and headline) or a point size.
+    /// The first line's baseline below the node's top (an HStack's `firstTextBaseline`).
+    override func firstBaseline(width: CGFloat) -> CGFloat? {
+        guard let font = label.font else { return nil }
+        return padding.top + ceil(font.ascender)
+    }
+
+    /// The last line's baseline above the node's bottom (an HStack's `lastTextBaseline`).
+    override func lastBaselineFromBottom(width: CGFloat) -> CGFloat? {
+        guard let font = label.font else { return nil }
+        return padding.bottom + ceil(-font.descender)
+    }
+
+    /// The node's font: a type role or Apple text style name from the one scene type table
+    /// (`SceneType`, generated from schemas/type-scale/scene-type.json, which the web renderer reads
+    /// too), grown with Text Size; or a point size. An unknown name draws as `body`.
     @MainActor
     static func font(_ node: AppSceneNode) -> NSFont {
-        let base: NSFont = switch node.props["font"] {
-        case .number(let size)?: Typography.system(.default, size: CGFloat(max(6, min(size, 64))))
-        case .string(let name)?: textStyle(name)
-        default: Typography.body
+        let named: SceneType.Style? = switch node.props["font"] {
+        case .number?: nil
+        case .string(let name)?: SceneType.styles[name] ?? SceneType.styles["body"]
+        default: SceneType.styles["body"]
         }
-        var font = base
-        let chosen = Self.weight(node.string("weight"))
-        let monospaced = node.flag("monospaced")
-        if chosen != nil || monospaced {
-            let fallback: NSFont.Weight = node.string("font") == "headline" ? .semibold : .regular
-            font = Typography.system(monospaced ? .monospaced : .default, size: base.pointSize, weight: chosen ?? fallback)
+        let size: CGFloat = switch node.props["font"] {
+        case .number(let points)?: CGFloat(max(6, min(points, 64)))
+        default: (named?.size ?? TypeScale.Base.body) * Typography.userScale
         }
+        let weight = Self.weight(node.string("weight")) ?? named?.weight ?? TypeScale.regular
+        var font = Typography.system(Self.design(node), size: size, weight: weight)
         if node.flag("italic") { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
         return font
     }
 
-    @MainActor
-    private static func textStyle(_ name: String) -> NSFont {
-        switch name {
-        case "largeTitle": NSFont.preferredFont(forTextStyle: .largeTitle)
-        case "title": NSFont.preferredFont(forTextStyle: .title1)
-        case "title2": NSFont.preferredFont(forTextStyle: .title2)
-        case "title3": NSFont.preferredFont(forTextStyle: .title3)
-        case "headline": Typography.header
-        case "subheadline": NSFont.preferredFont(forTextStyle: .subheadline)
-        case "callout": NSFont.preferredFont(forTextStyle: .callout)
-        case "caption": Typography.caption
-        case "caption2": NSFont.preferredFont(forTextStyle: .caption2)
-        default: Typography.body
+    /// `fontDesign` (`rounded`, `serif`, `monospaced`), else `monospaced`; the type scale keeps the size.
+    static func design(_ node: AppSceneNode) -> Typography.Design {
+        switch node.string("fontDesign") {
+        case "rounded": .rounded
+        case "serif": .serif
+        case "monospaced": .monospaced
+        default: node.flag("monospaced") ? .monospaced : .default
         }
     }
 

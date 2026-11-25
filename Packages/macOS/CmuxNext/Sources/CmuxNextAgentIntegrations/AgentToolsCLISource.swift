@@ -3,8 +3,8 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
-/// The cmux Tools question's source over the bundled CLI: the answer is `agents.cmuxMcp`, read from
-/// and written through the app's settings owner (the person's own write; `ask` removes the key); the
+/// Settings' cmux Tools source over the bundled CLI: the choice is `agents.cmuxMcp`, read from and
+/// written through the app's settings owner (the person's own write; no key is the default `on`); the
 /// agents are `cmux setup mcp`'s report (the code a person or an agent runs in a terminal), which
 /// writes nothing. The CLI runs off the main thread with the login `PATH` a terminal has, so it
 /// finds the `claude` and `codex` a terminal finds.
@@ -21,7 +21,7 @@ public final class AgentToolsCLISource: AgentToolsSource {
 
     /// Read inside observation, so a view of it follows an answer given anywhere.
     public func agentToolsChoice() -> AgentToolsChoice {
-        settings()?.snapshot.root.value(at: AgentToolsChoice.path)?.stringValue.flatMap(AgentToolsChoice.init(rawValue:)) ?? .ask
+        AgentToolsChoice(settingsValue: settings()?.snapshot.root.value(at: AgentToolsChoice.path)?.stringValue)
     }
 
     public func setAgentToolsChoice(_ choice: AgentToolsChoice) async -> Bool {
@@ -41,15 +41,25 @@ public final class AgentToolsCLISource: AgentToolsSource {
     }
 
     public func agentToolsReport() async -> AgentToolsReport? {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli, []),
-              let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
+        guard let cli = await cli(), let report = await Self.setupMCP(cli, []) else { return nil }
+        return await Self.parseReport(report)
+    }
+
+    /// The setup report's agents and manual lines, parsed off the main actor.
+    @concurrent nonisolated static func parseReport(_ report: Data) async -> AgentToolsReport? {
+        guard let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
         return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
+    }
+
+    /// A `--remove` report, parsed off the main actor.
+    @concurrent nonisolated static func parseRemoval(_ data: Data) async -> AgentToolsRemoval {
+        AgentToolsRemoval(removeReport: data)
     }
 
     public func removeLeftoverEntry(_ id: String) async -> AgentToolsRemoval {
         guard ["claude", "codex"].contains(id), let cli = await cli(),
               let data = await Self.setupMCP(cli, ["--remove", id, "--confirm"]) else { return .failed }
-        return AgentToolsRemoval(removeReport: data)
+        return await Self.parseRemoval(data)
     }
 
     /// `cmux --json setup mcp <arguments>` off the main thread; its stdout (a failed run prints its

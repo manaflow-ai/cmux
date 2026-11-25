@@ -163,7 +163,7 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
             expect(gap).toBeGreaterThan(0);
             expect(gap).toBeLessThan(8);
           }
-          // A thought's text starts at its label's words, with no guide line, opened (under the brain
+          // A thought's text starts at its line's words (a streaming one's at its label's), with no guide line, opened (under the brain
           // glyph's row, on the tools' text column) and while it streams.
           await page.locator('[data-fixture-thoughts] button[aria-expanded="false"]').click();
           await page.locator("[data-fixture-thoughts] .cv-thought__body").waitFor();
@@ -182,7 +182,7 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
               root.querySelector(".cv-thought__body")!,
               root.querySelector(".cv-thought.is-full .cv-thought__text")!,
             ].map((text) => {
-              const label = text.closest("[data-thought]")!.querySelector(".cv-thought__label")!;
+              const label = text.closest("[data-thought]")!.querySelector(".cv-thought__label, .cv-thought__preview")!;
               return {
                 guide: getComputedStyle(text).boxShadow,
                 offset: first(text) - first(label),

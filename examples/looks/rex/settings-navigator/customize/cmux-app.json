@@ -1,0 +1,32 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": {
+    "en": "Rex Settings"
+  },
+  "version": "1.0.0",
+  "description": "Rex's preference actions, each opening the matching cmux setting.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderNavigator",
+      "title": "Rex Settings",
+      "symbol": "gearshape"
+    }
+  },
+  "scopes": {
+    "actions:run": "Open Settings at the cmux setting a row names."
+  },
+  "activation": [
+    "onInterface:cmux.newtab/1"
+  ],
+  "files": [
+    "main.js"
+  ]
+}

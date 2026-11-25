@@ -16,4 +16,15 @@ extension ThemeRGB {
         let value = AppColor.oklch(self)
         return (value.l, value.c, value.h)
     }
+
+    /// The color, as its 8-bit hex rounds it, with the smallest OKLCH lightness change that gives it at least each
+    /// minimum contrast (the app theme's own fit; Rust `cmux_theme_tokens::fit_contrast`).
+    /// - Parameters:
+    ///   - constraints: Each color it sits on or under, with the WCAG 2 contrast it needs there.
+    ///   - lighter: Which way to try first; nil: away from the constraints' average.
+    /// - Returns: The fitted opaque color.
+    public func fitted(contrast constraints: [(on: ThemeRGB, minimum: Double)], lighter: Bool?) -> ThemeRGB {
+        AppColor.fit(self, constraints.map { AppColor.Constraint(on: $0.on, minimum: $0.minimum) },
+                     prefer: lighter.map { $0 ? .lighter : .darker })
+    }
 }

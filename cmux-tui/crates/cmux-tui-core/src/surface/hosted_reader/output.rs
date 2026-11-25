@@ -13,6 +13,8 @@ impl HostedReader {
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
         let mux = self.mux.clone();
+        // A terminal's output allocates too: its pages go back once it stops (malloc_quiet_trim.rs).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         if let Some(delay) = self.output_apply_delay {
             std::thread::sleep(delay);
         }

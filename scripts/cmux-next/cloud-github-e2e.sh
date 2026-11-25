@@ -3,12 +3,23 @@
 # machine (plans/cmux-next/cloud-github-auth-DESIGN.md; HQ docs/design/remote-integrations.md).
 # Run it ON the machine, as its work user (`cmux machine exec ID -- sh -s REPO < this file`):
 #
-#   cloud-github-e2e.sh OWNER/REPO        the live check: gh auth status, git push of a test branch
-#                                         (deleted again), one GitHub MCP tool call, nothing at rest
+#   cloud-github-e2e.sh OWNER/REPO        the live cells, in a dedicated sandbox repository: the repo
+#                                         reads as private, clone, branch, commit, push, a draft PR,
+#                                         a PR comment read back, the PR's checks read, one GitHub MCP
+#                                         tool call; then the PR is closed, the branch deleted, and
+#                                         nothing is at rest
+#   cloud-github-e2e.sh --agent-pr OWNER/REPO BRANCH FILE [LINE]
+#                                         reads back what an agent was asked to do (the journey's
+#                                         "GitHub by the agent (live)"): BRANCH exists, FILE is on it
+#                                         (holding the one line LINE, when given), an open draft PR
+#                                         from it; then closes that PR and deletes BRANCH, whatever
+#                                         the checks said
 #   cloud-github-e2e.sh --stub            the same wiring against a stub minter and a stub GitHub MCP
 #                                         server, for a team with no GitHub connection yet
 #
-# Prints one `e2e: NAME ok|FAIL ...` line per check and exits 1 if any failed. It never prints a token.
+# Prints one `e2e: NAME ok|FAIL ...` line per cell and exits 1 if any failed. It never prints a token.
+# CMUX_E2E_GITHUB_ORIGIN (default https://github.com), CMUX_E2E_ACPMUX and CMUX_E2E_REST_DIRS are for its own tests
+# (scripts/cmux-next/cloud-journey-github.test.ts).
 set -u
 umask 077
 PATH="/opt/cmux/github/bin:/opt/cmux/current/bin:$PATH"
@@ -20,7 +31,8 @@ work=$(mktemp -d) || exit 1
 trap 'rm -rf "$work"' EXIT
 
 # The acpmux that serves `github-mcp`: on PATH, else inside cmux-tui (`cmux-tui acp`).
-if command -v acpmux >/dev/null 2>&1; then acpmux_cmd=acpmux
+if [ -n "${CMUX_E2E_ACPMUX:-}" ]; then acpmux_cmd=$CMUX_E2E_ACPMUX
+elif command -v acpmux >/dev/null 2>&1; then acpmux_cmd=acpmux
 elif [ -x "$HOME/.cmux/bin/cmux-tui" ]; then acpmux_cmd="$HOME/.cmux/bin/cmux-tui acp"
 else acpmux_cmd="cmux-tui acp"; fi
 
@@ -81,15 +93,82 @@ PY
   exit $((fails > 0))
 fi
 
-repo=${1:?usage: cloud-github-e2e.sh OWNER/REPO | --stub}
-check gh_auth_status gh auth status --hostname github.com
-git clone -q --depth 1 "https://github.com/$repo.git" "$work/repo" 2>"$work/clone.err"
-check git_clone test -d "$work/repo/.git"
-branch="cmux-e2e/$(hostname)-$$"
+origin=${CMUX_E2E_GITHUB_ORIGIN:-https://github.com}
+valid_repo() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$'; }
+valid_ref() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._/-]+$'; }
+# Nothing at rest: no installation token anywhere the work user or the system keeps files.
+# CMUX_E2E_REST_DIRS narrows the scan for the script's own tests.
+# shellcheck disable=SC2086 # the list is split on purpose
+no_token_at_rest() { ! grep -rIl 'ghs_[A-Za-z0-9_]\{20,\}' ${CMUX_E2E_REST_DIRS:-"$HOME" /etc /tmp} 2>/dev/null | grep -v "^$work" | grep -q .; }
+# The first two lines of a cell's stderr, so a FAIL says why (never a token).
+why() { [ -s "$work/$1.err" ] && sed -n '1,2p' "$work/$1.err" | grep -v ghs_ | sed "s/^/e2e: $1 says /"; return 0; }
+close_pr() { gh pr close "$1" --comment "cmux Cloud e2e: closed by the journey" >/dev/null 2>"$work/close.err"; }
+delete_branch() { gh api -X DELETE "repos/$repo/git/refs/heads/$1" >/dev/null 2>"$work/delete.err"; }
+
+if [ "${1:-}" = "--agent-pr" ]; then
+  repo=${2:-}; branch=${3:-}; file=${4:-}; line=${5:-}
+  if ! valid_repo "$repo" || ! valid_ref "$branch" || ! valid_ref "$file" || ! printf '%s' "$line" | grep -Eq '^[A-Za-z0-9 ._-]*$'; then
+    say "agent_pr FAIL usage: cloud-github-e2e.sh --agent-pr OWNER/REPO BRANCH FILE [LINE]"; exit 1
+  fi
+  export GH_REPO="$repo"
+  agent_branch() { gh api "repos/$repo/branches/$branch" --jq .name >/dev/null 2>"$work/branch.err"; }
+  # The file as committed on the branch (raw), kept for the content cell.
+  agent_commit() { gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/$file?ref=$branch" >"$work/agent-file" 2>"$work/commit.err"; }
+  # The one line asked for: the file, its carriage returns and trailing blank lines dropped, is exactly LINE.
+  agent_content() { [ "$(tr -d '\r' <"$work/agent-file")" = "$line" ]; }
+  agent_pr_draft() { [ "$(gh pr view "$pr" --json isDraft --jq .isDraft 2>"$work/draft.err")" = true ]; }
+  check agent_branch agent_branch; why branch
+  check agent_commit agent_commit; why commit
+  if [ -n "$line" ]; then check agent_content agent_content; fi
+  pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>"$work/pr.err")
+  check agent_pr test -n "$pr"; why pr
+  if [ -n "$pr" ]; then say "agent_pr number $pr"; check agent_pr_draft agent_pr_draft; why draft; fi
+  # The cleanup is the journey's, not the agent's: close what it opened and delete its branch.
+  if [ -n "$pr" ]; then check pr_close close_pr "$pr"; why close; fi
+  check branch_delete delete_branch "$branch"; why delete
+  check no_token_at_rest no_token_at_rest
+  exit $((fails > 0))
+fi
+
+repo=${1:?usage: cloud-github-e2e.sh OWNER/REPO | --agent-pr OWNER/REPO BRANCH FILE [LINE] | --stub}
+valid_repo "$repo" || { say "repo FAIL not OWNER/REPO"; exit 1; }
+# gh through the image's shim mints for this one repo; GH_REPO names it outside a checkout.
+export GH_REPO="$repo"
+# Not a cell: `gh auth status` is one of the commands the shim hands to the real gh untouched
+# (cloud-github-auth-DESIGN.md 3.2), so with no gh login of the person's own it exits 1.
+gh auth status --hostname github.com >/dev/null 2>&1; say "gh_auth_status info exit $?"
+repo_private() { [ "$(gh repo view "$repo" --json isPrivate --jq .isPrivate 2>"$work/view.err")" = true ]; }
+check repo_private repo_private; why view
+git clone -q "$origin/$repo.git" "$work/repo" 2>"$work/clone.err"
+check clone test -d "$work/repo/.git"; why clone
+branch="cmux-e2e/$(hostname | tr -cd 'A-Za-z0-9-' | cut -c1-40)-$$"
+file="cmux-e2e/$(printf '%s' "$branch" | tr '/' '-').md"
 if [ -d "$work/repo/.git" ]; then
-  git -C "$work/repo" -c user.name=cmux-e2e -c user.email=e2e@cmux.invalid commit -q --allow-empty -m "cmux Cloud GitHub e2e"
-  check git_push git -C "$work/repo" push -q origin "HEAD:refs/heads/$branch"
-  git -C "$work/repo" push -q origin --delete "$branch" 2>/dev/null || say "cleanup: could not delete $branch"
+  base=$(git -C "$work/repo" symbolic-ref --short HEAD 2>/dev/null || echo main)
+  check branch git -C "$work/repo" checkout -q -b "$branch"
+  mkdir -p "$work/repo/cmux-e2e"
+  echo "cmux Cloud GitHub e2e at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$work/repo/$file"
+  commit() { git -C "$work/repo" add "$file" && git -C "$work/repo" -c user.name=cmux-e2e -c user.email=e2e@cmux.invalid commit -q -m "cmux Cloud GitHub e2e"; }
+  check commit commit
+  check push git -C "$work/repo" push -q origin "HEAD:refs/heads/$branch" 2>"$work/push.err"; why push
+  url=$(cd "$work/repo" && gh pr create --draft --base "$base" --head "$branch" \
+    --title "cmux Cloud GitHub e2e ($branch)" --body "Opened by the cmux Cloud journey, which closes it and deletes the branch." 2>"$work/pr.err")
+  pr=$(printf '%s' "$url" | sed -n 's#.*/pull/\([0-9][0-9]*\).*#\1#p' | head -n 1)
+  check pr_create test -n "$pr"; why pr
+  if [ -n "$pr" ]; then
+    say "pr_create number $pr"
+    marker="cmux-e2e-comment-$$"
+    gh pr comment "$pr" --body "$marker" >/dev/null 2>"$work/comment.err"
+    comments_read() { gh api "repos/$repo/issues/$pr/comments" --jq '.[].body' 2>>"$work/comment.err" | grep -qx "$marker"; }
+    check pr_comments_read comments_read; why comment
+    sha=$(git -C "$work/repo" rev-parse HEAD)
+    runs=$(gh api "repos/$repo/commits/$sha/check-runs" --jq .total_count 2>"$work/checks.err")
+    state=$(gh api "repos/$repo/commits/$sha/status" --jq .state 2>>"$work/checks.err")
+    check pr_checks_read test -n "$runs" -a -n "$state"; why checks
+    say "pr_checks check_runs=${runs:-?} status=${state:-?}"
+    check pr_close close_pr "$pr"; why close
+  fi
+  check branch_delete git -C "$work/repo" push -q origin --delete "$branch" 2>"$work/delete.err"; why delete
 fi
 owner=${repo%/*}; name=${repo#*/}
 out="$work/mcp.out"
@@ -97,6 +176,5 @@ mkdir -p "$work/repo"
 mcp_call "{\"name\":\"list_branches\",\"arguments\":{\"owner\":\"$owner\",\"repo\":\"$name\"}}" "$work/repo" >"$out" 2>"$work/mcp.err"
 check mcp_call mcp_ok "$out" <"$out"
 grep '"id":3' "$out" | grep -o '"text":"[^"]\{0,160\}' | head -n 1 | sed 's/^/e2e: mcp says /' | grep -v ghs_
-# Nothing at rest: no installation token anywhere the work user or the system keeps files.
-check no_token_at_rest sh -c "! grep -rIl 'ghs_[A-Za-z0-9_]\{20,\}' \"\$HOME\" /etc /tmp 2>/dev/null | grep -v '^$work' | grep -q ."
+check no_token_at_rest no_token_at_rest
 exit $((fails > 0))

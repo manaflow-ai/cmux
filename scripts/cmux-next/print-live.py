@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Live check: File > Print… of a web page in both engines (cx-d0d.20), and a WebKit page's own
-window.print() (cx-d0d.64).
+"""Live check: File > Print… (cx-d0d.20) and a page's own window.print() (cx-d0d.64) in both engines.
 
   scripts/cmux-next/print-live.py --tag <tag> [--out DIR] [--app PATH] [--engines chromium,webkit]
 
@@ -12,14 +11,15 @@ page and runs the Print… action (`browserPrint`, the File menu's and the palet
   - WebKit: the system print panel opens as a sheet on the tab's window. Then the page's own
     window.print() opens it too, and its script goes on once Escape cancels the panel.
 
-Nothing is printed: the panels are left open and the app is quit at the end. Snapshots of
-what opened go to --out. GUI host only (a capture mini). Exits 1 when a check fails.
+The checks dismiss each preview or panel and save snapshots to --out.
+GUI host only (a capture mini). Exits 1 when a check fails.
 """
 import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -120,9 +120,18 @@ def snapshot(window, name):
     rpc("debug.window_snapshot", {"window": window["id"], "path": os.path.join(opts.out, name + ".png")}, timeout=30)
 
 
+def settled(window):
+    """The window's entry once its frame stops moving (a sheet or preview slides in), for its snapshot."""
+    def entry():
+        return next((w for w in window_list() if w.get("id") == window["id"]), None)
+    found = wait_stable(lambda: (entry() or {}).get("frame"), f"window {window['id']}'s frame", timeout=10,
+                        interval=0.1, raise_on_timeout=False)
+    return entry() or window if found is not None else window
+
+
 def print_page(engine):
-    reply = rpc("action.run", {"action": "browserPrint", "origin": "script"})
-    check("error" not in reply, f"{engine}: the Print… action runs ({reply})")
+    reply = rpc("action.run", {"action": "browserPrint", "origin": "script", "focus": True})
+    check(reply.get("ran") is True, f"{engine}: the Print… action runs ({reply})")
 
 
 def chromium_preview():
@@ -136,34 +145,59 @@ def sheets(main):
     return [w for w in window_list() if w.get("visible") and w.get("kind") == "sheet" and w.get("parent") == main]
 
 
+def open_print_page(engine, url):
+    global TAB
+    action = "openBrowser.chromium" if engine == "chromium" else "openBrowser.webkit"
+    opened = rpc("action.run", {"action": action, "args": {"url": url}, "focus": True})
+    TAB = next((tab for tab in (opened.get("created") or []) if tab.startswith("tab_")), None)
+    if TAB is None:
+        check(False, f"{engine}: could not open the print fixture ({opened})")
+        return False
+    ready = f"location.href === {json.dumps(url)} && document.readyState === 'complete' && document.title === 'print test'"
+    if not wait_for(lambda: page(ready), f"{engine}: the print fixture loads in {TAB}", 60):
+        return False
+    # The page's window is listed: wait for the main window entry, then for the list to stop changing.
+    quiet_wait(lambda: any(w.get("kind") == "main" for w in window_list()), 10)
+    wait_stable(window_list, "the window list after the page load", timeout=10, interval=0.1, raise_on_timeout=False)
+    return True
+
+
 def run_engine(engine):
     global TAB
     print(f"== {engine}", flush=True)
     url = serve()
-    action = "openBrowser.chromium" if engine == "chromium" else "openBrowser.webkit"
-    TAB = (rpc("action.run", {"action": action, "args": {"url": url}, "focus": True}).get("created") or [None])[0]
-    if not wait_for(lambda: page("document.readyState === 'complete' && !!document.querySelector('h1')"), f"{engine}: the page loads", 60):
-        return
-    time.sleep(1)
-    main = next((w["id"] for w in window_list() if w.get("kind") == "main"), None)
     if engine == "chromium":
-        check(not chromium_preview(), f"{engine}: no print preview before Print…")
-        print_page(engine)
-        shown = quiet_wait(chromium_preview, 10)
-        check(bool(shown), f"{engine}: Print… opens Chromium's print preview over the page ({window_list()})")
-        if shown:
-            time.sleep(2)
-            snapshot(shown[0], "chromium-print-preview")
-        rpc("action.run", {"action": "closeTab", "origin": "script"})
-        check(bool(quiet_wait(lambda: not chromium_preview(), 10)), f"{engine}: closing the tab closes the preview")
+        for trigger, image in (("Print…", "chromium-print-preview"), ("window.print()", "chromium-window-print-preview")):
+            if not open_print_page(engine, url):
+                return
+            if chromium_preview():
+                check(False, f"{engine}: a preview was already open before {trigger}")
+                return
+            if trigger == "Print…":
+                selected = rpc("browser.page.select_tab", {"tab": TAB})
+                check("error" not in selected, f"{engine}: the print fixture tab is selected ({selected})")
+                print_page(engine)
+            else:
+                scheduled = page("setTimeout(() => window.print(), 0); true")
+                check(scheduled is True, f"{engine}: the page schedules window.print()")
+            shown = quiet_wait(chromium_preview, 10)
+            check(bool(shown), f"{engine}: {trigger} opens Chromium's print preview over the page ({window_list()})")
+            if shown:
+                snapshot(settled(shown[0]), image)
+            closed = rpc("action.run", {"action": "closeTab", "origin": "script", "target": f"tab:{TAB}", "wait": True})
+            check(closed.get("ran") is True, f"{engine}: closed the tab that requested {trigger} ({closed})")
+            if shown:
+                wait_for(lambda: not chromium_preview(), f"{engine}: closing the tab dismisses the {trigger} preview", 10)
     else:
+        if not open_print_page(engine, url):
+            return
+        main = next((w["id"] for w in window_list() if w.get("kind") == "main"), None)
         check(not sheets(main), f"{engine}: no sheet before Print…")
         print_page(engine)
         shown = quiet_wait(lambda: sheets(main), 10)
         check(bool(shown), f"{engine}: Print… opens the system print panel as a sheet on the window ({window_list()})")
         if shown:
-            time.sleep(1)
-            snapshot(shown[0], "webkit-print-panel")
+            snapshot(settled(shown[0]), "webkit-print-panel")
             snapshot(next(w for w in window_list() if w["id"] == main), "webkit-window")
         rpc("debug.key", {"key": "escape"})
         check(bool(quiet_wait(lambda: not sheets(main), 10)), f"{engine}: Escape cancels the print panel")
@@ -174,8 +208,7 @@ def run_engine(engine):
         shown = quiet_wait(lambda: sheets(main), 10)
         check(bool(shown), f"{engine}: the page's window.print() opens the system print panel ({window_list()})")
         if shown:
-            time.sleep(1)
-            snapshot(shown[0], "webkit-window-print-panel")
+            snapshot(settled(shown[0]), "webkit-window-print-panel")
             rpc("debug.key", {"key": "escape"})
             check(bool(quiet_wait(lambda: not sheets(main), 10)), f"{engine}: Escape cancels the page's print panel")
             check(bool(quiet_wait(lambda: page("document.title") == "printed", 10)),

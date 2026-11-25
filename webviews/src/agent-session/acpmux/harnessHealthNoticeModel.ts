@@ -13,6 +13,10 @@ export function skipped(): Record<string, string> {
 /// (`harness.health`).
 export type HarnessHealth = {
   id: string;
+  /// Where acpmux found the program, and the npm package or Homebrew formula behind it: two
+  /// profiles with the same are one install (harnessInstalls.ts).
+  path?: string | null;
+  package?: string | null;
   version?: string | null;
   latest?: string | null;
   outdated?: boolean;

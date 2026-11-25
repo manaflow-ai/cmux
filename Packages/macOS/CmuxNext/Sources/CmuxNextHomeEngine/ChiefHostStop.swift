@@ -1,4 +1,5 @@
 public import CmuxNextAgentPane
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -77,6 +78,23 @@ public nonisolated enum ChiefHostStop {
     public static func isChiefHost(_ pid: pid_t) -> Bool {
         let path = executablePath(pid)
         return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+    }
+
+    /// Whether `pid` runs the "cmux Files (dev)" launcher (docs/cmux-files-host.md), one of this
+    /// user's processes. A DEV build that embeds the helper starts the brain host as
+    /// `cmux-files-host run -- …/optchat-chief host …`, so the pid its launch shell printed is the
+    /// launcher's; the launcher forwards SIGTERM to the host and exits with it. Like
+    /// ``isChiefHost(_:)``, this only guards a pid this app just started against reuse: it reads the
+    /// executable path, never the arguments (no process scan, plans/cmux-next/pty-holder.md).
+    public static func isFilesHostLauncher(_ pid: pid_t) -> Bool {
+        isFilesHostLauncher(path: executablePath(pid), processName: processName(pid))
+    }
+
+    /// Whether a process with executable `path` and process name `processName` (nil: not this
+    /// user's) is the helper's executable.
+    static func isFilesHostLauncher(path: String?, processName: String?) -> Bool {
+        guard let path, processName != nil else { return false }
+        return path.hasSuffix("/" + FilesHost.executableName)
     }
 
     /// The executable path of `pid` (`proc_pidpath`), nil when it fails: no such process, or

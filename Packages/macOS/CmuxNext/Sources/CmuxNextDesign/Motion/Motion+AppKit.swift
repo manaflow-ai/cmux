@@ -492,6 +492,19 @@ extension MotionGate {
         return breath
     }
 
+    /// A few breaths that catch the eye, then rest (`breaths` of ``breathAnimation(low:)``, ending at 1), at
+    /// most `maxFramesPerSecond`; nil when loops are off. For a mark that stays up until it is seen (the
+    /// needs-you glow): a breath that never ends recomposites its window at full refresh for as long as it
+    /// shows (24 % WindowServer CPU and 6 % GPU with 18 glowing tabs and rows, against 0.7 % and 0.9 % for
+    /// the badges; M4 mini, `idle_attention` bench), and a resting layer costs no frames. The finished
+    /// animation stays on the layer, so a host that adds it only when it has none breathes once per showing.
+    public func attentionBreathAnimation(low: Float, breaths: Float = 3, maxFramesPerSecond: Float = 30) -> CAAnimation? {
+        guard let breath = breathAnimation(low: low) else { return nil }
+        breath.repeatCount = breaths
+        breath.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: maxFramesPerSecond, preferred: maxFramesPerSecond)
+        return breath
+    }
+
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
     public func pulseAnimation(low: Float) -> CAAnimation? {
         guard let period = period(.pulse) else { return nil }

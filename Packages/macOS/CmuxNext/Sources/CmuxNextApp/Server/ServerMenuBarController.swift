@@ -58,7 +58,7 @@ final class ServerMenuBarController: NSObject {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             let image = NSImage.icon(.machineRemote, size: 16)
-            image.accessibilityDescription = String(localized: "server.menuBar.accessibility", defaultValue: "cmux server", table: "Server", bundle: .module)
+            image.accessibilityDescription = String(localized: "server.menuBar.accessibility", defaultValue: "cmux server", table: "Server", bundle: .module.inAppLanguage)
             button.image = image
             button.target = self
             button.action = #selector(togglePanel(_:))
