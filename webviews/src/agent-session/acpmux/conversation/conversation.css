@@ -8487,7 +8487,10 @@ a.cv-sha:focus-visible {
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
-  padding: 2px 0 2px 8px;
+  /* Above and below is a transparent border, not padding: overflow clips at the padding edge, so padding would show
+     the top of a fourth line (Leo, 2026-11-23: "not show the sliver of the second line."). */
+  padding: 0 0 0 8px;
+  border-block: 2px solid transparent;
   border-left: 2px solid var(--agent-border);
   overflow-wrap: anywhere;
 }
