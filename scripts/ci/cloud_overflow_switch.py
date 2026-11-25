@@ -24,9 +24,23 @@ size), waits for them:
   cheap, runs already stuck on a Blacksmith label are force-cancelled and
   re-run so they pick their runners again. The workflow then force-cancels
   its own run, whose probes would otherwise stay queued.
-- Some start and some do not: nothing changes. One stalled size never flips
-  the fleet, and a record is not cleared while a size is still stalled. A
-  size stalling alone is for that size's own failover, not this switch.
+- Some start and some do not: nothing changes, with one exception. One
+  stalled size never flips the fleet, and a size stalling alone is for that
+  size's own failover (RUNNER_POOLS, from CI_CLOUD_LABEL_HEALTH), not this
+  switch. The exception: a record exists and the smallest probed size
+  (SERVING_PROBE, 4 vCPU) started. Blacksmith is serving then, so the record
+  is put back as when every probe starts (plan_on() returns a Linux variable
+  only onto a size that started). Keeping it would latch: while the record is
+  set, about 216 feat-cmux-next runs-on read `vars.CI_CLOUD_OVERFLOW_SAVED &&`
+  a larger size (8 to 16, 16 to 32), which fills exactly the large sizes under
+  Blacksmith's vCPU cap, so the 16 vCPU probe keeps stalling and the record
+  never clears. On 2026-11-17 a record written at 19:48Z (macOS variables
+  only) was still set at 00:48Z; every pass from 21:07Z ended partial (the
+  00:31Z one: 4 vCPU started in 7 s, 16 vCPU no runner), and of the Linux jobs
+  created 00:00-00:48Z, 32 vCPU started 1 of 282 and 16 vCPU 5 of 63 while
+  4 vCPU started 47 of 209. A required check (`clippy (changed cmux-tui
+  packages)`, size 8, overflow route RUNNER_POOLS.linux_16, then 32 vCPU) sat
+  in that queue.
 
 One probe, one switch: the only state is the variables and the record. The
 failover of each variable (failover_values()) is derived from the lane's
@@ -97,7 +111,7 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
 PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
-# Every x64 Linux label a RUNNER_POOLS pool can point at (members and release valve,
+# Every x64 Linux label a RUNNER_POOLS pool can point at (its declared members,
 # runner_pools.allowed(); tests/test_ci_runner_pools.py), decision probes first. The others are probed for
 # CI_CLOUD_LABEL_HEALTH only and never decide overflow: on 2026-11-18 linux_16 and linux_32 sat on
 # blacksmith-32vcpu-ubuntu-2404 from about 23:12Z with nothing starting there, because no probe asked for it
@@ -109,6 +123,10 @@ HEALTH_LABELS = (*PROBE_LABELS, "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcp
 # accepts ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
+# The size whose probe starting means Blacksmith serves, whatever larger sizes do: most Linux jobs are
+# measured at 4 vCPU or less (.github/runners.json linux_sizes on feat-cmux-next), and a larger size that
+# stalls alone is per-size routing's to move (module docstring).
+SERVING_PROBE = PROBE_LABELS[0]
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
 # When the probed label is that failover itself, the other size: a probed one, so
 # toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
@@ -756,8 +774,8 @@ def probe_set_outcome(jobs: Iterable[Mapping[str, Any]], labels: Sequence[str], 
     "started": every probe started, so Blacksmith serves every size and an
     existing record is put back. "stalled": none started, so Blacksmith serves
     no size and overflow goes off. "partial": some started and some stalled;
-    nothing changes either way, so one stalled size never flips the fleet and
-    a record is not cleared while a size jobs fall back from is still stalled.
+    one stalled size never flips the fleet, and main() clears a record on it
+    only when SERVING_PROBE started (the upsize latch, module docstring).
     "waiting": a probe has not decided yet.
     """
     by_name = {str(job.get("name")): job for job in jobs}
@@ -1197,12 +1215,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             log(f"::warning title=Cloud overflow switch::could not write {HEALTH_VARIABLE} ({error})")
     if outcome == "unknown":
         log("::warning title=Cloud overflow switch::never saw every probe job decide; nothing decided")
-    elif outcome == "partial":
+    elif outcome == "partial" and not (record and SERVING_PROBE in started):
         log(f"{stamp}: {', '.join(stalled)} waited {minutes} min with no runner while the other sizes started; "
             f"overflow stays {'off' if record else 'on'}; nothing changes (per-size routing reads "
             f"{HEALTH_VARIABLE})")
-    elif outcome == "started":
-        log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
+    elif outcome in ("started", "partial"):
+        if outcome == "started":
+            log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
+        else:
+            log(f"{stamp}: {SERVING_PROBE} started while {', '.join(stalled)} waited {minutes} min with no runner; "
+                f"Blacksmith is serving, so the record goes back (a stalled larger size is per-size routing's, "
+                f"{HEALTH_VARIABLE}); keeping it would hold every overflow reader on the larger sizes")
         if record:
             restores = plan_on(record, current, started)
             if args.dry_run:
