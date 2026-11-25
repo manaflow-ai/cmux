@@ -152,7 +152,7 @@ test("the run the agent works in keeps its call in flight out, on the live line"
   const rows = shaped(mixed);
   const now = rows.find((entry) => entry.id === "now")!;
   expect(words(now)).not.toContain("bun test");
-  expect(rows.find((entry) => entry.doing)?.doing).toContain("bun test");
+  expect(rows.find((entry) => entry.doing)?.doing).toContain("Running tests");
 });
 
 // Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT".
