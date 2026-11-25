@@ -119,7 +119,7 @@ final class GooPlanner {
     }
 }
 
-extension GooSpring {
+nonisolated extension GooSpring {
     /// The spring the C ABI hands back.
     init(_ ffi: CmuxGooSpring) { self.init(response: ffi.response, dampingFraction: ffi.damping_fraction) }
 
@@ -127,7 +127,7 @@ extension GooSpring {
     var ffi: CmuxGooSpring { CmuxGooSpring(response: response, damping_fraction: dampingFraction) }
 }
 
-extension GooTuning {
+nonisolated extension GooTuning {
     /// The tuning the C ABI hands back, field for field.
     init(_ ffi: CmuxGooTuning) {
         self.init(select: GooSpring(ffi.select), open: GooSpring(ffi.open), close: GooSpring(ffi.close),

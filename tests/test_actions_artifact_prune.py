@@ -252,14 +252,14 @@ class DropJob(unittest.TestCase):
         self.assertIn("--delete", step["run"])
         self.assertEqual(step["env"]["GITHUB_TOKEN"], "${{ steps.cmux-bot-token.outputs.token }}")
 
-    def test_no_job_reads_a_machine_channel_artifact(self):
-        # MUSL_BUILT_ONCE: build-linux, which uploaded machine-channel-* (about 230 MB a target), is gone, and
-        # point-machine-channel-early reads build's artifacts.
+    def test_only_the_early_channel_point_reads_a_machine_channel_artifact(self):
+        # MACHINE_CHANNEL_THIN: build-machine-channel uploads machine-channel-* (about 230 MB a target) for
+        # point-machine-channel-early alone; no shipped download reads them.
         jobs = artifacts_jobs()
-        self.assertNotIn("build-linux", jobs)
-        others = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
-                          + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
-        self.assertEqual(others, [])
+        self.assertIn("build-machine-channel", jobs)
+        readers = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
+                           + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
+        self.assertEqual(readers, ["point-machine-channel-early"])
 
 
 class Workflow(unittest.TestCase):

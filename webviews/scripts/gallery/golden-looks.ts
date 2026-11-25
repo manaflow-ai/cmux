@@ -5,15 +5,20 @@
 // from the base and its head.
 //
 //   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
-//     [--setup DIR ...] [--native DIR] [--video DIR]
+//     [--setup DIR ...] [--native DIR] [--every] [--preview] [--video DIR]
 //
 // --video also records DIR/looks.webm: every look and scheme in turn, its name over the window, the chat
 // scrolled from the first prompt to the composer (a demo of the looks to post or send).
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
+// --preview (with --setup) also writes each setup folder's own stills, DIR/preview/golden-light.png and
+// DIR/preview/golden-dark.png (previewPath), the files the Settings looks gallery shows; it captures only
+// the setup looks unless --looks names others.
+// --every adds every other look the checkout carries (each shipped theme file, examples/ setup folder and
+// theme file: goldenLooks.ts discoverLooks), as the golden contrast test draws them.
 // --native adds the native sidebar and tab bar captures (Swift AAGoldenLookGalleryTests, its
 // golden-look-gallery/<look>-<scheme>.png) as a column beside each look's window.
 // On a lane VM: `cmux-ci test --artifact /tmp/golden -- bun run golden:looks --out "$FAST_CHECKS_OUT/golden"`.
-import { mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { chromium, type Page } from "playwright";
@@ -29,6 +34,8 @@ const { values } = parseArgs({
     window: { type: "string", default: "1280x2000" },
     setup: { type: "string", multiple: true, default: [] },
     native: { type: "string" },
+    every: { type: "boolean", default: false },
+    preview: { type: "boolean", default: false },
     scale: { type: "string", default: "1" },
     video: { type: "string" },
   },
@@ -38,11 +45,19 @@ const out = path.resolve(values.out!);
 mkdirSync(out, { recursive: true });
 // The gallery's looks module reads outside setups from this (dev-server/goldenLooks.ts).
 process.env.CMUX_GOLDEN_SETUPS = values.setup!.map((dir) => path.resolve(dir)).join(",");
-const { readGoldenLooks } = await import("../../dev-server/goldenLooks");
+if (values.every) process.env.CMUX_GOLDEN_EVERY_LOOK = "1";
+const { previewPath, readGoldenLooks } = await import("../../dev-server/goldenLooks");
+if (values.preview && values.setup!.length === 0) {
+  console.error("golden: --preview writes into a setup folder: give it --setup DIR");
+  process.exit(64);
+}
+const setupDirs = new Set(values.setup!.map((dir) => path.resolve(dir)));
 const registry = readGoldenLooks();
 for (const skip of registry.skipped) console.log(`golden: skipped ${skip.id}: ${skip.reason}`);
 const wanted = values.looks?.split(",").filter(Boolean);
-const looks = registry.looks.filter((look) => !wanted || wanted.includes(look.id));
+const looks = registry.looks.filter((look) =>
+  wanted ? wanted.includes(look.id) : !values.preview || (look.setupDir !== undefined && setupDirs.has(look.setupDir)),
+);
 const schemes = values.schemes!.split(",").filter((s): s is "light" | "dark" => s === "light" || s === "dark");
 const [width, height] = values.window!.split("x").map(Number) as [number, number];
 const deviceScaleFactor = Number(values.scale) || 1;
@@ -134,6 +149,12 @@ for (const look of looks)
     await page.locator(".app-window").first().screenshot({ path: file, animations: "disabled" });
     shots.push({ look: look.id, title: look.title, note: look.note, scheme, file });
     console.log(`golden: ${file} (${width}x${tall})`);
+    if (values.preview && look.setupDir && setupDirs.has(look.setupDir)) {
+      const preview = previewPath(look.setupDir, scheme);
+      mkdirSync(path.dirname(preview), { recursive: true });
+      copyFileSync(file, preview);
+      console.log(`golden: preview ${preview}`);
+    }
   }
 
 // The sheet: one row per look, its schemes side by side (and the native captures when given).
