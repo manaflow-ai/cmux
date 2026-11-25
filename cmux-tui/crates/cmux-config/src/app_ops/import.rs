@@ -15,7 +15,9 @@
 //! - `import.editor_copy` `{imported, file}` answers `{writes: [{path, value}]}`:
 //!   the imported values of editor rows `file` leaves unset.
 //! - `import.classic_preferences` `{done, file, sources}` answers `{edits,
-//!   done}`; `import.classic_preferences_pending` `{done}` answers `{pending}`.
+//!   done}`; `import.classic_preferences_pending` `{done}` answers `{pending,
+//!   keys, marker}`: whether one is left, the preference keys to read from each
+//!   domain, and the key `done` is stored under.
 //! - `import.search_engine` `{engine, search?, suggest?}` answers `{writes}`.
 //! - `import.browser_enabled` `{root}` answers `{enabled, diagnostic?}`.
 //! - `migrate.classic` `{file}` answers `{edits: [{path, value}]}` (`value`
@@ -158,7 +160,11 @@ fn classic_preferences(request: &Value) -> Result<Value, OpError> {
 }
 
 fn classic_preferences_pending(request: &Value) -> Result<Value, OpError> {
-    Ok(json!({ "pending": classic::preferences_pending(&strings(request, "done")?) }))
+    Ok(json!({
+        "pending": classic::preferences_pending(&strings(request, "done")?),
+        "keys": classic::PREFERENCE_KEYS,
+        "marker": classic::IMPORTED_KEY,
+    }))
 }
 
 /// Swift `BrowserOmnibarSetting.applyImported`: a custom engine's templates first, then the engine.
@@ -335,10 +341,13 @@ mod tests {
             ])
         );
         assert_eq!(
-            ok("import.classic_preferences_pending", json!({"done": prefs["done"]})),
-            json!({"pending": false})
+            ok("import.classic_preferences_pending", json!({"done": prefs["done"]}))["pending"],
+            json!(false)
         );
-        assert_eq!(ok("import.classic_preferences_pending", json!({})), json!({"pending": true}));
+        let pending = ok("import.classic_preferences_pending", json!({}));
+        assert_eq!(pending["pending"], json!(true));
+        assert_eq!(pending["marker"], json!("classicPreferencesImported"));
+        assert_eq!(pending["keys"].as_array().map(Vec::len), Some(4));
     }
 
     #[test]
