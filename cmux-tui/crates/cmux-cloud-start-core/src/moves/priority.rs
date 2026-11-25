@@ -323,9 +323,197 @@ pub fn view(slots: u32, chats: &[Chat], session: &str) -> Option<View> {
     })
 }
 
+/// Why one chat's cloud control cannot change its place now. The JSON names are the control's
+/// (`webviews hybridModel.ts` `HybridBlockedWhy`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BlockedWhy {
+    /// No Cloud account is signed in: a click signs in.
+    SignedOut,
+    /// Signed in, and the account's plan keeps no chat in Cloud (`Admit::NoCloud`).
+    NoPlan,
+}
+
+/// The blocked state as the control reads it: `{"why": "signed-out"}`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Blocked {
+    pub why: BlockedWhy,
+}
+
+/// What the app knows when it draws one chat's cloud control. The app only carries facts; which
+/// state the control shows is decided here.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ControlFacts {
+    /// The chat the control is for.
+    pub session: String,
+    /// A Cloud account is signed in now.
+    pub signed_in: bool,
+    /// The app is still restoring a saved sign-in: it may yet be signed in, so nothing is blocked.
+    pub restoring: bool,
+    /// Whether the app has read the account's plan. Unread, no slot rule applies.
+    pub plan_known: bool,
+    /// The account's plan when `plan_known`; none is no plan.
+    pub plan: Option<Plan>,
+    /// The server's plan id (`cloud.plan.get` `plan_id`, e.g. `next_pro`) when `plan` is not set.
+    /// An id this table does not know leaves the plan unknown.
+    pub plan_id: Option<String>,
+    /// The chats that count toward the plan's slots, this one included.
+    pub chats: Vec<Chat>,
+}
+
+/// The plan a server plan id names (`cloud.plan.get` `plan_id`), or none for an id not listed.
+pub fn plan_of_id(id: &str) -> Option<Plan> {
+    match id {
+        "trial" | "next_trial" => Some(Plan::Trial),
+        "intro" | "next_intro" => Some(Plan::Intro),
+        "plus" | "next_plus" => Some(Plan::Plus),
+        "pro" | "next_pro" => Some(Plan::Pro),
+        "agents20" | "next_agents20" | "next_agents_20" => Some(Plan::Agents20),
+        "max" | "next_max" => Some(Plan::Max),
+        _ => None,
+    }
+}
+
+/// The control's extra state for one chat: blocked, or every slot held by the chats named.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Control {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<Blocked>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub holders: Option<Vec<Holder>>,
+}
+
+/// The control's state for `facts.session`: signed out blocks every pick (a click signs in); a
+/// known plan with no slot blocks a chat on this Mac; a known plan whose slots are all held by
+/// other chats' choices names them (`Admit::Full`). Anything unknown shows nothing extra.
+pub fn control(facts: &ControlFacts) -> Control {
+    if !facts.signed_in {
+        if facts.restoring {
+            return Control::default();
+        }
+        return Control { blocked: Some(Blocked { why: BlockedWhy::SignedOut }), holders: None };
+    }
+    if !facts.plan_known {
+        return Control::default();
+    }
+    let plan = match (facts.plan, facts.plan_id.as_deref()) {
+        (Some(plan), _) => Some(plan),
+        (None, Some(id)) => match plan_of_id(id) {
+            Some(plan) => Some(plan),
+            None => return Control::default(),
+        },
+        (None, None) => None,
+    };
+    let chat = facts.chats.iter().find(|chat| chat.session == facts.session);
+    let in_cloud = chat.is_some_and(|chat| chat.at == At::Cloud);
+    match admit(slots(plan), &facts.chats, &facts.session) {
+        // A chat already in Cloud is never blocked: Only on This Mac must still bring it back.
+        Admit::NoCloud if !in_cloud => {
+            Control { blocked: Some(Blocked { why: BlockedWhy::NoPlan }), holders: None }
+        }
+        Admit::Full { holders } if !holders.is_empty() => {
+            Control { blocked: None, holders: Some(holders) }
+        }
+        _ => Control::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_blocks_signed_out_but_not_while_restoring() {
+        let facts =
+            ControlFacts { session: "s".into(), chats: vec![chat("s")], ..ControlFacts::default() };
+        assert_eq!(
+            serde_json::to_value(control(&facts)).unwrap(),
+            serde_json::json!({ "blocked": { "why": "signed-out" } })
+        );
+        let restoring = ControlFacts { restoring: true, ..facts.clone() };
+        assert_eq!(serde_json::to_value(control(&restoring)).unwrap(), serde_json::json!({}));
+        let signed_in = ControlFacts { signed_in: true, ..facts };
+        assert_eq!(control(&signed_in), Control::default());
+    }
+
+    #[test]
+    fn control_names_no_plan_only_for_a_chat_on_this_mac() {
+        let facts = ControlFacts {
+            session: "s".into(),
+            signed_in: true,
+            plan_known: true,
+            plan: None,
+            chats: vec![chat("s")],
+            ..ControlFacts::default()
+        };
+        assert_eq!(
+            serde_json::to_value(control(&facts)).unwrap(),
+            serde_json::json!({ "blocked": { "why": "no-plan" } })
+        );
+        let in_cloud = ControlFacts { chats: vec![Chat { at: At::Cloud, ..chat("s") }], ..facts };
+        assert_eq!(control(&in_cloud), Control::default());
+    }
+
+    #[test]
+    fn control_lists_holders_when_every_slot_is_pinned_elsewhere() {
+        let pinned = |session: &str, at: u64| Chat {
+            pin: Pin::Cloud,
+            at: At::Cloud,
+            lit_at_ms: Some(at),
+            ..chat(session)
+        };
+        let facts = ControlFacts {
+            session: "s".into(),
+            signed_in: true,
+            plan_known: true,
+            plan: Some(Plan::Trial),
+            chats: vec![pinned("held", 5), chat("s")],
+            ..ControlFacts::default()
+        };
+        assert_eq!(
+            serde_json::to_value(control(&facts)).unwrap(),
+            serde_json::json!({ "holders": [{ "session": "held", "title": "held title" }] })
+        );
+        // The holder itself, and a plan with a free slot, show nothing extra.
+        let holder = ControlFacts { session: "held".into(), ..facts.clone() };
+        assert_eq!(control(&holder), Control::default());
+        let roomy = ControlFacts { plan: Some(Plan::Pro), ..facts };
+        assert_eq!(control(&roomy), Control::default());
+    }
+
+    #[test]
+    fn control_facts_read_the_apps_camel_case() {
+        let facts: ControlFacts = serde_json::from_value(serde_json::json!({
+            "session": "s",
+            "signedIn": true,
+            "planKnown": true,
+            "plan": "plus",
+            "chats": [{ "session": "s", "pin": "auto", "at": "local" }]
+        }))
+        .unwrap();
+        assert_eq!(facts.plan, Some(Plan::Plus));
+        assert_eq!(facts.chats[0].pin, Pin::Auto);
+    }
+
+    #[test]
+    fn control_reads_the_servers_plan_id_and_ignores_an_unknown_one() {
+        let pinned = Chat { pin: Pin::Cloud, at: At::Cloud, ..chat("held") };
+        let facts = ControlFacts {
+            session: "s".into(),
+            signed_in: true,
+            plan_known: true,
+            plan_id: Some("next_plus".into()),
+            chats: vec![pinned.clone(), chat("s")],
+            ..ControlFacts::default()
+        };
+        assert_eq!(control(&facts), Control::default());
+        let unknown = ControlFacts { plan_id: Some("enterprise_x".into()), ..facts.clone() };
+        assert_eq!(control(&unknown), Control::default());
+        assert_eq!(plan_of_id("next_max"), Some(Plan::Max));
+        assert_eq!(plan_of_id("pro"), Some(Plan::Pro));
+    }
 
     fn chat(session: &str) -> Chat {
         Chat { session: session.into(), title: format!("{session} title"), ..Chat::default() }

@@ -3,7 +3,7 @@
 # scripts/ci/ios-sim-linux-test.sh), for pr-pipeline.yml's ios job (the kit's ios-kit step of ci/steps.toml).
 # cmux-next-ios-kit.yml's push runs do the same steps inline.
 #
-#   pack     build CmuxMobileLinkFFI.xcframework, then the kit for testing (generic iOS Simulator, arm64), and
+#   pack     get CmuxMobileLinkFFI.xcframework (scripts/ci/ios_link_ffi.sh), then the kit for testing (generic iOS Simulator, arm64), and
 #            pack the products into $RUNNER_TEMP/kit-sim-products (run from the repository root, before ci/run:
 #            the machine's own rustup, ${CARGO_HOME:-~/.cargo}/bin, which ci/run's rust tool installs there too)
 #   submit   fetch the fleet client and submit the pool run in the background; CMUX_IOS_PRODUCTS names the
@@ -29,7 +29,8 @@ pack() {
   export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
   command -v rustup >/dev/null || { echo "no rustup on this machine yet: the Mac runs the simulator tests" >&2; exit 1; }
   (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
-  JOBS=8 bash cmux-next-ios/rust/scripts/build-xcframework.sh
+  # The build fleet's copy when it has one (marked, so ci/run's ios-kit step reuses it), else this Mac builds it.
+  bash scripts/ci/ios_link_ffi.sh 8
   (cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing -scheme CmuxMobileKit-Package \
     -destination 'generic/platform=iOS Simulator' ARCHS=arm64 ONLY_ACTIVE_ARCH=NO -enableCodeCoverage NO \
     -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO -quiet)
