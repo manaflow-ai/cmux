@@ -76,3 +76,21 @@
   --glass-tint: color-mix(in srgb, var(--surface-popup) 72%, transparent);
   --glass-elevation: 0 6px 20px -4px light-dark(color-mix(in srgb, black 18%, transparent), color-mix(in srgb, black 50%, transparent));
 }
+
+/* ONE: one material for every hover surface (Leo, 2026-11-22, softened: "multiple styles for hover
+   previews plus bad-looking translucency blur, unacceptable"). Every tooltip, title tooltip, toolbar
+   hint, chart tooltip and hover card (a subagent's, a session's, a link's, the header's tool preview,
+   the minimap's card) takes the tooltip's contrast-fitted veil (desktop.css --tooltip-tint: the least
+   alpha of the popup surface at which its text keeps 4.5:1 over black and white) over the shared
+   transient frost, and the tooltip's corner. A card keeps elevation 2, a label its tight tooltip
+   shadow. Each one blurs what it covers in place (Tooltip.tsx, AnchoredCard, titleTooltips.ts read
+   oneHoverSurface), so what is behind reads as an even wash, never as smudged words; and the title
+   tooltip yields to any other hover surface (ui/hoverSurface.ts), so one pointer shows one hover. */
+:root[data-hover-look][data-hover-look="one"]
+  :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
+  --glass-tint: var(--tooltip-tint);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+:root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass {
+  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: every hover surface takes the one hover material's corner, the tooltip's */
+}

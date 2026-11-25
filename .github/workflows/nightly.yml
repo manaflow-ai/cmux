@@ -1719,6 +1719,11 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -1727,6 +1732,11 @@ jobs:
       - &legacy-route-shared-6
         name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -2462,6 +2472,12 @@ jobs:
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       # Why: docs/ci/nightly-workflow-notes.md#note-13
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - &x26
         name: Set up Bun (cmux-next web bundles)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
@@ -2471,6 +2487,12 @@ jobs:
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - &x27
         name: Setup Node (cmux-next web bundles)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
@@ -3013,12 +3035,27 @@ jobs:
         run: echo "build=${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")" >> "$GITHUB_OUTPUT"
 
       - name: Checkout build ref
+        id: checkout
+        # A reused checkout whose store makes git's pack-objects BUG() out (signal 6) fails every retry in place;
+        # the next two steps drop that store and check out fresh. Leo, 2026-11-25: "are we able to decouple".
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: false
           # The resolver searches the last CMUX_TUI_TREE_SEARCH_COMMITS commits.
+          fetch-depth: 64
+      - name: Drop the reused git store after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: echo "::warning title=Nightly checkout::the reused checkout failed; checking out into a fresh git store" && rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Checkout build ref into a fresh store
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          submodules: false
           fetch-depth: 64
 
       - &ensure-gh
@@ -3135,9 +3172,19 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -3201,23 +3248,39 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # The commit whose blocking webview checks failed; nightly-next-one and retry-nightly-next skip that commit.
-      red_sha: ${{ steps.checks.outcome == 'failure' && needs.decide.outputs.head_sha || '' }}
+      # The commit whose webview checks failed, only while vars.NIGHTLY_COMPONENT_GATES is 'block': then
+      # nightly-next-one and retry-nightly-next skip it. Default: a red check is a stale-part report, not a hold.
+      red_sha: ${{ vars.NIGHTLY_COMPONENT_GATES == 'block' && steps.checks.outcome == 'failure' && needs.decide.outputs.head_sha || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
       - name: Webview checks on the tip commit
         id: checks
+        # Leo, 2026-11-25: "are we able to decouple". A red here is a report; the nightly still publishes.
+        continue-on-error: ${{ vars.NIGHTLY_COMPONENT_GATES != 'block' }}
         run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
+      - name: Note the red webview checks as a stale part
+        if: ${{ !cancelled() && steps.checks.outcome == 'failure' && vars.NIGHTLY_COMPONENT_GATES != 'block' }}
+        run: bash scripts/ci/nightly-steps/stale-part.sh webview-checks "the webview checks failed on ${{ needs.decide.outputs.head_sha }}; the nightly publishes anyway"
 
   prepare-nightly-variant-primary:
     # No environment and no secrets. It runs no code from the bundle; the
@@ -3895,6 +3958,12 @@ jobs:
         run: s=scripts/ci/nightly-steps/sign-refuse-superseded-resume.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
       # Why: docs/ci/nightly-workflow-notes.md#note-7
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        if: ${{ !env.LEFT_SLOT }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - &set-up-node
         name: Set up Node
         if: ${{ !env.LEFT_SLOT }}
@@ -5130,12 +5199,22 @@ jobs:
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
 
       - *legacy-route-shared-6
+      - name: Restore pinned Node 24.11.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.11.1 || true
+
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -5726,6 +5805,7 @@ jobs:
           SOURCE: ${{ steps.source.outputs.source }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           WEBVIEW_CHECK: ${{ needs.check-nightly-webviews.result }}
+          NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
           WEBVIEW_CHECK_SHA: ${{ needs.check-nightly-webviews.outputs.sha }}
           SHELF_CHECK: ${{ needs.check-nightly-app-store-shelf.result }}
           SHELF_CHECK_SHA: ${{ needs.check-nightly-app-store-shelf.outputs.sha }}
@@ -6809,7 +6889,7 @@ jobs:
       build_sha: ${{ steps.source.outputs.build_sha }}
       lint_report: ${{ steps.lint.outputs.lint_report }}
       fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
-      webview_red: ${{ steps.webview-checks.outcome == 'failure' }}
+      webview_red: ${{ vars.NIGHTLY_COMPONENT_GATES == 'block' && steps.webview-checks.outcome == 'failure' }}
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
       refused: ${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || steps.upload_next_appcasts.outputs.publication_refused == 'true' }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
@@ -6854,6 +6934,8 @@ jobs:
       NIGHTLY_FEEDS: ${{ needs.decide.outputs.feeds }}
       NIGHTLY_TRACK: ${{ needs.decide.outputs.track }}
       PUBLISH_TOOLING: *pub-tooling
+      # Unset (default): the webview checks and the iPhone host fall back and publish with a stale-part note.
+      NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
     steps:
       - *hold-the-whole-mac
       - *clear-stale-git-locks-self-hos-2
@@ -7043,11 +7125,13 @@ jobs:
       - name: Finish the webview checks before any signing secret
         if: ${{ !env.LEFT_SLOT }}
         id: webview-checks
+        # A red check is a stale part, not a hold (the gate notes it), unless vars.NIGHTLY_COMPONENT_GATES is 'block'.
+        continue-on-error: ${{ vars.NIGHTLY_COMPONENT_GATES != 'block' }}
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" webview-checks
       # A type error fixit-compile could not fix wrote its record: the fixit-handoff job dispatches its revert.
       - name: Hand a type error with no machine fix to fixit-handoff
         id: fixit-nofix
-        if: ${{ failure() && steps.webview-checks.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.webview-checks.outcome == 'failure' }}
         run: python3 -I scripts/ci/oops/fixit_handoff.py signal >> "$GITHUB_OUTPUT"
       - *lint-report
       - *set-up-node
@@ -7204,6 +7288,7 @@ jobs:
           SOURCE: own
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           WEBVIEW_CHECK: ${{ steps.webview-checks.outcome }}
+          NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
           WEBVIEW_CHECK_SHA: ${{ steps.webview-checks.outcome == 'success' && steps.source.outputs.build_sha || '' }}
           RECOVERED_RUN_ID: ""
           # check-nightly-app-store-shelf runs beside this job, so the gate reads it in this run.

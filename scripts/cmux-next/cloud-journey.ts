@@ -225,14 +225,19 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; reserved_hit?: boolean };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
 export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
+  private onGuest: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
+  /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
+  guest(part: string, ms: number | null): void {
+    if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
       this.start = this.clock();
@@ -244,13 +249,19 @@ export class FirstTextTiming {
   }
   fields(): FirstTextFields {
     if (this.start === undefined) return {};
-    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+    return {
+      create_marks_ms: { ...this.marks },
+      ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
+      ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+    };
   }
 }
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
+// scrub also runs on serialized JSON, so no shape may cross a `"` or `\`: `Bearer\s+\S+` ate the `\"}` after "bearer
+// token" in a 401 and left all five 300 s wake-echo.json files unparsable (run 45510772491).
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+[^\s"\\]+/g,
   // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
   // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
   /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
@@ -1940,7 +1951,8 @@ export type ExecResult = { code: number; stdout: string; stderr: string };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
- * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * only a marker, never the model's text: `@@first-text TURN THOUGHT`, the guest's own ms from the turn's start
+ * (acpmux took the prompt) to the first text and to the first thinking (-1: none), apart from the exec route. --since 0 closes the subscribe/send race on this run's unique session.
  * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
 export function firstTextCommand(session: string, budgetMs: number): string {
   return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
@@ -1953,6 +1965,8 @@ end = time.monotonic() + float(sys.argv[3])
 buf = b''
 discarding = False
 started = False
+turn_at = None
+thought_ms = -1
 try:
     while time.monotonic() < end:
         if not sel.select(max(0, end - time.monotonic())):
@@ -1978,9 +1992,11 @@ try:
                 continue
             if event.get('kind') == 'turn_started':
                 started = True
+                if turn_at is None:
+                    turn_at = time.monotonic()
             if event.get('kind') in ('turn_result', 'turn_error'):
                 sys.exit('first turn ended without assistant text')
-            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
+            if not started or event.get('kind') not in (None, 'agent_message_chunk', 'agent_thought_chunk'):
                 continue
             msg = event.get('msg', event)
             params = msg.get('params', {}) if isinstance(msg, dict) else {}
@@ -1989,11 +2005,13 @@ try:
             if isinstance(acpmux, dict) and acpmux.get('subagent'):
                 continue
             update = params.get('update', {}) if isinstance(params, dict) else {}
+            if isinstance(update, dict) and update.get('sessionUpdate') == 'agent_thought_chunk' and thought_ms < 0:
+                thought_ms = int((time.monotonic() - turn_at) * 1000)
             if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
                 continue
             content = update.get('content', {})
             if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
-                print('@@first-text', flush=True)
+                print('@@first-text %d %d' % (int((time.monotonic() - turn_at) * 1000), thought_ms), flush=True)
                 sys.exit(0)
         if len(buf) > 1048576:
             buf = b''
@@ -2014,8 +2032,11 @@ CMUX_FIRST_TEXT`;
 export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
   try {
     const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
-    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    const m = /^@@first-text(?: (\d+) (-?\d+))?$/.exec(r.stdout.trim());
+    if (r.code !== 0 || !m) throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
     timing.mark("first_text");
+    if (m[1] !== undefined) timing.guest("first_token", Number(m[1]));
+    if (m[2] !== undefined && Number(m[2]) >= 0) timing.guest("first_thought", Number(m[2]));
     record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
   } catch (error) {
     record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
@@ -2630,7 +2651,7 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
   // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
   if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
@@ -3081,9 +3102,41 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript(), feltTurnScript()],
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
+  // and the reserved home chat's read (journeyReadTurnScript).
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript()],
 };
+
+/**
+ * The reserved home chat's stub turn (`--home-chat reserved`): one Read of the file its prompt names
+ * (journeyReadPrompt), in the chat's own folder, whose text is `<nonce>-tool`; then the reply that repeats it, as the
+ * default turn's shell call does. A Read, not a shell call: the app's start (`agent-session-start`) runs the chat under
+ * policy `ask`, where acpmux's tool gate holds every shell call for the person (acpmux hub/policy_gate.rs) and only the
+ * person's app may answer it (hub/person.rs), so the default turn waited on a permission (prod run 45585084079). A Read
+ * in the chat's own folder asks nobody, so the turn runs as a person's would.
+ */
+export function journeyReadTurnScript(): { match: string; steps: Array<Record<string, unknown>> } {
+  return {
+    match: "\\[journey-read /\\S+\\]",
+    steps: [
+      { tool: { name: "Read", input: { file_path: "{{prompt~\\[journey-read (/\\S+)\\]}}" } } },
+      // Claude Code's Read numbers its lines: only the file's text is repeated.
+      { text: "Stub reply {{nonce}}. The tool printed {{result.0~([0-9a-f]+-tool)}}." },
+    ],
+  };
+}
+
+/** The reserved home chat's prompt: the person's words, then the file the stub's turn reads (journeyReadTurnScript). */
+export const journeyReadPrompt = (prompt: string, file: string) => `${prompt} [journey-read ${file}]`;
+
+/**
+ * The guest command that writes `<cwd>/.journey-<nonce>.txt` holding `<nonce>-tool` in the chat's own folder (`cwd`,
+ * from `acp session info`) and prints `@@file <path>`.
+ */
+export function journeyReadFileCommand(cwd: string, nonce: string): string {
+  const file = `${cwd}/.journey-${nonce}.txt`;
+  return `f=${shq(file)}; printf '%s-tool\\n' ${shq(nonce)} > "$f" && echo "@@file $f"`;
+}
 
 /**
  * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
@@ -3550,10 +3603,22 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (the resume matrix's 3600 s cell runs up to 330 min; cloud-journey.test.ts checks every timeout-minutes in
- * a workflow that runs it to be at most half of this), so a journey that is still running never loses its machine.
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
+ * half of this), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
-export const STALE_JOURNEY_MS = 11 * 3_600_000;
+export const STALE_JOURNEY_MS = 3 * 3_600_000;
+/**
+ * The bound for a long run's machines (the resume matrix's 3600 s cell runs up to 330 min, wake-echo up to 150; the
+ * test checks those workflows against this). It applied to every journey machine from #54761, so a short run's leaks
+ * sat 11 h: the staging test team's 300-machine cap filled with 5 h old ones (cloud.quota.vm_limit, 2026-11-25,
+ * backend run 45572634999) while every sweep deleted 0. Installs keep it too (a long run still uses its install).
+ */
+export const LONG_JOURNEY_MS = 11 * 3_600_000;
+/** The machine name of a run that deletes its machine at the end: ` long` marks a run that may outlast STALE_JOURNEY_MS. */
+export function autoMachineName(tag: string, long: boolean): string {
+  return `cloud journey auto ${tag}${long ? " long" : ""}`;
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
@@ -3563,23 +3628,24 @@ export interface StaleMachine { id: string; name: string; status: string; create
  * named `cloud journey auto jr-<tag>`, or that name with any suffix (` gateway`, ` cold`, ` move B`: every machine a
  * run makes under its auto name; the old suffix list missed the ` move B` machines of 2026-11-23's runs, which helped fill the
  * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
- * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old, with no activity
+ * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old (`longMs` for a
+ * long run's `jr-<tag> long…`), with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
-export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): StaleMachine[] {
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
-    const m = /^cloud journey auto jr-([0-9a-z]+)(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= maxAgeMs) continue;
+    if (nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
     if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
@@ -3596,7 +3662,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
  * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
  * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
  */
-export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): string[] {
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = LONG_JOURNEY_MS): string[] {
   const out: string[] = [];
   for (const i of installs) {
     if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
@@ -4428,7 +4494,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
-  const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
+  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -4628,6 +4694,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(s.access, s.refresh);
       return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
+    // A run longer than the Stack session (12 wake-echo cycles at a 300 s hold, the resume matrix) signs in again
+    // once the session is RESIGN_AFTER_MS old: run 45510772491's 300 s shards got 401 on cycle 10 of 12, 55 min in.
+    const resignIfOld = async (): Promise<boolean> => {
+      if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return false;
+      const s = await passwordSignIn(STACK[backend.stack], email, password);
+      J.secrets.push(s.access, s.refresh);
+      signedInAt = Date.now();
+      api.bearer = s.access;
+      return true;
+    };
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
@@ -4896,6 +4972,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
           status: async () => String((await row())?.status ?? "unread"),
           pause: async () => {
+            await resignIfOld();
             const t0 = Date.now();
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
@@ -5467,7 +5544,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           log: (line) => console.log(scrub(line, J.secrets)),
         });
         await reservedChat.openTab(agent);
-        const reply = await reservedChat.start(agent);
+        // Attached before the send, as the app is: a bare start leaves the tab unattached and the send is refused.
+        const reply = await reservedChat.startAttached(agent);
         const outcome = appStartDetail(reply);
         if (!outcome.ok) throw new Error(outcome.detail);
         session = String(reply?.data?.session ?? "");
@@ -5484,14 +5562,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } else {
         firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
         try {
+          // The stub's turn reads a file in the chat's own folder (journeyReadTurnScript): the chat runs under policy
+          // `ask`, where a shell call waits for the person.
+          let sendText = prompt;
+          if (modelStub || gatewayStub) {
+            sendText = await J.step("stub file in the chat's folder", async () => {
+              const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
+              const cwd = /^cwd\t(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
+              if (!cwd) throw new Error(`no cwd for ${session}: ${info.stdout.trim().slice(-200)}`);
+              const w = await exec(journeyReadFileCommand(cwd, nonce), 45_000);
+              const file = /@@file (\S+)/.exec(w.stdout)?.[1];
+              if (!file) throw new Error(`exit ${w.code} ${w.stdout.slice(-200)} ${w.stderr.slice(-200)}`);
+              return { value: journeyReadPrompt(prompt, file), detail: `${file} (a Read asks nobody under policy ask)` };
+            });
+          }
           await J.step("send chat", async () => {
             J.firstText.mark("send");
-            await reservedChat!.prompt(prompt, undefined, Date.now() + chatBudget);
+            await reservedChat!.prompt(sendText, undefined, Date.now() + chatBudget);
             J.firstText.mark("sent");
             return { value: null, detail: `${prompt.slice(0, 80)} (sent over the app's carrier chat)` };
           });
           await J.step("reply", async () => {
             const last = await awaitReply();
+            if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}`);
+            }
             return { value: last, detail: last.slice(0, 280) };
           });
         } finally {
@@ -5544,10 +5639,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
+        const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
-        return { value: null, detail: `session ${session}` };
+        J.firstText.guest("harness_spawn", guestMs(r.stdout));
+        return { value: null, detail: `session ${session}${guestDetail(guestMs(r.stdout))}` };
       });
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
@@ -5555,6 +5651,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.firstText.mark("send");
         const onGuest = await send(prompt);
         J.firstText.mark("sent");
+        J.firstText.guest("request_sent", onGuest);
         return { value: null, detail: `${prompt.slice(0, 80)}${guestDetail(onGuest)}` };
       });
       await J.step("reply", async () => {
@@ -5894,12 +5991,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             log: (line) => console.log(scrub(line, J.secrets)),
           },
           refreshAuth: async () => {
-            if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return;
-            const s = await passwordSignIn(STACK[backend.stack], email, password);
-            J.secrets.push(s.access, s.refresh);
-            signedInAt = Date.now();
-            api.bearer = s.access;
-            matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = s.access;
+            if (await resignIfOld()) matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = api.bearer;
           },
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);

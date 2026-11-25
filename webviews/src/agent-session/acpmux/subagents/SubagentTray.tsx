@@ -112,7 +112,9 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, endedInFailure, itemStart, trayItemKey, type TrayItem } from "./runningTray";
+import { commandStatus, endedInFailure, itemStart, trayItemKey, type TrayItem, SILENT_TURN_ICON } from "./runningTray";
+import type { SilentTurn } from "../conversation/silentTurns";
+import { backgroundTurnLabel } from "../conversation/backgroundTurns";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
@@ -136,15 +138,14 @@ import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment
 import { trayHeadClockLook } from "./trayHeadClock.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
-import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
-import { hatTuckLook } from "./hatTuck.experiment";
+import { hatDoneLook } from "./hatParts.experiment";
 import { hatOpenLook } from "./hatOpen.experiment";
 import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
 import "./hatOpen.css";
 import { deckOf, hatHeaderLook, hideOf } from "./hatHeader.experiment";
 import { HatHeadDeck } from "./HatHeadDeck";
 import "./hatHeader.css";
-import { DoneCheck, DoneMark } from "./DoneMark";
+import { DoneMark } from "./DoneMark";
 import { Tick, useGlide, GlideRow } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
@@ -338,11 +339,7 @@ export const SubagentTray = memo(function SubagentTray({
   // What a running subagent's line says it does now (hatStep.experiment.ts; Leo, 2026-11-22: "we dont
   // show the exact calls, ever, at the top").
   const [stepArm] = useState(() => stepLook ?? (experimentArm(hatStepLook) as HatStepArm));
-  const [chevronAt] = useState(() => experimentArm(hatChevronLook));
-  const [tuckLook] = useState(() => experimentArm(hatTuckLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
-  const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
-  const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
   // How a line opens what it stands for (hatOpen.experiment.ts; Lawrence, 2026-11-20: "ui for opening
   // subagents is very confusing").
   const [openLook] = useState(() => experimentArm(hatOpenLook));
@@ -733,7 +730,6 @@ export const SubagentTray = memo(function SubagentTray({
         leaving={going}
         entered={played}
         gone={gone}
-        look={rowMotion}
         finished={ended}
         first={first}
       >
@@ -889,9 +885,6 @@ export const SubagentTray = memo(function SubagentTray({
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
-      data-tuck-look={onTuck ? tuckLook : undefined}
-      data-chevron={headed ? chevronAt : undefined}
-      data-row-motion={rowMotion}
       data-open-look={openLook}
       data-header-look={headerLook === "today" ? undefined : headerLook}
       data-hide-at={hideAt}
@@ -990,12 +983,6 @@ export const SubagentTray = memo(function SubagentTray({
                 ) : undefined
               }
             />
-          ) : loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
-            // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
-            // in the lines' glyph column; its time ends the row alone.
-            <span className="acpmux-lineage__icon" data-state="done" aria-hidden="true">
-              <DoneCheck />
-            </span>
           ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
@@ -1107,7 +1094,7 @@ export const SubagentTray = memo(function SubagentTray({
             // header is all that says so.
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
               {loneEnd.status === "done" ? (
-                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
+                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
               ) : loneEnd.status === "running" && !loneEnd.retry && since !== undefined ? (
                 // The run's clock, not the item's own: left the one running after a longer one ended,
                 // the header's time never goes back (trayHeadOrder.ts `runSince`; review of cmux#41078).
@@ -1143,12 +1130,13 @@ export const SubagentTray = memo(function SubagentTray({
           <span className="acpmux-running-tray__status">
             {/* It points the way the hat goes, up while folded (the hat opens upward from the composer),
                 down while open, never a sideways arrow that reads as going somewhere (Leo, 2026-11-07,
-                on a lone line that navigated on its first click). */}
-            {chevronAt === "trailing" && (
-              <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
-                <HatChevron />
-              </span>
-            )}
+                on a lone line that navigated on its first click). It stays at the row's end, in the
+                lines' chevron column: a chevron centred on the hat's bottom edge (Leo, 2026-11-07: "I
+                feel like the chevron for the composer hat would maybe be nicer at the bottom. Do you
+                think? I'm not sure.") floated mid-row over the header in the gallery. */}
+            <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
+              <HatChevron />
+            </span>
           </span>
         </button>
       )}
@@ -1180,24 +1168,6 @@ export const SubagentTray = memo(function SubagentTray({
             {cards}
           </ul>
         </div>
-      )}
-      {/* The `bottom` arm (hatParts.experiment.ts): centred on the hat's bottom edge, over the seam
-          with the composer, pointing the way the hat goes: up while folded, down while open. The
-          header is the control a keyboard or screen reader uses; this is its pointer twin. */}
-      {headed && chevronAt === "bottom" && opensPanel !== "header" && (
-        <button
-          type="button"
-          className="acpmux-running-tray__chevron-bottom"
-          data-open={open || undefined}
-          tabIndex={-1}
-          aria-hidden="true"
-          // A pointer twin of the header: a press never moves focus onto a control assistive tech
-          // can't see; the header keeps it.
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={toggle}
-        >
-          <Icon name="disclosure.expanded" size={12} />
-        </button>
       )}
       {resizes && (
         // The rim's grabber, a thin band along the hat's top edge under the tuck chevron (which sits
@@ -1485,6 +1455,33 @@ export const SubagentTray = memo(function SubagentTray({
         </>
       );
     }
+    if (item.kind === "turn") {
+      // A silent turn (conversation/silentTurns.ts): a finished line in the command's row style, its
+      // time, and opened, what it did and any words it kept to itself.
+      const name = silentTurnName(t, item.turn);
+      const steps = item.turn.steps.join("\n");
+      return (
+        <>
+          <AgentLine
+            name={name}
+            chevron
+            icon={SILENT_TURN_ICON}
+            working={false}
+            status="done"
+            doneLook={doneLook}
+            state={t(STATUS_LABEL.done)}
+            quiet
+            expanded={isOpen}
+            trayColumns
+            time={<Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />}
+            onOpen={steps || item.turn.reply ? toggleThis : undefined}
+          />
+          <TrayLineFold open={isOpen}>
+            <TrayAgentDetail name={name} task={steps || undefined} latest={item.turn.reply} />
+          </TrayLineFold>
+        </>
+      );
+    }
     // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
     const sessionPhase = sessionRetry(item.session);
     const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
@@ -1682,6 +1679,13 @@ function loneHeadOf(
       time: commandTime(item.command),
     };
   }
+  if (item.kind === "turn")
+    return {
+      title: silentTurnName(t, item.turn),
+      status: "done",
+      state: t(STATUS_LABEL.done),
+      time: <Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />,
+    };
   // The chat's retry, as its line reads it (retryState.ts `sessionRetry`): a failed turn that acpmux
   // retries reads as retrying, never Failed.
   const phase = sessionRetry(item.session);
@@ -1703,15 +1707,7 @@ function loneHeadOf(
 /// start times, never a label per item.
 /// The first two names of `leading` (longest-running first, trayHeadOrder.ts).
 function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[] {
-  return leading
-    .slice(0, 2)
-    .map((item) =>
-      item.kind === "agent"
-        ? subagentTaskLabel(t, item.agent)
-        : item.kind === "command"
-          ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
-          : item.session.title,
-    );
+  return leading.slice(0, 2).map((item) => itemName(t, item));
 }
 
 const NO_PARTS: readonly TrayHeadPart[] = [];
@@ -1725,7 +1721,15 @@ function itemName(t: Translate, item: TrayItem): string {
     ? subagentTaskLabel(t, item.agent)
     : item.kind === "command"
       ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
-      : item.session.title;
+      : item.kind === "turn"
+        ? silentTurnName(t, item.turn)
+        : item.session.title;
+}
+
+/// A silent turn's line (conversation/silentTurns.ts): what started it, as the transcript's
+/// background-turn line names it ("Background update", "Scheduled check").
+function silentTurnName(t: Translate, turn: SilentTurn): string {
+  return turn.background ? backgroundTurnLabel(t, turn.background) : t("backgroundTurn.other");
 }
 
 /// The header's kinds (trayFoldHead.experiment.ts `kinds`): each kind's mark then its count, one gap
@@ -1894,12 +1898,14 @@ function stackMarks(
           }
         : item.kind === "command"
           ? { key: "commands", icon: "terminal" }
-          : {
-              key: itemKey(item),
-              harness: item.session.harness,
-              tone: agentTone(item.session.sessionId),
-              icon: "agent.chat",
-            },
+          : item.kind === "turn"
+            ? { key: "turns", icon: SILENT_TURN_ICON }
+            : {
+                key: itemKey(item),
+                harness: item.session.harness,
+                tone: agentTone(item.session.sessionId),
+                icon: "agent.chat",
+              },
     );
   }
   return marks;
@@ -1943,7 +1949,9 @@ function focusVisible(event: FocusEvent<HTMLElement>): boolean {
 /// One line of the open list. A line that joins (`enters`) grows from 0 height, fading in, and a
 /// line that leaves keeps its node, out of reach (`inert`), and folds to 0 height, fading out, both
 /// on the shared fold (conversation/fold.ts `useFold`: the pane's move duration and ease-out), so the
-/// lines around it move with it on the same clock. When the fold ends (at once with no motion) a
+/// lines around it move with it on the same clock, with no jump at either end (Leo, 2026-11-07: "the
+/// things coming, they shouldn't just, like, pop in, burst in, like, appear instantly, and, like,
+/// disappear instantly"; a fade in place, or a rise with the fold, lost in the gallery). When the fold ends (at once with no motion) a
 /// leaving line calls `gone` and unmounts. A line that comes back mid-leave turns back from where it
 /// is drawn. The fold's own animation is its only timer; it ends, or is cancelled when the row goes.
 function TrayRow({
@@ -1952,7 +1960,6 @@ function TrayRow({
   leaving,
   entered,
   gone,
-  look,
   finished,
   first,
   children,
@@ -1962,8 +1969,6 @@ function TrayRow({
   leaving: boolean;
   entered: (key: string) => void;
   gone: (key: string) => void;
-  /// hatParts.experiment.ts `hatRowMotionLook`: `fade` keeps the height still and fades in place.
-  look: "height" | "slide" | "fade";
   finished: boolean;
   first: boolean;
   children: ReactNode;
@@ -1976,15 +1981,10 @@ function TrayRow({
     setShown(true);
     entered(rowKey);
   }, [shown, entered, rowKey]);
-  // The `fade` arm never folds: its stylesheet fades the line and its animation's end lets it go.
-  const fades = look === "fade";
-  const fold = useFold(fades || (shown && !leaving), entranceMayRun);
+  const fold = useFold(shown && !leaving, entranceMayRun);
   useLayoutEffect(() => {
-    if (leaving && !fades && !fold.present) gone(rowKey);
-  }, [leaving, fades, fold.present, gone, rowKey]);
-  const faded = (event: { target: EventTarget; currentTarget: EventTarget }) => {
-    if (fades && leaving && event.target === event.currentTarget) gone(rowKey);
-  };
+    if (leaving && !fold.present) gone(rowKey);
+  }, [leaving, fold.present, gone, rowKey]);
   return (
     <li
       data-finished={finished ? "" : undefined}
@@ -1993,7 +1993,6 @@ function TrayRow({
       data-leaving={leaving || undefined}
       inert={leaving || undefined}
       aria-hidden={leaving || undefined}
-      onAnimationEnd={faded}
     >
       {fold.present && (
         <div ref={fold.ref} className="acpmux-running-tray__row">
