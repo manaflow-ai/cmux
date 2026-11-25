@@ -206,7 +206,13 @@ export function AutoArrival({
 export function AutoAddingMachineLine({ text, look }: { text: StringKey; look: AutoLook }) {
   const t = useT();
   return (
-    <div className="acpmux-auto-arrival" data-auto-look={look} data-went="scalingUp" role="status">
+    <div
+      className="acpmux-auto-arrival"
+      data-auto-look={look}
+      data-went="scalingUp"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a flex row in the notices strip; <output> is inline and form-bound.
+      role="status"
+    >
       <AutoIcon look={look} />
       <span className="acpmux-auto-arrival-text">{t(text)}</span>
     </div>
