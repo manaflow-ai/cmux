@@ -31,6 +31,6 @@ jobs:
   eval:
     if: false
     # Never runs; the runner guards still read it: the declared 2 vCPU Linux pool, a fork's hosted label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
       - run: echo "The screen stream eval runs from feat-cmux-next."
