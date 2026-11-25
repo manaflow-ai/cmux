@@ -315,37 +315,58 @@ fn row_sibling(
 /// and groups with no item in `section` (closed workspaces, other machines,
 /// Pinned) are passed over, so a reopened workspace lands after its nearest
 /// open neighbor and not at the end (#56144). None: nothing before it.
+///
+/// One pass, newest first: the earlier loose rows and the slotted groups
+/// are each read once, in old order (a group slotted at `top` shows before
+/// the rows at `top` and after, so it comes ahead of a row at `< top`).
 fn placed_loose_before(
     connection: &Connection,
     doc: &Doc,
     local: &str,
     section: &str,
-    mut position: i64,
+    position: i64,
     groups: bool,
 ) -> anyhow::Result<Option<ItemId>> {
+    let mut row_statement = connection.prepare_cached(
+        "SELECT w.session_id, w.workspace_key, w.position FROM personal_workspaces AS w
+         WHERE w.position < ?1
+           AND (w.group_id IS NULL
+                OR NOT EXISTS (SELECT 1 FROM personal_groups AS g WHERE g.group_id = w.group_id))
+         ORDER BY w.position DESC",
+    )?;
+    let mut rows = row_statement.query_map([position], |r| {
+        Ok(Row { session: r.get(0)?, key: r.get(1)?, position: r.get(2)?, group: None })
+    })?;
+    let mut group_statement = connection.prepare_cached(
+        "SELECT group_id, top_position FROM personal_groups
+         WHERE top_position IS NOT NULL AND top_position <= ?1 AND ?2
+         ORDER BY top_position DESC, position DESC",
+    )?;
+    let mut slotted = group_statement.query_map(params![position, groups], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    let mut row = rows.next().transpose()?;
+    let mut group = slotted.next().transpose()?;
     loop {
-        let previous = loose_before(connection, position)?;
-        if groups {
-            let floor = previous.as_ref().map_or(i64::MIN, |row| row.position);
-            let mut statement = connection.prepare_cached(
-                "SELECT group_id FROM personal_groups
-                 WHERE top_position IS NOT NULL AND top_position <= ?1 AND top_position > ?2
-                 ORDER BY top_position DESC, position DESC",
-            )?;
-            let slotted = statement
-                .query_map(params![position, floor], |r| r.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            if let Some(id) =
-                slotted.iter().find_map(|group| sibling(group_item(doc, group), section, None))
+        let group_first = match (&row, &group) {
+            (_, None) => false,
+            (None, Some(_)) => true,
+            (Some(row), Some((_, top))) => *top > row.position,
+        };
+        if group_first {
+            if let Some((id, _)) = group.take()
+                && let Some(item) = sibling(group_item(doc, &id), section, None)
             {
-                return Ok(Some(id));
+                return Ok(Some(item));
             }
+            group = slotted.next().transpose()?;
+            continue;
         }
-        let Some(row) = previous else { return Ok(None) };
-        if let Some(id) = row_sibling(connection, doc, local, &row, section, None)? {
-            return Ok(Some(id));
+        let Some(next_row) = row.take() else { return Ok(None) };
+        if let Some(item) = row_sibling(connection, doc, local, &next_row, section, None)? {
+            return Ok(Some(item));
         }
-        position = row.position;
+        row = rows.next().transpose()?;
     }
 }
 
