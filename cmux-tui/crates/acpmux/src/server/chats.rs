@@ -87,11 +87,11 @@ mod scorecard;
 mod search;
 mod stats;
 mod team_audit;
-mod unit_cost;
 mod transcript;
 mod transcript_index;
 mod transcript_preview;
 mod transcript_raw;
+mod unit_cost;
 pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
