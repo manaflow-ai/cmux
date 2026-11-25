@@ -8,6 +8,7 @@
 
 #[cfg(target_os = "macos")]
 mod cf;
+pub mod manifest;
 mod policy;
 mod reader;
 mod team;
