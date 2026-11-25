@@ -576,6 +576,22 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: movie)))
     }
 
+    /// macOS 15 and iOS 18 strip a video's location through the
+    /// completion-handler export, since `export(to:as:)` hangs or crashes
+    /// there. This runs that path on any system.
+    @Test func theCompletionHandlerExportStripsAVideosLocation() async throws {
+        let root = try temporaryDirectory()
+        let movie = root.appendingPathComponent("clip.mov")
+        try await makeMovie(at: movie, width: 64, height: 32, location: "+37.3349-122.0090/")
+        try #require(try await movieHasLocation(movie), "fixture must carry a location")
+
+        let stripped = try #require(try await AttachmentMedia.movieWithoutLocation(
+            movie, mimeType: "video/quicktime", name: "clip.mov", root: root, typedExport: false))
+        defer { try? FileManager.default.removeItem(at: stripped) }
+        #expect(try await !movieHasLocation(stripped))
+        #expect(try await AVURLAsset(url: stripped).loadTracks(withMediaType: .video).count == 1)
+    }
+
     /// An image over 1024 px (or a HEIC) gets a JPEG preview, declared on
     /// the part like a video's poster; a small one does not.
     @MainActor @Test func largeImagesGetAJPEGPreviewSmallOnesDoNot() async throws {

@@ -44,7 +44,12 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
-UNWIRED: set[str] = set()
+UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.toml (no new CI tests, CLAUDE.md). It pins
+    # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml and iroh-release-gate.yml only to check they
+    # call that script, not the Homebrew tap. Run it by hand when any of them changes. Exit: when a workflow runs it.
+    "tests/test_install_axe_ci.py",
+}
 
 
 def tracked_tests() -> list[str]:

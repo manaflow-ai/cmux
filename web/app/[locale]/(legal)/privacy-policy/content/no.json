@@ -2,13 +2,13 @@
   "metadataTitle": "Retningslinjer for personvern — cmux",
   "metadataDescription": "Personvernerklæring for cmux",
   "title": "Personvernerklæring",
-  "lastUpdated": "Sist oppdatert: 1. september 2026",
+  "lastUpdated": "Sist oppdatert: 24. november 2026",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow (\"Selskapet\") er forpliktet til å opprettholde robust personvern for sine brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker og beskytter informasjon du gir oss.",
+        "Manaflow, Inc. (\"Selskapet\") er forpliktet til å opprettholde robust personvern for sine brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker og beskytter informasjon du gir oss.",
         "I disse retningslinjene betyr \"nettstedet\" selskapets nettsted på [cmux.com](https://cmux.com). \"Applikasjon\" betyr cmux skrivebordsapplikasjon for macOS og cmux mobilapplikasjon for iPhone og iPad. \"Tjenesten\" betyr nettstedet og applikasjonen sammen. \"Vi\", \"oss\" og \"vår\" betyr selskapet. \"Du\" betyr en bruker av tjenesten vår.",
-        "Ved å bruke tjenesten vår godtar du denne personvernerklæringen og våre [vilkår for bruk](https://cmux.com/terms-of-service), og samtykker til innsamlingen, lagringen, bruken og avsløringen beskrevet her."
+        "Denne personvernerklæringen forteller deg hvordan vi samler inn, bruker og utleverer informasjon. Den er en melding: den ber ikke om ditt samtykke med mindre den sier det. Våre [vilkår for bruk](https://cmux.com/terms-of-service) gjelder for din bruk av tjenesten."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: private interne varsler. Hvis du blir med på en plattformventeliste, sendes e-posten og plattformene du sender til vårt private Slack-arbeidsområde."
       ],
       "afterBullets": [
-        "Hver tjeneste har sine egne retningslinjer for personvern. Når en tredjepart behandler personopplysninger for cmux, krever vi sikkerhetstiltak som er minst like beskyttende som denne policyen og begrenser bruken til å levere tjenester til cmux."
+        "Hver tjeneste har sine egne retningslinjer for personvern. Med mindre avsnittet om cmux Cloud sier noe annet, krever vi, når en tredjepart behandler personopplysninger for cmux, sikkerhetstiltak som er minst like beskyttende som denne policyen og begrenser bruken til å levere tjenester til cmux."
       ]
     },
     {

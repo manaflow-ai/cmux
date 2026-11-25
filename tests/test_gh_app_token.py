@@ -322,8 +322,8 @@ class ReadsOnlyTests(unittest.TestCase):
 class TickWiringTests(unittest.TestCase):
     """nightly-next-tick.yml's unstick job sends its gh reads as the cmux-bot App, with the
     repository's existing credentials, before any gh call, and keeps its single-shot steps
-    single-shot. The request job holds no App key: CI_CONTROL_RUNNER may move it to a reused
-    machine (tests/test_ci_cloud_overflow_switch.py)."""
+    single-shot. The request job sends all of its gh calls, the promotion dispatch included, as
+    the App, on the same named runners."""
 
     def test_unstick_mints_and_installs_before_the_rate_limit_wait(self) -> None:
         import yaml
@@ -354,13 +354,37 @@ class TickWiringTests(unittest.TestCase):
                 self.assertEqual(env.get("GH_BUDGET_WAIT_ATTEMPTS"), "1", step.get("name"))
                 self.assertEqual(env.get("GH_APP_TOKEN_ATTEMPTS"), "1", step.get("name"))
 
-    def test_the_request_job_holds_no_app_key(self) -> None:
-        import json
+    def test_the_request_job_sends_every_gh_call_as_the_app_before_the_rate_limit_wait(self) -> None:
+        # Ticks 45053904802, 45058003217 and 45058945652 (2026-11-22) waited 22-26 min for
+        # github.token's budget at the promotion dispatch, so the dispatch goes as the App too.
         import yaml
         job = yaml.safe_load(TICK.read_text(encoding="utf-8"))["jobs"]["request"]
-        self.assertIn("CI_CONTROL_RUNNER", job["runs-on"])
-        self.assertNotIn("secrets.", json.dumps(job))
-        self.assertNotIn("create-github-app-token", json.dumps(job))
+        steps = job["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertNotIn("CI_CONTROL_RUNNER", job["runs-on"])
+        tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
+        self.assertIn("scripts/ci/gh_app_token.sh", tooling["with"]["sparse-checkout"].split())
+        mint = steps[names.index("Mint the cmux-bot token for this job's gh calls")]
+        self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-actions": "write", "permission-contents": "read"})
+        self.assertTrue(mint["continue-on-error"])
+        install = names.index("Send this job's gh calls as the cmux-bot App, github.token as the fallback")
+        self.assertEqual(steps[install]["run"].strip(), "bash .tick-tooling/scripts/ci/gh_app_token.sh --install")
+        self.assertEqual(steps[install]["env"], {"GH_APP_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}",
+                                                 "GH_FALLBACK_TOKEN": "${{ github.token }}"})
+        budget = names.index("Wait through GitHub API rate limits in this job's gh calls")
+        self.assertLess(names.index(mint["name"]), install)
+        self.assertLess(install, budget)
+        for i, step in enumerate(steps):
+            env = step.get("env", {})
+            if "GH_TOKEN" in env:
+                self.assertGreater(i, budget, step.get("name"))
+                self.assertEqual(env["GH_TOKEN"], "${{ github.token }}", step.get("name"))
+                # A single-shot step stays single-shot under both wrappers.
+                if env.get("GH_BUDGET_WAIT_ATTEMPTS") == "1":
+                    self.assertEqual(env.get("GH_APP_TOKEN_ATTEMPTS"), "1", step.get("name"))
 
 
 spec = importlib.util.spec_from_file_location("publisher_app_token", ROOT / "scripts/ci/publish-release-assets.py")
