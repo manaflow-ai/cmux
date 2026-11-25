@@ -581,6 +581,18 @@ fn schema_lists_what_can_change_and_needs_no_store() {
 }
 
 #[test]
+fn checklist_takes_only_the_connections_it_knows() {
+    assert_eq!(parse(&words(&["checklist"])), Ok(Request::Checklist { connected: vec![] }));
+    assert_eq!(
+        parse(&words(&["checklist", "--has", "github", "--has", "mcp", "--has", "github"])),
+        Ok(Request::Checklist { connected: vec!["github".to_owned(), "mcp".to_owned()] })
+    );
+    assert!(parse(&words(&["checklist", "--has", "slack"])).is_err());
+    assert!(parse(&words(&["checklist", "--has"])).is_err());
+    assert!(parse(&words(&["checklist", "theme"])).is_err());
+}
+
+#[test]
 fn doctor_reads_by_default_and_a_fix_names_its_finding_and_kind() {
     use super::doctor::Request as Doctor;
     use cmux_customize::library::doctor::FixKind;
