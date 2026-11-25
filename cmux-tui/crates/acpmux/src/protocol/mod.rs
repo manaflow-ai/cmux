@@ -10,6 +10,7 @@
 //! a name this registry lacks (`protocol/tests.rs`).
 
 pub mod auth;
+pub mod composer_status;
 pub mod events;
 pub mod here;
 pub mod inventory;
