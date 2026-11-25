@@ -402,7 +402,9 @@ extension CEFRuntime {
         await shutdown(timeout: timeout, beforeEngineStop: {})
     }
 
-    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void) async {
+    /// `stopsEngine` false (an update's relaunch, ask-ad4a68e740): the pages close and the cookies reach disk as on any
+    /// quit, then the process ends without CefShutdown (the path a timed-out close already takes), not 1 to 3.4 s later.
+    func shutdown(timeout: Duration, stopsEngine: Bool = true, beforeEngineStop: @MainActor () async -> Void) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -445,6 +447,11 @@ extension CEFRuntime {
             return
         }
         await beforeEngineStop()
+        guard stopsEngine else {
+            logger.notice("CEF pages closed; exiting without CefShutdown for an update's relaunch")
+            state = .shutDown
+            return
+        }
         let stopping = ContinuousClock.now
         shim.shutdown()
         state = .shutDown
@@ -493,7 +500,7 @@ extension CEFShimEvent {
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _), .authPrompt(let b, _, _, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
              .pageMessage(let b, _, _, _), .statusMessage(let b, _):

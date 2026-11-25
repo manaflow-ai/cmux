@@ -218,8 +218,8 @@ test("the one-file card's chevron is keyboard reachable and opens its diff inlin
   // Inline, not the changes pane.
   expect(opened).toEqual([]);
   expect(chevron.getAttribute("aria-expanded")).toBe("true");
-  expect(latest.querySelector(".acpmux-edited-diff .cv-edit-diff")).not.toBeNull();
-  const open = latest.querySelector<HTMLButtonElement>(".acpmux-edited-diff button.acpmux-edited-open")!;
+  expect(latest.querySelector(".acpmux-edited-stack .cv-edit-diff")).not.toBeNull();
+  const open = latest.querySelector<HTMLButtonElement>(".acpmux-edited-stack button.acpmux-edited-open")!;
   expect(open.getAttribute("aria-label")).toBe("Open in Changes");
   await act(async () => open.click());
   expect(opened).toEqual([{ rowId: "edit-latest", path: "/repo/src/b.ts", opener: open }]);
@@ -227,7 +227,7 @@ test("the one-file card's chevron is keyboard reachable and opens its diff inlin
   expect(chevron.getAttribute("aria-expanded")).toBe("false");
 });
 
-test("file rows retain shared parent paths and exact diff targets without inventing Undo support", async () => {
+test("the opened card names each file from the repository and opens exact diff targets, without inventing Undo support", async () => {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const first = editRow("relative-first", "src/net/retry.ts");
@@ -238,27 +238,18 @@ test("file rows retain shared parent paths and exact diff targets without invent
   await act(async () =>
     root!.render(<EditedFilesCard row={row} onOpenDiff={(id, path) => opened.push({ id, path })} />),
   );
-  const fileRows = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-edited-file")];
-  expect(fileRows.map((file) => file.querySelector(".acpmux-edited-dir")?.textContent)).toEqual([
-    "src/net/",
-    "src/net/",
-  ]);
-  expect(fileRows.map((file) => file.querySelector(".acpmux-edited-base")?.textContent)).toEqual([
-    "retry.ts",
-    "client.ts",
-  ]);
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
-  // A file row opens its own diff under it, not the changes pane; its Open in Changes icon does.
-  expect(fileRows.map((file) => file.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
-  await act(async () => fileRows[1]!.click());
+  // One click opens every file's diff inline, not the changes pane.
+  await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
   expect(opened).toEqual([]);
-  expect(fileRows.map((file) => file.getAttribute("aria-expanded"))).toEqual(["false", "true"]);
-  const entries = [...host.querySelectorAll<HTMLElement>(".acpmux-edited-entry")];
-  expect(entries.map((entry) => entry.querySelector(".acpmux-edited-diff .cv-edit-diff") !== null)).toEqual([
-    false,
-    true,
+  const sections = [...host.querySelectorAll<HTMLElement>(".acpmux-edited-section")];
+  expect(sections.map((section) => section.querySelector(".cv-edit-diff__name")?.textContent)).toEqual([
+    "src/net/retry.ts",
+    "src/net/client.ts",
   ]);
-  await act(async () => entries[1]!.querySelector<HTMLButtonElement>(".acpmux-edited-open")!.click());
+  expect(sections.every((section) => section.querySelector(".cv-edit-diff") !== null)).toBe(true);
+  // The jump out of inline: a file's Open in Changes opens the pane at that file.
+  await act(async () => sections[1]!.querySelector<HTMLButtonElement>(".acpmux-edited-open")!.click());
   expect(opened).toEqual([{ id: row.id, path: "src/net/client.ts" }]);
 });
 
@@ -277,14 +268,12 @@ test("a file outside the checkpoint reads from the chat's folder, not from the d
       </SessionCwdContext.Provider>,
     ),
   );
-  const file = host.querySelector<HTMLElement>(".acpmux-edited-file")!;
-  expect(file.querySelector(".acpmux-edited-dir-head")?.textContent).toBe("app/");
-  expect(file.querySelector(".acpmux-edited-dir")?.textContent).toBe("app/webviews/test/");
-  expect(file.querySelector(".acpmux-edited-base")?.textContent).toBe("scratch.test.ts");
+  await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
+  const name = host.querySelector<HTMLElement>(".acpmux-edited-section .cv-edit-diff__name")!;
+  // Never /Users/… with its middle cut: the path from the chat's folder, whole.
+  expect(name.textContent).toBe("app/webviews/test/scratch.test.ts");
   // The diff still opens at the full path.
-  expect(file.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(
-    "/Users/me/code/app/webviews/test/scratch.test.ts",
-  );
+  expect(name.getAttribute("data-path")).toBe("/Users/me/code/app/webviews/test/scratch.test.ts");
 });
 
 test("without a diff opener, the diff still opens inline, with no Open in Changes", async () => {
@@ -294,7 +283,7 @@ test("without a diff opener, the diff still opens inline, with no Open in Change
   await act(async () => root!.render(<EditedFilesCard row={LATEST} />));
   expect(host.querySelector(".acpmux-review-changes")).toBeNull();
   await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
-  expect(host.querySelector(".acpmux-edited-diff .cv-edit-diff")).not.toBeNull();
+  expect(host.querySelector(".acpmux-edited-stack .cv-edit-diff")).not.toBeNull();
   expect(host.querySelector(".acpmux-edited-open")).toBeNull();
   expect(host.querySelector(".acpmux-edited-sub .acpmux-diff-counts")?.textContent).toBe("+1-1");
 });
