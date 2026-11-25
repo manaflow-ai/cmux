@@ -33,6 +33,33 @@ import Testing
         #expect(timeline.marks.count == 10)
     }
 
+    /// cmux#55519: the composer start opens the chat's workspace and tab, trusts the copy and warms its agent beside this
+    /// Mac's gateway coming up, and waits for it only after `open`, just before the page's first prompt. RED before: the
+    /// gateway was awaited after the approvals, so a gateway still coming up held the open and everything after it.
+    @MainActor @Test func theOpenRunsBesideTheGatewayWhichIsAwaitedOnlyBeforeTheFirstPrompt() async {
+        for (outlasts, gatewayMs) in [(false, 0), (true, 300)] {
+            let clock = TestClock()
+            let timeline = CloudSendTimeline(now: clock.now)
+            let (began, beginning) = AsyncStream<Void>.makeStream()
+            let (released, release) = AsyncStream<Void>.makeStream()
+            let gateway = CloudStartBeside { () async -> Bool in
+                beginning.yield()
+                for await _ in released { return true }
+                return false
+            }
+            for await _ in began { break } // it began with the start, before any step below
+            for (step, ms) in [("machine", 2000), ("copy", 900), ("approvals", 0)] { clock.advance(ms); timeline.mark(step) }
+            clock.advance(1500) // the workspace, the tab, the trust and the prewarm, while the gateway comes up
+            if !outlasts { release.yield() }
+            timeline.mark("open")
+            if outlasts { clock.advance(300); release.yield() }
+            #expect(await gateway.value)
+            timeline.mark("gateway")
+            #expect(timeline.marks.map(\.step) == ["machine", "copy", "approvals", "open", "gateway"])
+            #expect(CloudSendTimeline.steps(timeline.marks).map(\.ms) == [2000, 900, 0, 1500, gatewayMs]) // the open never waits on it
+        }
+    }
+
     @Test func aStepMarkedTwiceKeepsItsFirstEnd() {
         let clock = TestClock()
         let timeline = CloudSendTimeline(now: clock.now)
@@ -90,5 +117,14 @@ import Testing
         #expect(CloudAgentPrewarm(cwd: "/home/cmux/chats/app-1", harness: "claude", model: nil, mode: nil, served: false) == nil)
         #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: true) == nil)
         #expect(CloudAgentPrewarm(cwd: "chats/app-1", harness: "claude", model: nil, mode: nil, served: true) == nil)
+        #expect(CloudAgentPrewarm(cwd: "chats/app-1", harness: "claude", model: nil, mode: nil, served: true, servesChatFolder: true) == nil)
+    }
+
+    /// A start with no folder (`cloud start-session` with no `--cwd`, a chat with no project) runs in the chat's own
+    /// `~/chats/<id>`; a daemon that serves the chat folder prewarm makes it and warms the agent there.
+    @Test func aNoFolderStartIsWarmedInTheChatsOwnFolderWhereServed() throws {
+        let prewarm = try #require(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: true, servesChatFolder: true))
+        #expect(prewarm.cwd == nil && prewarm.harness == "claude")
+        #expect(CloudAgentPrewarm(cwd: nil, harness: "claude", model: nil, mode: nil, served: false, servesChatFolder: true) == nil)
     }
 }

@@ -80,12 +80,16 @@ fn a_reserve_moves_home_chat_shapes_to_its_folder_and_remembers_the_persons_pick
 }
 
 #[test]
-fn the_shapes_sent_are_the_newest_four_recent_ones_without_folders() {
+fn the_shapes_sent_read_the_file_this_pool_writes() {
     let mut codex = r("codex", "/a", 50);
     codex.model = Some("gpt-5.5".into());
     let list =
         vec![r("claude", "/a", 10), codex, r("a", "/a", 20), r("b", "/a", 30), r("c", "/a", 40)];
-    let sent = shapes_to_send(&list, 60);
+    let bytes = serde_json::to_vec(&SpareFile { spares: list }).unwrap();
+    let sent: Vec<Value> = cmux_cloud_start_core::spare_shapes::shapes(&bytes, 60)
+        .into_iter()
+        .map(|s| serde_json::to_value(s).unwrap())
+        .collect();
     assert_eq!(sent.len(), 4);
     assert_eq!(sent[0], json!({"harness": "codex", "model": "gpt-5.5"}));
     assert!(sent.iter().all(|v| v.get("cwd").is_none()));
