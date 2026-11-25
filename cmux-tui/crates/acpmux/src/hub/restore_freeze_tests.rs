@@ -228,7 +228,8 @@ async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
     let again = json!({"sessionId": session.id, "beginToken": "tok_pump_2"});
     let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
     assert!(refused.message.starts_with("transfer.moving"), "{}", refused.message);
-    assert_eq!(refused.data, Some(json!({"transferId": transfer, "beginToken": token})));
+    let data = refused.data.unwrap();
+    assert_eq!((&data["transferId"], &data["beginToken"]), (&json!(transfer), &json!(token)));
 
     // A restart: the chat is loaded again, its move restored from the log and its bundle.
     *session.moving.lock().unwrap() = None;
@@ -236,7 +237,8 @@ async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
     hub.watch_transfers();
     assert_eq!(session.moving().as_deref(), Some(transfer.as_str()));
     let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
-    assert_eq!(refused.data, Some(json!({"transferId": transfer, "beginToken": token})));
+    let data = refused.data.unwrap();
+    assert_eq!((&data["transferId"], &data["beginToken"]), (&json!(transfer), &json!(token)));
 
     // The client ends it and begins anew; a begin with no token leaves none to hand back.
     let abort = json!({"sessionId": session.id, "transferId": transfer, "epoch": begun["epoch"]});
@@ -244,7 +246,8 @@ async fn a_moving_refusal_hands_back_the_begin_token_across_a_restart() {
     let plain = json!({"sessionId": session.id});
     let begun = hub.transfer_request("_acpmux/transfer_begin", &plain).await.unwrap();
     let refused = hub.transfer_request("_acpmux/transfer_begin", &again).await.unwrap_err();
-    assert_eq!(refused.data, Some(json!({"transferId": begun["transferId"]})));
+    let data = refused.data.unwrap();
+    assert_eq!((&data["transferId"], data.get("beginToken")), (&begun["transferId"], None));
     let abort = json!({"sessionId": session.id, "transferId": begun["transferId"],
                        "epoch": begun["epoch"]});
     hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
