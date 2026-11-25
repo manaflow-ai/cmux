@@ -112,8 +112,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Show the drop zone for an empty pinned section: only while a drag reaches the list's top edge
     /// (`SidebarEmptyZones`), or for a drag that empties it, never for a drag's start alone.
     public var showEmptyPinned = false
-    /// A workspace or document drag runs: the Archive stays closed (its rows take no drop).
-    public var dragClosesArchive = false
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
@@ -196,8 +194,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
-    /// Archived workspaces and wholly archived groups leave their lists for one closed "Archive (N)" row at the bottom
-    /// of the sidebar (`SidebarLayout+ArchiveSection`, Lawrence 19197); on by default. Off, ``foldsArchived`` applies.
+    /// Archived workspaces, links and wholly archived groups leave the sidebar for Settings > Sidebar > Archived
+    /// workspaces (`SidebarLayout+ArchiveSection`, cmux#51635); on by default. Off, ``foldsArchived`` applies.
     public var archiveSection = true
     /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
     /// below them.

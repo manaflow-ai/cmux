@@ -7,6 +7,7 @@
   exit, and the next layout started a new one. A card that leaves an empty slot keeps its exit.
   Regression: `SidebarCardPresenceHideAtOnceTests`.
 
+- 2026-11-22 (feat-cmux-next-51635-archived-workspaces-list): Sidebar-Look: user, 2026-11-22 (https://github.com/manaflow-ai/cmux/issues/51635): "why does the archived workspaces look like this, that's kind of weird right — is this what chatgpt does for archived chats? ... i feel like that they cant possibly be shown in the sidebar somehow?" Archived rows leave the sidebar: no "Archive (N)" fold at the bottom, no dimmed archived rows in a list, a group or Group by Status. An archived workspace, an archived link, tab or app row (loose or in a group), and a group that is archived or holds rows none of which is live (its subgroups' rows counted) draw nowhere; a group holding a live row at any depth stays. They live in Settings > Sidebar > Archived Workspaces (`SettingsArchivedWorkspaces`, the `archivedWorkspaces` card), in sidebar order with the group and computer, each with Open, Restore and Delete (Delete asks inline), like ChatGPT's Settings > Data controls > Archived chats. Open shows it and it keeps its place dimmed while active, with every group above it; a filter still lists archived matches in place; Pinned keeps its rows. The `.archive` fold kind and its string are gone. Regression: `SidebarArchiveSectionTests`, `SettingsArchivedWorkspacesTests`, webviews `archivedWorkspaces.test.tsx`.
 - 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
   changed how groups look. A group opens with its visible header band and member rail. Folders and the six
   other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
@@ -159,6 +160,9 @@
   (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
   `SidebarRollingSummaryTests`. Stills: the States Playground's pinned hover card and the idle row's Expanded line carry a
   summary (`SidebarStatesPlaygroundFixture`), shot by `AASidebarStatesGalleryTests` (`sidebar-states-gallery.tar`).
+- 2026-11-22 (https://github.com/manaflow-ai/cmux/issues/51749): the rolling summary and next action above are removed
+  everywhere (hover card, Expanded rows, chat header, iPhone Chats list, and acpmux's generation of them). The user did
+  not want the line; hover cards and Expanded rows read as they did before 2026-11-20.
 - 2026-11-19 (lane/look-menus-proportions): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate the things
   for context menu styling and such maybne in those repos too and the layout and proportions as well". Opt-in
   `sidebar.drawnMenus` (off, so no visual change by default): the sidebar's right-click menus and a row's more button
