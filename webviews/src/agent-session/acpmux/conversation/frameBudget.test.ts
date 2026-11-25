@@ -63,16 +63,14 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   const doc = dom.window.document;
   const chat = doc.getElementById("chat")!;
   const queue: ((time: number) => void)[] = [];
-  const timers: { at: number; callback: () => void }[] = [];
+  // The page's timers, counted: a chat at rest arms none.
+  const timers: unknown[] = [];
+  dom.window.setTimeout = ((...args: unknown[]) => timers.push(args)) as unknown as typeof dom.window.setTimeout;
   let now = 0;
   const budget = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
-    later: (callback, ms) => timers.push({ at: now + ms, callback }) - 1,
-    cancelLater: (handle) => {
-      timers[handle] = { at: Infinity, callback: () => {} };
-    },
   });
   const run = (gap: number) => {
     now += gap;
@@ -97,13 +95,11 @@ test("the chat's mark: its gate moves nothing, the rest of the page moves on, th
   while (run(FRAME) > 0 && frames < 2000) frames += 1;
   expect(frames).toBeLessThan(IDLE_FRAMES);
   expect(queue.length).toBe(0);
-  expect(budget.minimal).toBe(true);
-  // No work for HEALTHY_FOR: the chat is healthy again, and the mark goes, on one timer.
-  expect(timers.filter((timer) => timer.at < Infinity).length).toBe(1);
-  now += HEALTHY_FOR;
-  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+  // It stopped on QUIET_FRAMES in budget: the chat drew its work in time, so the mark goes as the loop stops, and no
+  // timer wakes the chat at rest HEALTHY_FOR later to take it away (bench/chat-switch.bench.ts idle_wakeups).
   expect(budget.minimal).toBe(false);
   expect(chat.hasAttribute("data-chat-motion")).toBe(false);
+  expect(timers.length).toBe(0);
   // Idle: a poke followed by frames in budget reads QUIET_FRAMES of them past the first and stops.
   budget.poke();
   let idle = 0;
@@ -168,8 +164,6 @@ test("a commit at rest reads a few frames, not IDLE_FRAMES; frames that keep mis
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
-    later: () => -1,
-    cancelLater: () => {},
   });
   const run = (gap: number) => {
     now += gap;
@@ -193,24 +187,26 @@ test("a commit at rest reads a few frames, not IDLE_FRAMES; frames that keep mis
   budget.dispose();
 
   // Load that keeps coming in bursts, frames in budget between them: each burst's misses count toward the
-  // window although the loop stops between bursts, and the chat goes minimal as it did reading every frame.
+  // window although the loop stops between bursts, and the chat goes minimal as it did reading every frame. Its
+  // frames in budget after the burst that took it there settle the loop, and the mark goes as it stops.
   const again = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
-    later: () => -1,
-    cancelLater: () => {},
   });
-  for (let burst = 0; burst < 4 && !again.minimal; burst += 1) {
+  let wentMinimal = false;
+  for (let burst = 0; burst < 4 && !wentMinimal; burst += 1) {
     again.poke();
     run(FRAME);
     for (let index = 0; index < 3; index += 1) {
       again.poke();
       run(60);
+      wentMinimal ||= again.minimal;
     }
     drain(FRAME);
   }
-  expect(again.minimal).toBe(true);
+  expect(wentMinimal).toBe(true);
+  expect(again.minimal).toBe(false);
   again.dispose();
 });
 
@@ -223,16 +219,14 @@ test("a chat that goes idle while its frames still miss stays minimal for its ne
   });
   const chat = dom.window.document.getElementById("chat")!;
   const queue: ((time: number) => void)[] = [];
-  const timers: { at: number; callback: () => void }[] = [];
+  // The page's timers, counted: a chat at rest arms none.
+  const timers: unknown[] = [];
+  dom.window.setTimeout = ((...args: unknown[]) => timers.push(args)) as unknown as typeof dom.window.setTimeout;
   let now = 0;
   const budget = createFrameBudget(chat, {
     now: () => now,
     frame: (callback) => queue.push(callback),
     cancel: () => {},
-    later: (callback, ms) => timers.push({ at: now + ms, callback }) - 1,
-    cancelLater: (handle) => {
-      timers[handle] = { at: Infinity, callback: () => {} };
-    },
   });
   const run = (gap: number) => {
     now += gap;
@@ -247,20 +241,19 @@ test("a chat that goes idle while its frames still miss stays minimal for its ne
     while (run(250) > 0 && frames < 200) frames += 1;
     expect(budget.minimal).toBe(true);
     now += 3000;
-    for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+    expect(timers.length).toBe(0);
     // The next record lands minimal: no fade, drawn in the frame it comes.
     expect(chat.getAttribute("data-chat-motion")).toBe("minimal");
   }
   // The load ends: a record whose first frame misses once, then frames in budget. The loop stops on QUIET_FRAMES and
-  // the mark goes HEALTHY_FOR later, though that one frame is still in the window (review of #44367).
+  // the mark goes as it stops, though that one frame is still in the window (review of #44367), with no timer.
   budget.poke();
   run(FRAME);
   run(40);
   let settling = 0;
   while (run(FRAME) > 0 && settling < 200) settling += 1;
   expect(settling).toBeLessThan(IDLE_FRAMES);
-  now += HEALTHY_FOR;
-  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
   expect(chat.hasAttribute("data-chat-motion")).toBe(false);
+  expect(timers.length).toBe(0);
   budget.dispose();
 });
