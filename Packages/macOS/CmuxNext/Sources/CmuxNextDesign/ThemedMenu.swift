@@ -106,7 +106,8 @@ extension NSImage {
 /// keeps its mark until the menu is built again. The row itself keeps the icon the mark stands in
 /// for (an associated object), so a re-mark (checked, then mixed) keeps that icon and not the first
 /// mark; nothing outside the row holds it.
-public enum MenuStateMark {
+public struct MenuStateMark {
+    public init() {}
     /// What a marked row drew before its mark, and the mark it draws now.
     final class Replaced {
         let icon: NSImage?
