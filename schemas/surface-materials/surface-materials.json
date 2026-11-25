@@ -168,7 +168,8 @@
     "CmuxNextTerminal/TerminalFindBarView.swift": "native-overlay",
     "CmuxNextTerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextUpdater/Share/ShareCmuxView.swift": "native-overlay",
-    "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay"
+    "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay",
+    "CmuxNextAgentPane/AgentPaneView+HostGlass.swift": "web-host"
   },
   "web_floating_pending": {
     "ui/FeatureTip.tsx": "the feature tip: page glass in the agent pane, a flat-reading box beside host-glass menus",
