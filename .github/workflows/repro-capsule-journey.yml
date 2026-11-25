@@ -18,7 +18,8 @@ on:
     paths:
       - cmux-tui/crates/cmux-repro/**
       - cmux-tui/crates/cmux-tui/src/cli/repro.rs
-      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey/capsule.rs
+      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey.rs
+      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey/**
       - .github/workflows/repro-capsule-journey.yml
 
 permissions:
