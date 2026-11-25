@@ -514,6 +514,22 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("GitHubStatus shows a connection state", out)
 
+    def test_a_web_button_component_is_an_action(self):
+        """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
+        tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
+        button = ('export function ConnectCard() {\n'
+                  '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
+        bare = ('export function ConnectLine() {\n'
+                '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
+        tree = Tree(self)
+        tree.write(f"{WEB}/ConnectCard.tsx", button)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/ConnectLine.tsx", bare)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ConnectLine shows a connection state", out)
+
     def test_a_scheduler_signature_is_not_a_run_action(self):
         """`run: () => void` is a timer's parameter type, not a row the person clicks."""
         tree = Tree(self)
