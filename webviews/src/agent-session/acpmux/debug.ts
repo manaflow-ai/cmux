@@ -482,7 +482,8 @@ export function createAcpmuxDebug(
             userBubbles: userBubblesState(),
             // The queued prompts as drawn: each row's text, its image ids and each thumbnail's state.
             queued: queuedRowsState(),
-            subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            // A subagent's view draws its close and Resume in the corner (subagents/SubagentViewCorner.tsx).
+            subagentCorner: document.querySelector(".cv-subagent-corner") !== null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
             // What the access chip decided its face from on its last render (chipProbe.ts).
