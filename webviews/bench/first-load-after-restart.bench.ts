@@ -1610,9 +1610,9 @@ try {
           "RES " +
             (await page.evaluate(() =>
               [
-                ...performance
-                  .getEntriesByType("resource")
-                  .map((e) => `${e.name.split("/").pop()} ${e.startTime.toFixed(0)}-${e.responseEnd.toFixed(0)}`),
+                ...(performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
+                  (e) => `${e.name.split("/").pop()} ${e.startTime.toFixed(0)}-${e.responseEnd.toFixed(0)}`,
+                ),
                 ...performance.getEntriesByType("mark").map((e) => `mark:${e.name} ${e.startTime.toFixed(0)}`),
                 `dcl ${(performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming).domContentLoadedEventStart.toFixed(0)}`,
               ].join("\n  "),
