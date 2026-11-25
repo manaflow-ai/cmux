@@ -152,6 +152,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "cmux-acpmux-remote-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-action-catalog"
 version = "0.1.0"
 dependencies = [
@@ -175,6 +183,7 @@ version = "0.1.0"
 dependencies = [
  "acpmux-client",
  "cbindgen",
+ "cmux-acpmux-remote-wire",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-config",

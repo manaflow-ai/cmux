@@ -31,6 +31,8 @@
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
 //! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
 //! include/cmux_pane_pictures.h).
+//! `acpmux_remote_wire` is the remote chat's page wire as effects (cmux-acpmux-remote-wire,
+//! include/cmux_acpmux_remote_wire.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
@@ -65,6 +67,7 @@ pub mod terminal_selection;
 pub mod wallpaper;
 
 pub use acpmux_client::ffi as agent_client;
+pub use cmux_acpmux_remote_wire::ffi as acpmux_remote_wire;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_cookie_sync::ffi as cookie_sync;
