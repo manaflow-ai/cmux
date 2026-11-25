@@ -31,8 +31,6 @@ final class SidebarDoneFoldRowView: SidebarRowView {
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
         case let .doneFold(fold) where fold.kind == .settled:
             name.setString(Strings.settledFold(row.childCount))
-        case let .doneFold(fold) where fold.kind == .automatic:
-            name.setString(Strings.automaticFold(row.childCount))
         case let .doneFold(fold) where fold.kind == .archived:
             name.setString(Strings.archivedFold(row.childCount))
         default:

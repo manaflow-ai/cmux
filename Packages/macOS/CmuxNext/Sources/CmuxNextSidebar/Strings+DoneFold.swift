@@ -5,12 +5,6 @@ extension Strings {
     static func doneFold(_ count: Int) -> String {
         String(localized: "sidebar.doneFold.title", defaultValue: "Done (\(count))", bundle: .localizedModule)
     }
-    /// Sessions a script, automation or launcher opened (`sidebar.showAutomaticSessions` off). Named for where they came
-    /// from: "Automatic" read as automatic renaming.
-    static func automaticFold(_ count: Int) -> String {
-        String(localized: "sidebar.automaticFold.title", defaultValue: "From scripts (\(count))", bundle: .localizedModule)
-    }
-
     /// Seen, finished agent chats (`sidebar.settleFinished`).
     static func settledFold(_ count: Int) -> String {
         String(localized: "sidebar.settledFold.title", defaultValue: "Settled (\(count))", bundle: .localizedModule)
