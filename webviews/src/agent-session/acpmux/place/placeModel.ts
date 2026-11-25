@@ -58,6 +58,17 @@ export interface PlaceState {
   /// A hybrid start under way or just ended (RFD 0078): the chat started here while its Cloud
   /// machine boots. The three-state control draws it.
   readonly start?: HybridStart;
+  /// Keep Running (high priority) under a known plan (Rust `priority::control`'s `keep`, `priority::view`).
+  readonly keep?: PlaceKeep;
+}
+
+/// Keep Running's state for one chat: asked for (`priority`), holding a slot (`lit`) or waiting for one, and the plan's slots.
+export interface PlaceKeep {
+  readonly priority: "normal" | "high";
+  readonly lit: boolean;
+  readonly waiting: boolean;
+  readonly used: number;
+  readonly total: number;
 }
 
 export type EvacuateChatState = "queued" | "moving" | "live" | "failed" | "cancelled";
@@ -184,6 +195,22 @@ function holdersOf(value: unknown): SlotHolder[] | undefined {
   return holders.length > 0 ? holders : undefined;
 }
 
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function keepOf(value: unknown): PlaceKeep | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  return {
+    priority: raw.priority === "high" ? "high" : "normal",
+    lit: raw.lit === true,
+    waiting: raw.waiting === true,
+    used: count(raw.used),
+    total: count(raw.total),
+  };
+}
+
 export function placeOf(value: unknown): PlaceState | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value as Record<string, unknown>;
@@ -192,6 +219,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const blocked = blockedOf(raw.blocked);
   const holders = holdersOf(raw.holders);
   const start = hybridStartOf(raw.start);
+  const keep = keepOf(raw.keep);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
@@ -200,6 +228,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
     ...(blocked ? { blocked } : {}),
     ...(holders ? { holders } : {}),
     ...(start ? { start } : {}),
+    ...(keep ? { keep } : {}),
   };
 }
 
