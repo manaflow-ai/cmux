@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runSimulation, type SimResult } from "../src/agent-session/acpmux/sim/run";
+import { createSimulation, runSimulation, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
@@ -214,4 +214,30 @@ test("chat simulator: compact-steer: one Worked for, under the steer, at every s
     .rows!.filter((row) => row.turn >= 2)
     .map((row) => row.kind);
   expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+});
+
+// Leo, 2026-11-25: "this is extremely strange": a turn a background task's end opened (a notice
+// row), one thought and two sentences, no tools, drew "Worked for 2m 28s >" and nothing under it.
+// Its answer draws below its Worked for, outside the fold, and the time is the turn's own.
+test("chat simulator: notice-no-tool-turn: the answer draws below Worked for, timed from the turn's own start", () => {
+  const scenario = SCENARIOS["notice-no-tool-turn"]!();
+  const sim = createSimulation(scenario);
+  let rows: NonNullable<ReturnType<typeof sim.advance>> = [];
+  scenario.steps.forEach((_, index) => (rows = sim.advance(index) ?? rows));
+  const opened = rows.findIndex((row) => row.kind === "backgroundTurn");
+  expect(opened).toBeGreaterThanOrEqual(0);
+  const own = rows.slice(opened);
+  const worked = own.findIndex((row) => row.kind === "worked");
+  const answer = own.findIndex(
+    (row) => row.kind === "assistant" && row.text?.startsWith("The tests passed and the PR merged."),
+  );
+  expect({ worked: worked >= 0, answer: answer >= 0, below: answer > worked }).toEqual({
+    worked: true,
+    answer: true,
+    below: true,
+  });
+  const header = own[worked]!;
+  // The turn ran about two seconds after its notice; the task before it ran 140 s.
+  expect(header.durationMs).toBeLessThan(10_000);
+  expect(own.find((row) => row.kind === "turnSummary")?.durationMs).toBeLessThan(10_000);
 });
