@@ -442,6 +442,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     child_start = {}
     io_start = {}
     gpu = None
+    census = None
     if measure > 0:
         for pid in owned(app_pid, bundle):
             got = usage(pid)
@@ -453,7 +454,17 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
+        census_roots = file_census_roots(bundle)
+        census_before = file_census(census_roots)
         time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
+        census = file_census_diff(census_before, file_census(census_roots), census_roots)
+        print(f"PERF-IDLE-FILES {label} roots={len(census_roots)} changed={census['changed']} "
+              f"grew_bytes={census['grew_bytes']} removed={census['removed']}", flush=True)
+        for row in census["files"]:
+            print(f"PERF-IDLE-FILES {label} file grew={row['grew']} size={row['size']} new={int(row['new'])} "
+                  f"{row['path']}", flush=True)
+        for path in census["removed_files"]:
+            print(f"PERF-IDLE-FILES {label} removed {path}", flush=True)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
         got = usage(pid)
@@ -505,12 +516,73 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
               "processes": rows}
     if gpu is not None:
         result["gpu"] = gpu.finish()
+    if census is not None:
+        result["files"] = census
     return result
 
 
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
 # --gpu: each measured window also samples the GPU's own counters (GpuSampler).
 SAMPLE_GPU = False
+# The launch's scratch dir (its HOME and TMPDIR): with the account's acpmux home for the bundle, the folders
+# the idle window's file census walks.
+SCRATCH_ROOT: str | None = None
+
+
+def file_census_roots(bundle: str) -> list[str]:
+    """Where the app under test keeps state: the launch's scratch (HOME, TMPDIR), the account's
+    `~/.acpmux/builds/<bundle id>` (acpmux keeps the account's home) and `/tmp/acpmux-<uid>`."""
+    import pwd
+    roots = [SCRATCH_ROOT] if SCRATCH_ROOT else []
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = plistlib.load(handle).get("CFBundleIdentifier")
+    except (OSError, plistlib.InvalidFileException):
+        bundle_id = None
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    if bundle_id:
+        roots.append(os.path.join(home, ".acpmux", "builds", bundle_id))
+        for library in ("Caches", "Logs", "HTTPStorages", "WebKit", "Saved Application State"):
+            for name in (bundle_id, bundle_id + ".savedState"):
+                roots.append(os.path.join(home, "Library", library, name))
+    roots.append(f"/tmp/acpmux-{os.getuid()}")
+    return [root for root in roots if os.path.isdir(root)]
+
+
+def file_census(roots: list[str]) -> dict[str, tuple[int, int]]:
+    """path -> (size, mtime_ns) of every regular file under `roots` (no symlinks followed)."""
+    files = {}
+    for root in roots:
+        for folder, _, names in os.walk(root):
+            for name in names:
+                path = os.path.join(folder, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                if not os.path.islink(path):
+                    files[path] = (st.st_size, st.st_mtime_ns)
+    return files
+
+
+def file_census_diff(before: dict, after: dict, roots: list[str]) -> dict:
+    """The files the window created, changed (mtime moved) or removed, biggest first. A file rewritten in
+    place shows its size, not the bytes written: it names the writers, the rusage counters weigh them."""
+    def short(path):
+        for root in roots:
+            if path.startswith(root + "/"):
+                return os.path.basename(root) + "/" + path[len(root) + 1:]
+        return path
+    changed = []
+    for path, (size, mtime) in after.items():
+        old = before.get(path)
+        if old is None or old[1] != mtime:
+            changed.append({"path": short(path), "size": size, "grew": size - (old[0] if old else 0),
+                            "new": old is None})
+    changed.sort(key=lambda row: (-max(row["grew"], 0), -row["size"]))
+    removed = [short(path) for path in before if path not in after]
+    return {"changed": len(changed), "grew_bytes": sum(max(row["grew"], 0) for row in changed),
+            "removed": len(removed), "files": changed[:25], "removed_files": removed[:10]}
 # ioreg's Device Utilization % is a whole number; sampled each second, a 30 s window's mean steps by 1/30 %, fine
 # enough to judge goal idle-gpu-disk's 0.5 % (a 5 s interval stepped by 1/6 %).
 GPU_INTERVAL_S = 1.0
@@ -1680,7 +1752,9 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
         end_leftovers(bundle)
     if not relaunch:
         clear_saved_state(bundle)
+    global SCRATCH_ROOT
     scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")
+    SCRATCH_ROOT = scratch
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
