@@ -9,15 +9,17 @@
 //! chat's `lastSeq` survive a relaunch.
 //!
 //! With the Mac asleep the same surfaces come from the relay cache (`relay_*`, RFD 0142 R9,
-//! `cmux_mobile_core::catch_up::relay`): Rust builds the call, unseals the reply and moves the
-//! same cursors; Swift sends it over HTTPS and applies each answer as a Mac reply's. Off unless
-//! the app's `relay.deltaCatchup` is on.
+//! `cmux_mobile_core::catch_up::relay`): the one relay cache client
+//! (`cmux_mobile_link::relay_cache`) builds the call and opens the reply, core turns each delta
+//! into a Mac answer and the same cursors move; Swift sends it over its own authenticated HTTPS
+//! and applies each answer as a Mac reply's. Off unless the app's `relay.deltaCatchup` is on.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_mobile_core::catch_up::relay::{self, Floors};
 use cmux_mobile_core::catch_up::service::{self as core, Answer, Ask, Workspaces};
 use cmux_mobile_core::catch_up::{Cursors, Wake};
+use cmux_mobile_link::relay_cache;
 use serde_json::Value;
 
 /// The link service to open.
@@ -272,9 +274,13 @@ impl PhoneCatchUp {
     ) -> Option<RelayCall> {
         let mut surfaces = vec!["workspaces".to_string(), "chat-list".to_string()];
         surfaces.extend(chats.iter().map(|id| relay::chat_surface(id)));
-        let body = relay::request(&self.floors(), &surfaces, budget_bytes)?;
+        let asks = relay_cache::resume_asks(&relay::wanted(&self.floors(), &surfaces));
+        if asks.is_empty() {
+            return None;
+        }
+        let body = relay_cache::catch_up_body(&asks, relay::budget(budget_bytes)).ok()?;
         Some(RelayCall {
-            path: relay::path(&source_device, "catch-up", &viewer_device),
+            path: relay_cache::path(&viewer_device, &source_device, "catch-up", &[]),
             body: body.to_string(),
         })
     }
@@ -297,15 +303,39 @@ impl PhoneCatchUp {
         let viewer = ViewerAdapter { key: viewer, public };
         let source = p256::PublicKey::from_sec1_bytes(&source_public)
             .map_err(|_| bad("relay source key is not a P-256 point".into()))?;
-        let got = relay::read(&mut self.floors(), &viewer, &source, &reply)
+        let reply = relay_cache::read_catch_up(&reply).map_err(|error| bad(error.to_string()))?;
+        let mut floors = self.floors();
+        let mut wanted: Vec<_> = reply
+            .surfaces
+            .iter()
+            .filter_map(|answered| {
+                Some((
+                    answered.surface.clone(),
+                    cmux_relay_snapshot::Floor::at(floors.get(&answered.surface)?),
+                ))
+            })
+            .collect();
+        let resume = relay_cache::apply_catch_up(reply, &source, &viewer, &mut wanted)
             .map_err(|error| bad(error.to_string()))?;
+        let opened: Vec<relay::Opened<'_>> = resume
+            .surfaces
+            .iter()
+            .map(|s| relay::Opened {
+                surface: &s.surface,
+                applied: &s.applied,
+                stopped: s.stopped.as_ref(),
+                head: s.head,
+            })
+            .collect();
+        let got = relay::take(&mut floors, &resume.cut, &opened);
+        drop(floors);
         let answers = got.answers.iter().map(|answer| self.take(answer, now)).collect();
         let acks = got
             .acks
             .iter()
-            .map(|(stream, through)| RelayCall {
-                path: format!("{}&stream={stream}", relay::path(&source_device, "ack", &viewer_device)),
-                body: relay::ack(*through).to_string(),
+            .map(|(surface, through)| RelayCall {
+                path: relay_cache::path(&viewer_device, &source_device, "ack", &[("stream", surface)]),
+                body: relay_cache::ack_body(*through).to_string(),
             })
             .collect();
         Ok(RelayCatchUpAnswer { answers, cut: cuts(&got.cut, &got.cut_why), acks })
@@ -405,7 +435,7 @@ mod tests {
         let body: Value = serde_json::from_str(&call.body).unwrap();
         assert_eq!(
             body["surfaces"],
-            serde_json::json!([{"surface": "chat/a/delta", "after": {"epoch": 2, "seq": 5}}])
+            serde_json::json!([{"surface": "chat/a", "after": {"epoch": 2, "seq": 5}}])
         );
 
         let page = br#"{"sessionId":"a","events":[],"lastSeq":9,"pageThrough":9,"hasMore":false}"#;
@@ -417,7 +447,7 @@ mod tests {
             page,
         )
         .unwrap();
-        let reply = serde_json::json!({"fromRelay": true, "cut": [], "surfaces": [{"surface": "chat/a/delta",
+        let reply = serde_json::json!({"fromRelay": true, "cut": [], "surfaces": [{"surface": "chat/a",
             "sealed": [base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed)], "head": {"epoch": 2, "seq": 6}}]});
         let source = p256::PublicKey::from(mac.verifying_key()).to_sec1_bytes().to_vec();
         let got = catch_up
@@ -435,7 +465,7 @@ mod tests {
         assert_eq!(
             got.acks,
             vec![RelayCall {
-                path: "/v1/relay-cache/mac/ack?deviceId=ph&stream=chat/a/delta".into(),
+                path: "/v1/relay-cache/mac/ack?deviceId=ph&stream=chat%2Fa".into(),
                 body: r#"{"through":{"epoch":2,"seq":6}}"#.into(),
             }]
         );

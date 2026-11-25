@@ -1,7 +1,9 @@
 use super::*;
-use cmux_relay_snapshot::delta::{CatchUp, DeltaLog};
+use cmux_relay_snapshot::delta::{self, DeltaLog};
+use p256::PublicKey;
 use p256::SecretKey;
 use p256::ecdsa::SigningKey;
+use serde_json::{Value, json};
 
 struct Pair {
     mac: SigningKey,
@@ -32,20 +34,45 @@ impl Pair {
     }
 }
 
-fn reply(entries: &[(&str, Vec<Vec<u8>>, u64)], cut: &[&str]) -> Vec<u8> {
-    let surfaces: Vec<Value> = entries
+/// What the relay cache client does with one answered stream: `delta::apply` under its floor.
+struct Applied {
+    surface: String,
+    applied: Vec<cmux_relay_snapshot::Opened>,
+    stopped: Option<ApplyError>,
+    head: Position,
+}
+
+fn apply(
+    floors: &Floors,
+    viewer: &Pair,
+    source: &Pair,
+    surface: &str,
+    sealed: &[Vec<u8>],
+    head: u64,
+) -> Applied {
+    let mut floor = Floor::at(floors.get(surface).unwrap());
+    let (applied, stopped) =
+        delta::apply(&mut floor, &viewer.phone, &source.source(), surface, sealed);
+    Applied {
+        surface: surface.to_string(),
+        applied,
+        stopped,
+        head: Position { epoch: 7, seq: head },
+    }
+}
+
+fn take_all(floors: &mut Floors, cut: &[&str], got: &[Applied]) -> RelayAnswer {
+    let cut: Vec<String> = cut.iter().map(|s| s.to_string()).collect();
+    let opened: Vec<Opened<'_>> = got
         .iter()
-        .map(|(surface, sealed, head)| {
-            let sealed: Vec<String> = sealed.iter().map(|e| URL_SAFE_NO_PAD.encode(e)).collect();
-            json!({
-                "surface": delta::delta_stream(surface),
-                "sealed": sealed,
-                "head": { "epoch": 7, "seq": head },
-            })
+        .map(|a| Opened {
+            surface: &a.surface,
+            applied: &a.applied,
+            stopped: a.stopped.as_ref(),
+            head: a.head,
         })
         .collect();
-    let cut: Vec<String> = cut.iter().map(|s| delta::delta_stream(s)).collect();
-    json!({ "fromRelay": true, "surfaces": surfaces, "cut": cut }).to_string().into_bytes()
+    take(floors, &cut, &opened)
 }
 
 fn floors_at(surfaces: &[&str], seq: u64) -> Floors {
@@ -67,21 +94,21 @@ fn deltas_from_the_relay_log_apply_in_order_as_mac_answers() {
     for seq in 4..=6 {
         log.append(pair.seal(&surface, seq, &chat("s1", seq * 10)), 0).unwrap();
     }
-    let CatchUp::Deltas(sealed) = log.catch_up(Position { epoch: 7, seq: 3 }, 0) else {
+    let delta::CatchUp::Deltas(sealed) = log.catch_up(Position { epoch: 7, seq: 3 }, 0) else {
         panic!("gap")
     };
     let mut floors = floors_at(&[&surface], 3);
-    let body = request(&floors, std::slice::from_ref(&surface), 0).unwrap();
-    assert_eq!(body["surfaces"][0]["surface"], "chat/s1/delta");
-    assert_eq!(body["surfaces"][0]["after"], json!({ "epoch": 7, "seq": 3 }));
-    assert_eq!(body["budgetBytes"], super::super::WAKE_BUDGET_BYTES);
+    let asked = wanted(&floors, std::slice::from_ref(&surface));
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].0, "chat/s1");
+    assert_eq!(asked[0].1.position(), Some(Position { epoch: 7, seq: 3 }));
 
-    let got = read(&mut floors, &pair.phone, &pair.source(), &reply(&[(&surface, sealed, 6)], &[]))
-        .unwrap();
+    let got = apply(&floors, &pair, &pair, &surface, &sealed, 6);
+    let got = take_all(&mut floors, &[], &[got]);
     let through: Vec<_> = got.answers.iter().map(|a| a.chats[0].through_seq).collect();
     assert_eq!(through, [Some(40), Some(50), Some(60)]);
     assert!(got.cut.is_empty(), "{:?}", got.cut);
-    assert_eq!(got.acks, [("chat/s1/delta".to_string(), Position { epoch: 7, seq: 6 })]);
+    assert_eq!(got.acks, [("chat/s1".to_string(), Position { epoch: 7, seq: 6 })]);
     assert_eq!(floors.get(&surface), Some(Position { epoch: 7, seq: 6 }));
 }
 
@@ -89,18 +116,23 @@ fn deltas_from_the_relay_log_apply_in_order_as_mac_answers() {
 fn every_surface_maps_to_its_mac_answer_field() {
     let pair = Pair::new();
     let mut floors = floors_at(&["workspaces", "chat-list"], 0);
-    let body = reply(
-        &[
-            ("workspaces", vec![pair.seal("workspaces", 1, &json!({ "tree_revision": "r2" }))], 1),
-            (
-                "chat-list",
-                vec![pair.seal("chat-list", 1, &json!({ "follow": true, "gone": [] }))],
-                1,
-            ),
-        ],
-        &[],
+    let a = apply(
+        &floors,
+        &pair,
+        &pair,
+        "workspaces",
+        &[pair.seal("workspaces", 1, &json!({ "tree_revision": "r2" }))],
+        1,
     );
-    let got = read(&mut floors, &pair.phone, &pair.source(), &body).unwrap();
+    let b = apply(
+        &floors,
+        &pair,
+        &pair,
+        "chat-list",
+        &[pair.seal("chat-list", 1, &json!({ "follow": true, "gone": [] }))],
+        1,
+    );
+    let got = take_all(&mut floors, &[], &[a, b]);
     assert_eq!(got.answers.len(), 2);
     assert!(got.answers[0].workspaces.is_some());
     assert_eq!(got.answers[1].chat_list, Some(json!({ "follow": true, "gone": [] })));
@@ -111,10 +143,9 @@ fn a_hole_keeps_what_applied_and_cuts_the_surface() {
     let pair = Pair::new();
     let surface = chat_surface("s1");
     let mut floors = floors_at(&[&surface], 0);
-    let sealed =
-        vec![pair.seal(&surface, 1, &chat("s1", 1)), pair.seal(&surface, 3, &chat("s1", 3))];
-    let got = read(&mut floors, &pair.phone, &pair.source(), &reply(&[(&surface, sealed, 3)], &[]))
-        .unwrap();
+    let sealed = [pair.seal(&surface, 1, &chat("s1", 1)), pair.seal(&surface, 3, &chat("s1", 3))];
+    let got = apply(&floors, &pair, &pair, &surface, &sealed, 3);
+    let got = take_all(&mut floors, &[], &[got]);
     assert_eq!(got.answers.len(), 1);
     assert_eq!(got.cut, ["chats:s1"]);
     assert_eq!(got.cut_why["chats:s1"], "hole");
@@ -126,9 +157,8 @@ fn a_relay_that_withholds_the_tail_is_cut_short() {
     let pair = Pair::new();
     let surface = chat_surface("s1");
     let mut floors = floors_at(&[&surface], 0);
-    let sealed = vec![pair.seal(&surface, 1, &chat("s1", 1))];
-    let got = read(&mut floors, &pair.phone, &pair.source(), &reply(&[(&surface, sealed, 5)], &[]))
-        .unwrap();
+    let got = apply(&floors, &pair, &pair, &surface, &[pair.seal(&surface, 1, &chat("s1", 1))], 5);
+    let got = take_all(&mut floors, &[], &[got]);
     assert_eq!(got.answers.len(), 1);
     assert_eq!(got.cut_why["chats:s1"], "short");
 }
@@ -139,15 +169,11 @@ fn another_keys_seal_or_another_chats_page_is_refused() {
     let stranger = Pair::new();
     let surface = chat_surface("s1");
     let mut floors = floors_at(&[&surface, "chat/s2"], 0);
-    let body = reply(
-        &[
-            (&surface, vec![stranger.seal(&surface, 1, &chat("s1", 1))], 1),
-            // Sealed for s2's stream but naming s1: refused as not s2's page.
-            ("chat/s2", vec![pair.seal("chat/s2", 1, &chat("s1", 1))], 1),
-        ],
-        &[],
-    );
-    let got = read(&mut floors, &pair.phone, &pair.source(), &body).unwrap();
+    let a =
+        apply(&floors, &pair, &pair, &surface, &[stranger.seal(&surface, 1, &chat("s1", 1))], 1);
+    // Sealed for s2's stream but naming s1: refused as not s2's page.
+    let b = apply(&floors, &pair, &pair, "chat/s2", &[pair.seal("chat/s2", 1, &chat("s1", 1))], 1);
+    let got = take_all(&mut floors, &[], &[a, b]);
     assert!(got.answers.is_empty());
     assert_eq!(got.cut_why["chats:s1"], "seal");
     assert_eq!(got.cut_why["chats:s2"], "plaintext");
@@ -157,20 +183,14 @@ fn another_keys_seal_or_another_chats_page_is_refused() {
 
 #[test]
 fn the_relays_cut_and_unasked_surfaces() {
-    let pair = Pair::new();
     let mut floors = floors_at(&["workspaces"], 0);
-    // Only surfaces with a floor are asked; none at all asks nothing.
-    assert!(request(&Floors::default(), &["workspaces".into()], 0).is_none());
-    let body =
-        request(&floors, &["chat/x".into(), "workspaces".into(), "workspaces".into()], 1 << 30)
-            .unwrap();
-    assert_eq!(body["surfaces"].as_array().unwrap().len(), 1);
-    assert_eq!(body["budgetBytes"], MAX_BUDGET_BYTES);
-    let got =
-        read(&mut floors, &pair.phone, &pair.source(), &reply(&[], &["workspaces", "chat/x"]))
-            .unwrap();
+    // Only surfaces with a floor are asked, once each; none at all asks nothing.
+    assert!(wanted(&Floors::default(), &["workspaces".into()]).is_empty());
+    let asked = wanted(&floors, &["chat/x".into(), "workspaces".into(), "workspaces".into()]);
+    assert_eq!(asked.len(), 1);
+    assert_eq!(budget(0), super::super::WAKE_BUDGET_BYTES as usize);
+    let got = take_all(&mut floors, &["workspaces", "chat/x"], &[]);
     assert_eq!(got.cut, ["workspaces", "chats:x"]);
-    assert_eq!(read(&mut floors, &pair.phone, &pair.source(), b"{}"), Err(ReadError::NotRelay));
 }
 
 #[test]
@@ -183,8 +203,6 @@ fn floors_round_trip_and_follow_the_mac() {
     assert_eq!(floors.get("chat/a"), Some(Position { epoch: 7, seq: 5 }));
     floors.set_from_mac(&[("chat/a".to_string(), (8, 1))].into());
     assert_eq!(floors.get("chat/a"), Some(Position { epoch: 8, seq: 1 }));
-    let big = (1u64 << 53) + 1;
-    assert_eq!(ack(Position { epoch: big, seq: 1 })["through"]["epoch"], big.to_string());
 }
 
 #[test]

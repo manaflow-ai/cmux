@@ -10,8 +10,8 @@
 //! or forge one. A surface the relay holds nothing for, has a gap in, or cut for the budget comes
 //! back in [`RelayAnswer::cut`]: the phone asks the Mac for it on wake, as today.
 //!
-//! Surfaces, as the Mac names them when it publishes (each relay stream is the surface's
-//! [`cmux_relay_snapshot::delta::delta_stream`]):
+//! Surfaces, as the Mac names them when it publishes (the relay keys a surface's log by this
+//! name; each delta is sealed on its [`cmux_relay_snapshot::delta::delta_stream`]):
 //!
 //! - `workspaces`: one delta is the `workspaces` object of a `catch-up` reply;
 //! - `chat-list`: the `chatList` object (an `_acpmux/watch` follow);
@@ -22,24 +22,18 @@
 //! relay position the state it answered with reached. With no position for a surface the relay is
 //! not asked for it (there is no base state to apply deltas over).
 //!
-//! Sans-I/O: [`path`] and [`request`] build the HTTPS call, [`read`] takes the reply body, and
-//! [`ack`] the drain call the phone sends after it applied (the app does the I/O).
+//! This module holds what is the phone's own: which surfaces to ask and from where ([`wanted`]),
+//! and what an opened delta means ([`take`]). The relay calls themselves, the seal checks and the
+//! in-order apply are the one relay cache client, `cmux_mobile_link::relay_cache` (its sans-I/O
+//! `path`, `catch_up_body`, `read_catch_up`, `apply_catch_up` and `ack_body`).
 
 use std::collections::BTreeMap;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use cmux_relay_snapshot::delta::{self, ApplyError};
-use cmux_relay_snapshot::{Floor, Position, Viewer};
-use p256::PublicKey;
+use cmux_relay_snapshot::delta::ApplyError;
+use cmux_relay_snapshot::{Floor, Position};
 use serde_json::{Value, json};
 
 use super::service::{self, Answer};
-
-/// The relay's most surfaces in one catch-up (`CATCH_UP_MAX_SURFACES`).
-pub const MAX_SURFACES: usize = 64;
-/// The relay's most `budgetBytes` (`CATCH_UP_BUDGET_MAX`).
-pub const MAX_BUDGET_BYTES: u64 = 256 * 1024;
 
 const FORMAT: &str = "cmux-relay-floors/1";
 const WORKSPACES: &str = "workspaces";
@@ -60,10 +54,6 @@ pub fn cut_name(surface: &str) -> String {
             None => surface.to_string(),
         },
     }
-}
-
-fn surface_of_stream(stream: &str) -> Option<&str> {
-    stream.strip_suffix("/delta")
 }
 
 /// The highest relay position the phone applied of each surface: the rollback guard
@@ -132,47 +122,39 @@ impl Floors {
     }
 }
 
-/// The relay route of a call (`catch-up` or `ack`) to `source`'s cache, as `viewer`.
-pub fn path(source_device: &str, what: &str, viewer_device: &str) -> String {
-    format!("/v1/relay-cache/{source_device}/{what}?deviceId={viewer_device}")
+/// The relay's most surfaces in one catch-up (`CATCH_UP_MAX_SURFACES`).
+pub const MAX_SURFACES: usize = 64;
+
+/// The catch-up budget for `budget` (0: the wake's, [`super::WAKE_BUDGET_BYTES`]); the relay
+/// client caps it at the relay's most.
+pub fn budget(budget: u64) -> usize {
+    let budget = if budget == 0 { super::WAKE_BUDGET_BYTES } else { budget };
+    usize::try_from(budget).unwrap_or(usize::MAX)
 }
 
-/// The catch-up body for `surfaces` (most wanted first: the budget cuts from the end), only
-/// those with a floor, at most [`MAX_SURFACES`]. None when there is nothing to ask.
-pub fn request(floors: &Floors, surfaces: &[String], budget: u64) -> Option<Value> {
+/// The surfaces to ask the relay for, of `surfaces` (most wanted first: the budget cuts from the end), each
+/// with the floor it resumes after: only those with a floor, once each, at most [`MAX_SURFACES`].
+/// The relay cache client (`cmux_mobile_link::relay_cache`) asks and opens them.
+pub fn wanted(floors: &Floors, surfaces: &[String]) -> Vec<(String, Floor)> {
     let mut seen = std::collections::BTreeSet::new();
-    let asks: Vec<Value> = surfaces
+    surfaces
         .iter()
         .filter(|surface| seen.insert(surface.as_str()))
-        .filter_map(|surface| {
-            let after = floors.get(surface)?;
-            Some(json!({
-                "surface": delta::delta_stream(surface),
-                "after": { "epoch": u64_json(after.epoch), "seq": u64_json(after.seq) },
-            }))
-        })
+        .filter_map(|surface| Some((surface.clone(), Floor::at(floors.get(surface)?))))
         .take(MAX_SURFACES)
-        .collect();
-    if asks.is_empty() {
-        return None;
-    }
-    let budget = if budget == 0 { super::WAKE_BUDGET_BYTES } else { budget.min(MAX_BUDGET_BYTES) };
-    Some(json!({ "surfaces": asks, "budgetBytes": budget }))
+        .collect()
 }
 
-/// The body of the `ack` call that drains a surface's relay log through what the phone applied
-/// (the route's `?stream=` is `stream`).
-pub fn ack(through: Position) -> Value {
-    json!({ "through": { "epoch": u64_json(through.epoch), "seq": u64_json(through.seq) } })
-}
-
-/// The JSON of a u64 as the relay writes it: a number while exact, else a decimal string.
-fn u64_json(value: u64) -> Value {
-    if value <= (1u64 << 53) - 1 { json!(value) } else { json!(value.to_string()) }
-}
-
-fn u64_of(value: &Value) -> Option<u64> {
-    value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+/// One surface as the relay cache client opened it.
+#[derive(Debug, Clone, Copy)]
+pub struct Opened<'a> {
+    pub surface: &'a str,
+    /// The deltas that opened, in order.
+    pub applied: &'a [cmux_relay_snapshot::Opened],
+    /// Why it stopped before the end, if it did.
+    pub stopped: Option<&'a ApplyError>,
+    /// Where the relay says the surface's log reached.
+    pub head: Position,
 }
 
 /// What one relay catch-up gave.
@@ -184,43 +166,15 @@ pub struct RelayAnswer {
     pub cut: Vec<String>,
     /// Why each was cut.
     pub cut_why: BTreeMap<String, String>,
-    /// `(stream, through)` to acknowledge (the `ack` call per surface), after applying.
+    /// `(surface, through)` to acknowledge (the `ack` call per surface), after applying.
     pub acks: Vec<(String, Position)>,
 }
 
-/// Why a relay reply could not be read at all.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReadError {
-    NotJson(String),
-    /// Not the relay's catch-up reply (`fromRelay`).
-    NotRelay,
-}
-
-impl std::fmt::Display for ReadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotJson(error) => write!(f, "relay catch-up reply is not JSON: {error}"),
-            Self::NotRelay => f.write_str("not a relay catch-up reply"),
-        }
-    }
-}
-
-impl std::error::Error for ReadError {}
-
-/// Reads the relay's reply body: unseals each surface's deltas under its floor, in order, and
-/// turns each into a `catch-up` answer. A surface whose deltas stop (a hole, a seal refusal, a
-/// plaintext that is not one surface's answer) keeps what applied before and is cut.
-pub fn read<V: Viewer + ?Sized>(
-    floors: &mut Floors,
-    viewer: &V,
-    source: &PublicKey,
-    body: &[u8],
-) -> Result<RelayAnswer, ReadError> {
-    let reply: Value =
-        serde_json::from_slice(body).map_err(|error| ReadError::NotJson(error.to_string()))?;
-    if reply.get("fromRelay").and_then(Value::as_bool) != Some(true) {
-        return Err(ReadError::NotRelay);
-    }
+/// Turns what the relay cache client opened into `catch-up` answers: each delta's plaintext is one
+/// surface's answer. A surface that stopped (a hole, a seal refusal, a plaintext that is not its
+/// surface's answer) or that the relay held back (`cut`, or a head past what applied) keeps what
+/// applied before and is cut. `floors` rises to what applied.
+pub fn take(floors: &mut Floors, relay_cut: &[String], opened: &[Opened<'_>]) -> RelayAnswer {
     let mut out = RelayAnswer::default();
     let cut = |out: &mut RelayAnswer, surface: &str, why: &str| {
         let name = cut_name(surface);
@@ -229,40 +183,18 @@ pub fn read<V: Viewer + ?Sized>(
             out.cut.push(name);
         }
     };
-    for stream in reply.get("cut").and_then(Value::as_array).into_iter().flatten() {
-        if let Some(surface) = stream.as_str().and_then(surface_of_stream) {
-            cut(&mut out, surface, "relay");
-        }
+    for surface in relay_cut {
+        cut(&mut out, surface, "relay");
     }
-    for entry in reply.get("surfaces").and_then(Value::as_array).into_iter().flatten() {
-        let Some(surface) =
-            entry.get("surface").and_then(Value::as_str).and_then(surface_of_stream)
-        else {
-            continue;
-        };
+    for entry in opened {
+        let surface = entry.surface;
         let Some(have) = floors.get(surface) else { continue };
-        let envelopes: Option<Vec<Vec<u8>>> = entry
-            .get("sealed")
-            .and_then(Value::as_array)
-            .map(|sealed| {
-                sealed
-                    .iter()
-                    .map(|b64| b64.as_str().and_then(|b| URL_SAFE_NO_PAD.decode(b).ok()))
-                    .collect()
-            })
-            .unwrap_or(Some(Vec::new()));
-        let Some(envelopes) = envelopes else {
-            cut(&mut out, surface, "malformed");
-            continue;
-        };
-        let mut floor = Floor::at(have);
-        let (opened, stopped) = delta::apply(&mut floor, viewer, source, surface, &envelopes);
         let mut through = None;
-        let mut bad = stopped.map(|error| match error {
+        let mut bad = entry.stopped.map(|error| match error {
             ApplyError::NotNext { .. } => "hole",
             ApplyError::Seal(_) => "seal",
         });
-        for delta in opened {
+        for delta in entry.applied {
             match answer_of(surface, &delta.plaintext) {
                 Some(answer) => {
                     out.answers.push(answer);
@@ -276,20 +208,16 @@ pub fn read<V: Viewer + ?Sized>(
         }
         if let Some(position) = through {
             floors.floors.insert(surface.to_string(), position);
-            out.acks.push((delta::delta_stream(surface), position));
+            out.acks.push((surface.to_string(), position));
         }
         if let Some(why) = bad {
             cut(&mut out, surface, why);
-        }
-        // The head the relay says it reached: deltas missing before it mean it withheld some.
-        let head = entry.get("head").and_then(|head| {
-            Some(Position { epoch: u64_of(head.get("epoch")?)?, seq: u64_of(head.get("seq")?)? })
-        });
-        if bad.is_none() && head.is_some_and(|head| head > floors.get(surface).unwrap_or(have)) {
+        } else if entry.head > through.unwrap_or(have) {
+            // The relay holds more than it sent: it withheld the tail.
             cut(&mut out, surface, "short");
         }
     }
-    Ok(out)
+    out
 }
 
 /// One delta's plaintext as the `catch-up` answer of its surface.
