@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// Where a tab sits among its screen's splits on the Mac, for its grid card: each shown pane's
