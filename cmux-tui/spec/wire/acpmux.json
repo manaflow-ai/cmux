@@ -1193,6 +1193,9 @@
     "team-audit-v1": [
       "method:_acpmux/team_audit"
     ],
+    "team-listen-v1": [
+      "method:_acpmux/team/listen"
+    ],
     "team-messaging-v1": [
       "method:_acpmux/team/ack",
       "method:_acpmux/team/inbox",

@@ -3204,6 +3204,14 @@ body {
     mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
     transform: translateX(-50%);
   }
+  /* A running call's own clock (RunningTime.tsx) sits after the words in the row, with no lit copy of
+     its time: the band would span the row, so its lit words ran on under the clock and the clock drew
+     over their cut end while the glimmer crossed (Leo, 2026-11-25: "when the glimmer happens ... there's
+     a timer number that appears at the end and overlaps?"). The band takes the words' box instead, so
+     the words cut with their ellipsis before the clock and the clock keeps its own slot. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__row:has(> .cv-command__elapsed) > .cv-thinking.is-shimmer {
+    position: relative;
+  }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
     display: flex;
     min-width: 0;
@@ -6700,6 +6708,45 @@ a.cv-sha:focus-visible {
   block-size: 100%;
   background: color-mix(in srgb, currentColor 45%, transparent);
   transition: inline-size var(--cmux-motion-micro) linear;
+}
+/* An agent's ask for one setting or connection (settings_ask; the settings-ask-card experiment's
+   `needs` arm): the Needs you card's look (pages/feed/styles.css .feed-needs), an elevated card with a
+   Needs you header and one row, the control at its end. */
+.cv-settings-ask {
+  display: flex;
+  flex-direction: column;
+  max-inline-size: 560px;
+  padding: 4px;
+  border-radius: var(--ds-radius-xl, 12px);
+  background: var(--ds-color-elevated);
+  box-shadow: var(--elevation-1);
+}
+:root:not([data-borders="none"]) .cv-settings-ask {
+  outline: 1px solid var(--ds-color-separator);
+  outline-offset: -1px;
+}
+.cv-settings-ask__header {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ds-color-muted);
+}
+.cv-settings-ask__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 8px;
+}
+.cv-settings-ask__icon {
+  flex: none;
+  color: var(--agent-text);
+}
+.cv-settings-ask__line {
+  flex: 1;
+  min-width: 0;
 }
 /* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
    the prose's ink, never the failure red. */

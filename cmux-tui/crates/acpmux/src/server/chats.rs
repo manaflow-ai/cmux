@@ -112,8 +112,12 @@ use crate::rpc::{Message, RpcError};
 const PREFIX: &str = "_acpmux/chat";
 
 /// `_acpmux/chat*` methods `requests.rs` answers; any other name under [`PREFIX`] is the index's.
-const NOT_THE_INDEX: &[&str] =
-    &[crate::rpc::method::MUX_CHAT_ROUTE_SET, "_acpmux/chat_place", "_acpmux/chat_place_set"];
+const NOT_THE_INDEX: &[&str] = &[
+    crate::rpc::method::MUX_CHAT_ROUTE_SET,
+    crate::rpc::method::MUX_CHAT_MOVE,
+    "_acpmux/chat_place",
+    "_acpmux/chat_place_set",
+];
 
 /// Answers the chat methods; every other method goes to `requests.rs`.
 pub(super) async fn route(
