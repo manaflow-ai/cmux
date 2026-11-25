@@ -4176,7 +4176,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 :root[data-transcript-tool-font] .cv-tool {
   font-family: var(--cv-tool-font, var(--cv-font));
 }
-:root[data-transcript-tool-command-font] .cv-tool :is(.cv-command__line, .cv-tool-label__subject, .cv-tool__file) {
+:root[data-transcript-tool-command-font] .cv-tool :is(.cv-command__line, .cv-tool__file) {
   font-family: var(--cv-tool-command-font, inherit);
 }
 /* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the
@@ -8071,6 +8071,22 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The bottom stack's room (transcriptShell.tsx), and the mask's foot and holes it sets: read on the
+   scroller itself (its mask, its scroll padding) and on the jump buttons, which set their own. Not
+   inherited, so the composer growing a line restyles the scroller and none of its rows: inherited,
+   each wrap restyled every row in WebKit, 13-16 ms in the key's frame (composer-typing.bench.ts L0). */
+@property --acpmux-dock-space {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-dock-holes {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-view-foot {
+  syntax: "*";
+  inherits: false;
+}
 /* The top band eases (smoothstep at 9 stops) and is 24px: a linear 18px band ended in a line under the
    header (Leo, 2026-11-22: "there's simultaneously a fade AND a hard break ideally lessen the hard
    break"). */
@@ -9333,12 +9349,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   padding-bottom: var(--grid-gap-foot);
   margin-bottom: var(--grid-gap);
 }
-/* The command line after a named action, in the dim tone (commandLabel.experiment.ts
-   "verbs-command"): what ran, under what it did. */
-.cv-command__dim {
-  color: var(--cv-text-dim);
-}
-
 /* Where a prompt was sent from (SentFromLine.tsx): the sender chip, then "self-reported" when acpmux
    could not confirm it. */
 .cv-user__sent-from {

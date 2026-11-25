@@ -484,7 +484,7 @@
         },
         {
           "key": "experiments.terminalHistoryFind",
-          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps Ghostty's own screen search, unchanged. Applies to terminals opened after the switch.",
+          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). On by default (Leo asked for it, cmux#53180: \"can we have better cmd f find for terminal gui chats? maybe terminals in general\"); off keeps Ghostty's own screen search. Applies to terminals opened after the switch.",
           "title": {
             "key": "settings.experiments.terminalHistoryFind",
             "text": "Terminal History Find"
@@ -494,7 +494,7 @@
             "text": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "experiments",
             "experimental",
