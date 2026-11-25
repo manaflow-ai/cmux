@@ -422,8 +422,6 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next.yml#app-compile-fleet": "apple-app-build",
-    "cmux-next.yml#checks": "portable-checks",
-    "cmux-next.yml#path_route": "portable-checks",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#dev-landing-compile": "apple-app-build",
