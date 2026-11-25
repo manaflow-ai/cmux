@@ -35,6 +35,22 @@ const CLAUDE_NAME = /^mcp__(.+?)__(.+)$/;
 /// `mcp__<server>__<tool>` with the arguments as its input; Codex nests them under
 /// `{server, tool, arguments}`.
 export function mcpCall(tool: Tool): McpCall | undefined {
+  // Asked of every tool row on every reshape of the running turn, by several readers each; a row
+  // that did not change keeps its object, so its input is parsed once, not on every record.
+  const kept = mcpCalls.get(tool);
+  if (kept && kept.title === tool.title && kept.inputSummary === tool.inputSummary && kept.command === tool.command)
+    return kept.call;
+  const call = readMcpCall(tool);
+  mcpCalls.set(tool, { title: tool.title, inputSummary: tool.inputSummary, command: tool.command, call });
+  return call;
+}
+
+const mcpCalls = new WeakMap<
+  Tool,
+  { title: string; inputSummary: string | undefined; command: string | undefined; call: McpCall | undefined }
+>();
+
+function readMcpCall(tool: Tool): McpCall | undefined {
   const name = CLAUDE_NAME.exec(tool.title.trim());
   if (name) return { server: name[1]!, tool: name[2]!, args: parseJSON(tool.inputSummary) };
   const input = parseJSON(tool.inputSummary);
