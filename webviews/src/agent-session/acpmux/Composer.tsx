@@ -7,14 +7,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -29,10 +29,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
-  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -63,6 +63,7 @@ import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
+import { handleVimKey, VIM_INITIAL, type VimMode, type VimState } from "./composer/vimKeys";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
@@ -502,6 +503,8 @@ type Props = {
   onConnect?(kind: ConnectKind): void;
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
+  /// The place control, for a started chat (see ComposerContext).
+  placeControl?: React.ReactNode;
   offloads?: readonly OffloadKind[];
   /// Why each offered move would refuse now (see ComposerContext).
   offloadReasons?: OffloadReasons;
@@ -550,6 +553,9 @@ type Props = {
   authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Sends the agent's /compact: the context ring's card shows Compact conversation above Details
+  /// only with it (Leo 2026-11-25: "honestly do we want a compact button here or...").
+  onCompact?(): void;
   /// Reconnects the acpmux peer a chat on another machine runs on, from the quiet row's link
   /// (MachineLinkStatus.tsx).
   onReconnectMachine?(link: PeerLink): Promise<unknown> | void;
@@ -593,6 +599,9 @@ export type ComposerRelay = {
   onUnplacedQuotes(quotes: string[]): void;
   /// The note a file brought to the relay leaves (`attachRefusal`).
   attachRefusal: string;
+  /// The relay target's own chips in the chat's chips' place: a subagent's read-only model and
+  /// mode (subagents/SubagentForkChips.tsx), never the chat's pickers. Unset, the row has none.
+  chips?: Props["chips"];
 };
 
 /// The props a relayed composer keeps (ComposerRelay); every other is the chat's and left unset.
@@ -686,7 +695,7 @@ function useRelayProps(props: Props): Props {
   return {
     ...kept,
     snapshot: shown,
-    chips: noChips,
+    chips: relay.chips ?? noChips,
     onStop: noStop,
     onSend: (text, attachments) => latest.current?.send?.(text, attachments ?? []) ?? false,
     blockSend: !relay.send,
@@ -793,6 +802,7 @@ function ComposerFrame({
   onBrowseFolder,
   onConnect,
   onOffload,
+  placeControl,
   offloads,
   offloadReasons,
   onRefreshMachines,
@@ -818,6 +828,7 @@ function ComposerFrame({
   authChecking = false,
   placeholder,
   onOpenContext,
+  onCompact,
   onReconnectMachine,
   onDraftChange,
   attachRefusal,
@@ -1035,11 +1046,21 @@ function ComposerFrame({
     showContextUsage,
     composerRing,
     spellChecking,
+    composerVimKeys: vimKeys,
     scrollToBottomOnSend,
     plainFooter,
     attachmentView,
     followUpMode,
   } = useComposerSettings();
+  // Modal vim in the prompt (composer/vimKeys.ts), when `agentPane.composerVimKeys` is on. The state
+  // lives in a ref so a key reads the latest; the mode alone renders (the indicator).
+  const vimState = useRef<VimState>(VIM_INITIAL);
+  const [vimMode, setVimMode] = useState<VimMode>(VIM_INITIAL.mode);
+  useEffect(() => {
+    if (vimKeys) return;
+    vimState.current = VIM_INITIAL;
+    setVimMode(VIM_INITIAL.mode);
+  }, [vimKeys]);
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2812,6 +2833,7 @@ function ComposerFrame({
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
+      {...(placeControl ? { placeControl } : {})}
       {...(offloads ? { offloads } : {})}
       {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}
@@ -2966,6 +2988,21 @@ function ComposerFrame({
     const text = promptRef.current.text;
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
+    // Vim keys (opt-in): normal mode takes the plain keys, Esc in insert mode leaves it. A menu that
+    // is open keeps Esc, and the shell line is its own field. Off, nothing here runs.
+    if (vimKeys && !shell && !listShown && field.current) {
+      const { value, selectionEnd } = field.current.text();
+      const result = handleVimKey(vimState.current, event, value, selectionEnd);
+      vimState.current = result.state;
+      if (result.state.mode !== vimMode) setVimMode(result.state.mode);
+      if (result.handled) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (result.undo) field.current.undo();
+        else if (result.caret !== undefined) field.current.writeText(result.value ?? value, result.caret, result.caret);
+        return;
+      }
+    }
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // ⌃S stashes the draft; on an empty prompt it brings the newest stashed one back.
@@ -3564,6 +3601,7 @@ function ComposerFrame({
         pasteKeepsText={cloudStarting}
         onPasteRefused={() => setAttachError(t("composer.cloudStartingAttach"))}
         fieldMenu={fieldMenu}
+        {...(vimKeys ? { vimMode } : {})}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
           shell && (
@@ -3753,6 +3791,9 @@ function ComposerFrame({
                 cacheExpiresAt={usage?.cacheExpiresAt}
                 breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
+                onCompact={onCompact}
+                // A turn or a compaction running (a compaction is a turn): the row stays, inert.
+                compactDisabled={running}
                 {...(composerRing === "planUsage"
                   ? {
                       plan: {

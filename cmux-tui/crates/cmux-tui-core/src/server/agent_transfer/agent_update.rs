@@ -173,7 +173,6 @@ impl Failure {
         match error {
             LinkError::Closed => Self::AcpmuxUnavailable,
             LinkError::Timeout => Self::Timeout,
-            LinkError::Busy => Self::Busy,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }

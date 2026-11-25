@@ -134,6 +134,36 @@ SWIFT_STRINGS = """\
         static func placeholderTitle(_ machine: String) -> String { machine }
     }
 """
+# A strings member whose words sit under a local (`let state`) inside it, and the button that draws it (cmux#53574's
+# Live tooltip: "Click to go offline" read as a state on the strings type, and every kit run on base went red).
+SWIFT_STRINGS_LOCAL = """\
+    extension Strings {
+        static func liveTooltip(isLive: Bool) -> String {
+            let state = isLive
+                ? String(localized: "sidebar.live.on", defaultValue: "Live is on. Click to go offline.")
+                : String(localized: "sidebar.live.off", defaultValue: "Live is off. Click to go live.")
+            return state
+        }
+    }
+"""
+SWIFT_LIVE_BUTTON = """\
+    import AppKit
+
+    extension SidebarView {
+        func applyLive() { liveButton.toolTip = Strings.liveTooltip(isLive: live.isLive) }
+        func liveMenu() -> NSMenu {
+            let item = NSMenuItem(title: "", action: #selector(SidebarLiveMenuTarget.pick(_:)), keyEquivalent: "")
+            return NSMenu()
+        }
+    }
+"""
+SWIFT_LIVE_LABEL = """\
+    import AppKit
+
+    final class LiveLabel: NSView {
+        func show(isLive: Bool) { label.stringValue = Strings.liveTooltip(isLive: isLive) }
+    }
+"""
 SWIFT_VIEW_OLD = """\
     import AppKit
 
@@ -294,6 +324,20 @@ class NativeShapes(unittest.TestCase):
                       "state ('RemoteStrings: Reconnecting to %@…')", out)
         self.assertNotIn("RemoteTerminalTitleView", out, "a view that draws another member of the strings is quiet")
         self.assertNotIn("RemoteStrings.swift", out)
+
+    def test_words_under_a_local_belong_to_the_member_around_it(self):
+        """The hit's member is the strings function, not the `let` inside it: the words move to the unit that calls
+        the function. A button with its own action passes; a label with none fails at the label."""
+        tree = Tree(self)
+        tree.write(f"{MAC}/Strings+Live.swift", SWIFT_STRINGS_LOCAL)
+        tree.write(f"{MAC}/SidebarView+Live.swift", SWIFT_LIVE_BUTTON)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/LiveLabel.swift", SWIFT_LIVE_LABEL)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{MAC}/LiveLabel.swift:4: LiveLabel shows a connection state", out)
+        self.assertNotIn("Strings+Live.swift:", out)
 
     def test_remote_placeholder_held_for_notice_timing_passes(self):
         tree = Tree(self)

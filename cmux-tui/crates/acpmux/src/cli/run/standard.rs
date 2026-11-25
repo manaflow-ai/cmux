@@ -28,6 +28,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Preset { .. }
             | Command::Models { .. }
             | Command::WarmHome { .. }
+            | Command::SpareShapes
             | Command::Reload
             | Command::Schema
             | Command::Defaults { .. }
@@ -213,10 +214,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::WarmHome { wait } => {
+        Command::WarmHome { wait, shapes } => {
             let client = connect(true).await?;
+            // `HARNESS[:MODEL]`: the model is everything after the first colon.
+            let shapes: Vec<Value> = shapes
+                .iter()
+                .map(|s| match s.split_once(':') {
+                    Some((h, m)) => json!({"harness": h, "model": m}),
+                    None => json!({"harness": s}),
+                })
+                .collect();
             let v = client
-                .request(method::MUX_PREWARM, json!({"reserveHome": true, "wait": wait}))
+                .request(
+                    method::MUX_PREWARM,
+                    json!({"reserveHome": true, "wait": wait, "shapes": shapes}),
+                )
                 .await?;
             if json_out {
                 print_json(&v);
@@ -224,6 +236,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let state = v.get("state").and_then(Value::as_str).unwrap_or("not accepted");
                 println!("home chat warm: {state}");
             }
+            Ok(())
+        }
+        Command::SpareShapes => {
+            // Read from this machine's own file, no daemon: the shapes a Cloud spare warms for
+            // this person (`warm-home --shape`).
+            print_json(&Value::Array(crate::hub::person_spare_shapes()));
             Ok(())
         }
         Command::Reload => {
@@ -333,6 +351,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             launch.reuse,
                             interactive,
                             args.host.is_none(),
+                            args.host
+                                .as_deref()
+                                .is_some_and(|host| host.eq_ignore_ascii_case("auto")),
                         ),
                     )
                     .await?
@@ -361,6 +382,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(h) = &host {
                 meta["peer"] = json!(h);
+            }
+            if placed {
+                meta["autoPlace"] = json!(true);
             }
             if args.force_admit {
                 meta["forceAdmit"] = json!(true);
@@ -474,6 +498,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
+                // An Auto start may wait for a machine being added: say so when it begins.
+                if placed {
+                    client.print_admission_waiting();
+                }
                 match find_or_create(
                     &client,
                     deadline,
@@ -592,7 +620,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     )
                     .await?;
                     if !json_out {
-                        warn_host_pressure(&accepted);
+                        warn_host_pressure(&accepted, crate::cli::host_budget::Done::Started);
                     }
                 }
                 show()?;
@@ -629,7 +657,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await?;
                 if !json_out {
-                    warn_host_pressure(&accepted);
+                    warn_host_pressure(&accepted, crate::cli::host_budget::Done::Started);
                 }
             }
             if let Err(mut open_error) = show() {
@@ -793,6 +821,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             dry_run,
             notice,
             gather,
+            within,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -846,6 +875,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // Clap already validated the explicit class. Keep it separate from inferred defaults.
             let relay_class = class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
             prompt_id.class = class;
+            prompt_id.within = within;
             prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             prompt_id.relay = relay_fields(relay);

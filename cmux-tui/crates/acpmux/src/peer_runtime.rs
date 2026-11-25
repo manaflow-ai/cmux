@@ -232,6 +232,13 @@ impl Peer {
         }
     }
 
+    /// Whether its last handshake advertised the folder trust gate (`trustGate`), as every
+    /// current daemon's does: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_trust_gate(&self, advertised: bool) {
+        self.trust_gate.store(advertised, Ordering::SeqCst);
+    }
+
     /// What its last handshake listed (`lists`): a test's peer that never ran.
     #[cfg(test)]
     pub(crate) fn seed_features(&self, features: &[&str]) {
@@ -760,6 +767,7 @@ impl Peer {
             "cause": observed.cause,
             "reason": observed.reason,
             "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
+            "downReason": observed.down_reason,
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,

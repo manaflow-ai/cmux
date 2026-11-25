@@ -26,6 +26,9 @@ cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
+# The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
+cmux-terminal-projection.workspace = true
+cmux-remote-protocol.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
 flate2.workspace = true
@@ -59,7 +62,7 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-fault.workspace = true
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
-cmux-fault.workspace = true
