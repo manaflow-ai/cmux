@@ -19,8 +19,8 @@ pub struct Request {
     pub page_live: bool,
     /// The Cloud tab has no page of its own yet.
     pub cloud_page_free: bool,
-    /// `CMUX_CLOUD_ONE_PANE` as set, if it is.
-    #[serde(default)]
+    /// `CMUX_CLOUD_ONE_PANE` as set, if it is (the app sends it as `onePane`; `killSwitch` is the older name).
+    #[serde(default, alias = "onePane")]
     pub kill_switch: Option<String>,
 }
 
