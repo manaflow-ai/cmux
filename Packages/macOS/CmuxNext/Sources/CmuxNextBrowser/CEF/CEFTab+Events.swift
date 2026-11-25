@@ -143,6 +143,7 @@ extension CEFTab {
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true)); hiddenHangChanged()
         case .renderResponsive: machine.apply(.unresponsiveChanged(false)); hiddenHangChanged()
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .authPrompt(_, let token, let host, let realm, let isSecure): CEFHTTPAuthPrompts(tab: self).ask(token: token, host: host, realm: realm, isSecure: isSecure)
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
