@@ -1,0 +1,83 @@
+{
+  "id": "app-life-quit-restore",
+  "priority": "P0",
+  "title": "Cmd-Q and reopen: the window, its split panes, tabs, working directories and terminal text come back",
+  "why": "A person quits cmux every day (and every update relaunches it). If a split, a tab, a working directory or the scrollback is lost, their work setup is gone. Cmd-Q goes through the real key path; the reopen goes through LaunchServices like a Dock click.",
+  "source": "app life (holistic-quality.md 1): quit and restart (session restore); P0 'restart'",
+  "budget_seconds": 100,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-restore", "as": "left"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "mkdir -p /tmp/jr-${nonce}-left && cd /tmp/jr-${nonce}-left && echo left-${nonce}-$((6*7))", "enter": true, "mark": "left"},
+    {"do": "expect", "title": "the left shell is in its own folder", "since": "left", "timeout": 10,
+     "all": [{"daemon_line": "left-${nonce}-42"}, {"daemon_cwd": "/tmp/jr-${nonce}-left"}]},
+
+    {"do": "key", "key": "d", "modifiers": ["cmd"]},
+    {"do": "focused_terminal", "as": "right"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "mkdir -p /tmp/jr-${nonce}-right && cd /tmp/jr-${nonce}-right && echo right-${nonce}-$((6*7))", "enter": true, "mark": "right"},
+    {"do": "expect", "title": "the right shell is in its own folder", "since": "right", "timeout": 10,
+     "all": [{"daemon_line": "right-${nonce}-42"}, {"daemon_cwd": "/tmp/jr-${nonce}-right"}]},
+
+    {"do": "key", "key": "`", "modifiers": ["control"]},
+    {"do": "focused_terminal", "as": "second"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "mkdir -p /tmp/jr-${nonce}-second && cd /tmp/jr-${nonce}-second && echo second-${nonce}-$((6*7))", "enter": true, "mark": "second"},
+    {"do": "expect", "title": "before the quit: two panes, three tabs, three folders", "since": "second", "timeout": 10,
+     "all": [
+       {"daemon_line": "second-${nonce}-42"},
+       {"daemon_cwd": "/tmp/jr-${nonce}-second"},
+       {"app_layout": {"workspace": "jr-restore", "panes": 2, "tabs": 3, "pane_tabs": 2, "selected": true}},
+       {"app_tab_pane": {"same_as": "right"}},
+       {"app_cwd": {"name": "left", "cwd": "/tmp/jr-${nonce}-left"}},
+       {"app_cwd": {"name": "right", "cwd": "/tmp/jr-${nonce}-right"}},
+       {"app_cwd": "/tmp/jr-${nonce}-second"},
+       {"frame_text": "second-${nonce}-42"}
+     ]},
+
+    {"do": "relaunch", "how": "quit", "mark": "reopened"},
+
+    {"do": "use", "name": "second"},
+    {"do": "expect", "title": "after the reopen: one window, launched and handed over, no crash notice", "since": "reopened", "timeout": 45,
+     "all": [
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.windows", "path": "launch_window", "equals": null}},
+       {"app_rpc": {"method": "debug.windows", "path": "consistent", "equals": true}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
+       {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}}
+     ]},
+    {"do": "expect", "title": "the same layout, tabs and working directories came back", "since": "reopened", "timeout": 45,
+     "all": [
+       {"app_layout": {"workspace": "jr-restore", "panes": 2, "tabs": 3, "pane_tabs": 2, "selected": true}},
+       {"app_tab_pane": {"same_as": "right"}},
+       {"app_tab_pane": {"not_same_as": "left"}},
+       {"app_cwd": {"name": "left", "cwd": "/tmp/jr-${nonce}-left"}},
+       {"app_cwd": {"name": "right", "cwd": "/tmp/jr-${nonce}-right"}},
+       {"app_cwd": "/tmp/jr-${nonce}-second"},
+       {"daemon_cwd": {"name": "left", "cwd": "/tmp/jr-${nonce}-left"}},
+       {"daemon_cwd": {"name": "right", "cwd": "/tmp/jr-${nonce}-right"}},
+       {"daemon_cwd": "/tmp/jr-${nonce}-second"}
+     ]},
+    {"do": "expect", "title": "the shown terminal's text came back in the daemon, the view and the frame", "since": "reopened", "timeout": 45,
+     "all": [
+       {"daemon_line": "second-${nonce}-42"},
+       {"app_text_line": "second-${nonce}-42"},
+       {"app_pane": {"link": "connected"}},
+       {"frame_text": "second-${nonce}-42"}
+     ]},
+    {"do": "type", "text": "echo back-${nonce}-$(basename $PWD)", "enter": true, "mark": "back"},
+    {"do": "expect", "title": "the restored shell takes input, in its folder", "since": "back", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "back-${nonce}-jr-${nonce}-second"},
+       {"app_text_line": "back-${nonce}-jr-${nonce}-second"},
+       {"frame_text": "back-${nonce}-jr-${nonce}-second"}
+     ]},
+    {"do": "use", "name": "left"},
+    {"do": "expect", "title": "the left pane's text came back too", "timeout": 20,
+     "all": [
+       {"daemon_line": "left-${nonce}-42"},
+       {"app_text_line": "left-${nonce}-42"},
+       {"frame_text": "left-${nonce}-42"}
+     ]}
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "window-resize-grow",
+  "priority": "P0",
+  "title": "Drag the window wider, then taller (live): the grid follows the window and the scrollback stays at the prompt",
+  "why": "Dogfood v1 (Lawrence 2026-10-27, \"resizing window makes terminal looks buggy\"): a window growing while the terminal shows the bottom of a long scrollback scrolled the terminal into its history, further at each grow step (TerminalScroller took AppKit's clip clamp as a knob drag; test 33cd577dcd8, fix 673587c97dc). Checked while the button is still held (in the live resize), not only after.",
+  "source": "dogfood bug v1 (Lawrence), window life: resize by drag",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-resize-grow"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "main"},
+    {"do": "window_place", "title": "set-up: the window at 55% x 50% of the screen, top left", "fraction": [0.02, 0.03, 0.55, 0.5]},
+    {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "start"},
+    {"do": "type", "text": "seq 1 3000; echo end-${nonce}", "enter": true, "mark": "filled"},
+    {"do": "expect", "title": "a long scrollback, the prompt at the bottom", "since": "filled", "timeout": 20,
+     "all": [{"daemon_line": "end-${nonce}"}, {"daemon_prompt": true}, {"app_prompt": true}, {"at_bottom": {}}]},
+
+    {"do": "window_drag", "title": "press the bottom-right corner and drag 300 points right (button held)", "edge": "bottom-right", "by": [300, 0], "events": 36, "release": false, "mark": "wider"},
+    {"do": "expect", "title": "mid-drag, wider: the grid follows, the prompt stays in view", "since": "wider", "timeout": 10,
+     "all": [
+       {"window_frame": {"from": "start", "dw": 300, "dh": 0}},
+       {"grid_fits": {"vs": "start", "cols": "wider", "rows": "same"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"daemon_prompt": true},
+       {"pane_frame_text": "end-${nonce}"}
+     ]},
+    {"do": "window_drag", "title": "keep the button held and drag 220 points down", "press": false, "by": [0, 220], "events": 30, "release": false, "mark": "taller"},
+    {"do": "expect", "title": "mid-drag, taller: more rows, the scrollback does not jump into its history", "since": "taller", "timeout": 10,
+     "all": [
+       {"window_frame": {"from": "start", "dw": 300, "dh": 220}},
+       {"grid_fits": {"vs": "start", "cols": "wider", "rows": "taller"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"app_text_line": "end-${nonce}"},
+       {"pane_frame_text": "end-${nonce}"}
+     ]},
+    {"do": "window_drag", "title": "a last grow step, then release", "press": false, "by": [40, 40], "events": 8, "release": true},
+
+    {"do": "type", "text": "echo pty-${nonce} $(stty size)", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "after the drag: the PTY has the window's grid, the prompt is at the bottom", "since": "after", "timeout": 10,
+     "all": [
+       {"pty_size": "pty-${nonce}"},
+       {"grid_fits": {"vs": "start", "cols": "wider", "rows": "taller"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"pane_frame_text": "pty-${nonce}"}
+     ]}
+  ],
+  "finally": [{"do": "restore_window", "from": "before-place"}]
+}

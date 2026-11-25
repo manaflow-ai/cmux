@@ -1,0 +1,70 @@
+// Kernel byte accounting for issue 10431 (run with: sudo bpftrace this.bt)
+// Compares bytes accepted by pty master writes against bytes the slave's
+// line discipline actually received, and flags every discard path.
+
+kprobe:pty_write
+{
+    @w_req[((struct tty_struct *)arg0)->name] = sum(arg2);
+    @w_tty[tid] = ((struct tty_struct *)arg0)->name;
+}
+
+kretprobe:pty_write
+/@w_tty[tid] != ""/
+{
+    if ((int64)retval > 0) {
+        @w_acc[@w_tty[tid]] = sum(retval);
+    } else {
+        printf("pty_write ret=%d tty=%s comm=%s\n", retval, @w_tty[tid], comm);
+    }
+    delete(@w_tty[tid]);
+}
+
+kprobe:n_tty_receive_buf2
+{
+    @r_req[((struct tty_struct *)arg0)->name] = sum(arg3);
+    @r_tty[tid] = ((struct tty_struct *)arg0)->name;
+    @r_cnt[tid] = arg3;
+}
+
+kretprobe:n_tty_receive_buf2
+/@r_tty[tid] != ""/
+{
+    @r_acc[@r_tty[tid]] = sum(retval);
+    if ((uint64)retval != @r_cnt[tid]) {
+        printf("%d ms n_tty_receive_buf2 SHORT tty=%s req=%d rcvd=%d\n",
+               elapsed / 1000000, @r_tty[tid], @r_cnt[tid], retval);
+    }
+    delete(@r_tty[tid]);
+    delete(@r_cnt[tid]);
+}
+
+kprobe:n_tty_receive_char_flagged
+{
+    printf("%d ms receive_char_flagged tty=%s c=%x flag=%d comm=%s\n",
+           elapsed / 1000000, ((struct tty_struct *)arg0)->name, arg1, arg2, comm);
+    @flagged[((struct tty_struct *)arg0)->name] = count();
+}
+
+kprobe:n_tty_lookahead_flow_ctrl
+{
+    @lookahead[((struct tty_struct *)arg0)->name] = sum(arg3);
+}
+
+kprobe:tty_buffer_flush
+{
+    printf("%d ms tty_buffer_flush tty=%s comm=%s\n%s\n",
+           elapsed / 1000000, ((struct tty_struct *)arg0)->name, comm, kstack(6));
+}
+
+kprobe:n_tty_flush_buffer
+{
+    printf("%d ms n_tty_flush_buffer tty=%s comm=%s\n%s\n",
+           elapsed / 1000000, ((struct tty_struct *)arg0)->name, comm, kstack(6));
+}
+
+END
+{
+    clear(@w_tty);
+    clear(@r_tty);
+    clear(@r_cnt);
+}

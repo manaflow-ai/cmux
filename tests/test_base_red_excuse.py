@@ -7684,6 +7684,8 @@ class Script(unittest.TestCase):
                 pass
 
             def wait(self, timeout=None):
+                if timeout is None:  # the reap after kill(), as GitHub.run does it
+                    return 0
                 raise subprocess.TimeoutExpired(cmd="gh", timeout=timeout)
 
             def kill(self):

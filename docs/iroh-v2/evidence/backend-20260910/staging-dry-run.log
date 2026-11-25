@@ -1,0 +1,12 @@
+
+ ⛅️ wrangler 4.131.0
+────────────────────
+Total Upload: 1295.99 KiB / gzip: 223.26 KiB
+Your Worker has access to the following bindings:
+Binding                                               Resource                  
+env.TEAM_CONTROL (TeamControl)                        Durable Object            
+env.USER_USAGE (UserUsage)                            Durable Object            
+env.ENVIRONMENT ("staging")                           Environment Variable      
+env.STACK_API_URL ("https://api.stack-auth.com")      Environment Variable      
+
+--dry-run: exiting now.

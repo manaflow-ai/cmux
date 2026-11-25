@@ -1,0 +1,71 @@
+{
+  "id": "second-window-resize",
+  "priority": "P0",
+  "title": "Resize a second window by drag while the first window's terminal streams output: both stay right",
+  "why": "With two windows open, a live resize of one must refit that window's terminal and PTY while the other keeps drawing its running output (no stall, no blank frame, no jump), and keys must still reach the first window's job afterwards.",
+  "source": "window life: two windows, resize by drag (holistic-quality.md 1)",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-two-windows"},
+    {"do": "neutral_prompt"},
+    {"do": "name_pane", "as": "w1"},
+    {"do": "type", "text": "for i in $(seq 1 200000); do echo out-${nonce}-$i; sleep 0.02; done", "enter": true, "mark": "stream"},
+    {"do": "expect", "title": "the first window's terminal streams output", "since": "stream", "timeout": 10,
+     "all": [{"daemon_contains": "out-${nonce}-"}, {"output_advances": {"pattern": "out-${nonce}-(\\d+)", "by": 20}}]},
+
+    {"do": "key", "title": "Cmd-Shift-N (a new window, on its New Tab page)", "key": "n", "modifiers": ["cmd", "shift"], "mark": "new-window"},
+    {"do": "adopt_window", "title": "the new window opens; it becomes the key window"},
+    {"do": "wait", "seconds": 4.5, "title": "Cmd-Shift-N's New Tab key hold (NewTabInputCoordinator.incomingHoldLimit, 4 s) ends: in a capture slot the app is never active, so held keys would be replayed into the first window (NSApp.keyWindow is nil), which no person sees; no state shows the hold's end"},
+    {"do": "key", "title": "Ctrl-` in the new window (New Terminal Tab)", "key": "`", "modifiers": ["control"]},
+    {"do": "adopt_pane", "as": "w2", "window": "same", "title": "the new window's terminal tab has the focus and a shell"},
+    {"do": "neutral_prompt"},
+    {"do": "window_place", "title": "set-up: the second window at 45% x 45% of the screen, right of center", "fraction": [0.4, 0.3, 0.45, 0.45]},
+    {"do": "expect", "title": "the second window's terminal fits it", "timeout": 10, "all": [{"grid_fits": {}}]},
+    {"do": "remember", "as": "w2-start"},
+    {"do": "type", "text": "seq 1 2000; echo w2-${nonce}", "enter": true, "mark": "w2-typed"},
+    {"do": "expect", "title": "the second window's shell answers", "since": "w2-typed", "timeout": 15,
+     "all": [{"daemon_line": "w2-${nonce}"}, {"app_prompt": true}, {"pane_frame_text": "w2-${nonce}"}]},
+
+    {"do": "window_drag", "title": "drag the second window's corner 250 right and 180 down (button held)", "by": [250, 180], "events": 40, "release": false, "mark": "drag"},
+    {"do": "expect", "title": "mid-drag: the second window's grid follows, its prompt stays in view; the first window keeps streaming", "since": "drag", "timeout": 10,
+     "all": [
+       {"window_frame": {"from": "w2-start", "dw": 250, "dh": 180}},
+       {"grid_fits": {"vs": "w2-start", "cols": "wider", "rows": "taller"}},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"output_advances": {"pane": "w1", "pattern": "out-${nonce}-(\\d+)", "by": 20}},
+       {"grid_fits": {"pane": "w1"}},
+       {"pane_frame_text": "w2-${nonce}"}
+     ]},
+    {"do": "window_drag", "title": "release", "press": false, "by": [10, 10], "events": 3, "release": true},
+    {"do": "type", "text": "echo pty-${nonce} $(stty size)", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "after the drag: the second window's PTY has its new grid", "since": "after", "timeout": 10,
+     "all": [
+       {"pty_size": "pty-${nonce}"},
+       {"grid_fits": {"vs": "w2-start", "cols": "wider", "rows": "taller"}},
+       {"daemon_prompt": true},
+       {"pane_frame_text": "pty-${nonce}"}
+     ]},
+
+    {"do": "use_pane", "pane": "w1", "title": "back to the first window (keys and frames)"},
+    {"do": "expect", "title": "the first window still streams and draws its output", "timeout": 10,
+     "all": [{"output_advances": {"pattern": "out-${nonce}-(\\d+)", "by": 20}}, {"grid_fits": {}}, {"pane_frame_text": "out-${nonce}-"}]},
+    {"do": "key", "title": "Ctrl+C in the first window", "key": "c", "modifiers": ["control"], "mark": "stop"},
+    {"do": "expect", "title": "the stream stops, the prompt returns", "since": "stop", "timeout": 5,
+     "all": [{"daemon_prompt": true}]},
+    {"do": "type", "text": "echo w1-${nonce}-done", "enter": true, "mark": "w1"},
+    {"do": "expect", "title": "the first window's shell answers and the frame shows it, at the bottom", "since": "w1", "timeout": 10,
+     "all": [
+       {"daemon_line": "w1-${nonce}-done"},
+       {"app_text_line": "w1-${nonce}-done"},
+       {"app_prompt": true},
+       {"at_bottom": {}},
+       {"pane_frame_text": "w1-${nonce}-done"}
+     ]}
+  ],
+  "finally": [
+    {"do": "use_pane", "pane": "w1"},
+    {"do": "key", "key": "c", "modifiers": ["control"]},
+    {"do": "close_window", "window": "new"}
+  ]
+}
