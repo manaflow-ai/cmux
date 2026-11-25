@@ -165,6 +165,19 @@ struct Done {
     host: Option<String>,
 }
 
+/// What the last run did (`fleet_elastic::ScaleUpStatus` on the wire), in Unix ms.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Outcome {
+    pub started_ms: Option<u64>,
+    pub ended_ms: Option<u64>,
+    /// The machine the fleet added; None when none was.
+    pub host: Option<String>,
+    /// Why none was: the last provider's answer.
+    pub error: Option<String>,
+    /// The provider that answered, or the last one asked.
+    pub provider: Option<String>,
+}
+
 #[derive(Default)]
 struct State {
     running: bool,
@@ -175,6 +188,8 @@ struct State {
     done: Done,
     /// Spills each host a run added took (`claim`).
     spilled: std::collections::HashMap<String, u64>,
+    /// What the last run did (the daemon status's `scaleUp`).
+    outcome: Outcome,
 }
 
 /// One daemon's run state, and the channel each run's end is told on.
@@ -187,6 +202,14 @@ impl Default for Shared {
     fn default() -> Self {
         Self { state: StdMutex::default(), done: tokio::sync::watch::Sender::new(Done::default()) }
     }
+}
+
+/// What [`run_plan`] came to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ran {
+    pub host: Option<String>,
+    pub error: Option<String>,
+    pub provider: Option<String>,
 }
 
 /// This daemon's scale-up: at most one run, none within the cooldown.
@@ -249,20 +272,28 @@ impl ScaleUp {
     fn start(&self, state: &mut State, owner: &cmux_scope::Scope, plan: Plan, now: Instant) {
         state.running = true;
         state.last = Some(now);
+        state.outcome = Outcome { started_ms: Some(crate::store::now_ms()), ..Outcome::default() };
         state.run = state.run.saturating_add(1);
         let run = state.run;
         let (shared, runner) = (self.shared.clone(), self.runner.clone());
         owner.spawn_named("admission scale-up", async move {
-            let host = run_plan(&runner, plan).await;
-            match &host {
+            let ran = run_plan(&runner, plan).await;
+            match &ran.host {
                 Some(host) => tracing::info!(host, "scale-up: the fleet added a machine for lanes"),
                 None => tracing::warn!("scale-up: no provider added a machine"),
             }
-            let done = Done { run, host };
+            let done = Done { run, host: ran.host.clone() };
             {
                 let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
                 state.running = false;
                 state.done = done.clone();
+                state.outcome = Outcome {
+                    ended_ms: Some(crate::store::now_ms()),
+                    host: ran.host,
+                    error: ran.error,
+                    provider: ran.provider,
+                    ..state.outcome.clone()
+                };
             }
             shared.done.send_replace(done);
         });
@@ -329,6 +360,30 @@ impl ScaleUp {
             }
         }
     }
+
+    /// The daemon status's `scaleUp` (`fleet_elastic.rs`, version 1): `adding` while a run is
+    /// under way, `cooling` within the cooldown of the last start, else `idle`, with the last
+    /// run's outcome (null until one ended). Never waits for a run.
+    pub(crate) fn status(&self, now: Instant) -> Value {
+        let state = self.state();
+        let word = if state.running {
+            "adding"
+        } else if state.last.is_some_and(|l| now.saturating_duration_since(l) < self.cooldown) {
+            "cooling"
+        } else {
+            "idle"
+        };
+        let o = &state.outcome;
+        json!({
+            "v": crate::fleet_elastic::VERSION,
+            "state": word,
+            "lastStartedMs": o.started_ms,
+            "lastEndedMs": o.ended_ms,
+            "lastHost": o.host,
+            "lastError": o.error,
+            "lastProvider": o.provider,
+        })
+    }
 }
 
 /// Counts one more spill on `host` when it has taken fewer than `cap`: whether it did.
@@ -341,31 +396,37 @@ fn claim(state: &mut State, host: &str, cap: u64) -> bool {
     room
 }
 
-/// Asks each provider in turn within the plan's shared bound: the first host,
-/// or None (`lane_place.run_overflow`'s order and stop rules).
-async fn run_plan(runner: &Runner, plan: Plan) -> Option<String> {
+/// Asks each provider in turn within the plan's shared bound: the first host, or why none
+/// (`lane_place.run_overflow`'s order and stop rules).
+async fn run_plan(runner: &Runner, plan: Plan) -> Ran {
+    let mut ran = Ran::default();
     let deadline = Instant::now() + plan.budget + Duration::from_secs(SLACK);
     for provider in plan.providers {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             tracing::warn!(provider = provider.name, "scale-up: not asked: the budget is spent");
+            ran.error = Some("the budget is spent".into());
             break;
         }
         let (name, declared) = (provider.name.clone(), provider.terminal);
+        ran.provider = Some(name.clone());
         match runner(provider, left).await {
             Answer::Host(host) => {
                 tracing::info!(provider = name, host, "scale-up: provider answered");
-                return Some(host);
+                ran.host = Some(host);
+                ran.error = None;
+                return ran;
             }
             Answer::Failed { why, terminal } => {
                 tracing::warn!(provider = name, "scale-up: provider failed: {why}");
+                ran.error = Some(why);
                 if terminal || declared {
                     break;
                 }
             }
         }
     }
-    None
+    ran
 }
 
 /// The answer in a provider's last stdout line, given its exit.
@@ -529,12 +590,59 @@ mod tests {
         };
         let failed = Answer::Failed { why: "full".into(), terminal: false };
         let runner = answers(vec![("a", failed.clone()), ("b", Answer::Host("h".into()))]);
-        assert_eq!(run_plan(&runner, plan.clone()).await.as_deref(), Some("h"));
+        let ran = run_plan(&runner, plan.clone()).await;
+        assert_eq!(ran.host.as_deref(), Some("h"));
+        assert_eq!((ran.provider.as_deref(), ran.error.as_deref()), (Some("b"), None));
         assert_eq!(*asked.lock().unwrap(), ["a", "b"]);
         asked.lock().unwrap().clear();
         let runner = answers(vec![("a", Answer::Failed { why: "making".into(), terminal: true })]);
-        assert_eq!(run_plan(&runner, plan).await, None);
+        let ran = run_plan(&runner, plan).await;
+        assert_eq!(
+            ran,
+            Ran { host: None, error: Some("making".into()), provider: Some("a".into()) }
+        );
         assert_eq!(*asked.lock().unwrap(), ["a"], "a terminal answer ends the chain");
+    }
+
+    #[tokio::test]
+    async fn admission_scale_up_records_its_outcome_for_status() {
+        let (calls, release) =
+            (Arc::new(AtomicUsize::new(0)), Arc::new(tokio::sync::Notify::new()));
+        let scale = ScaleUp::new(held_runner(calls, release.clone()), COOLDOWN);
+        let owner = cmux_scope::Scope::new("test");
+        let start = Instant::now();
+        let idle = scale.status(start);
+        assert_eq!(idle["v"], 1);
+        assert_eq!(idle["state"], "idle");
+        assert!(idle["lastStartedMs"].is_null() && idle["lastHost"].is_null(), "{idle}");
+        assert_eq!(scale.trigger(&owner, one_plan(), start), Trigger::Started);
+        let adding = scale.status(start);
+        assert_eq!(adding["state"], "adding");
+        assert!(adding["lastStartedMs"].is_u64() && adding["lastEndedMs"].is_null(), "{adding}");
+        release.notify_one();
+        settle(&scale).await;
+        let done = scale.status(start + Duration::from_secs(1));
+        assert_eq!(done["state"], "cooling");
+        assert_eq!(
+            (done["lastHost"].as_str(), done["lastProvider"].as_str()),
+            (Some("new-machine"), Some("a"))
+        );
+        assert!(done["lastError"].is_null() && done["lastEndedMs"].is_u64(), "{done}");
+        assert!(done["lastEndedMs"].as_u64() >= done["lastStartedMs"].as_u64());
+        assert_eq!(scale.status(start + COOLDOWN)["state"], "idle");
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
+        // A failed run keeps why, and no host.
+        let failing: Runner = Arc::new(|_p, _b| {
+            Box::pin(async { Answer::Failed { why: "no slot".into(), terminal: false } })
+        });
+        let scale = ScaleUp::new(failing, COOLDOWN);
+        let owner = cmux_scope::Scope::new("test");
+        assert_eq!(scale.trigger(&owner, one_plan(), start), Trigger::Started);
+        settle(&scale).await;
+        let failed = scale.status(start);
+        assert!(failed["lastHost"].is_null(), "{failed}");
+        assert_eq!(failed["lastError"], "no slot");
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
     }
 
     #[test]
