@@ -335,7 +335,7 @@ try {
 
   await step(
     "media-apt",
-    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg imagemagick poppler-utils git-lfs xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && git lfs install --system --skip-repo && command -v Xvfb && command -v xdpyinfo && command -v xdotool && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext",
   );
 
   await step(

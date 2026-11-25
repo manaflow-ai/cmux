@@ -63,7 +63,7 @@ const html = (row: AcpmuxRow) =>
     ),
   );
 
-test("a background turn's line shows the raw command of the task that started it", async () => {
+test("a background turn names the task that started it and retains the command for disclosure", async () => {
   const command = "cargo test -p acpmux --lib -- background_cause";
   const daemon = fakeDaemon(
     record([
@@ -85,12 +85,11 @@ test("a background turn's line shows the raw command of the task that started it
   const { client, rows } = await connect(daemon);
   try {
     const line = lineOf(rows());
-    expect(line.background?.source).toEqual({ command });
+    expect(line.background?.source).toEqual({ command, description: "Run the suite" });
     const drawn = html(line);
     expect(drawn).toContain("Background command failed (exit code 101)");
-    // The command as typed, in the code face, not its description.
-    expect(drawn).toContain(`<code class="cv-background-turn__command">${command}</code>`);
-    expect(drawn).not.toContain("Run the suite");
+    expect(drawn).toContain('<span class="cv-bgtask__title">Run the suite</span>');
+    expect(drawn).not.toContain(command);
   } finally {
     client.close();
   }
@@ -145,7 +144,8 @@ test("a helper's shell names that helper on the line, which opens it", async () 
     const drawn = html(line);
     expect(drawn).toContain("Explore flaky test");
     expect(drawn).toContain('data-deeplink="#subagent:agent-explore-1"');
-    expect(drawn).toContain(`<code class="cv-background-turn__command">bun test test/flaky.test.ts</code>`);
+    expect(drawn).toContain('<span class="cv-bgtask__title">');
+    expect(drawn).not.toContain("bun test test/flaky.test.ts");
   } finally {
     client.close();
   }
