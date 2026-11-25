@@ -200,6 +200,24 @@ public final class TerminalModel {
         coldFrame = image
         restoredFrame = image
         if snapshot == nil { snapshot = image }
+        measureColdFrame(image)
+    }
+
+    /// Where the cached frame's rows end (``TerminalFrameRows``), measured when the frame is
+    /// restored; nil for no frame or a blank one.
+    public private(set) var coldFrameRows: TerminalFrameRows?
+    /// The cached frame has been measured (its rows may still be nil: a blank still).
+    public private(set) var coldFrameMeasured = false
+
+    /// Measured at once, in the call that restores the frame: the page's first frame already
+    /// draws the still in its place (Leo, 2026-11-24: "the loading has layout shifts and
+    /// placeholder states that likely dont need to be so placeholder and better diffed"). A
+    /// measure off the main thread left a frame or two with nothing, then the still popped in.
+    /// The scan reads a 256 px wide copy (a few ms), once per restored still; the same still
+    /// handed to the next host (a reconnect, the warm set) is not measured again.
+    private func measureColdFrame(_ image: UIImage) {
+        coldFrameRows = TerminalFrameRowsMemo.rows(for: image)
+        coldFrameMeasured = true
     }
 
     /// The page as last seen, as rows (`TerminalSeed`): fed into this host's fresh surface
@@ -262,6 +280,8 @@ public final class TerminalModel {
         self.programName = session.programName
         self.connectionState = session.connectionState
         quietStatus.update(down: !session.connectionState.isAttached)
+        // Listening from the first terminal on: a cached frame is laid out at the keyboard's height.
+        _ = TerminalKeyboardHeight.shared
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -519,7 +539,7 @@ public final class TerminalModel {
                 // Nothing changed on the Mac (an inline program's input reaches into the
                 // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                CmuxMobileTheme.standard.haptics.notify(.error)
             }
         }
     }
@@ -638,6 +658,8 @@ public final class TerminalModel {
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: every terminal surface's presented frames added up (the keyboard pin trace's `tp=`).
+    public internal(set) static var debugPresentsTotal = 0
     /// DEBUG: posted when the terminal surface takes a key from the system keyboard
     /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
