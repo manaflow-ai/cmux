@@ -5177,3 +5177,19 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
   is a `fleet parity` warning with the table in the step summary.
 - Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
   (`dev_daily`) compiles are unchanged.
+
+## note-canary-linux-read
+
+Above `swift-canary-fleet: if`, `runs-on` and its push read in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-25: "i need us to be defo making sure it runs on our scheduler, which has far more capabilities
+than github actions. github actions is just there at the start and end or whatever maybe i guess, but we own the
+in-between. all of it". On a feat-cmux-next push the controller's tip check already compiles the app at the
+pushed head (SwiftPM Release -Onone; the record scripts/ci/fleet_compile_result.py reads). The job used to
+take an idle gateway Mac runner, read that record for up to 15 min, and compile the head a second time through
+`cmux-ci compile-check --app` when there was none (2.6 gateway job-hours on 2026-11-24). It now runs on
+cmux-linux for every routed push, with or without an idle gateway, and only reads the record (up to 40 min,
+600 s with no record at all). pass and superseded (note-551) let the Mac canary report from a small runner; a
+fail runs the Mac canary, which prints the errors; no verdict prints `::warning title=mac fallback::` and runs
+the Mac canary, the job's only fallback. macos-placement still judges the gateway for it (GATEWAY_JOBS), which
+now only keeps the canary out of the cascade's runner count.
