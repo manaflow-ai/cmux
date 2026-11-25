@@ -857,6 +857,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                                          prestaged: prestaged)
                     try Task.checkCancellation()
                 } catch {
+                    // Stopped or failed before every early upload was linked: none of them is wanted now.
+                    for entry in prestaged.values { entry.task.cancel() }
                     let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
                     self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
@@ -1103,16 +1105,6 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// This phone's Full-access setting, for the chat's mode menus.
     func fullAccessChanged(_ on: Bool) { emit(.fullAccess(on)) }
 
-    /// ACP prompt content: the text, then per attachment
-    /// - an image: an `image` block (base64 data and its MIME type);
-    /// - a file: uploaded to the Mac over the link's `upload` service into the
-    ///   session's folder (`.cmux/attachments`, next to acpmux's own), then a
-    ///   `resource` block with its text when it is UTF-8 text up to 256 KiB, or
-    ///   a `resource_link` to the uploaded path (the agent reads it there).
-    /// A failed upload throws, so nothing is sent without its attachments.
-    /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
-    /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
-    /// lane/ios-attachment-send).
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
@@ -1127,6 +1119,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         prestager.sync(attachments, upload: upload)
     }
 
+    /// ACP prompt content: the text, then per attachment
+    /// - an image: an `image` block (base64 data and its MIME type);
+    /// - a file: uploaded to the Mac over the link's `upload` service into the
+    ///   session's folder (`.cmux/attachments`, next to acpmux's own), then a
+    ///   `resource` block with its text when it is UTF-8 text up to 256 KiB, or
+    ///   a `resource_link` to the uploaded path (the agent reads it there).
+    /// A failed upload throws, so nothing is sent without its attachments.
+    /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
+    /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
+    /// lane/ios-attachment-send).
     func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
                       prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in

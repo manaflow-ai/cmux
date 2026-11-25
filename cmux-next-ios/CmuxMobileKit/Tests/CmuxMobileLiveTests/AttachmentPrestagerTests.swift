@@ -67,6 +67,17 @@ import Testing
         #expect(try await entry.task.value == "/w/.cmux/attachments/a.zip")
     }
 
+    @Test func aChatThatGoesAwayStopsItsUploads() async throws {
+        let mac = FakeMac()
+        await mac.hold()
+        var prestager: AttachmentPrestager? = AttachmentPrestager()
+        prestager?.sync([file("a", "a.zip")], upload: { _, name in try await mac.upload(name) })
+        let task = try #require(prestager?.entries["a"]).task
+        prestager = nil
+        #expect(task.isCancelled)
+        await mac.release()
+    }
+
     @Test func noLinkStartsNothing() {
         let prestager = AttachmentPrestager()
         prestager.sync([file("a", "a.zip")], upload: nil)

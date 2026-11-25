@@ -76,6 +76,11 @@ final class AttachmentPrestager {
         return claimed
     }
 
+    /// The chat went away with files still on its composer: their uploads have no owner.
+    isolated deinit {
+        for entry in entries.values { entry.task.cancel() }
+    }
+
     nonisolated static func ms(_ duration: Duration) -> Int64 {
         duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
     }
