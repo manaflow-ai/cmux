@@ -148,10 +148,7 @@ fn management_signs_in_as_the_person_never_with_an_api_token() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
     };
-    assert_eq!(
-        signer(&env(&[("CMUX_CLOUD_ACCESS_TOKEN", " eyJ.person ")])),
-        Signer::Env("eyJ.person".into())
-    );
+    assert_eq!(signer(&env(&[("CMUX_CLOUD_ACCESS_TOKEN", " eyJ.person ")])), Signer::Env);
     assert_eq!(signer(&env(&[("CMUX_TOKEN", "cmux_pat_x")])), Signer::App);
     assert_eq!(signer(&env(&[("CMUX_CLOUD_ACCESS_TOKEN", "cmux_pat_x")])), Signer::App);
     assert_eq!(signer(&env(&[])), Signer::App);
@@ -211,4 +208,87 @@ fn create_prints_the_token_alone_on_stdout() {
     assert!(
         list.contains("cmux_pat_AbCd…wXyZ") && list.contains("2027-02-23") && list.contains("you")
     );
+}
+
+#[test]
+fn the_settings_forms_parse_like_the_short_ones() {
+    let long = parse(&words(
+        "create --name=deploy --scope=machines --scope=usage --expires-days=30 --spend-cap=12.5 --owner=team --team=team_0123",
+    ))
+    .unwrap();
+    assert_eq!(
+        long.verb,
+        Verb::Create {
+            name: "deploy".into(),
+            scopes: vec!["machines".into(), "usage".into()],
+            expires: Expiry::Days(30),
+            spend_cap: Some(12.5),
+            team_token: true
+        }
+    );
+    assert_eq!(long.team.as_deref(), Some("team_0123"));
+    let never = parse(&words("create --name=n --expires-days=never --owner=me")).unwrap();
+    assert!(matches!(never.verb, Verb::Create { expires: Expiry::Never, team_token: false, .. }));
+    assert!(parse(&words("create --name=n --owner=them")).is_err());
+    let allow = parse(&words(
+        "github allow --repository=acme/web --ref=refs/heads/main --environment=prod --scope=chats",
+    ))
+    .unwrap();
+    assert_eq!(
+        call_for(&allow.verb, None).unwrap().body.unwrap(),
+        json!({"repository": "acme/web", "ref": "refs/heads/main", "environment": "prod", "scopes": ["chats"]})
+    );
+    let file = parse(&words("list --token-file=/tmp/t")).unwrap();
+    assert_eq!(file.token, Some(TokenSource::File("/tmp/t".into())));
+}
+
+#[test]
+fn management_resolves_its_credential_as_hub_does() {
+    let none = |_: &str| None;
+    let person = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "eyJ".to_owned());
+    let pat = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "cmux_pat_x".to_owned());
+    let list = parse(&words("list")).unwrap();
+    assert_eq!(token_source(&list, &none), TokenSource::App);
+    assert_eq!(token_source(&list, &person), TokenSource::Env);
+    assert_eq!(token_source(&list, &pat), TokenSource::App);
+    let command = parse(&words("list --token-command=cmux-auth")).unwrap();
+    assert_eq!(token_source(&command, &person), TokenSource::Command("cmux-auth".into()));
+}
+
+#[test]
+fn json_answers_are_one_object_with_ok() {
+    let answer = |body: Value| Answer { body, platform: "https://p.test".into() };
+    let list = json_answer(
+        &Verb::List,
+        &answer(json!({"tokens": [{"id": "tok_a"}], "canManageTeamTokens": true})),
+        Some("team_1"),
+    );
+    assert_eq!(
+        list,
+        json!({"ok": true, "platform": "https://p.test", "team": "team_1", "tokens": [{"id": "tok_a"}], "canManageTeamTokens": true})
+    );
+    let bare = json_answer(&Verb::List, &answer(json!({})), None);
+    assert_eq!(bare["tokens"], json!([]));
+    assert!(bare.get("team").is_none());
+    let create = parse(&words("create ci")).unwrap().verb;
+    assert_eq!(
+        json_answer(
+            &create,
+            &answer(json!({"token": "cmux_pat_x", "tokenInfo": {"id": "t"}})),
+            None
+        ),
+        json!({"ok": true, "token": "cmux_pat_x", "tokenInfo": {"id": "t"}})
+    );
+    let allow = parse(&words("github allow acme/web")).unwrap().verb;
+    assert_eq!(
+        json_answer(&allow, &answer(json!({"id": "ghr_1"})), None),
+        json!({"ok": true, "rule": {"id": "ghr_1"}})
+    );
+    assert_eq!(
+        json_answer(&Verb::GithubRemove { id: "g".into() }, &answer(Value::Null), None),
+        json!({"ok": true})
+    );
+    let failure = refusal(403, &json!({"error": {"code": "token.scope", "message": "no"}})).json();
+    assert_eq!(failure["ok"], json!(false));
+    assert_eq!(failure["error"]["code"], json!("token.scope"));
 }
