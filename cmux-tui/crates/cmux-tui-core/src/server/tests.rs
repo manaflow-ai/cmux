@@ -569,6 +569,7 @@ mod reply_value;
 mod resource_attach;
 mod resource_waits;
 mod send_expect_agent_replay;
+mod send_typed_submit;
 mod session_streams;
 mod shutdown_refusal;
 mod sizing;

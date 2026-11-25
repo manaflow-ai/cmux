@@ -15,6 +15,10 @@
 #   cmux-ci run --class exclusive --label gui-session-v1 --label measure --script scripts/measure/instant-new-surfaces.sh \
 #     --ref <sha> --arg=--bench=cmd-n-paint --arg=--screen --arg=--config=bench --arg=--vdisplay=120 \
 #     --arg=--workspaces=<N> --arg=--live-shells=<K> --arg=--runs=10 --artifact artifacts/new-surface-screen.tgz
+# Cmd-T to the new tab visible (key_to_visible_ms) and to a key typed into it echoing (typed_key_accepted_ms), each
+# of N rounds a sample, as a JSON report (scripts/cmux-next/new-tab-startup-bench.py; cmuxterm-hq's new-tab-startup probe):
+#   cmux-ci run --class exclusive --label measure --script scripts/measure/instant-new-surfaces.sh --ref <sha> \
+#     --arg=--bench=new-tab-startup --arg=--config=bench --arg=--runs=10 --artifact artifacts/instant-new-surfaces.json
 # That app is at the schema's defaults. `--arg=--window-look=KEY=VALUE,...` (scripts/cmux-next/window_look.py's
 # words; a `+` between 2 words of a value is a space) gives the launch other settings, and the run ends before its
 # session when the app does not show them.

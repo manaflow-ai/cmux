@@ -40,11 +40,18 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/launchSettle.ts", "visibilitychange"): "ends the launch settle watch when the page hides "
     "(no report: a hidden page draws no frames); it reads nothing",
     (f"{ACPMUX}/session-list/receiver.ts", "visibilitychange"): "one document-level signal paces the shared session-list driver; it posts shown state without rereading a view",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "visibilitychange"): "only while a Connect "
+    "GitHub card waits on GitHub's page: coming back sends the chat's Continue once; reads no data",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "focus"): "the Connect GitHub card's return, "
+    "as above",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "blur"): "the Connect GitHub card's leave, "
+    "as above",
     (f"{ACPMUX}/direct.ts", "visibilitychange"): "tells acpmux the chat is shown or hidden "
     "(`_acpmux/view`) so a turn ending while hidden stays unread; a state write, not a read",
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/newtab/NewTabClock.tsx", "visibilitychange"): "the New Tab clock re-reads only `Date.now()` when shown again, so the time is not a minute stale after a hide; no server or projection read",
     (f"{ACPMUX}/focusVisibleMark.ts", "focus"): "re-checks whether focus-visible is inside the "
     "composer or dock as the window regains focus (`data-focused`); it reads the DOM's focus, no data",
     (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "

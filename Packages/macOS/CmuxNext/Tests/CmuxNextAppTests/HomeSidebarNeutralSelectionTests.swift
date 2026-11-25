@@ -3,38 +3,36 @@ import AppKit
 @testable import MessagesLabSidebar
 import Testing
 
-/// The Home conversation list draws no system blue (the user, 2026-10-18: "dont use blue here"):
-/// a selected pinned tile or row takes the theme's translucent selection tint in every window
-/// state (Leo 2026-10-19: not an opaque grey slab), and in the compact list the selection is a
-/// disc behind the avatar.
+/// The Home conversation list selects as Messages does (macOS 26; the user, 2026-11-23: "make sure
+/// that the selected colour is blue for chats"): the system blue with white text in a key window,
+/// whatever the theme's or the system's accent, the system's grey when the window is not key, and
+/// in the compact list the selection is the row's, behind the avatar.
 @MainActor
 struct HomeSidebarNeutralSelectionTests {
     @Test(arguments: [NSAppearance.Name.darkAqua, .aqua])
-    func theSelectionIsTheThemeTintNotBlueOrGrey(_ name: NSAppearance.Name) throws {
+    func theSelectionIsMessagesBlue(_ name: NSAppearance.Name) throws {
         let appearance = try #require(NSAppearance(named: name))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         home.appearance = appearance
+        home.applyColors()
         let controller = home.list.controller
         controller.appearanceChanged()
-        var blue: CGColor?, grey: CGColor?, label: CGColor?
+        var blue: CGColor?, grey: CGColor?, white: CGColor?
         appearance.performAsCurrentDrawingAppearance {
-            blue = NSColor.selectedContentBackgroundColor.cgColor
+            blue = NSColor.systemBlue.cgColor
             grey = NSColor.unemphasizedSelectedContentBackgroundColor.cgColor
-            label = NSColor.labelColor.cgColor
+            white = NSColor.alternateSelectedControlTextColor.cgColor
         }
+        #expect(!home.list.neutralSelection)
         let p = controller.palette
-        #expect(!Self.same(p.selectionActive, blue), "the key-window selection is the system blue")
-        #expect(!Self.same(p.selectionActive, grey), "the selection is still the opaque grey slab")
-        #expect(p.selectionActive.alpha < 0.5, "the selection is not a translucent tint")
-        #expect(Self.same(p.selectedText, label), "the selected text is not the label colour")
-        // Home focused or not (the window not key): the same tint, never blue.
+        #expect(Self.same(p.selectionActive, blue), "the key-window selection is not the system blue")
+        #expect(Self.same(p.selectedText, white), "the selected text is not white")
         controller.setWindowActive(false)
-        #expect(!Self.same(controller.palette.selectionInactive, blue))
-        #expect(Self.same(controller.palette.selectionActive, controller.palette.selectionInactive))
+        #expect(Self.same(controller.palette.selectionInactive, grey), "the inactive selection is not the system grey")
     }
 
-    /// The compact list (avatars only) selects with a disc behind the avatar, not a row-wide slab.
-    @Test func theCompactSelectionIsADiscBehindTheAvatar() throws {
+    /// The compact list (avatars only) selects as a row does: the rounded selection across the row.
+    @Test func theCompactSelectionIsTheRows() throws {
         let list = CmuxSidebarView(frame: NSRect(x: 0, y: 0, width: 100, height: 600))
         list.neutralSelection = true
         let now = Date()
@@ -48,11 +46,11 @@ struct HomeSidebarNeutralSelectionTests {
         list.select("a")
         let tile = try #require(list.controller.tileLayers.first { $0.conversationID == "a" })
         #expect(!tile.selection.isHidden)
-        let disc = tile.selection.frame
-        #expect(abs(disc.width - disc.height) < 0.5, "the compact tile's selection is not round")
-        #expect(abs(tile.selection.cornerRadius - disc.width / 2) < 0.5)
-        #expect(disc.contains(CGPoint(x: tile.avatar.frame.midX, y: tile.avatar.frame.midY)), "the disc is not behind the avatar")
-        #expect(disc.width < tile.bounds.width, "the disc is the row-wide slab")
+        // Messages' narrow list: the row's rounded selection across the row, behind the avatar.
+        let slab = tile.selection.frame
+        #expect(slab == tile.bounds)
+        #expect(tile.selection.cornerRadius == SidebarMetrics.selectionRadius)
+        #expect(slab.contains(CGPoint(x: tile.avatar.frame.midX, y: tile.avatar.frame.midY)), "the selection is not behind the avatar")
     }
 
     /// Equal after conversion to sRGB (system colours resolve in different colour spaces).

@@ -339,6 +339,54 @@ import Testing
         #expect(replaced.isStopped, "and stopped on its way out, so its descriptors are closed")
     }
 
+    /// A host that keeps dying is not started again past the limit, and the watch says it gave up:
+    /// Home's Auto then gives the Hosted Chief rather than a Chief that cannot answer, while a host
+    /// that is only between two starts (an update) still counts as on (``ChiefHome/isOn(canStart:gaveUp:isChiefHost:)``).
+    @Test func aHostThatKeepsDyingMakesTheWatchGiveUp() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-watch-gives-up-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("state"), withIntermediateDirectories: true)
+        // A host that exits at once (and is reaped), as one that cannot start does.
+        func exitedHost() -> pid_t? {
+            let host = Process()
+            host.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+            guard (try? host.run()) != nil else { return nil }
+            host.waitUntilExit()
+            return host.processIdentifier
+        }
+        var restarts = 0
+        let watch = ChiefBrainWatch(home: home, restart: {
+            restarts += 1
+            return exitedHost()
+        }, isChiefHost: { _ in false })
+        defer { watch.stop() }
+        #expect(!watch.hasGivenUp)
+        // The lock read and the marker's stat run off the main actor, as Home runs them.
+        let isOn = { @Sendable (gaveUp: Bool) async in
+            await Task.detached { home.isOn(canStart: true, gaveUp: gaveUp, isChiefHost: { _ in false }) }.value
+        }
+        #expect(await isOn(watch.hasGivenUp), "between two hosts: still on")
+        watch.watch(exitedHost())
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !watch.hasGivenUp, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(watch.hasGivenUp, "it died \(ChiefBrainWatch.deathLimit) times within a minute")
+        #expect(restarts == ChiefBrainWatch.deathLimit - 1, "and was started again only until then")
+        #expect(!(await isOn(watch.hasGivenUp)), "gave up: off")
+
+        // A host it finds again (one the `cmux chief` CLI started) is watched, and that one is not given up on.
+        let live = Process()
+        live.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        live.arguments = ["30"]
+        try live.run()
+        defer { live.terminate() }
+        watch.watch(live.processIdentifier)
+        #expect(!watch.hasGivenUp)
+    }
+
     private func restartsAfterExit(shutdown: Bool) async throws -> Int {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)

@@ -4,7 +4,9 @@
 //! answer, no connection) the gate is shut. From then on one post may probe the hub per window,
 //! and the window doubles with each failure from [`FIRST_WINDOW`] up to [`MAX_WINDOW`] (or the
 //! hub's own `retryAfterSeconds` when that is longer). Every other send is queued in the outbox
-//! without asking the hub. The first post the hub takes opens the gate again.
+//! without asking the hub. The first post the hub takes opens the gate again, and wakes every
+//! queued delivery waiting on its back-off ([`Gate::opened`], RFD 0086 item 2): the outbox drains
+//! the moment the hub is back instead of each send's next scheduled try (up to minutes later).
 //!
 //! A hub that answers ok never pays for this: an open gate is one atomic load.
 
@@ -25,6 +27,8 @@ pub struct Gate {
     failures: AtomicU32,
     /// Until when no post may go; a probe moves it on as it claims its slot.
     until: Mutex<Option<Instant>>,
+    /// Woken when a shut gate opens: the outbox's hub deliveries end their retry wait on it.
+    pub opened: tokio::sync::Notify,
 }
 
 impl Gate {
@@ -49,10 +53,18 @@ impl Gate {
 
     /// The hub took a post (or answered with a refusal of its own): open.
     pub fn answered(&self) {
-        if self.failures.load(SeqCst) != 0 {
-            self.failures.store(0, SeqCst);
+        if self.failures.swap(0, SeqCst) != 0 {
             *self.until.lock_or_recover() = None;
+            self.opened.notify_waiters();
         }
+    }
+
+    /// When the gate lets its next probe go, while shut.
+    pub fn reopens_at(&self) -> Option<Instant> {
+        if !self.shut() {
+            return None;
+        }
+        *self.until.lock_or_recover()
     }
 
     /// A post failed in a way that passes: shut it for the next window, or `retry_after` when the
@@ -82,6 +94,7 @@ fn window(failures: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::FutureExt;
 
     /// `ms` milliseconds after a fixed start.
     fn at(ms: u64) -> Instant {
@@ -119,9 +132,27 @@ mod tests {
         }
         assert!(gate.may_try_at(at(10_000 + ms(MAX_WINDOW))));
         // An answer opens it.
+        let opened = gate.opened.notified();
+        tokio::pin!(opened);
+        assert!(opened.as_mut().now_or_never().is_none(), "a shut gate has not opened yet");
         gate.answered();
         assert!(!gate.shut());
+        assert!(opened.now_or_never().is_some(), "opening it wakes the waits armed before");
         assert!((0..10).all(|_| gate.may_try_at(at(10_001))));
+    }
+
+    #[tokio::test]
+    async fn an_answer_after_failing_wakes_every_send_waiting_behind_it() {
+        let gate = Gate::default();
+        gate.failed(Some(Duration::from_secs(30)));
+        assert!(gate.reopens_at().is_some());
+        let mut waits: Vec<_> = (0..20).map(|_| Box::pin(gate.opened.notified())).collect();
+        for w in &mut waits {
+            w.as_mut().enable();
+        }
+        gate.answered();
+        assert!(gate.reopens_at().is_none());
+        assert!(waits.into_iter().all(|w| w.now_or_never().is_some()));
     }
 
     #[test]
