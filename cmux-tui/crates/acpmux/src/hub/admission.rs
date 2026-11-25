@@ -29,7 +29,7 @@
 //! for a moment, keeps its last good copy; with none the cap is unknown, which
 //! is logged and admitted, and a `FLEET_REGISTRY` that is missing counts as one
 //! that cannot be read. `_meta.acpmux.forceAdmit` (`acpmux new --force-admit`)
-//! remains accepted for compatibility; floors and caps never refuse a session. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
+//! remains accepted for compatibility; floors and host caps never refuse a session. The one cap that refuses is an agent lane's fan-out cap (`lane_fanout.rs`), which `--force-admit` passes with a warning. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
 //! the composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
 //! send, a resume, a restart, an adopt that never forks, a side chat (`btw.rs`)
 //! and a handoff target never are. A Claude create while the sr2 model pool is short starts with a
@@ -160,6 +160,9 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
     else {
         return uncapped(format!("no lanes entry with max_lanes for {machine}"));
     };
+    // One lane per machine (`lane_place.one_lane_per_host`): a second lane here is over.
+    let max =
+        if super::admission_scale_up::one_per_host(Some(registry)) { max.min(1) } else { max };
     let at = || OverCap {
         live: inputs.live,
         max,
@@ -284,6 +287,24 @@ pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>);
 #[derive(Default)]
 pub(crate) struct Making {
     made: OnceLock<String>,
+    /// The lane an agent's create is for (`lane_fanout.rs`), counted against its cap.
+    lane: Option<String>,
+}
+
+impl Making {
+    pub(crate) fn for_lane(lane: Option<String>) -> Self {
+        Self { made: OnceLock::new(), lane }
+    }
+    pub(crate) fn lane(&self) -> Option<&str> {
+        self.lane.as_deref()
+    }
+    pub(crate) fn made_id(&self) -> Option<&str> {
+        self.made.get().map(String::as_str)
+    }
+    #[cfg(test)]
+    pub(crate) fn set_made(&self, id: &str) {
+        let _ = self.made.set(id.to_owned());
+    }
 }
 
 /// One admitted create, counted until it is dropped (its create ended, made or not).
@@ -324,7 +345,7 @@ pub(super) fn claim(id: &str) {
 
 /// A session counts as live when its harness runs: a live status, or (any
 /// status but Closed) an agent host still running for it.
-fn is_live(status: SessionStatus, hosted: bool) -> bool {
+pub(super) fn is_live(status: SessionStatus, hosted: bool) -> bool {
     match status {
         SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting => true,
         SessionStatus::Closed => false,
@@ -394,9 +415,27 @@ impl Hub {
         let (flag, registry, unreadable, source, machine, hosted, here, pool) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
-        let (verdict, fillers, mut admitted) = {
+        let (verdict, fillers, mut admitted, lane) = {
             let mut admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
             let (live, fillers) = self.live_sessions(&admitting, &hosted);
+            // An agent's create counts against its lane's fan-out cap (`lane_fanout.rs`): the one
+            // cap here that refuses, as Leo asked ("Cap fan-out per lane").
+            let lane = match ask.caller.filter(|_| !ask.person) {
+                Some(caller) => {
+                    let lane = self.lane_fanout(caller, &admitting, &hosted);
+                    if lane.over() && !(ask.force && ask.can_force) {
+                        tracing::warn!(caller = ask.who, lane = %lane.id, live = lane.live, max = lane.max, "session/new refused: lane fan-out cap");
+                        return Err(super::lane_fanout::refusal(
+                            &lane.id,
+                            lane.live,
+                            lane.max,
+                            lane.source,
+                        ));
+                    }
+                    Some(lane)
+                }
+                None => None,
+            };
             let verdict = check(&Inputs {
                 flag: flag.as_deref(),
                 registry: registry.as_ref(),
@@ -405,7 +444,7 @@ impl Hub {
                 machine: machine.as_deref(),
                 live,
             });
-            let made = Arc::new(Making::default());
+            let made = Arc::new(Making::for_lane(lane.as_ref().map(|l| l.id.clone())));
             admitting.push(made.clone());
             (
                 verdict,
@@ -417,6 +456,7 @@ impl Hub {
                     placed: None,
                     freed: None,
                 },
+                lane,
             )
         };
         // Logged beside the admission; a create that asks moves on its verdict
@@ -563,6 +603,15 @@ impl Hub {
             (Some(over), Some(peers)) => Some(self.over_cap_warning(over, peers, &ask, scaling_up)),
             _ => None,
         };
+        if let Some(lane) = lane.as_ref().filter(|l| l.over()) {
+            let text = super::lane_fanout::forced_warning(&lane.id, lane.live, lane.max);
+            tracing::warn!(
+                caller = ask.who,
+                "session/new forced past the lane fan-out cap: {text}"
+            );
+            admitted.warning =
+                Some(super::lane_fanout::add_warning(admitted.warning.take(), &text, lane));
+        }
         if let Some(floor) = verdict.under_floor {
             let text = floor.warning(ask.local);
             tracing::warn!(caller = ask.who, "session/new admitted below the disk floor: {text}");
@@ -629,7 +678,8 @@ impl Hub {
             .filter(|p| crate::placement::peer_down(p).is_none())
             .filter_map(|p| Candidate::peer(&p))
             .collect();
-        let verdict = crate::placement::place(&peers, registry, Work::Agent);
+        let mut verdict = crate::placement::place(&peers, registry, Work::Agent);
+        super::admission_scale_up::solo_pick(&mut verdict, registry);
         crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
     }
 
@@ -793,6 +843,10 @@ pub(crate) struct Ask<'a> {
     /// The harness (family or profile) asked for; None: the default harness. A Claude one
     /// is warned while the sr2 pool is short (`pool_pressure.rs`).
     pub harness: Option<String>,
+    /// The agent session this create runs in, proven by its connection or the
+    /// `start_session` parent; None for a person, the app or a script. Its lane's
+    /// fan-out cap applies (`lane_fanout.rs`).
+    pub caller: Option<&'a str>,
 }
 
 /// [`Ask::waiting`]: sends `_acpmux/admission_waiting`'s params to the creating connection.
@@ -819,6 +873,7 @@ mod tests {
             auto: true,
             waiting: None,
             harness: None,
+            caller: None,
         };
         let note = waiting_note(&over, &ask);
         assert_eq!(note["scalingUp"], json!(true));
@@ -1010,6 +1065,25 @@ mod tests {
         let web = cap.warning(false, false, None, false);
         assert!(!web.contains("/r/"), "a Web client learns no path: {web}");
         assert!(!web.contains("cmux16"), "nor the machine: {web}");
+    }
+
+    #[test]
+    fn one_lane_per_host_caps_at_one() {
+        let mut r = registry();
+        r["lane_place"] = json!({"one_lane_per_host": true});
+        let source = Path::new("/r/fleet-registry.json");
+        let at = |live| {
+            check(&Inputs {
+                flag: None,
+                registry: Some(&r),
+                unreadable: false,
+                source,
+                machine: Some("huge-blue"),
+                live,
+            })
+        };
+        assert_eq!(at(0).over, None, "the first lane fits");
+        assert_eq!(at(1).over.map(|o| o.max), Some(1), "a second lane is over");
     }
 
     #[test]

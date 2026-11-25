@@ -1630,9 +1630,16 @@ class BunInstallLockTest(unittest.TestCase):
         # Parallel steps share bun's global cache; two installs at once failed copying from it (ENOENT).
         for name, step in ci_steps.load().steps.items():
             for line in step.run.splitlines():
-                if re.search(r"\bbun (install|i)\b", line) and not line.lstrip().startswith("#"):
+                if line.lstrip().startswith("#"):
+                    continue
+                if re.search(r"\bbun (install|i)\b", line):
                     with self.subTest(step=name, line=line.strip()):
                         self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install', line)
+                # The bounded wrapper runs `bun install` too; unlocked, web-complexity's install raced
+                # web-typecheck's in the same web/node_modules (#55938).
+                if "bun-install.sh" in line:
+                    with self.subTest(step=name, line=line.strip()):
+                        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bash ', line)
 
 
 class WebBrowserStepsTest(unittest.TestCase):
@@ -1693,6 +1700,47 @@ class WebBrowserStepsTest(unittest.TestCase):
         status = wf["jobs"]["web-status"]["steps"][0]["run"]
         self.assertIn('may_skip.update({"web-typecheck", "web-tests", "web-production-build", "web-instant-navigation", '
                       '"agent-pane-real-acpmux"})', status)
+
+
+class RustToolCompileCacheTest(unittest.TestCase):
+    """The rust tool's cargo compiles through the runner's own sccache on a persistent GHA pool runner (its
+    SCCACHE_DIR outlives the job; the job-done hook wipes target/, so with no wrapper every cmux_next_ daemon test
+    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), and changes nothing elsewhere."""
+
+    def run_tool(self, **env: str) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            cargo_home, tools, stub_bin, cache = base / "cargo", base / "tools", base / "stub", base / "sccache"
+            for d in (cargo_home / "bin", tools, stub_bin, cache):
+                d.mkdir(parents=True)
+            (cargo_home / "bin" / "rustup").write_text("#!/bin/sh\nexit 0\n")
+            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} args=$*"\n')
+            (stub_bin / "sccache").write_text("#!/bin/sh\nexit 0\n")
+            for f in (cargo_home / "bin" / "rustup", cargo_home / "bin" / "cargo", stub_bin / "sccache"):
+                f.chmod(0o755)
+            full = {"PATH": f"{stub_bin}:/usr/bin:/bin", "HOME": tmp, "CARGO_HOME": str(cargo_home),
+                    "CI_TOOLS": str(tools), "GITHUB_ACTIONS": "true", "SCCACHE_DIR": str(cache)}
+            full.update(env)
+            full = {k: v for k, v in full.items() if v != ""}
+            subprocess.run(["bash", "-euo", "pipefail", "-c", ci_steps.load().tools["rust"]], env=full, check=True,
+                           capture_output=True, text=True, cwd=ROOT)
+            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env=full, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            return said, str(stub_bin / "sccache")
+
+    def test_a_pool_runner_with_sccache_compiles_through_it(self) -> None:
+        said, sccache = self.run_tool()
+        self.assertEqual(said, f"wrapper={sccache} args=test -p x")
+
+    def test_a_wrapper_already_set_is_kept(self) -> None:
+        said, _ = self.run_tool(RUSTC_WRAPPER="/opt/kache/kache")
+        self.assertEqual(said, "wrapper=/opt/kache/kache args=test -p x")
+
+    def test_no_sccache_dir_or_not_actions_is_as_before(self) -> None:
+        for env in ({"SCCACHE_DIR": ""}, {"GITHUB_ACTIONS": ""}):
+            with self.subTest(env=env):
+                said, _ = self.run_tool(**env)
+                self.assertEqual(said, "wrapper=none args=test -p x")
 
 
 class IosJobTest(unittest.TestCase):
