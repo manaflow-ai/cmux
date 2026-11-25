@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics) && canImport(CoreText) && canImport(Network)
 import CoreGraphics
 import CoreText
 import Foundation
@@ -203,3 +204,5 @@ final class DemoScene {
         return context.makeImage()
     }
 }
+
+#endif

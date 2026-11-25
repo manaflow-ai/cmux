@@ -583,6 +583,8 @@ impl Hub {
                 name: None,
                 // A family lives on one daemon: a child starts beside its parent.
                 redirect: false,
+                auto: false,
+                waiting: None,
                 harness: Some(harness.clone()),
             })
             .await?;
