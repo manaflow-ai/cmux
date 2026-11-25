@@ -1,7 +1,7 @@
 // A call that read one file draws as one kind of row, whatever made it (readPath.ts): the book icon
 // and "Read <file name>", the full path on hover, as the Codex app draws its reads (Lucas, 2026-11-14
 // standup: "just have the file here ... if you hover over the file name, it'll show the rest"). A name
-// alone keeps the row on one line, so opening its run shifts nothing. A read does not open.
+// alone keeps the row on one line. A shell-backed read opens to its command and output.
 import type { Translate } from "../i18n";
 import { leadingVerb } from "./toolVerbModel";
 import { ToolLabel } from "./ToolVerb";
