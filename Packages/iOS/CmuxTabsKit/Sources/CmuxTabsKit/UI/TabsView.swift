@@ -529,24 +529,20 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Not on a settled page: it is invisible there (opacity 0) and
             // its `accessibilityHidden` did not keep it out of the page's
             // accessibility tree (full verify 2026-10-19 D7, T-TABS-14).
-            if let stack = activeLeadsStack {
-                // The active card leads a stack: its chevron rides the zoom
-                // where the close button would; on the settled grid the
-                // chevron layer above draws it (it stays in its slot while
-                // the stack opens), so this one is gone there: an invisible
-                // copy still showed in the accessibility tree, a second
-                // "v" on the same card (PaneStacksUITests, fleet run 84fd97fe).
-                if zoomTabId != TabsScreenSpace.newTabMarker, !settled, phase != .overview, let id = activeID {
-                    ZStack(alignment: .topTrailing) {
-                        CardCloseGlyph().padding(4).offset(x: -StackChevron.closeInset)
-                        StackChevron(isOpen: stack.isOpen, count: stack.members.count, title: stack.title, action: {})
-                    }
-                        .opacity(close)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                        .id(id)
-                }
-            } else if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID {
+            // A stack's first card keeps its close button, left of its
+            // chevron. The chevron rides the zoom here; on the settled grid
+            // the chevron layer above draws it (it stays in its slot while
+            // the stack opens), so this copy is gone there: an invisible one
+            // still showed in the accessibility tree (fleet run 84fd97fe).
+            let stack = activeLeadsStack
+            if let stack, zoomTabId != TabsScreenSpace.newTabMarker, !settled, phase != .overview, let id = activeID {
+                StackChevron(isOpen: stack.isOpen, count: stack.members.count, title: stack.title, action: {})
+                    .opacity(close)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .id(id)
+            }
+            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, !settled, let id = activeID {
                 Button {
                     if !UIAccessibility.isReduceMotionEnabled { cardSwipes.holdCountForTapClose(max(1, tabs.count)) }
                     Task { _ = await closeFromGrid(id) }
@@ -554,6 +550,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     CardCloseGlyph().padding(4).contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .offset(x: stack == nil ? 0 : -StackChevron.closeInset)
                 .opacity(settled ? 0 : close)
                 .allowsHitTesting(phase == .overview && close > 0.5)
                 .accessibilityHidden(phase != .overview)
