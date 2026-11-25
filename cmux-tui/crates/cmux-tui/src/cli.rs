@@ -67,6 +67,8 @@ mod change_background;
 #[cfg(unix)]
 mod chat_cd;
 #[cfg(unix)]
+mod chat_move;
+#[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
 mod chat_start;
@@ -1031,6 +1033,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     // `chat cd SESSION DIR|--repo R`: a Cloud chat goes on in another folder (chat_cd.rs).
     #[cfg(unix)]
     if let Some(code) = chat_cd::run_if_requested(args) {
+        return code;
+    }
+    // `chat move SESSION --on local|cloud|auto`: Local, Cloud or AutoCloud (chat_move.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_move::run_if_requested(args) {
         return code;
     }
     // `chat send` from a coding agent is the agent's message, not the owner's
