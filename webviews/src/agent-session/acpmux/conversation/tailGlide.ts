@@ -189,6 +189,10 @@ export type TailGlide = {
   dropUnseen(view: () => DOMRect): void;
   /// Whether a row is drawn away from its place now (a glide playing or held).
   moving(): boolean;
+  /// `rested` runs each time the last glide playing ends (finished, cancelled, or `stop`): the
+  /// transcript reads and places its mounted rows then (VirtualTranscript.tsx `settleMotion`). It
+  /// may run inside a commit, so it must not render there.
+  onRest(rested: (() => void) | undefined): void;
 };
 
 /// How far `row` is drawn below its place by `translate` (negative: above), from its computed style.
@@ -206,6 +210,7 @@ const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096p
 export function createTailGlide(): TailGlide {
   let last: Placement | undefined;
   const playing = new Set<Animation>();
+  let rested: (() => void) | undefined;
   /// The glide and the clip playing on each row.
   const onRow = new Map<HTMLElement, Animation[]>();
   /// Each glide's row (a clip is no glide: it ends with the glides it guards, never on its own).
@@ -234,10 +239,11 @@ export function createTailGlide(): TailGlide {
     if (list) list.push(animation);
     else onRow.set(row, [animation]);
     const done = () => {
-      playing.delete(animation);
+      const ended = playing.delete(animation) && playing.size === 0;
       const left = onRow.get(row)?.filter((other) => other !== animation);
       if (left?.length) onRow.set(row, left);
       else onRow.delete(row);
+      if (ended) rested?.();
     };
     animation.addEventListener("finish", done, { once: true });
     animation.addEventListener("cancel", done, { once: true });
@@ -308,15 +314,20 @@ export function createTailGlide(): TailGlide {
     return animation;
   };
   const stop = () => {
+    const had = playing.size > 0;
     for (const animation of playing) animation.cancel();
     playing.clear();
     onRow.clear();
     guards.clear();
     clips.clear();
     last = undefined;
+    if (had) rested?.();
   };
   return {
     stop,
+    onRest(next) {
+      rested = next;
+    },
     moving: () =>
       [...playing].some((animation) => animation.playState !== "finished" && animation.playState !== "idle"),
     hold() {

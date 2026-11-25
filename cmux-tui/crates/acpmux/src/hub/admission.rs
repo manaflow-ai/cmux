@@ -76,7 +76,8 @@ pub(crate) struct OverCap {
 impl OverCap {
     /// The warning; `local` as in [`Ask::local`], `peers` as in [`Ask::peers`]. `instead`:
     /// where the placement engine would put it (`placement::placed`), when anywhere.
-    fn warning(&self, local: bool, peers: bool, instead: Option<&str>) -> String {
+    /// `scaling`: with nowhere to put it, the fleet is adding a machine (`admission_scale_up.rs`).
+    fn warning(&self, local: bool, peers: bool, instead: Option<&str>, scaling: bool) -> String {
         let host = if local { super::start_gate::host_label() } else { "this machine" };
         let source = if local {
             format!("lanes.max_lanes of {} in {}", self.machine, self.source.display())
@@ -85,6 +86,10 @@ impl OverCap {
         };
         let next = match instead {
             Some(placed) => format!("Next time try `acpmux new --machine auto` ({placed})."),
+            None if scaling && local && peers => {
+                "No connected host has room either, so a machine is being added to the fleet for the next ones.".into()
+            }
+            None if scaling => "A machine is being added to the fleet for the next ones.".into(),
             None if local && peers => "No connected host has room either.".into(),
             None => "Next time start it on another host.".into(),
         };
@@ -275,7 +280,8 @@ pub(crate) struct Making {
 pub(crate) struct Admitted<'a> {
     admitting: &'a Admitting,
     made: Arc<Making>,
-    /// Started past the lane cap: `{"warning", "suggestedHost", "live", "maxLanes"}`,
+    /// Started past the lane cap: `{"warning", "suggestedHost", "live", "maxLanes",
+    /// "scalingUp"}` (`scalingUp`: the fleet is adding a machine, `admission_scale_up.rs`),
     /// which the create returns as `_meta.acpmux.admission` and the CLI prints.
     pub warning: Option<Value>,
 }
@@ -424,34 +430,55 @@ impl Hub {
     /// daemon's connection) gets no host.
     fn over_cap_warning(&self, over: &OverCap, registry: Option<&Value>, ask: &Ask<'_>) -> Value {
         use crate::placement::{Candidate, Work};
-        let verdict = (ask.local && ask.peers).then(|| {
-            let peers: Vec<Candidate> = self
-                .peers()
-                .into_iter()
-                .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-                .filter_map(|p| Candidate::peer(&p))
-                .collect();
-            let verdict = crate::placement::place(&peers, registry, Work::Agent);
-            crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
-        });
-        // A pick that has no room either (`overloaded`) is no better a place: no suggestion.
-        let verdict =
-            verdict.filter(|v| v.get("overloaded").and_then(Value::as_bool) != Some(true));
-        let placed = verdict.as_ref().and_then(crate::placement::placed);
-        let host = verdict.as_ref().and_then(|v| v.get("pick")).and_then(Value::as_str);
-        let text = over.warning(ask.local, ask.peers, placed.as_deref());
+        // Weighed for every caller: whether a peer has room decides the scale-up too.
+        let peers: Vec<Candidate> = self
+            .peers()
+            .into_iter()
+            // The hosts `_acpmux/place` weighs (`placement::peer_down`): never a machine
+            // only the hub reaches, where the suggested start would fail with `no peer`.
+            .filter(|p| crate::placement::peer_down(p).is_none())
+            .filter_map(|p| Candidate::peer(&p))
+            .collect();
+        let verdict = crate::placement::place(&peers, registry, Work::Agent);
+        let verdict = crate::shadow_admission::with_shadow("over-cap", verdict, &peers);
+        let placed = super::admission_scale_up::room_elsewhere(&verdict);
+        // No connected host has room: the fleet adds one (`admission_scale_up.rs`).
+        let scaling =
+            placed.is_none() && self.scale_up(over, registry).is_some_and(|t| t.scaling());
+        // Only a caller that may learn this host's peers hears where it could have gone.
+        let shown = ask.local && ask.peers;
+        let placed = placed.filter(|_| shown);
+        let host = verdict.get("pick").and_then(Value::as_str).filter(|_| placed.is_some());
+        let text = over.warning(ask.local, ask.peers, placed.as_deref(), scaling);
         tracing::warn!(
             caller = ask.who,
             live = over.live,
             max = over.max,
             suggested = host,
+            scaling,
             "session/new admitted past the lane cap: {text}"
         );
         let mut warning = json!({"warning": text, "live": over.live, "maxLanes": over.max});
         if let Some(host) = host {
             warning.set("suggestedHost", json!(host));
         }
+        if scaling {
+            warning.set("scalingUp", json!(true));
+        }
         warning
+    }
+
+    /// Asks the registry's `lane_overflow` providers for a machine, detached
+    /// (`admission_scale_up.rs`); None when the fleet declares none here.
+    fn scale_up(
+        &self,
+        over: &OverCap,
+        registry: Option<&Value>,
+    ) -> Option<super::admission_scale_up::Trigger> {
+        use super::admission_scale_up::{ScaleUp, plan, workspace_of};
+        let workspace = workspace_of(&over.source);
+        let plan = plan(registry?, &over.source, &over.machine, workspace.as_deref())?;
+        Some(ScaleUp::daemon().trigger(&self.scope, plan, std::time::Instant::now()))
     }
 }
 
@@ -619,7 +646,7 @@ mod tests {
         }
         assert_eq!(at("cmux-lawrence", 50).over, None, "no lanes entry: no warning");
         let cap = over("cmux16", 16, 3).unwrap();
-        let message = cap.warning(true, true, Some("placed on big-red: 31 GB RAM free"));
+        let message = cap.warning(true, true, Some("placed on big-red: 31 GB RAM free"), false);
         assert!(
             message.contains("16 live sessions")
                 && message.contains("cap of 3")
@@ -629,10 +656,22 @@ mod tests {
                     .contains("`acpmux new --machine auto` (placed on big-red: 31 GB RAM free)"),
             "the warning names the count, the cap, where it comes from and a host with room: {message}"
         );
-        assert!(cap.warning(true, true, None).contains("No connected host has room"));
-        let peer = cap.warning(true, false, None);
+        assert!(cap.warning(true, true, None, false).contains("No connected host has room"));
+        let adding = cap.warning(true, true, None, true);
+        assert!(
+            adding.contains("No connected host has room")
+                && adding.contains("machine is being added"),
+            "with nowhere to go the fleet adds a machine: {adding}"
+        );
+        let web_adding = cap.warning(false, false, None, true);
+        assert!(web_adding.contains("machine is being added") && !web_adding.contains("cmux16"));
+        assert!(
+            !cap.warning(true, true, Some("placed on big-red"), true).contains("being added"),
+            "a host with room is suggested instead"
+        );
+        let peer = cap.warning(true, false, None, false);
         assert!(!peer.contains("connected host"), "a peer hears of no peer: {peer}");
-        let web = cap.warning(false, false, None);
+        let web = cap.warning(false, false, None, false);
         assert!(!web.contains("/r/"), "a Web client learns no path: {web}");
         assert!(!web.contains("cmux16"), "nor the machine: {web}");
     }

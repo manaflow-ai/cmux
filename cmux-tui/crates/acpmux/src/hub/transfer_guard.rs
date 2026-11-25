@@ -171,6 +171,13 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
     let jsonl = |f: &str| f.len() > ".jsonl".len() && f.ends_with(".jsonl");
     match parts.as_slice() {
         ["session.json"] | ["manifest.json"] => Some(false),
+        // Each surface's draft and queue labels: text the composer shows, re-checked on restore.
+        [f] if *f == super::composers::BUNDLE_FILE => Some(false),
+        // A chat's images, each named by the SHA-256 of its bytes; a restore keeps one only when
+        // its bytes have that hash, so a bundle cannot replace another chat's image.
+        [d, id] if *d == super::prompt_images::BUNDLE_DIR && super::prompt_images::valid_id(id) => {
+            Some(false)
+        }
         ["events", f] if f.len() > ".ndjson".len() && f.ends_with(".ndjson") => Some(false),
         ["harness", "journal.ndjson"] | ["harness", "session.jsonl"] => Some(false),
         ["native", "claude-project", ".claude", "projects", dir, f]
@@ -443,6 +450,12 @@ mod durable_harness_tests {
     #[test]
     fn durable_harness_journal_is_a_bundle_file() {
         assert_eq!(bundle_path_kind("harness/journal.ndjson"), Some(false));
+        assert_eq!(bundle_path_kind("composers.json"), Some(false));
+        let image = "ab".repeat(32);
+        assert_eq!(bundle_path_kind(&format!("attachments/{image}")), Some(false));
+        assert_eq!(bundle_path_kind("attachments/not-a-hash"), None);
+        assert_eq!(bundle_path_kind(&format!("attachments/{}", "AB".repeat(32))), None);
+        assert_eq!(bundle_path_kind(&format!("attachments/x/{image}")), None);
         assert_eq!(bundle_path_kind("harness/session.jsonl"), Some(false));
         assert_eq!(bundle_path_kind("harness/owner.sqlite"), None);
         assert_eq!(bundle_path_kind("harness/../journal.ndjson"), None);

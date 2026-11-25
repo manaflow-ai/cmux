@@ -54,6 +54,7 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+pub use wanted::{WAKE_ENV, WakeHook};
 #[path = "peer_controls.rs"]
 mod controls;
 #[path = "peer_list_read.rs"]
@@ -84,6 +85,9 @@ mod restart_tests;
 #[cfg(test)]
 #[path = "peer_handshake_tests.rs"]
 mod handshake_tests;
+#[cfg(test)]
+#[path = "peer_hub_behind_tests.rs"]
+mod hub_behind_tests;
 #[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
@@ -177,6 +181,20 @@ pub enum PeerNotice {
 }
 
 impl PeerNotice {
+    /// What it is, for counts (`gauges.peerNotices.kinds`): the variant, and a changed row's kind
+    /// or a notification's method.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::SessionChanged { kind, .. } => format!("changed:{kind}"),
+            Self::Notification { method, .. } => format!("note:{method}"),
+            Self::SessionsPatch { .. } => "patch".into(),
+            Self::Sessions(_) => "list".into(),
+            other => {
+                format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("other").to_owned()
+            }
+        }
+    }
+
     /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
     pub(crate) fn list_bytes(&self) -> Option<u64> {
         let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
@@ -347,6 +365,9 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
+    /// (`Peer::wake` runs it once per wake window).
+    wake_hook: std::sync::OnceLock<WakeHook>,
     /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
     /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
     /// (`owner_slots`), which a reconnect's new peer shares with the old one.
@@ -440,7 +461,7 @@ pub struct Peer {
     /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
     /// request about the chat (a `session/load` sends its history again, which is no repeat).
     replay_tail: StdMutex<HashMap<String, u64>>,
-    notices: mpsc::Sender<(String, u64, PeerNotice)>,
+    notices: crate::peer_notice_outbox::NoticeOutbox,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
@@ -541,6 +562,23 @@ impl ReceivedBytes {
 }
 
 impl Peer {
+    /// Drops the list position the hub's copy of the peer's list is current to, so the next
+    /// link reads the whole list rather than what changed after it (`hub/peer_closed_bound.rs`:
+    /// a follow cannot bring back a closed row the hub left out).
+    pub(crate) fn forget_list_cursor(&self) {
+        *self.list_cursor.lock_or_recover() = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_list_cursor_for_test(&self, cursor: Option<(String, u64)>) {
+        *self.list_cursor.lock_or_recover() = cursor;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn list_cursor_for_test(&self) -> Option<(String, u64)> {
+        self.list_cursor.lock_or_recover().clone()
+    }
+
     /// Reads the watch list on link `link` in pages of a count of rows, without tools:
     /// `_acpmux/watch {limit}`, then `_acpmux/sessions {limit, cursor}` (the keyset pages every
     /// peer serves, those from before #28182 too). The reader gathers their rows (`watch_key`).

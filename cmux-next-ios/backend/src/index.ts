@@ -1,6 +1,6 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
-import { iceServers } from "./ice.ts"
+import { cachedIceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
 import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
 import {
@@ -21,11 +21,13 @@ import {
 } from "./push.ts";
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
-import { userHubName, type Attachment, type HubOwner } from "./team-hub.ts"
+import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
+import { RELAY_SUBPROTOCOL, relayRoomName } from "./link-relay.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { LinkRelay } from "./link-relay.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -84,6 +86,8 @@ const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
 const MACHINE_ID = /^[0-9a-f]{32}$/
 /** `{machineId}` when the Mac has one, else nothing: a Mac that never sent one keeps its older wire shape. */
 const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineId: d.machineId } : {})
+/** A Mac's `quietMs` from its hub (PROTOCOL.md "Mac freshness"): only for an online Mac; an older hub sends none. */
+const quietOf = (p: { online: boolean; quietMs?: number } | undefined) => (p?.online && p.quietMs !== undefined ? { quietMs: p.quietMs } : {})
 /** Other builds' device ids one registration may name (`siblingDeviceIds`). */
 const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
@@ -334,6 +338,13 @@ const colo = (req: Request): string | null => {
   return typeof c === "string" ? c : null
 }
 
+/** Where a request entered Cloudflare: colo, country and continent codes (`req.cf`), each null when unknown. */
+const ingressOf = (req: Request): Ingress => {
+  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown } }).cf
+  const code = (v: unknown) => (typeof v === "string" && /^[A-Z0-9]{2,4}$/.test(v) ? v : null)
+  return { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent) }
+}
+
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
 
 /**
@@ -353,26 +364,6 @@ const cachedUserTeams = (env: Env, caller: Caller): Promise<ReadonlyArray<string
   teamsCache.set(key, { at: Date.now(), teams })
   teams.catch(() => teamsCache.delete(key))
   return teams
-}
-
-let iceCache: { at: number; ttl: number; value: Promise<Awaited<ReturnType<typeof iceServers>>> } | undefined
-const cachedIceServers = (env: Env): Promise<Awaited<ReturnType<typeof iceServers>>> => {
-  const now = Date.now()
-  if (iceCache && now - iceCache.at < (iceCache.ttl * 1000) / 10) return iceCache.value
-  const value = iceServers(env)
-  const entry = { at: now, ttl: 300, value }
-  iceCache = entry
-  value.then(
-    (v) => {
-      // Only a TURN answer is worth keeping; STUN-only means TURN failed, so ask again next time.
-      if (v.turn) entry.ttl = v.ttl
-      else if (iceCache === entry) iceCache = undefined
-    },
-    () => {
-      if (iceCache === entry) iceCache = undefined
-    }
-  )
-  return value
 }
 
 const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
@@ -399,8 +390,26 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (path === "/v1/ice" && method === "GET") {
     await limit(env.ICE_LIMIT, me, "ICE requests")
-    const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env))
+    const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env, ctx))
     return json({ iceServers: list, ttl, turn })
+  }
+
+  const relay = path.match(/^\/v1\/relay\/([^/]+)$/)
+  if (relay && method === "GET") {
+    // The link's WebSocket relay (PROTOCOL.md "WebSocket relay"): only the two devices the caller's hub bound to
+    // this session can join, each with its own socket, and only after direct UDP and TURN failed them.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    const sessionId = decodeURIComponent(relay[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    const peer = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId))
+    if (!peer) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayRoomName(me, space, sessionId)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer })
+    // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    return t.span("relay", room.fetch("https://link-relay/join", { headers }))
   }
 
   if (path === "/v1/me/bootstrap" && method === "POST") {
@@ -720,7 +729,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
       })
     })
   }
@@ -759,7 +768,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const hub = userHub(env, caller)
     // Fast path: the caller's hub knows the devices registered to the caller, so no database round trip.
     const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: me, teamId, space }
-    const fast = new Headers({ upgrade: "websocket", "x-cmux-mobile-claim": JSON.stringify(claim) })
+    // Where the phone entered Cloudflare (its link_stat log lines, PROTOCOL.md "Link stats"); no address.
+    const ingress = JSON.stringify(ingressOf(req))
+    const fast = new Headers({ upgrade: "websocket", "x-cmux-mobile-claim": JSON.stringify(claim), "x-cmux-mobile-ingress": ingress })
     if (subprotocol) fast.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     const res = await t.span("hub", hub.fetch("https://team-hub/signal", { headers: fast }))
     if (res.status === 101) return res
@@ -772,7 +783,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
     await t.span("hub", hub.seed(who, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
     const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
-    const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me, "x-cmux-mobile-space": space })
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me, "x-cmux-mobile-space": space, "x-cmux-mobile-ingress": ingress })
     if (subprotocol) headers.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     return t.span("hub", hub.fetch("https://team-hub/signal", { headers }))
   }
@@ -794,7 +805,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
       })
     })
   }

@@ -136,7 +136,7 @@ export function SourcesAddMenu({ attach, tools }: { attach?: () => void; tools: 
                     >
                       <span className="acpmux-tools-name">{tool.name}</span>
                       {note ? (
-                        <span className="acpmux-tools-note" data-kind={note.kind} title={noteText(note)}>
+                        <span className="acpmux-tools-note" data-kind={note.kind}>
                           {noteText(note)}
                         </span>
                       ) : (

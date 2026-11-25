@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import CmuxSpinner
@@ -23,20 +24,45 @@ import SwiftUI
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
-/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
+///   `cloudmachines-held`: the same with a start and a new machine waiting for approval in the Feed.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
+/// - `chip`: the terminal's connection chip (Leo 2026-11-21: "a symbol or short thing,
+///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
+///   in its four states; B, the chip just above the composer at the leading edge (the
+///   agent chat's); C, symbol only at the trailing edge.
+/// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
+///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
+///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
+/// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
+///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
+///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
+///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
+///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
     }
 
     let scene: String
+    /// `chip-b`, `chiplist-c`: one variant of a variants scene, so each gets its own shot.
+    let variant: String?
     /// `-cmux-mobile-gallery-appearance light|dark`: the scheme the shots use (else the system's).
     let scheme: ColorScheme?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
-        scene = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
+        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+            scene = parts[0]
+            variant = parts[1]
+        } else {
+            scene = named
+            variant = nil
+        }
         let look = arguments.firstIndex(of: "-cmux-mobile-gallery-appearance").flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
         scheme = look == "dark" ? .dark : look == "light" ? .light : nil
     }
@@ -59,8 +85,20 @@ public struct RecoveryGalleryRoot: View {
                 signedOut
             case "cloudmachines":
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
+            case "reconnect":
+                reconnect
+            case "chip":
+                connectionChips
+            case "chiplist":
+                listChips
+            case "cloudmachines-held":
+                NavigationStack { CloudMachinesScreen(model: .gallery(held: true), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
+            case "keybar":
+                TerminalKeyBarGallery()
+            case "lastsent":
+                TerminalLastSentGallery()
             default:
                 states
             }
@@ -78,7 +116,7 @@ public struct RecoveryGalleryRoot: View {
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
             } description: {
-                Text("The Mac didn't answer in time.")
+                Text(ConnectionInterrupted.message)
             } actions: {
                 RetryButton {}
             }
@@ -166,6 +204,136 @@ public struct RecoveryGalleryRoot: View {
         }
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
+
+    /// A (picked): a quiet line at the top of the list, the same place and type as "Updating…",
+    /// so a blip reads as the list refreshing, not as a problem; rows stay tappable.
+    /// B: a floating glass pill over the bottom of the list (motion over content; covers the
+    /// last row and competes with the tab bar).
+    /// C: a thin indeterminate bar under the title with the rows dimmed (reads as blocked, and
+    /// dimming invites a tap that does nothing different).
+    /// The terminal page's three chip placements (`chip`, or one of them: `chip-a|b|c`).
+    private var connectionChips: some View {
+        let states = TerminalChipPage.states
+        return ScrollView {
+            VStack(spacing: 12) {
+                if showsVariant("a") {
+                    // visible-only: four fixed states.
+                    ForEach(states, id: \.self) { state in
+                        galleryLabel("A · top center · \(state.word)")
+                        TerminalChipPage(variant: .a, state: state)
+                    }
+                }
+                if showsVariant("b") {
+                    galleryLabel("B · above the composer, leading")
+                    TerminalChipPage(variant: .b, state: states[1])
+                }
+                if showsVariant("c") {
+                    galleryLabel("C · symbol only, trailing · \(states[2].word)")
+                    TerminalChipPage(variant: .c, state: states[2])
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var reconnect: some View {
+        let rows = ["Fix the login redirect", "Bump the parser to 2.4", "Why is CI slow on arm64?"]
+        func list(_ status: ListStatusRow.State?, dimmed: Bool = false) -> some View {
+            List {
+                if let status { ListStatusRow(status) }
+                // visible-only: a fixed gallery of three rows.
+                ForEach(rows, id: \.self) { Text($0).opacity(dimmed ? 0.45 : 1) }
+            }
+            .listStyle(.insetGrouped)
+            .scrollDisabled(true)
+            .frame(height: 230)
+        }
+        return ScrollView {
+            VStack(spacing: 12) {
+                galleryLabel("A · picked · reconnecting")
+                list(.reconnecting)
+                galleryLabel("A · past the bound, rows kept")
+                list(.stale)
+                galleryLabel("A · empty list, connecting")
+                CmuxSpinner(label: Text("Connecting to your Mac…")).frame(height: 120)
+                galleryLabel("B · floating pill")
+                list(nil)
+                    .overlay(alignment: .bottom) {
+                        HStack(spacing: 8) {
+                            CmuxSpinner().controlSize(.small)
+                            Text("Reconnecting…").font(.footnote.weight(.medium))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(.bottom, 12)
+                    }
+                galleryLabel("C · top bar, rows dimmed")
+                list(nil, dimmed: true)
+                    .overlay(alignment: .top) {
+                        ProgressView().progressViewStyle(.linear).padding(.horizontal, 20)
+                    }
+            }
+            .padding(.vertical, 60)
+        }
+        .accessibilityIdentifier("recoveryGallery.reconnect.variants")
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    private var listChips: some View {
+        let rows = ["cmux · Fix the login redirect", "api · Bump the parser to 2.4", "web · Why is CI slow on arm64?",
+                    "cmux · Land the chip", "infra · Rotate runners"]
+        func list<Chip: View>(_ alignment: Alignment, @ViewBuilder chip: () -> Chip) -> some View {
+            List {
+                // visible-only: a fixed gallery of five rows.
+                ForEach(rows, id: \.self) { Text($0) }
+            }
+            .listStyle(.insetGrouped)
+            .scrollDisabled(true)
+            .frame(height: 280)
+            .overlay(alignment: alignment) { chip().padding(.top, 8).padding(.horizontal, 20) }
+        }
+        let states: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .macOffline("Mac Studio"), .offline]
+        return ScrollView {
+            VStack(spacing: 12) {
+                if showsVariant("a") {
+                // visible-only: three fixed link states.
+                ForEach(states, id: \.self) { state in
+                    galleryLabel("A · top center · \(state.chip?.word ?? state.text)")
+                    List {
+                        // visible-only: a fixed gallery of five rows.
+                        ForEach(rows, id: \.self) { Text($0) }
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollDisabled(true)
+                    .frame(height: 280)
+                    .cmuxMobileBanner(state, retry: {})
+                }
+                galleryLabel("A · signed out: the banner, also over the rows")
+                List {
+                    // visible-only: a fixed gallery of five rows.
+                    ForEach(rows, id: \.self) { Text($0) }
+                }
+                .listStyle(.insetGrouped)
+                .scrollDisabled(true)
+                .frame(height: 280)
+                .cmuxMobileBanner(.signedOut, retry: {})
+                }
+                if showsVariant("b") {
+                    galleryLabel("B · top leading")
+                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!, downSince: nil) }
+                }
+                if showsVariant("c") {
+                    galleryLabel("C · symbol only, top trailing · Mac offline")
+                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!, downSince: nil) }
+                }
+            }
+            .padding(.vertical, 60)
+        }
+        .accessibilityIdentifier("recoveryGallery.chiplist.variants")
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    private func showsVariant(_ name: String) -> Bool { variant == nil || variant == name }
 
     private func galleryLabel(_ text: String) -> some View {
         Text(text).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)

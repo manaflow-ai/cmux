@@ -11,16 +11,21 @@ public struct PaneTrailingSlots {
     public init() {}
 
     /// One tab's need: its toolbar beside it alone (`intrinsic`), its toolbar beside its page's tools in the row
-    /// (`shared`, nil: the page shares no row) and those tools' need (`tools`).
+    /// (`shared`, nil: the page shares no row), those tools' need (`tools`), what decides whether they fit, and the
+    /// width they last took in the row (`taken`, nil: their need), which adds the row's accessories (a chat's rolling
+    /// summary, header/tabRow.ts TAB_ROW_ACCESSORY): kept for the tab while another is selected, so the tabs keep
+    /// still across a selection instead of taking the summary's room and giving it back.
     public struct Need: Equatable {
         public var intrinsic: CGFloat
         public var shared: CGFloat?
         public var tools: CGFloat?
+        public var taken: CGFloat?
 
-        public init(intrinsic: CGFloat, shared: CGFloat? = nil, tools: CGFloat? = nil) {
+        public init(intrinsic: CGFloat, shared: CGFloat? = nil, tools: CGFloat? = nil, taken: CGFloat? = nil) {
             self.intrinsic = intrinsic
             self.shared = shared
             self.tools = tools
+            self.taken = taken
         }
 
         /// Points the tab takes at the trailing end of a row `width` wide, as `PaneContentView.layout()` lays it:
@@ -29,7 +34,7 @@ public struct PaneTrailingSlots {
             let half = max(0, width / 2)
             if let shared, let tools, tools > 0 {
                 let bar = min(shared, half), room = max(0, width - bar)
-                if tools <= room / 2 { return bar + min(tools, room / 2) }
+                if tools <= room / 2 { return bar + min(max(tools, taken ?? 0), room / 2) }
             }
             return min(intrinsic, half)
         }

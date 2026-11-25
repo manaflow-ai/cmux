@@ -171,6 +171,17 @@ pub fn parse_minted(stdout: &[u8], origin: Option<&str>, now: Instant) -> Result
     Ok(Minted { token, refresh_at, mcp_url: format!("{origin}/mcp") })
 }
 
+/// The signed-in person's token and the platform origin that issued it, minted by the app
+/// (`cmux auth token` through [`CMUX_BIN_ENV`]): `install_share.rs` sends the person's choice
+/// with it. The same rules as this server's: only to its issuer's platform, never stored.
+pub async fn person_token() -> Result<(Arc<Zeroizing<String>>, String), String> {
+    let cmux =
+        std::env::var_os(CMUX_BIN_ENV).filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let minted = mint(&cmux, None).await?;
+    let origin = minted.mcp_url.strip_suffix("/mcp").unwrap_or(&minted.mcp_url).to_owned();
+    Ok((minted.token, origin))
+}
+
 /// The error `code` in what the CLI wrote to stderr (`{"code", "message"}` with `--json`).
 fn error_code(stderr: &[u8]) -> Option<String> {
     let value: Value = serde_json::from_slice(stderr.trim_ascii()).ok()?;

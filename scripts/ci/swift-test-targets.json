@@ -8,7 +8,6 @@
     {"package": "Packages/iOS/CmuxConversation", "target": "CmuxConversationGeometryTests", "not_run": "red on feat-cmux-next: DynamicColorIsolationTests.dynamicColorsUseTheSendableProvider names ComposeRecipientField.swift:39"},
     {"package": "Packages/iOS/CmuxConversation", "target": "CmuxConversationMacUITests", "not_run": "red on an owned Mac: MacComposerAttachmentTests.finderCopyOfAnImageFilePastesThePhoto reads no image from the pasteboard"},
     {"package": "Packages/iOS/CmuxConversation", "target": "CmuxConversationCoreTests", "not_run": "passes (304 tests), but the package lane runs CmuxConversation whole and its Geometry and MacUI targets fail"},
-    {"package": "Packages/iOS/CmuxMobileRPC", "target": "CmuxMobileRPCTests", "not_run": "red on an owned Mac: MobileCoreRPCIndependentEventTests.anEventOnAnotherTerminalsLaneIsRefusedAndNeverReachesListeners sees terminal-b before terminal-a (an ordering assumption)"},
     {"package": "Packages/iOS/CmuxMobileSSH", "target": "CmuxMobileSSHTests", "not_run": "red on a headless CI Mac: SSHStoresLabTests.keyStoreImportsAndLoadsFromKeychain gets keychain error -60008 (no unlocked login keychain in the runner session)"}
   ]
 }

@@ -35,6 +35,34 @@
     "diff.layout": "unified",
     "focus.inactiveTabStyle": "tonal",
     "layout.paneCornerRadius": 14,
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "rail",
+    "sidebar.showLocalMachine": true,
+    "sidebar.workspaceRow.process": true,
+    "sidebar.workspaceRow.ports": true,
+    "sidebar.workspaceRow.working": true,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "leftRail"
   }
 }

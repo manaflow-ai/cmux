@@ -45,7 +45,9 @@ import Testing
 
     func fixture(topRow: Bool) -> Fixture {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
+        // 2x whatever the display: at 1x (a fleet runner's) the top row's pill and the strip's own centering snap to
+        // the same whole point at every density, so no density is left to check.
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -120,7 +122,7 @@ import Testing
             move(f, by: -300)
             #expect(!WindowTitlebar.isInTopRow(f.strip))
             #expect(try pillTop(f) == centered(f), "moved down, the pill keeps the strip's own centering, not the line's offset")
-            #expect(f.toolbar.moreButton.frame.minY == PaneToolbarView.edgeInset(height: f.toolbar.bounds.height))
+            #expect(f.toolbar.zoomButton.frame.minY == PaneToolbarView.edgeInset(height: f.toolbar.bounds.height))
         }
     }
 
@@ -184,7 +186,7 @@ import Testing
             try #require(WindowTitlebar.isInTopRow(f.strip))
             #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "moved up onto the top row, the pill takes the line")
             #expect(try pillTop(f) != centered(f))
-            let button = f.toolbar.convert(f.toolbar.moreButton.frame, to: nil)
+            let button = f.toolbar.convert(f.toolbar.zoomButton.frame, to: nil)
             if TitlebarBandButton.side <= 2 * line.centerY {
                 #expect(abs(f.container.bounds.maxY - button.midY - line.centerY) <= 0.5, "the toolbar's buttons take the line too")
             }

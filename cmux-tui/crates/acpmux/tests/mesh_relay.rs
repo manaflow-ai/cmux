@@ -14,15 +14,17 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
-    Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
+    Ack, AckState, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode, OutMessage,
+    Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
 };
 use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::Message;
-use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
+use acpmux::server::mesh_relay::{
+    ControlHook, MeshControlHook, MeshRelay, RefuseControl, RelayOptions, relay_connection,
+};
 use acpmux::server::{Origin, serve_connection_with};
 use acpmux::store::{EventRecord, MemoryStore, SessionStatus, Store};
 use futures::future::BoxFuture;
@@ -411,6 +413,125 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     relay.stop().await;
 }
 
+/// The provenance of `prompt_id` in `session`, once it is recorded: as the turn's user message,
+/// or as an inbox entry, where a relay's message to a chat that did not delegate to it waits
+/// (`hub/inbox.rs`), as it does over a peer link.
+async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str) -> Value {
+    for _ in 0..600 {
+        let page = local
+            .call(
+                "_acpmux/events",
+                json!({"sessionId": session, "kinds": ["user_message", "inbox"]}),
+            )
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == prompt_id) {
+            return e["msg"]["_meta"]["provenance"].clone();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{prompt_id} never reached {session}");
+}
+
+/// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
+/// the machine the hub proved, verified: it read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the
+/// sender to confirm. The sending daemon's relay record names the session when it names the same
+/// machine; one that names another machine is not believed.
+#[tokio::test]
+async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_verified() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let sessionless = |id: &str, relay: Option<Value>| {
+        let mut m = message(id, "dep-land", Kind::Prompt);
+        m.from.name = None;
+        m.from.relay = relay;
+        m
+    };
+    fake.lease(sessionless("msg-bare", None));
+    fake.lease(sessionless(
+        "msg-relay",
+        Some(json!({"by": "lane-gh", "machine": "gcp-lane", "session": "coord"})),
+    ));
+    fake.lease(sessionless(
+        "msg-other",
+        Some(json!({"by": "lane-gh", "machine": "elsewhere", "session": "coord"})),
+    ));
+    for (id, shown) in
+        [("msg-bare", "gcp-lane"), ("msg-relay", "gcp-lane/coord"), ("msg-other", "gcp-lane")]
+    {
+        fake.until("the ack", |s| !s.acked(id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(id)), vec![Ack::delivered(id, None)], "{id}");
+        let p = delivered_provenance(&mut local, &session, id).await;
+        assert_eq!(p["fromName"], shown, "{id}: {p}");
+        let record = acpmux::prompt_provenance::sender_record(Some(&p), None, None);
+        assert_eq!(record["verification"], "verified", "{id}: {record}");
+        assert_eq!(record["authenticated"], true, "{id}: {record}");
+        assert_eq!(record["relay"]["machine"], "gcp-lane", "{id}: {record}");
+    }
+    relay.stop().await;
+}
+
+/// A send from no session (a relay on this machine's unix socket) carries its relay record to the
+/// hub, so the receiving machine can name the session it came from; a proven session's send
+/// carries none, whatever it wrote.
+#[tokio::test]
+async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let relayed = |id: &str| {
+        let mut request = send_queue("dep-land", id);
+        request["request"]["_meta"]["acpmux"]["fromRelay"] =
+            json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"});
+        request
+    };
+    let mut broker = Client::local(&a);
+    broker.call("initialize", json!({"protocolVersion": 1})).await;
+    let queued = broker.call("_acpmux/send_queue", relayed("prompt-relay-1")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id, None, "{from:?}");
+    assert_eq!(
+        from.relay,
+        Some(json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"})),
+        "{from:?}"
+    );
+
+    let mut as_lane = Client::local(&a);
+    let token = acpmux::hub::person::caller_token(&lane);
+    let caller = json!({"callerSession": {"sessionId": lane, "token": token}});
+    as_lane.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    let queued = as_lane.call("_acpmux/send_queue", relayed("prompt-relay-2")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+    assert_eq!(from.relay, None, "{from:?}");
+}
+
 /// A relayed message's sender claim reaches the chat as the sender's own word: a `checked` it
 /// carries is the sending daemon's, which this one cannot confirm, so it is dropped.
 #[tokio::test]
@@ -497,10 +618,26 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
     assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
     assert!(hub.mesh_for_here(&mine, None).is_err());
+    // The prompt ids in the chat's records: a turn's or an inbox item's. Another agent's message
+    // to a chat that already ran a turn goes to its inbox, not a turn of its own (`hub/inbox.rs`),
+    // so the chat's turn count says nothing about what reached it.
+    async fn held(local: &mut Client, session: &str) -> Vec<String> {
+        let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
+        let mut ids: Vec<String> = page
+            .pointer("/result/events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e["msg"]["promptId"].as_str().map(str::to_owned))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
     let own = acpmux::pairing::machine_name();
-    let mut ran = 0;
+    let mut ran: Vec<String> = Vec::new();
     if own != "host" {
-        // Its own host, as a field and as a prefix, is this one: those run.
+        // Its own host, as a field and as a prefix, is this one: those reach the chat.
         let mine = [
             ("own-host", named(Some(&own.to_uppercase()), None)),
             ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
@@ -509,20 +646,19 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
             fake.lease(InMessage { message_id: id.into(), ..to(target) });
             fake.until(id, |s| !s.acked(id).is_empty()).await;
             assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
-            ran += 1;
+            ran.push(id.to_owned());
         }
     }
-    let mut info = Value::Null;
+    ran.sort();
+    let mut got = Vec::new();
     for _ in 0..600 {
-        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
-        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
-        if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
+        got = held(&mut local, &session).await;
+        if got.len() >= ran.len() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
-    assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
+    assert_eq!(got, ran, "a message for elsewhere reached the chat here, or one for here did not");
     relay.stop().await;
 }
 
@@ -1148,24 +1284,27 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
 
-    // A supersede key cannot cross the hub: the send is refused, not sent without it.
+    // A supersede key cannot cross the hub: the send goes without it and says so, as the
+    // sender would have sent it again anyway (cmuxterm-hq
+    // docs/findings/2026-11-23-mcp-tool-error-census.md).
     let posted = fake.with(|s| s.sent.len());
     let mut keyed = send_queue("dep-land", "prompt-0004");
     keyed["request"]["_meta"]["acpmux"]["supersede"] = json!("status");
     let keyed = sender.call("_acpmux/send_queue", keyed).await;
-    assert_eq!(keyed.pointer("/error/data/reason"), Some(&json!("mesh.no_supersede")), "{keyed}");
-    // `acpmux send` reads "no session" in an error as not found and drops the rest of it.
-    let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
-    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    assert_eq!(keyed.pointer("/result/supersedeDropped"), Some(&json!(true)), "{keyed}");
+    let said = keyed.pointer("/result/note").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("no supersede key"), "{keyed}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a keyed send did not reach the hub");
+    let posted = posted + 1;
+    // A class but result has no field on the hub's message: it goes as the text's first line,
+    // and the sender's row says so (`server/mesh_send.rs`, #49350), never as a plain result.
     let mut block = send_queue("dep-land", "prompt-0005");
     block["request"]["_meta"]["acpmux"]["class"] = json!("block");
     let block = sender.call("_acpmux/send_queue", block).await;
-    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
-    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
+    assert_eq!(block.pointer("/result/classInline"), Some(&json!("block")), "{block}");
+    let body = fake.with(|s| s.sent.last().unwrap().body.clone());
+    assert_eq!(body, "[block]\n\nfrom another machine");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a classified send did not reach the hub");
     relay.stop().await;
 }
 
@@ -1229,6 +1368,14 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         state: "ready".into(),
         stuck_reason: None,
         team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1247,6 +1394,72 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
 }
 
+/// The sender of a direct `HOST/NAME` send through the hub reads its own status, though the hub
+/// stamps `startWork` on every receipt and team messaging is off; another session does not
+/// (2026-11-19: `acpmux send --status mesh:msg_…` answered "team message is not addressed to
+/// this session" to the session that sent it).
+#[tokio::test]
+async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_other_session_does() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let other = Client::local(&a).new_session("lane-c").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let proven = |session: &str| {
+        let token = acpmux::hub::person::caller_token(session);
+        json!({"protocolVersion": 1,
+               "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}})
+    };
+    // As the hub answers every receipt: with its start-work decision.
+    let stamp = |delivery: &str| {
+        let message = delivery.trim_start_matches("mesh:").to_owned();
+        fake.with(|s| {
+            s.receipts.get_mut(&message).unwrap().start_work =
+                Some(acpmux::mesh::StartWork::Information)
+        });
+    };
+    let mut as_lane = Client::local(&a);
+    as_lane.call("initialize", proven(&lane)).await;
+    let queued = as_lane.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-1")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = as_lane.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+    assert_eq!(status.pointer("/result/target"), Some(&json!("b/dep-land")), "{status}");
+    let mut as_other = Client::local(&a);
+    as_other.call("initialize", proven(&other)).await;
+    let refused = as_other.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert!(refused.get("error").is_some(), "another session read it: {refused}");
+
+    // A send from the person's own terminal, no session proven: its status reads the same.
+    let mut terminal = Client::local(&a);
+    let queued =
+        terminal.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-2")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = terminal.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+}
+
 /// A send through the hub carries its sender claim on the wire, so the receiving machine can
 /// show where it came from.
 #[tokio::test]
@@ -1260,6 +1473,14 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         state: "ready".into(),
         stuck_reason: None,
         team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })

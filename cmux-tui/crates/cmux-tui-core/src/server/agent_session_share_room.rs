@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
+use super::{AccessAsk, GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
 use crate::server::RenderService;
 
@@ -1171,7 +1171,7 @@ fn refused(mux: &Mux, share_id: &str, guest: &str, ask: relay::Ask) -> Vec<Value
 }
 
 /// The redeem refusals the room may pass to a guest.
-const GUEST_REFUSALS: [&str; 9] = [
+const GUEST_REFUSALS: [&str; 12] = [
     "share.secret",
     "share.not_invited",
     "share.used",
@@ -1181,6 +1181,11 @@ const GUEST_REFUSALS: [&str; 9] = [
     "share.closed",
     "share.kicked",
     "share.left",
+    // An access request's: an anonymous visitor cannot ask, an invited account redeems instead,
+    // and a share holds only so many asks.
+    "share.needs_sign_in",
+    "share.invited",
+    "share.limit",
 ];
 
 /// The daemon's answer to one room frame.
@@ -1233,6 +1238,32 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                     let code =
                         if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
                     vec![json!({"v": 1, "t": "redeemed", "request_id": request_id, "error": code})]
+                }
+            }
+        }
+        // A signed-in visitor with no access asks the owner for it. Like `redeem`, the room's own
+        // frame: `account` is its attestation of a verified sign-in (none: an anonymous visitor).
+        "request" if *ready => {
+            let field =
+                |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let ask = AccessAsk {
+                share_id: share_id.to_owned(),
+                account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
+                name: field("name"),
+                avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
+            };
+            let directory = mux.session_state_directory();
+            let asked = shares(mux).request_access(directory.as_deref(), ask);
+            let request_id = frame.get("request_id").unwrap_or(&Value::Null);
+            let attempt_id = frame.get("attempt_id").unwrap_or(&Value::Null);
+            match asked {
+                Ok(_) => vec![json!({"v": 1, "t": "requested", "request_id": request_id,
+                    "attempt_id": attempt_id, "state": "requested"})],
+                Err(code) => {
+                    let code =
+                        if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
+                    vec![json!({"v": 1, "t": "requested", "request_id": request_id,
+                        "attempt_id": attempt_id, "error": code})]
                 }
             }
         }

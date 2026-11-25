@@ -190,6 +190,8 @@ pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+#[cfg(unix)]
+mod agent_failure_code;
 pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
@@ -230,6 +232,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod shell_state_save;
 mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
@@ -240,6 +243,7 @@ pub use agent_presence::{AgentActivity, AgentPresence};
 pub(crate) use agent_prompts::{
     with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
 };
+mod agent_notification_delivery;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -329,6 +333,8 @@ mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+#[cfg(any(unix, windows))]
+pub mod process_census;
 mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
@@ -408,7 +414,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };
@@ -1153,6 +1159,17 @@ impl Mux {
     /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
+            // A never-started lazy tab is parked, not reaped
+            // (mux/terminal_respawn/lazy.rs). Its park waits for the end of
+            // its creating request: a park inside the creation is overwritten
+            // when the creation commits the tab and its terminal.
+            #[cfg(unix)]
+            if surface
+                .terminal_host_identity()
+                .is_some_and(|host| self.lazy_never_started(&host.terminal_id))
+            {
+                return;
+            }
             if self.resource_creation_active.load(Ordering::Acquire) {
                 // The reader's exit callback is fenced by the creation
                 // execution lock. It will reap this surface after the public

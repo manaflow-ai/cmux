@@ -34,6 +34,13 @@ public struct StreamedSimulatorPage: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                } else if let chip = StreamedBrowserModel.linkChip(for: reason) {
+                    // The link is coming back: a chip over the last frame, not a sentence (Leo,
+                    // 2026-11-21: "a symbol or short thing, not a sentence. stop layout shifting").
+                    ConnectionChip(chip, downSince: model.waitingSince ?? ConnectionChip.justDropped)
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .accessibilityIdentifier("simulator.reconnecting")
                 } else {
                     retryStatus(reason)
                 }
@@ -107,7 +114,7 @@ public struct StreamedSimulatorAccessory: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(title)
         .accessibilityIdentifier("simulator.\(id)")

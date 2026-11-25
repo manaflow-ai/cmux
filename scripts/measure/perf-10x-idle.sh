@@ -27,6 +27,11 @@
 # infinite=COUNTS: also the infinite-items run (scripts/measure/infinite-items.py, CMUX-571) on the bundle's
 # own acpmux and cmux-tui: COUNTS workspaces, each with a terminal tab and an agent chat, through simulated
 # days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
+# soak=MINUTES (soak_every=MIN, default 10; soak_agents=N, default 3 chats): one app left alone for MINUTES (CMUX-571:
+# what grows over uptime; Leo, 2026-11-21: "we need to fix the starved threads and bullshit ram being taken up NOW"):
+# bench_memory.py --idle-minutes --soak-vm, per sample the footprint of each kind (PERF-SOAK lines) and the app's and the
+# largest Chromium renderer's vmmap --summary, footprint and heap (SOAK-VM lines; diff idle-launch against the last
+# soak-Nm sample), the JS heaps and the growth by kind. Artifact: .build/perf-idle/soak.json and soak.log.
 # vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
 # axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible, page-hidden, page-visible;
@@ -53,7 +58,7 @@ set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
-infinite="" days=3
+infinite="" days=3 soak="" soak_every=10 soak_agents=3
 axes="" items="1,10,100" visible_items="1,4,10" settled=90
 reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
 for arg in "$@"; do
@@ -63,6 +68,9 @@ for arg in "$@"; do
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
     infinite=*) infinite="${arg#infinite=}" ;;
+    soak=*) soak="${arg#soak=}" ;;
+    soak_every=*) soak_every="${arg#soak_every=}" ;;
+    soak_agents=*) soak_agents="${arg#soak_agents=}" ;;
     days=*) days="${arg#days=}" ;;
     purge=1) purge=(--purge-hidden) ;;
     release=*) release=(--release-hidden-chats "${arg#release=}") ;;
@@ -105,6 +113,21 @@ tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
 
+# Runs "$@" with its output in the log file $1, printing one line every 5 min while it runs. The controller stops
+# a measurement that prints nothing for 45 min (CMUX_CI_MEASURE_SILENT_MAX), and a soak=60 run sat silent past that
+# with all its output in soak.log (job 204b2ad6, 2026-11-22), so the soak never reported.
+logged() {
+  local log="$1"; shift
+  "$@" > "$log" 2>&1 &
+  local pid=$! started=$SECONDS rc=0
+  while kill -0 "$pid" 2>/dev/null; do
+    for _ in $(seq 60); do kill -0 "$pid" 2>/dev/null || break; sleep 5; done
+    kill -0 "$pid" 2>/dev/null && echo "PERF-IDLE-RUNNING $(basename "$log") $(( (SECONDS - started) / 60 )) min: $(tail -n 1 "$log" | cut -c1-160)"
+  done
+  wait "$pid" || rc=$?
+  return "$rc"
+}
+
 state_root="$(mktemp -d /private/tmp/pidl.XXXXXX)"
 trap 'rm -rf "$state_root"' EXIT
 if [[ "$counts" != none ]]; then
@@ -132,9 +155,9 @@ for path in sys.argv[1:]:
 PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
-python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
+logged "$work/app.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
   --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
-  --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+  --out "$work/app.json" || { status=$?; tail -n 60 "$work/app.log"; }
 # Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
 grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
 grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
@@ -146,6 +169,25 @@ for s in data.get("samples", []):
         print(f"PERF-IDLE app {s['label']} workspaces={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']} "
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} disk_read_mb_per_h={e.get('disk_read_mb_per_h')}")
+PY
+fi
+if [[ -n "$soak" ]]; then
+  echo "PERF-IDLE-LOAD soak $(uptime | sed 's/.*load averages*: //')"
+  logged "$work/soak.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$soak_agents" --mix terminal+chat \
+    --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py --settle 20 --measure 30 --top 8 --js-heap \
+    --idle-minutes "$soak" --sample-minutes "$soak_every" --soak-vm \
+    --out "$work/soak.json" || { status=$?; tail -n 60 "$work/soak.log"; }
+  grep -E '^SOAK-VM |^== soak|^   [a-z-]+ +[-+0-9.]+ MB|JS heap' "$work/soak.log" || true
+  python3 - "$work/soak.json" <<'PY' || status=$?
+import json, sys
+data = json.load(open(sys.argv[1]))
+for s in data.get("samples", []):
+    for kind, e in s["kinds"].items():
+        print(f"PERF-SOAK {s['label']} t={s['time']} workspaces={s['workspaces']} kind={kind} n={e['count']} "
+              f"rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']} cpu_pct={e.get('cpu_pct')}")
+    print(f"PERF-SOAK {s['label']} t={s['time']} workspaces={s['workspaces']} kind=total n={len(s['processes'])} "
+          f"rss_mb={s['total_rss_mb']} footprint_mb={s['total_footprint_mb']}")
+print(f"PERF-SOAK-GROWTH {json.dumps(data.get('soak_growth_mb'))}")
 PY
 fi
 if [[ -n "$axes" ]]; then
@@ -178,10 +220,10 @@ if [[ -n "$axes" ]]; then
 fi
 if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
-  env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
+  logged "$work/agents.log" env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
-    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    --settle 20 --measure "$measure" --top 8 --gpu ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
+    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
@@ -189,11 +231,16 @@ data = json.load(open(sys.argv[1]))
 for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
-              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+              f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']} "
+              f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
+    if s.get("gpu"):
+        print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
     if "chat_renderers" in s:
         print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:
         print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
+if data.get("gpu_no_app"):
+    print(f"PERF-IDLE-GPU app-agents no-app {json.dumps(data['gpu_no_app'])}")
 if "chat_renderer_crash" in data:
     print(f"CHAT-RENDERERS-CRASH {json.dumps(data['chat_renderer_crash'])}")
 if "restore" in data:

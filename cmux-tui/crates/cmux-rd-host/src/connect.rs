@@ -7,14 +7,16 @@
 //!
 //! JSON lines with the app, like `serve`:
 //! stdout first: {"key":"<this side's session key>"} (the app signs it: the offer)
-//! stdin first: {"session":"..","peer_key":"<host session key, checked by the app>",
-//!   "stun":[..],"candidates":[..],"socket":"<path in a 0700 directory>"}
+//! stdin setup: {"session":"..","peer_key":"<host session key, checked by the app>",
+//!   "stun":[..],"candidates":[..],"socket":"<path in a 0700 directory>",
+//!   "relay_note":"<the hub's ticket `relayNote`, when billing could not be read>"}
 //! stdout then: {"candidate":".."}, {"listening":true}, {"connected":true},
 //!   {"path":{..}}, {"ended":".."}
 //! An `ended` that starts `host: ` carries the host's own cmux.rd/1 `ended` reason (for example
 //! `host: failed: <capture error>`), read off the link whether or not the pane was attached, so
 //! the app can say why the host stopped rather than only that the link closed.
-//! stdin later: {"candidate":".."} or {"stop":true}
+//! stdin later: {"candidate":".."} or {"stop":true}. A trickled candidate that arrives while
+//! the app prepares the answer's socket directory is kept until the answer supplies the key.
 //!
 //! One pane connects to the socket; a second connection is refused.
 
@@ -26,7 +28,6 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -46,6 +47,10 @@ struct Answer {
     /// The person's "relay only": this side reaches the host through TURN alone.
     #[serde(default)]
     relay_only: bool,
+    /// Why the hub sent no relay when billing gave no answer (its ticket's `relayNote`, "could
+    /// not read your plan"), so a failed link says that rather than reading as a free plan.
+    #[serde(default)]
+    relay_note: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +59,41 @@ struct Later {
     candidate: Option<String>,
     #[serde(default)]
     stop: bool,
+}
+
+/// The app forwards trickled routes while its answer hand-off prepares a private socket.
+/// Only an answer can start the link. Keep a bounded set of parsed routes in the meantime.
+fn read_answer(mut input: impl BufRead) -> Res<Answer> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct EarlyCandidate {
+        candidate: String,
+    }
+
+    const MAX_EARLY_CANDIDATES: usize = 32;
+    let mut early = Vec::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if input.read_line(&mut line)? == 0 {
+            return Err("the app closed the session's input before its answer".into());
+        }
+        match serde_json::from_str::<Answer>(&line) {
+            Ok(mut answer) => {
+                answer.candidates.extend(early.iter().map(Candidate::to_wire));
+                return Ok(answer);
+            }
+            Err(error) => {
+                let route: EarlyCandidate =
+                    serde_json::from_str(&line).map_err(|_| format!("answer line: {error}"))?;
+                if let Some(candidate) = Candidate::from_wire(&route.candidate) {
+                    if early.len() < MAX_EARLY_CANDIDATES && !early.contains(&candidate) {
+                        early.push(candidate);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
@@ -81,15 +121,9 @@ pub fn run() -> Res<()> {
         key: Some(keys.public.iter().map(|b| format!("{b:02x}")).collect::<String>()),
         ..AppLine::default()
     });
-    let mut line = String::new();
-    io::stdin().lock().read_line(&mut line)?;
-    let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
+    let answer = read_answer(io::stdin().lock())?;
     let peer = unhex32(&answer.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = answer
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&answer.stun, answer.relay_only);
     // The socket's directory is the app's private one; the socket itself is the user's only.
     let _ = std::fs::remove_file(&answer.socket);
     let listener = UnixListener::bind(&answer.socket)?;
@@ -105,6 +139,11 @@ pub fn run() -> Res<()> {
         turn: crate::carrier::turn_servers(&answer.turn),
         relay_only: answer.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
+    // A host that dies without a close ends this viewer instead of freezing it.
+    net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
@@ -117,7 +156,8 @@ pub fn run() -> Res<()> {
             libc::fcntl(libc::STDIN_FILENO, libc::F_GETFL) | libc::O_NONBLOCK,
         );
     }
-    let reason = bridge(&net, &listener).unwrap_or_else(|e| format!("failed: {e}"));
+    let reason = bridge(&net, &listener, answer.relay_note.as_deref())
+        .unwrap_or_else(|e| format!("failed: {e}"));
     let _ = std::fs::remove_file(&answer.socket);
     say(AppLine { ended: Some(reason), ..AppLine::default() });
     drop(net);
@@ -145,7 +185,7 @@ fn app_lines(buf: &mut Vec<u8>) -> Result<Vec<Later>, String> {
     Ok(lines)
 }
 
-fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
+fn bridge(net: &Net, listener: &UnixListener, relay_note: Option<&str>) -> Res<String> {
     let mut pane: Option<UnixStream> = None;
     let mut reader = FrameReader::default();
     let mut app = Vec::new();
@@ -198,6 +238,9 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
             }
         }
         for event in net.events() {
+            if let Some(line) = event.phase_line() {
+                println!("{line}");
+            }
             match event {
                 NetEvent::Candidate(c) => {
                     say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
@@ -228,10 +271,10 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
-                    return Ok(ended_line(host_said.as_deref(), None));
+                    return Ok(ended_line(host_said.as_deref(), None, relay_note));
                 }
                 NetEvent::Failed(reason) => {
-                    return Ok(ended_line(host_said.as_deref(), Some(reason.as_str())));
+                    return Ok(ended_line(host_said.as_deref(), Some(reason.as_str()), relay_note));
                 }
                 _ => {}
             }
@@ -248,11 +291,19 @@ fn host_ended(record: &[u8]) -> Option<String> {
 }
 
 /// The `ended` line once the link closed (`link_failed`: it failed, and why): the host's own
-/// reason when it said one before (`host: <reason>`), else what this side saw.
-fn ended_line(host_said: Option<&str>, link_failed: Option<&str>) -> String {
+/// reason when it said one before (`host: <reason>`), else what this side saw. A failed link
+/// with no relay because billing could not be read says so (`relay_note`).
+fn ended_line(
+    host_said: Option<&str>,
+    link_failed: Option<&str>,
+    relay_note: Option<&str>,
+) -> String {
     match (host_said, link_failed) {
         (Some(reason), _) => format!("host: {reason}"),
-        (None, Some(why)) => format!("link failed: {why}"),
+        (None, Some(why)) => match relay_note {
+            Some(note) => format!("link failed: {why}; no relay: {note}"),
+            None => format!("link failed: {why}"),
+        },
         (None, None) => "the host ended the session".into(),
     }
 }
@@ -272,9 +323,29 @@ mod tests {
         let started = serde_json::to_vec(&crate::wire::Control::Started { session: 1 }).unwrap();
         assert_eq!(host_ended(&started), None);
         assert_eq!(host_ended(b"not json"), None);
-        assert_eq!(ended_line(said.as_deref(), None), "host: failed: capture: no frame");
-        assert_eq!(ended_line(said.as_deref(), Some("timeout")), "host: failed: capture: no frame");
-        assert_eq!(ended_line(None, Some("timeout")), "link failed: timeout");
-        assert_eq!(ended_line(None, None), "the host ended the session");
+        assert_eq!(ended_line(said.as_deref(), None, None), "host: failed: capture: no frame");
+        assert_eq!(
+            ended_line(said.as_deref(), Some("timeout"), None),
+            "host: failed: capture: no frame"
+        );
+        assert_eq!(ended_line(None, Some("timeout"), None), "link failed: timeout");
+        assert_eq!(ended_line(None, None, None), "the host ended the session");
+    }
+
+    #[test]
+    fn a_failed_link_with_no_relay_because_billing_was_unread_says_so() {
+        let note = Some("could not read your plan");
+        assert_eq!(
+            ended_line(None, Some("the secure handshake timed out"), note),
+            "link failed: the secure handshake timed out; no relay: could not read your plan"
+        );
+        // The host's own reason still wins, and a link that closed cleanly needs no note.
+        assert_eq!(ended_line(Some("stopped"), Some("timeout"), note), "host: stopped");
+        assert_eq!(ended_line(None, None, note), "the host ended the session");
+        let answer: Answer = serde_json::from_str(
+            r#"{"session":"s","peer_key":"00","socket":"/tmp/x","relay_note":"could not read your plan"}"#,
+        )
+        .unwrap();
+        assert_eq!(answer.relay_note.as_deref(), note);
     }
 }

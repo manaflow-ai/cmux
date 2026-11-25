@@ -323,6 +323,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
         "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/ios-review-gate.yml":
+        "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
+        "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
+        "and a person's re-run lands on Blacksmith",
     ".github/workflows/cloud-chat-proof.yml":
         "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
         "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
@@ -338,7 +342,6 @@ UNRESCUED_WORKFLOW_PATHS = {
         "act on",
     ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
     ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
-    ".github/workflows/ci-cache-receipts.yml": _POOL_READ_WHY,
     ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
@@ -355,26 +358,33 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-pr-merge-tree.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
-    ".github/workflows/cmux-skill-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
     ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
     ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
-    ".github/workflows/indexnow-tests.yml": _POOL_READ_WHY,
     ".github/workflows/indexnow.yml": _POOL_READ_WHY,
     ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,
     ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
     ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-checks.yml":
+        "one advisory job (CI v2 step 6) that holds a pull-requests write token, so it takes a one-job VM: the "
+        "Blacksmith (the CI_TRUSTED_RUNNER selector, or 4 vCPU for a fork), never an "
+        "owned Mac; none of its steps can fail a pull request, and the next push or a re-run answers again",
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
     ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
     ".github/workflows/testbox-broker-guard.yml": _POOL_READ_WHY,
-    ".github/workflows/vendored-agent-cursor.yml": _POOL_READ_WHY,
     ".github/workflows/web-validation.yml": _POOL_READ_WHY,
+    ".github/workflows/docs-only-fallback.yml":
+        "its own gate is one small Linux job; it only calls ci.yml (and the other docs-only workflows) in the pull "
+        "request's context when none started, and the rescue already watches each of those workflows' own runs; a "
+        "called job stuck on a mini ends at its timeout and a person's re-run takes the declared fallback",
+    ".github/workflows/measure-swift-typecheck.yml":
+        "a path-filtered 15-minute type-check of scripts/measure/*.swift: attempt 1 takes the light mini when "
+        "CI_PR_POOL_OWNED allows and a re-run (attempt 2 on) takes the declared macos_15 pool, so a stuck or "
+        "refused job ends at its timeout and a person's re-run lands off the minis",
 }
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
@@ -1235,6 +1245,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
+    # sleep-ok: the poll's first interval; no job can wait long enough to rescue before it, and a look costs quota
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False

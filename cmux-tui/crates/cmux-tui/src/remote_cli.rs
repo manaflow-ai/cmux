@@ -62,6 +62,9 @@ mod exec_cp;
 mod remote_link_binding_tests;
 mod remote_link_mux;
 mod self_install;
+mod spill;
+mod spill_cloud;
+mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
@@ -131,6 +134,7 @@ fn run_inner(
         Some("rpc") => run_rpc(rest),
         Some("remote-exec") => run_exec(rest),
         Some("remote-cp") => run_cp(rest),
+        Some("spill") => spill::run_spill(rest),
         Some("enroll") => run_enroll(rest, load_config),
         Some("known-daemons") => run_known_daemons(rest),
         Some("remote-device-key") => run_device_key(rest),
@@ -240,6 +244,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("rpc") => client.rpc_help,
         Some("remote-exec") => client.exec_help,
         Some("remote-cp") => client.cp_help,
+        Some("spill") => spill::HELP,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
         Some("remote-device-key") => client.device_key_help,
@@ -618,6 +623,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     Ok(flags)
 }
 
+/// The hub route a connect takes on its own: the one an invitation or a known daemon carries
+/// (`carried`), unless it is this very machine's (`local`), whose loopback daemon answers here.
+pub(crate) fn implied_hub_route(carried: Option<String>, local: Option<&str>) -> Option<String> {
+    carried.filter(|via| Some(via.as_str()) != local)
+}
+
 fn set_invitation_arg(
     destination: &mut Option<InvitationArg>,
     invitation: InvitationArg,
@@ -758,6 +769,7 @@ fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
 fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let owner = flags.exit_with_parent.then(current_parent_process_id);
+    refuse_unusable_local_paths(&flags)?;
     let invitation = flags
         .invitation
         .take()
@@ -777,6 +789,30 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
+    // The daemon's hub route when the person named no way to reach it: the invitation's
+    // (`via_machine`), else the known daemon's, kept from the invitation that enrolled it.
+    let hub_route = if flags.via_machine.is_none()
+        && flags.wireguard_config.is_none()
+        && flags.wireguard_hub.is_none()
+        && flags.route.is_none()
+    {
+        let carried = match &invitation {
+            Some(invitation) => invitation.via_machine.clone(),
+            None => async_runtime
+                .block_on(select_known_daemon(&store, flags.daemon.as_deref(), None))
+                .ok()
+                .and_then(|known| known.via_machine),
+        };
+        implied_hub_route(carried, local_hub_route().as_deref())
+    } else {
+        None
+    };
+    if hub_route.is_some() {
+        flags.via_machine = hub_route;
+    }
+    // A node key the dial goes through (given or implied), kept with the daemon it enrolls.
+    let dial_via =
+        flags.via_machine.clone().filter(|via| cmux_remote::identity::is_hub_machine_key(via));
     let direct_dialer: Option<Arc<dyn Dialer>> =
         match (flags.wireguard_config.take(), flags.wireguard_hub.take()) {
             (Some(path), _) => {
@@ -953,11 +989,15 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
     };
 
     if let Some(invitation) = &invitation {
-        async_runtime.block_on(store.pin_daemon(
+        let pinned = async_runtime.block_on(store.pin_daemon(
             invitation.daemon_name.clone(),
             invitation_daemon_key(invitation)?,
             route_strings,
         ))?;
+        // Its hub route, so a later connect with no invitation dials it the same way.
+        if let Some(via) = &dial_via {
+            async_runtime.block_on(store.remember_via_machine(&pinned.fingerprint, via))?;
+        }
     } else if carrier_auth {
         let name = credential_free_route_hint(&route_strings[0])?;
         async_runtime.block_on(store.pin_carrier_daemon(
@@ -1128,6 +1168,42 @@ fn remaining_startup_timeout(started: Instant, total: Duration) -> anyhow::Resul
         .checked_sub(started.elapsed())
         .filter(|remaining| !remaining.is_zero())
         .ok_or_else(|| anyhow!("remote connection startup timed out after {}s", total.as_secs()))
+}
+
+/// What `connect`, `exec`, `cp` and the rest refuse before they dial, all with the same words:
+/// an explicit `--state-dir` another user could write (it holds this device's identity and the
+/// link's sockets, so it is the owner-controlled directory `connect --local-socket` already
+/// required), and a `unix://` route that is another link's local socket. That socket carries the
+/// local mux protocol, not a daemon's, so a dial to it would wait out the whole startup budget.
+fn refuse_unusable_local_paths(flags: &ConnectFlags) -> anyhow::Result<()> {
+    if let Some(path) = flags.route.as_deref().and_then(client_link_socket_route) {
+        return Err(anyhow!(
+            catalog().remote_client.route_is_link_socket(&path.display().to_string())
+        ));
+    }
+    if let Some(root) = flags.state_dir.as_deref() {
+        ensure_secure_directory(root, DirectoryAccess::OwnerControlled)?;
+    }
+    Ok(())
+}
+
+/// The socket path of a `unix://` route that is a `remote connect` local socket: one with the
+/// link's own `PATH.admin` socket beside it. A daemon's Unix route never has one (its admin
+/// socket is `admin.sock` in the session directory).
+#[cfg(unix)]
+fn client_link_socket_route(route: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::FileTypeExt;
+
+    let path = Url::parse(route).ok().filter(|url| url.scheme() == "unix")?.to_file_path().ok()?;
+    fs::symlink_metadata(cmux_remote::admin::link_admin_socket(&path))
+        .ok()
+        .filter(|metadata| metadata.file_type().is_socket())
+        .map(|_| path)
+}
+
+#[cfg(not(unix))]
+fn client_link_socket_route(_: &str) -> Option<PathBuf> {
+    None
 }
 
 fn promote_reachable_unix_routes(routes: &mut [ResolvedRouteCandidate]) {
@@ -1429,7 +1505,14 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    connect_with_flags(direct_ssh_flags(args)?, load_config)
+    // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
+    let (way, rest) = ssh_carrier::split_way(args)?;
+    if way != ssh_carrier::Way::SshOnly
+        && let Some((remote, host)) = ssh_carrier::reach(&rest, way)?
+    {
+        return crate::run_tui(Session::Remote(remote), host, None, load_config());
+    }
+    connect_with_flags(direct_ssh_flags(&rest)?, load_config)
 }
 
 fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
@@ -1980,17 +2063,27 @@ async fn select_known_daemon(
     match matching.as_slice() {
         [daemon] => Ok(daemon.clone()),
         [] if daemons.len() == 1 => Ok(daemons[0].clone()),
-        [] if route.is_some() => {
-            Err(anyhow!("no known daemon matches this route; connect with an invitation"))
-        }
-        [] if daemons.len() > 1 => Err(anyhow!("multiple known daemons; use --daemon FINGERPRINT")),
-        [] => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
-        _ => Err(anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")),
+        [] if route.is_some() => Err(anyhow!(
+            "no known daemon matches this route; `cmux remote known-daemons` lists the paired ones, and `cmux remote connect ROUTE --invite-file PATH` pairs a new one"
+        )),
+        [] if daemons.len() > 1 => Err(anyhow!(
+            "multiple known daemons; name one with a route or --daemon FINGERPRINT (`cmux remote known-daemons` lists them)"
+        )),
+        [] => Err(anyhow!(
+            "no known daemons; on the host run `cmux remote enroll create`, then pair this device with `cmux remote connect ROUTE --invite-file PATH` (or --carrier for a trusted carrier)"
+        )),
+        _ => Err(anyhow!(
+            "multiple known daemons match this route; use --daemon FINGERPRINT (`cmux remote known-daemons` lists them)"
+        )),
     }
 }
 
 fn parse_route(route: &str, description: &str) -> anyhow::Result<Url> {
-    Url::parse(route).with_context(|| format!("invalid {description}"))
+    Url::parse(route).with_context(|| {
+        format!(
+            "invalid {description} (write it with a scheme, such as ws://HOST:PORT/, wss://HOST/, ssh://USER@HOST or unix:///ABSOLUTE/PATH; `cmux remote known-daemons` shows the routes already paired)"
+        )
+    })
 }
 
 fn invitation_daemon_key(invitation: &EnrollmentInvitation) -> anyhow::Result<[u8; 32]> {

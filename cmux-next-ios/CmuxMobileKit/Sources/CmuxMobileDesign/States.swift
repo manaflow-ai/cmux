@@ -228,12 +228,18 @@ public struct CmuxMobileToast: Sendable, Hashable, Identifiable {
 }
 
 extension View {
-    /// Shows `state` as a banner under the top safe area, entering from
-    /// y - 12. It takes its own room: the content below (a list) is inset
-    /// by the banner's height at every text size, so it covers nothing (R2-4).
-    /// A swipe up or sideways, or a tap, hides it until the state changes.
+    /// Shows `state` under the top safe area, entering from y - 12, floating
+    /// over the content: it takes no room, so the list under it never moves
+    /// when it comes or goes (this replaces R2-4's inset, which pushed the
+    /// list down). A link state (reconnecting, offline) is a ``ConnectionChip``
+    /// a few words wide; a state with a sentence to read or an action (signed
+    /// out, pairing) is the banner. A swipe up or sideways, or a tap, hides it
+    /// until the state changes.
     public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, retry: retry) }
+        // An overlay, not a safe-area inset: showing or hiding it moves nothing under it (Leo,
+        // 2026-11-21: "these messages should not be pushing up the text ... stop layout
+        // shifting"). A link state is a chip a few words wide, top center.
+        overlay(alignment: .top) { BannerHost(state: state, retry: retry) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
@@ -243,19 +249,27 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes (to no banner, or to another one).
+/// dismissed state stays hidden through the link's flaps (`BannerDismissal`).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
-    @State private var dismissed: ConnectionBannerState?
+    @State private var dismissal: BannerDismissal?
+    /// When the link went down (any chip state), kept across a change of state while down.
+    @State private var downSince: Date?
 
     var body: some View {
         ZStack {
-            if let state, state != dismissed {
-                ConnectionBanner(state, retry: retry)
+            if let state, state != dismissal?.state {
+                Group {
+                    if let chip = state.chip {
+                        ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                    } else {
+                        ConnectionBanner(state, retry: retry)
+                    }
+                }
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
-                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissed = state }
+                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissal = BannerDismissal(state: state) }
                     }
                     .padding(.top, 8)
                     .padding(.bottom, 8)
@@ -264,15 +278,46 @@ private struct BannerHost: View {
         }
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
-        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+        .onChange(of: state) { _, new in dismissal = BannerDismissal.remembered(dismissal, after: new, at: .now) }
+        .onChange(of: state?.chip != nil, initial: true) { _, down in
+            downSince = ConnectionChip.nextDownSince(downSince, down: down, now: Date())
+        }
     }
 }
 
-/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
-/// included, ends the dismissal, so the next episode of the same state shows again.
-enum BannerDismissal {
-    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
-        state == dismissed ? dismissed : nil
+/// What a dismissed connection banner remembers: the state it hid, and since when there has been
+/// no banner. A link that flaps (back for a moment, down again) brings the same state back: it
+/// stays hidden (audit 20, ceremony: a dismissed "Reconnecting" came back on every flap). It shows
+/// again only for a real new drop: another state (Offline, Signed out), or the same one after the
+/// connection held for `flapWindow`.
+struct BannerDismissal: Equatable {
+    var state: ConnectionBannerState
+    /// When the banner went away (the link came back); nil while the dismissed state lasts.
+    var clearedAt: Date?
+
+    /// How long the connection must hold before the same banner counts as a new drop.
+    static let flapWindow: TimeInterval = 60
+
+    /// The window as seen from the banner's return: a held state ("Reconnecting") comes back only
+    /// after the quiet wait, so the drop it reports began that much earlier (review F1: without
+    /// this, a connection that held 50 s read as one that held 60 s).
+    static func window(for state: ConnectionBannerState) -> TimeInterval {
+        guard state.showsSpinner else { return flapWindow }
+        let quiet = QuietStatusGate.threshold.components
+        return flapWindow + TimeInterval(quiet.seconds) + TimeInterval(quiet.attoseconds) / 1e18
+    }
+
+    static func remembered(_ dismissal: BannerDismissal?, after state: ConnectionBannerState?, at now: Date) -> BannerDismissal? {
+        guard var dismissal else { return nil }
+        guard let state else {
+            // Back: remember when, so a flap right after keeps the banner hidden.
+            if dismissal.clearedAt == nil { dismissal.clearedAt = now }
+            return dismissal
+        }
+        guard state == dismissal.state else { return nil }
+        if let cleared = dismissal.clearedAt, now.timeIntervalSince(cleared) >= window(for: state) { return nil }
+        dismissal.clearedAt = nil
+        return dismissal
     }
 }
 

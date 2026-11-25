@@ -56,6 +56,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Called after the page's effective visibility changes. Owners use this to revoke native
     /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The host keeps the page drawn while no pane shows it (``setDrawnAway(_:)``): to the page and to
+    /// its owner it is hidden, though its engine still draws it, off screen.
+    public internal(set) var isDrawnAway = false
     /// The Chromium host this page started in: told when its Chromium page attached
     /// (``PageChromiumHosting/focusViewChanged(_:)``).
     weak var chromiumFocusHost: (any PageChromiumHosting)?
@@ -67,9 +70,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
-        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
-        guard view.window != nil else { return }
-        menu.popUp(positioning: nil, at: point, in: view)
+        menu.popUpAtPointer(point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
@@ -185,6 +186,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
+    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab: app health names a stuck
+    /// page by that tab's title and workspace (`AppHealthPlaces`).
+    public var healthTabKey: @MainActor () -> String? = { nil }
     /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
     /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
     public internal(set) var reportsUnsavedEdits = false
@@ -243,6 +247,20 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// the native drop (WebKit's drop has it in dispatch, as `NSApp.currentEvent`). A host checks
     /// that it is the person's before it treats the drop as their gesture. Nil in WebKit.
     public internal(set) var droppedEvent: NSEvent?
+    /// While ``onFilesDropped`` runs for a Chromium page: its own window took the drop, so there is
+    /// no drop event to check (``droppedEvent`` is nil). The host may record where the files are,
+    /// but must not count it as the person's gesture.
+    public internal(set) var droppedOnPageWindow = false
+    /// Whether the drag of `urls` that entered the Chromium page is over natively: no mouse button
+    /// is down and the drag pasteboard (written by the app the drag came from, never by page
+    /// script) still holds every one of them. Tests replace it.
+    var chromiumDragFinished: @MainActor ([URL]) -> Bool = { urls in
+        guard NSEvent.pressedMouseButtons & 1 == 0 else { return false }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let held = (NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self], options: options) as? [URL]) ?? []
+        let paths = Set(held.map { ($0 as NSURL).filePathURL?.standardizedFileURL.path ?? $0.standardizedFileURL.path })
+        return !urls.isEmpty && urls.allSatisfy { paths.contains($0.standardizedFileURL.path) }
+    }
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
@@ -658,7 +676,21 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// When the current document painted its first frame (``PagePaintProbe``), in
     /// `ProcessInfo.systemUptime` seconds; nil until it has.
-    public internal(set) var paintedUptime: TimeInterval?
+    public internal(set) var paintedUptime: TimeInterval? {
+        didSet {
+            guard (oldValue == nil) != (paintedUptime == nil) else { return }
+            // A new document draws again wherever it is; a page out of sight hides once it drew (AwayDrawing).
+            if paintedUptime == nil { awayDrawing.drawnSize = nil }
+            setChromiumVisibility(true)
+        }
+    }
+    /// What lets the page draw while it lies out of sight (`PageWebView+AwayDrawing`).
+    let awayDrawing = PageAwayDrawing()
+    /// Its owner holds it outside the window until it drew where it will show (a moved chat,
+    /// `AgentPaneView.holdsPageAway`): out of sight, it keeps drawing until then.
+    public var drawsWhileAway = false {
+        didSet { if drawsWhileAway != oldValue { setChromiumVisibility(true) } }
+    }
     /// It shows what must never leave the screen (a revealed password): page probes (`debug.page` query,
     /// snapshot, call and list) never reach it, as screen capture never does, and no Web Inspector attaches
     /// to it (one reads the DOM and calls the page's bridge).
@@ -677,9 +709,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
-        // The message conversion stays here: `handle` must start in the order the page posted, and
-        // `message.body` is a non-Sendable WebKit object graph (page messages are small calls).
-        guard let body = JSONValue(foundation: message.body) else { return nil }
+        // A Chromium envelope arrives converted off the main actor. A WebKit one is converted here: `handle` must
+        // start in the order the page posted, and `message.body` is a non-Sendable WebKit object graph.
+        guard let body = message.json ?? JSONValue(foundation: message.body) else { return nil }
         overlayStartSpoke()
         let started = ProcessInfo.processInfo.systemUptime
         let reply = await router.handle(body)
@@ -724,7 +756,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -753,7 +785,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         setChromiumVisibility(true)
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -767,7 +799,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
-        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)

@@ -35,6 +35,7 @@ async fn a_hosted_claude_gates_its_tools_and_a_hosted_acp_agent_does_not() {
         prompt_suggestions: false,
         recap: None,
         claude_session_id: None,
+        resumes_cut_turn: false,
     });
     let (record, runs) = spawned(&dir, &claude).await;
     assert!(record.claude_translator, "the host's record names its translator");

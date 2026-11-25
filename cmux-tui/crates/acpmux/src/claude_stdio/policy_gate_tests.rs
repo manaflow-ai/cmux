@@ -39,17 +39,12 @@ fn decision(line: &Value) -> Option<&str> {
 #[tokio::test]
 async fn the_backend_reports_its_gate_in_its_agent_info() {
     let t = Translator::new("acp-1".into(), "auto", "haiku", "default");
-    let out = t
-        .inbound(&json!({"type": "control_response", "response": {"subtype": "success",
-            "request_id": "init-1", "response": {"commands": [], "version": "2.1.319"}}}))
-        .await;
-    let info = out
-        .iter()
-        .find_map(|m| match m {
-            Message::Response { result: Some(r), .. } => r.get("agentInfo").cloned(),
-            _ => None,
-        })
-        .expect("the initialize answer");
+    let Outbound::LinesThenReply(_, Message::Response { result: Some(answer), .. }) =
+        t.outbound(&Message::request(1, method::INITIALIZE, json!({}))).await
+    else {
+        panic!("the initialize answer");
+    };
+    let info = answer["agentInfo"].clone();
     assert_eq!(has_tool_gate(Some(&info)), cfg!(unix), "{info}");
     assert!(!has_tool_gate(Some(&json!({"name": AGENT_NAME, "title": "Claude Code"}))));
 }

@@ -18,6 +18,7 @@ public final class Events {
     public static final EventMetadata AGENT_INVENTORY_CHANGED = new EventMetadata("agent-inventory-changed", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_INVENTORY_WATCH_ENDED = new EventMetadata("agent-inventory-watch-ended", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
+    public static final EventMetadata AGENT_SESSION_SHARE_CHANGED = new EventMetadata("agent-session-share-changed", 12, "agent-session-share-events-v1", List.of("subscribe"), true);
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
     public static final EventMetadata BROWSER_STATE = new EventMetadata("browser-state", 6, null, List.of("attach-browser"), true);
@@ -46,6 +47,7 @@ public final class Events {
     public static final EventMetadata CONVERSATION_INBOX_CHANGED = new EventMetadata("conversation-inbox-changed", 12, "conversation-inbox-state-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_LIVE = new EventMetadata("conversation-live", 12, "chief-live-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_RUN_CHANGED = new EventMetadata("conversation-run-changed", 12, "conversation-runs-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_SCHEDULED_CHANGED = new EventMetadata("conversation-scheduled-changed", 12, "conversation-scheduled-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
@@ -119,6 +121,7 @@ public final class Events {
         values.put("agent-inventory-changed", AGENT_INVENTORY_CHANGED);
         values.put("agent-inventory-watch-ended", AGENT_INVENTORY_WATCH_ENDED);
         values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
+        values.put("agent-session-share-changed", AGENT_SESSION_SHARE_CHANGED);
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
         values.put("browser-state", BROWSER_STATE);
@@ -147,6 +150,7 @@ public final class Events {
         values.put("conversation-inbox-changed", CONVERSATION_INBOX_CHANGED);
         values.put("conversation-live", CONVERSATION_LIVE);
         values.put("conversation-run-changed", CONVERSATION_RUN_CHANGED);
+        values.put("conversation-scheduled-changed", CONVERSATION_SCHEDULED_CHANGED);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);

@@ -267,7 +267,18 @@ export type CloudMachine = {
   readonly notice?: CloudRetentionNotice | null
   readonly paused_by?: "spend_cap"
   readonly spend_cap_pause_at?: number
+  readonly origin?: CloudMachineOrigin
+  readonly expires_at?: number
   readonly revision: Revision
+}
+
+export type CloudMachineOrigin = {
+  readonly kind?: "workflow" | "lane" | "agent" | "person"
+  readonly label: string
+  readonly url?: string
+  readonly run?: string
+  readonly workflow?: string
+  readonly lane?: string
 }
 
 /** A machine size. The plan decides which sizes are allowed (cloud.size.locked). */
@@ -399,6 +410,30 @@ export type CloudSnapshot = {
   readonly revision: Revision
 }
 
+export type CloudSurgePreview = {
+  readonly count: number
+  readonly ttl_seconds: number
+  readonly provider: string | null
+  readonly available: boolean
+  readonly reason: string
+  readonly estimated_cost_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+}
+
+export type CloudSurgeReceipt = {
+  readonly count: number
+  readonly ttl_seconds: number
+  readonly slots: ReadonlyArray<CloudSurgeSlot>
+}
+
+export type CloudSurgeSlot = {
+  readonly index: number
+  readonly status: "created" | "queued" | "refused"
+  readonly machine_id: MachineId | null
+  readonly provider: string | null
+  readonly reason: string
+  readonly retryable: boolean
+}
+
 export type CloudVmNetwork = {
   readonly tenant: NativeTenantId
   readonly mesh: NativeMeshId
@@ -474,6 +509,7 @@ export type Connection = {
   readonly sharing: "private" | "team"
   readonly resources?: {
     readonly repos: ReadonlyArray<string> | null
+    readonly linked_by_github_id?: number
   }
   readonly created_at: number
   readonly updated_at: number
@@ -2087,13 +2123,15 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
       readonly size: CloudMachineSize
       readonly image?: string
       readonly from_snapshot?: SnapshotId
+      readonly origin?: CloudMachineOrigin
+      readonly ttl_seconds?: number
     }
     readonly result: {
       readonly machine: CloudMachine
@@ -2289,6 +2327,22 @@ export interface CloudOps {
     readonly result: {
       readonly machine: CloudMachine
     }
+  }
+  /** Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.surge.create": {
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
+    readonly result: CloudSurgeReceipt
+  }
+  /** Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
+  readonly "cloud.surge.preview": {
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
+    readonly result: CloudSurgePreview
   }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.attention.emit": {
@@ -3247,6 +3301,7 @@ export interface CloudOps {
       readonly sharing: "private" | "team"
       readonly resources?: {
         readonly repos: ReadonlyArray<string> | null
+        readonly linked_by_github_id?: number
       }
       readonly created_at: number
       readonly updated_at: number
@@ -4520,6 +4575,8 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.surge.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.surge.preview": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },

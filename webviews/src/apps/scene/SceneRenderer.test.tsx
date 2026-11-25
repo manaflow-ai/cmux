@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import sceneType from "../../../../schemas/type-scale/scene-type.json";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -12,6 +13,7 @@ import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch 
 import { translate } from "../../agent-session/acpmux/i18n";
 import { appSceneIcon } from "./SceneSymbol";
 import { SceneStore, type SceneOp } from "./store";
+import { formatSceneDate, sceneClockRunning } from "./sceneDate";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -20,7 +22,7 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 afterEach(async () => {
-  act(() => root?.unmount());
+  await act(() => root?.unmount());
   root = undefined;
   await settleReact();
   for (const [key, value] of saved) {
@@ -213,8 +215,51 @@ test("TextField edit, submit and cancel dispatch synchronously and submit the ed
   expect(calls).toEqual([
     ["field", "edit", { text: "recent" }],
     ["field", "submit", { text: "recent" }],
-    ["field", "cancel"],
+    ["field", "cancel", { text: "recent" }],
   ]);
+});
+
+// The To Do "New item" field: the app's draft was "" while the person typed (its edits never reached
+// it, or the host no longer echoes them), so its "" after Return looked like no change and the field
+// kept "Buy milk"; the next item was typed after it ("Buy milkBook flights").
+test("TextField: the app's value after a submit replaces the typed text even when the app's value never changed", () => {
+  const { container, store } = render([
+    { op: "create", id: "field", type: "TextField", props: { text: "", placeholder: "New item", onEdit: true } },
+    { op: "root", id: "field" },
+  ]);
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  const type = (value: string) =>
+    act(() => {
+      Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(field, value);
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+  for (const [typed, item] of [
+    ["Buy milk", "first"],
+    ["Book flights", "second"],
+  ]) {
+    type(typed);
+    expect(field.value).toBe(typed);
+    act(() => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    // The host answers the submit with the app's value, "" (the same "" it sent at create).
+    act(() => store.apply([{ op: "update", id: "field", props: { text: "" } }]));
+    expect([item, field.value]).toEqual([item, ""]);
+  }
+});
+
+test("TextField: an unrelated update while typing keeps the typed text", () => {
+  const { container, store } = render([
+    { op: "create", id: "field", type: "TextField", props: { text: "", placeholder: "New item", onEdit: true } },
+    { op: "root", id: "field" },
+  ]);
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(field, "Buy m");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  act(() => store.apply([{ op: "update", id: "field", props: { placeholder: "Next item" } }]));
+  expect(field.value).toBe("Buy m");
 });
 
 test("unknown node types render nothing; null deletion and reset update the mounted scene", () => {
@@ -592,6 +637,40 @@ test("failure copy matches the native AppFailureCopy cases", () => {
   });
 });
 
+test("a node's glass puts it on the page glass at that level, replaces its fill and changes no box", () => {
+  const { container, store } = render([
+    { op: "create", id: "root", type: "VStack", props: { padding: 8, background: "#112233", cornerRadius: 12 } },
+    { op: "root", id: "root" },
+  ]);
+  const node = () => container.querySelector<HTMLElement>("[data-app-node=root]")!;
+  const box = () => ({ padding: node().style.padding, radius: node().style.borderRadius });
+  const before = box();
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "chip" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(true);
+  expect(node().getAttribute("data-glass-level")).toBe("chip");
+  expect(node().style.backgroundColor).toBe("");
+  expect(box()).toEqual(before);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "frosted" } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().hasAttribute("data-glass-level")).toBe(false);
+
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: null } }]));
+  expect(node().classList.contains("ui-glass")).toBe(false);
+  expect(node().style.backgroundColor).not.toBe("");
+
+  // A gradient background gives way to glass too.
+  const gradient = { linear: { colors: ["#112233", "#445566"] } };
+  act(() => store.apply([{ op: "update", id: "root", props: { background: gradient } }]));
+  expect(node().style.backgroundImage).not.toBe("");
+  act(() => store.apply([{ op: "update", id: "root", props: { glass: "menu" } }]));
+  expect(node().style.backgroundImage).toBe("");
+  expect(node().style.backgroundColor).toBe("");
+});
+
 const list: SceneOp[] = [
   { op: "create", id: "root", type: "VStack" },
   { op: "create", id: "a", type: "Text", props: { text: "Milk", transition: "slide" } },
@@ -746,4 +825,283 @@ test("layout: HStack aligns top or bottom, ZStack centers, a shape's frame wins 
   expect(style("dot").height).toBe("10px");
   const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
   expect(css).toMatch(/\.cmux-app-scene-zstack \{\s*display: grid;\s*place-items: center;/);
+});
+
+test("a drop in a Reorderable sends the list its item key and final index", () => {
+  const { container, calls } = render([
+    { op: "create", id: "pins", type: "Reorderable", props: { onMove: true } },
+    ...["n1", "n2", "n3"].map((id) => ({
+      op: "create" as const,
+      id,
+      type: "Row",
+      props: { title: id, reorderKey: "chat-" + id },
+    })),
+    { op: "children", id: "pins", children: ["n1", "n2", "n3"] },
+    { op: "root", id: "pins" },
+  ]);
+  const rows = Array.from(container.querySelectorAll<HTMLElement>(".cmux-app-scene-move-row"));
+  rows.forEach((row, i) => {
+    row.getBoundingClientRect = () => ({ top: 20 * i, height: 20 }) as DOMRect;
+  });
+  function dragEvent(row: HTMLElement, name: string, y: number) {
+    const event = new MouseEvent(name, { bubbles: true, cancelable: true, clientY: y });
+    Object.defineProperty(event, "dataTransfer", { value: { setData() {} } });
+    act(() => {
+      row.dispatchEvent(event);
+    });
+  }
+  dragEvent(rows[0]!, "dragstart", 5);
+  dragEvent(rows[2]!, "dragover", 55);
+  expect(rows[2]?.dataset.dropEdge).toBe("after");
+  dragEvent(rows[2]!, "drop", 55);
+  dragEvent(rows[2]!, "dragstart", 55);
+  dragEvent(rows[0]!, "drop", 5);
+  dragEvent(rows[0]!, "drop", 5); // A drop that began outside this list.
+  dragEvent(rows[1]!, "dragstart", 25);
+  dragEvent(rows[1]!, "drop", 35);
+  expect(calls).toEqual([
+    ["pins", "move", { id: "chat-n1", index: 2 }],
+    ["pins", "move", { id: "chat-n3", index: 0 }],
+  ]);
+});
+
+test("a font name draws the one scene type table's size and weight, the table AppKit draws", () => {
+  const names = [...sceneType.roles, ...sceneType.styles];
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    ...names.map((style) => ({
+      op: "create" as const,
+      id: style.name,
+      type: "Text",
+      props: { text: style.name, font: style.name },
+    })),
+    { op: "create", id: "bold", type: "Text", props: { text: "72", font: "largeTitle", weight: "light" } },
+    { op: "create", id: "unknown", type: "Text", props: { text: "?", font: "display" } },
+    { op: "children", id: "root", children: [...names.map((style) => style.name), "bold", "unknown"] },
+    { op: "root", id: "root" },
+  ]);
+  const text = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-app-node="${id}"] .cmux-app-scene-text`)!.style;
+  const weights: Record<string, string> = { regular: "400", medium: "500", semibold: "600", bold: "700" };
+  for (const style of names) {
+    expect(text(style.name).fontSize).toBe(`calc(${style.size}px * var(--cmux-interface-scale, 1))`);
+    expect(text(style.name).fontWeight).toBe(weights[style.weight]);
+  }
+  // The drift RFD 0009 measured: largeTitle drew 15 px here and 26 pt in AppKit; now 34 in both.
+  expect(text("largeTitle").fontSize).toBe("calc(34px * var(--cmux-interface-scale, 1))");
+  expect(text("numeral").fontWeight).toBe("600");
+  expect(text("bold").fontWeight).toBe("300");
+  expect(text("unknown").fontSize).toBe("calc(13px * var(--cmux-interface-scale, 1))");
+});
+
+test("fontDesign draws the system font's rounded, serif or monospaced design at the type scale's size", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    {
+      op: "create",
+      id: "time",
+      type: "Text",
+      props: { text: "9:41", font: 64, weight: "heavy", fontDesign: "rounded" },
+    },
+    { op: "create", id: "serif", type: "Text", props: { text: "Monday", font: "title", fontDesign: "serif" } },
+    { op: "create", id: "mono", type: "Text", props: { text: "12", fontDesign: "monospaced" } },
+    { op: "create", id: "plain", type: "Text", props: { text: "PM", monospaced: true } },
+    { op: "children", id: "root", children: ["time", "serif", "mono", "plain"] },
+    { op: "root", id: "root" },
+  ]);
+  const text = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-app-node="${id}"] .cmux-app-scene-text`)!.style;
+  expect(text("time").fontFamily).toBe("var(--cmux-app-scene-font-rounded)");
+  expect(text("time").fontWeight).toBe("800");
+  expect(text("time").fontSize).toBe("64px");
+  expect(text("serif").fontFamily).toBe("var(--cmux-app-scene-font-serif)");
+  expect(text("serif").fontSize).toBe("calc(15px * var(--cmux-interface-scale, 1))");
+  expect(text("serif").fontWeight).toBe("600");
+  expect(text("mono").fontFamily).toBe("var(--cmux-app-scene-font-monospaced)");
+  expect(text("plain").fontFamily).toBe("var(--font-mono)");
+  const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
+  expect(css).toContain("--cmux-app-scene-font-rounded: ui-rounded");
+  expect(css).toContain("--cmux-app-scene-font-serif: ui-serif");
+  expect(css).toContain("--cmux-app-scene-font-monospaced: ui-monospace");
+});
+
+test("HStack aligns its children on the first or last text baseline (AM/PM beside a big time)", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack" },
+    { op: "create", id: "first", type: "HStack", props: { alignment: "firstTextBaseline" } },
+    { op: "create", id: "last", type: "HStack", props: { alignment: "lastTextBaseline" } },
+    { op: "children", id: "root", children: ["first", "last"] },
+    { op: "root", id: "root" },
+  ]);
+  const style = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!.style;
+  expect(style("first").alignItems).toBe("first baseline");
+  expect(style("last").alignItems).toBe("last baseline");
+});
+
+test("formatSceneDate formats each date style as SwiftUI's Text(date, style:)", () => {
+  const now = Date.UTC(2026, 10, 16, 17, 41, 0);
+  const en = { locale: "en-US", timeZone: "America/Los_Angeles" };
+  expect(formatSceneDate("time", now, now, en).replace("\u202f", " ")).toBe("9:41 AM");
+  expect(formatSceneDate("time", now, now, { locale: "en-US", timeZone: "Asia/Tokyo" }).replace("\u202f", " ")).toBe(
+    "2:41 AM",
+  );
+  expect(formatSceneDate("date", now, now, en)).toBe("November 16, 2026");
+  expect(formatSceneDate("timer", now + 245_000, now, en)).toBe("4:05");
+  expect(formatSceneDate("timer", now - 3_723_000, now, en)).toBe("1:02:03");
+  expect(formatSceneDate("relative", now + 8_580_000, now, en)).toBe("2 hr, 23 min");
+  expect(formatSceneDate("relative", now + 5_000, now, en)).toBe("5 sec");
+  expect(formatSceneDate("offset", now + 7_200_000, now, en)).toBe("+2 hours");
+  expect(formatSceneDate("offset", now - 180_000, now, en)).toBe("-3 minutes");
+  // An unknown zone falls back to the page's rather than throwing.
+  expect(() => formatSceneDate("time", now, now, { locale: "en-US", timeZone: "Nowhere/Else" })).not.toThrow();
+});
+
+test("a date Text ticks itself on the shared clock with no scene batch, and stops when hidden or unmounted", async () => {
+  // The shared clock ticks on wall-clock seconds, so the countdown ends on one too: then its first
+  // tick turns the shown second over. An end at an arbitrary millisecond can need a second tick,
+  // after the 1.1 s below (it failed whenever another test file ran first and shifted the phase).
+  const end = Math.floor(Date.now() / 1_000) * 1_000 + 65_000;
+  const { container, store, calls } = render([
+    { op: "create", id: "root", type: "VStack" },
+    { op: "create", id: "timer", type: "Text", props: { text: "", date: end, dateStyle: "timer" } },
+    { op: "create", id: "time", type: "Text", props: { text: "", date: Date.now(), dateStyle: "time" } },
+    { op: "children", id: "root", children: ["timer", "time"] },
+    { op: "root", id: "root" },
+  ]);
+  const text = (id: string) => container.querySelector(`[data-app-node="${id}"] .cmux-app-scene-text`)!;
+  expect(text("timer").getAttribute("data-date-style")).toBe("timer");
+  const before = text("timer").textContent;
+  expect(before).toMatch(/^1:0[45]$/);
+  expect(text("time").textContent).toMatch(/\d:\d\d/);
+  expect(sceneClockRunning()).toBe(true);
+  const subscribed = store.getGeneration();
+  // Wait for the tick itself, not a fixed delay: yield to the timers until the text turns over.
+  const deadline = Date.now() + 3_000;
+  while (text("timer").textContent === before && Date.now() < deadline) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  expect(text("timer").textContent).not.toBe(before);
+  // The renderer ticked it: no app call, no new scene.
+  expect(calls).toEqual([]);
+  expect(store.getGeneration()).toBe(subscribed);
+  // A hidden page stops the clock; showing it again catches up at once.
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+  await act(() => document.dispatchEvent(new Event("visibilitychange")));
+  expect(sceneClockRunning()).toBe(false);
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  await act(() => document.dispatchEvent(new Event("visibilitychange")));
+  expect(sceneClockRunning()).toBe(true);
+  await act(() => root?.unmount());
+  root = undefined;
+  expect(sceneClockRunning()).toBe(false);
+});
+
+test("rotationEffect and offset turn a clock hand about the face's center; Line strokes its width", () => {
+  const { container } = render([
+    { op: "create", id: "face", type: "ZStack" },
+    { op: "create", id: "dial", type: "Circle", props: { size: 120, stroke: "separator" } },
+    {
+      op: "create",
+      id: "hand",
+      type: "Capsule",
+      props: {
+        frame: { width: 4, height: 40 },
+        fill: "primary",
+        offset: { y: -20 },
+        rotation: 90,
+        animation: "smooth",
+      },
+    },
+    { op: "create", id: "rule", type: "Line", props: { stroke: "danger", strokeWidth: 2 } },
+    { op: "create", id: "hair", type: "Line" },
+    { op: "children", id: "face", children: ["dial", "hand", "rule", "hair"] },
+    { op: "root", id: "face" },
+  ]);
+  const node = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!;
+  expect(node("hand").style.transform).toBe("rotate(90deg) translate(0px, -20px)");
+  expect(node("hand").style.width).toBe("4px");
+  expect(node("hand").style.height).toBe("40px");
+  expect(node("hand").getAttribute("data-animation")).toBe("smooth");
+  expect(node("rule").style.height).toBe("2px");
+  expect(node("rule").style.width).toBe("100%");
+  expect(node("rule").style.backgroundColor).toBe("var(--agent-danger)");
+  expect(node("hair").style.height).toBe("1px");
+  expect(node("hair").style.backgroundColor).toBe("var(--agent-border)");
+});
+
+test("frame maxHeight infinity fills the tile's height at the root and in stacks, as maxWidth fills the width", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack", props: { frame: { maxWidth: "infinity", maxHeight: "infinity" } } },
+    { op: "create", id: "row", type: "HStack", props: { frame: { maxHeight: "infinity" } } },
+    { op: "create", id: "bar", type: "Capsule", props: { frame: { width: 6, maxHeight: "infinity" }, fill: "accent" } },
+    { op: "create", id: "label", type: "Text", props: { text: "Standup" } },
+    { op: "children", id: "row", children: ["bar", "label"] },
+    { op: "children", id: "root", children: ["row"] },
+    { op: "root", id: "root" },
+  ]);
+  const node = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!;
+  for (const id of ["root", "row", "bar"]) expect(node(id).hasAttribute("data-fill-height")).toBe(true);
+  expect(node("label").hasAttribute("data-fill-height")).toBe(false);
+  // The bar takes its stack's height, not a fixed one.
+  expect(node("bar").style.height).toBe("");
+  expect(node("bar").style.width).toBe("6px");
+  const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
+  expect(css).toMatch(
+    /\.cmux-app-scene-root:has\(> \[data-fill-height\]\) \{\s*display: flex;\s*flex-direction: column;\s*height: 100%;/,
+  );
+  expect(css).toMatch(/> \[data-fill-height\] \{\s*flex: 1 1 auto;/);
+  expect(css).toMatch(
+    /:is\(\.cmux-app-scene-hstack, \.cmux-app-scene-zstack\) > \[data-fill-height\] \{\s*align-self: stretch;/,
+  );
+});
+
+test("a ZStack child's position places its center in points or as a fraction of the stack", () => {
+  const { container } = render([
+    { op: "create", id: "day", type: "ZStack" },
+    { op: "create", id: "grid", type: "VStack", props: { frame: { height: 120 } } },
+    { op: "create", id: "event", type: "Text", props: { text: "Standup", position: { x: 80, y: 30 } } },
+    { op: "create", id: "now", type: "Line", props: { stroke: "danger", position: { y: 0.5, unit: "fraction" } } },
+    { op: "children", id: "day", children: ["grid", "event", "now"] },
+    { op: "root", id: "day" },
+  ]);
+  const node = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!;
+  expect(node("event").hasAttribute("data-positioned")).toBe(true);
+  expect(node("event").style.getPropertyValue("--app-x")).toBe("80px");
+  expect(node("event").style.getPropertyValue("--app-y")).toBe("30px");
+  expect(node("now").style.getPropertyValue("--app-x")).toBe("50%");
+  expect(node("now").style.getPropertyValue("--app-y")).toBe("50%");
+  expect(node("grid").hasAttribute("data-positioned")).toBe(false);
+  const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
+  expect(css).toMatch(
+    /\.cmux-app-scene-zstack > \[data-positioned\],[^{]*\{\s*position: absolute;\s*left: var\(--app-x\);\s*top: var\(--app-y\);\s*translate: -50% -50%;/,
+  );
+});
+
+test("frame maxWidth infinity takes a row's free width with no Spacer, and fills a column and a ZStack", () => {
+  const { container } = render([
+    { op: "create", id: "root", type: "VStack", props: { alignment: "center" } },
+    { op: "create", id: "row", type: "HStack" },
+    { op: "create", id: "grow", type: "VStack", props: { frame: { maxWidth: "infinity" } } },
+    { op: "create", id: "temp", type: "Text", props: { text: "72°" } },
+    { op: "create", id: "wide", type: "Text", props: { text: "Sunny", frame: { maxWidth: "infinity" } } },
+    { op: "create", id: "z", type: "ZStack" },
+    {
+      op: "create",
+      id: "card",
+      type: "RoundedRectangle",
+      props: { frame: { maxWidth: "infinity", maxHeight: "infinity" } },
+    },
+    { op: "children", id: "row", children: ["grow", "temp"] },
+    { op: "children", id: "z", children: ["card"] },
+    { op: "children", id: "root", children: ["row", "wide", "z"] },
+    { op: "root", id: "root" },
+  ]);
+  const node = (id: string) => container.querySelector<HTMLElement>(`[data-app-node="${id}"]`)!;
+  for (const id of ["grow", "wide", "card"]) expect(node(id).hasAttribute("data-fill-width")).toBe(true);
+  expect(node("temp").hasAttribute("data-fill-width")).toBe(false);
+  expect(node("card").hasAttribute("data-fill-height")).toBe(true);
+  const css = require("node:fs").readFileSync(new URL("./scene.css", import.meta.url), "utf8") as string;
+  expect(css).toMatch(/\.cmux-app-scene-hstack > \[data-fill-width\] \{\s*flex: 1 1 0;\s*min-width: 0;/);
+  expect(css).toMatch(/\.cmux-app-scene-root\) > \[data-fill-width\] \{\s*align-self: stretch;/);
+  expect(css).toMatch(/\.cmux-app-scene-zstack > \[data-fill-width\] \{\s*justify-self: stretch;/);
 });

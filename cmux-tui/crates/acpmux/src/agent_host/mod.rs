@@ -73,6 +73,21 @@ pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
 pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
+/// What a host of this build does that a host of an older one does not, and that a running chat
+/// should not wait for: the daemon moves a chat whose host is below it onto the installed build
+/// at its next idle point (`hub/host_level.rs`), however soon the chat works again. A daemon
+/// update swaps the daemon only; each host it adopts keeps the binary it started from until its
+/// chat hibernates, which a chat at work never does. Raise it only for such a change: each raise
+/// restarts every live chat's agent once (`claude --resume`), whose next turn reads its context
+/// again uncached.
+///
+/// 1: Claude Code suggests a next prompt only after a person's own turn
+/// (`claude_stdio/prompt_suggestions.rs`); a host before it lets Claude Code suggest one after
+/// every turn, about $0.10 each (sr2 audit 2026-11-21: 1,100 an hour from such hosts).
+/// 2: a process no person started asks Claude Code for no suggestions at all
+/// (`hub/host_level.rs` `start_params`): level 1's per-turn pause is honoured only under a
+/// server-side flag of Claude Code's, off by default.
+pub const HOST_LEVEL: u32 = 2;
 /// Largest frame either side accepts.
 pub const MAX_FRAME: usize = 64 << 20;
 /// Bytes of unacknowledged entries a host keeps before it stops reading the
@@ -325,6 +340,10 @@ pub struct TranslatorSpec {
     pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+    /// The process resumes a turn a move cut, by itself (`claude_stdio/resume_cut.rs`): its
+    /// translator owes that turn's prompt from the start.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resumes_cut_turn: bool,
 }
 
 fn suggestions_default() -> bool {
@@ -374,6 +393,32 @@ pub struct HostRecord {
     /// checkout, as before.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_translator: bool,
+    /// [`HOST_LEVEL`] of the build that wrote it; 0 for a host of an older build, which never
+    /// says.
+    #[serde(default)]
+    pub host_level: u32,
+    /// Whether the host keeps an agent holder (`custody.rs`), so a daemon may ask it for custody.
+    /// Only a harness that speaks ACP itself gets one: a translated (Claude) or bridged (Codex)
+    /// harness says `Some(false)`, and its daemon does not ask. None: a host of an older build,
+    /// which may hold one; it is asked as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<bool>,
+}
+
+impl SpawnSpec {
+    /// Whether its host keeps an agent holder (`custody.rs`): asked for one, and a harness that
+    /// speaks ACP itself. A translator's (Claude) or the Codex bridge's state is the host's own,
+    /// and a replacement host could not take it over, so neither gets one.
+    pub fn keeps_holder(&self) -> bool {
+        self.holder.is_some() && self.translator.is_none() && !self.codex_bridge
+    }
+}
+
+impl HostRecord {
+    /// Whether a daemon should ask this host for custody of its harness (`custody.rs`).
+    pub fn may_hold(&self) -> bool {
+        self.holder != Some(false) && !self.claude_translator
+    }
 }
 
 /// A record file that this build cannot read, and what it could parse.

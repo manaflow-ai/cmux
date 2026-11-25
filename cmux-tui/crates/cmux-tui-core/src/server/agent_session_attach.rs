@@ -30,6 +30,8 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_bad_field.rs"]
+mod bad_field;
 #[path = "agent_session_context.rs"]
 mod context;
 #[path = "agent_session_inventory_socket.rs"]
@@ -87,6 +89,12 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 /// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
 /// in the answer (`refused.reason`), so the card can say why.
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// The `agent-session-share-changed` event on `subscribe`: a chat's link shares or invites
+/// changed (made, invited, uninvited, joined, kicked, revoked, expired, ended by the room or the
+/// chat), so the owner's open Invite People sheet reads its rows again instead of polling. Only
+/// to the owner's own connections that may run the share verbs and echoed it in
+/// `set-client-info`.
+pub const AGENT_SESSION_SHARE_EVENTS_CAPABILITY: &str = "agent-session-share-events-v1";
 /// `agent-session-login` for an unbound agent tab of this store (a new chat whose start was refused
 /// because its agent is not signed in, hq#11225): the step runs on this machine's acpmux with no
 /// `sessionId`, so the sign-in is this machine's own. Gated as `agent-session-start` is: a trusted
@@ -101,6 +109,11 @@ pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// asks one: never a teammate or link guest, the Cloud mobile carrier (its prompts keep the Web's
 /// asking policy, which this would widen) or a read-only attachment.
 pub const AGENT_SESSION_BTW_CAPABILITY: &str = "agent-session-btw-v1";
+/// `max_bytes` on `agent-session-attach` and `agent-session-events`: the page's byte budget,
+/// passed to acpmux as `maxBytes` (at most [`MAX_PAGE_BYTES`]). The agent pane asks 128 KiB for a
+/// chat's open page and read-ahead; without it acpmux answers its 1 MiB default, so a Cloud
+/// chat's open, read-ahead and reconnect each read up to 8x what a local chat's do (hq#14027).
+pub const AGENT_SESSION_PAGE_BYTES_CAPABILITY: &str = "agent-session-page-bytes-v1";
 /// How long a side question may wait for its answer: acpmux gives an inline one 110 seconds.
 const BTW_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest side question, in bytes (a question about the chat, not a prompt).
@@ -479,6 +492,8 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
+    #[serde(default)]
+    max_bytes: Option<u64>,
 }
 
 enum AgentSessionCommand {
@@ -637,10 +652,14 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
-    // acpmux's `agent_login::Agent`s; it answers which way each signs in (`unsupported`).
+    // Any agent id: acpmux's `agent_login::Agent` decides which it signs in and how
+    // (`unsupported_agent`, `unsupported`), so an agent it gains needs no change here (a list here
+    // fell behind acpmux's more than once).
     let agent = || {
-        text(&params.agent)
-            .filter(|a| matches!(*a, "claude" | "codex" | "gemini" | "grok" | "cursor"))
+        text(&params.agent).filter(|a| {
+            a.len() <= 32
+                && a.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
     };
     let (mut body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
@@ -1137,8 +1156,9 @@ fn prewarm(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let params = match bad_field::decode(params) {
+        Ok(params) => params,
+        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
     if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1158,8 +1178,9 @@ fn start(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let params = match bad_field::decode(params) {
+        Ok(params) => params,
+        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
     if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1191,14 +1212,13 @@ fn credentials(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(CredentialsParams { surface, env, vm_kind }) =
-        serde_json::from_value(Value::Object(params))
-    else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let CredentialsParams { surface, env, vm_kind } = match bad_field::decode(params) {
+        Ok(params) => params,
+        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
     };
     let credential = agent_session_start::StartCredentials { env };
     if !credential.valid() {
-        return refuse(writer, id, Refusal::BadRequest);
+        return bad_field::refuse_field(writer, id, Some("env"));
     }
     if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
@@ -1327,6 +1347,16 @@ pub(super) fn proxy_bound(mux: &Mux, client: u64) -> bool {
     proxy::author(mux, client).is_some()
 }
 
+/// Whether `client` hears `agent-session-share-changed`: one of the owner's connections that may
+/// run the share verbs (same-user unix, not bound, not a remote relay) and echoed
+/// [`AGENT_SESSION_SHARE_EVENTS_CAPABILITY`]. Read at each event, as a bind can come later.
+pub(super) fn hears_share_events(mux: &Mux, client: u64) -> bool {
+    mux.control_clients.is_unix(client)
+        && !mux.is_remote_client(client)
+        && !proxy_bound(mux, client)
+        && mux.control_clients.supports_capability(client, AGENT_SESSION_SHARE_EVENTS_CAPABILITY)
+}
+
 /// A frame of a teammate's link: the agent-session verbs [`try_handle`] allows it, and a refusal
 /// for anything else the daemon serves (pages, resources, workspaces, terminals).
 pub(super) fn handle_bound(
@@ -1378,6 +1408,12 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
             return Err(Refusal::BadRequest);
         }
         out.insert("kinds", json!(kinds));
+    }
+    if let Some(bytes) = params.max_bytes {
+        if bytes == 0 {
+            return Err(Refusal::BadRequest);
+        }
+        out.insert("maxBytes", json!(bytes.min(MAX_PAGE_BYTES as u64)));
     }
     if attach {
         out.insert("eventStream", json!(true));
@@ -2163,10 +2199,13 @@ fn refuse_with_data(
 }
 
 /// The text of `refusal` with `data`: the generic `refused` names `data.reason` (acpmux's code)
-/// so a reader of the error alone sees why; every other refusal's text is its own.
+/// and a bad request `data.field` (the param, [`bad_field`]), so a reader of the error alone sees
+/// why; every other refusal's text is its own.
 fn refusal_text(refusal: Refusal, data: &Value) -> String {
-    match (refusal, data.get("reason").and_then(Value::as_str)) {
-        (Refusal::Refused, Some(reason)) => format!("{} ({reason})", refusal.message()),
+    let text = |key: &str| data.get(key).and_then(Value::as_str);
+    match (refusal, text("reason"), text("field")) {
+        (Refusal::Refused, Some(reason), _) => format!("{} ({reason})", refusal.message()),
+        (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
         _ => refusal.message().to_string(),
     }
 }
@@ -2220,21 +2259,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod unsent_tests {
-    use super::*;
-    use crate::server::RenderService;
-
-    /// A failed push whose stream never queued its own overflow notice still closes with a
-    /// reason, so the client attaches again after the seq it holds; one that did is not told twice.
-    #[test]
-    fn a_failed_push_always_leaves_the_client_a_close_reason() {
-        let service = RenderService::new();
-        let overflow = closed_event(7, "overflow");
-        let stream = OutboundStream::new(1, service.serialize_control(&overflow).unwrap());
-        assert_eq!(unsent_reason(&stream), Some("send_failed"));
-        stream.close();
-        assert_eq!(unsent_reason(&stream), Some("send_failed"), "closed with no notice queued");
-        stream.terminal_enqueued.store(true, Ordering::Release);
-        assert_eq!(unsent_reason(&stream), None, "the overflow notice already told it");
-    }
-}
+#[path = "agent_session_attach_unsent_tests.rs"]
+mod unsent_tests;

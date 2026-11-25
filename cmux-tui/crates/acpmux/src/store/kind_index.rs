@@ -21,8 +21,9 @@
 //! line is written to its copy once, not once per [`COPY_AFTER`] bytes of log: a chat whose
 //! prompts were megabytes each rewrote its whole copy, every prompt in it, on every scan
 //! (cmuxterm-hq#9263: `logged_inbox_answer` → `scan_kinds`, 131 of 757 samples of 549 GB of
-//! writes in a day). Nothing is written on the append path, and a chat's folder is deleted with
-//! its copies.
+//! writes in a day). The append path writes one copy per segment, of the segment a rotation just
+//! filled (`store/segment_writer.rs`), so a chat never scanned still has a copy of every segment
+//! but the open one; a chat's folder is deleted with its copies.
 //!
 //! A strict scan ([`Store::scan_kinds_strict`], the transfer authority's) fails on a line that
 //! does not read, as one of the whole log would: a copy says whether every line it covers read,
@@ -72,6 +73,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     "transferred",
     // A log load's restored inbox (`hub/inbox.rs` `restore_inbox`).
     "inbox",
+    "inbox_triaged",
     "inbox_noticed",
     "inbox_returned",
     "inbox_answered",
@@ -107,6 +109,16 @@ pub const INDEXED_KINDS: &[&str] = &[
     "prompt_retracted",
     "turn_end",
     "turn_error",
+    // A chat's thread owners, read by each surge triage pass (`hub/surge_triage.rs`).
+    "inbox_subscription",
+    // A recipient's grants of its threads to owners, read with them.
+    "inbox_owner_grant",
+    // A log load's rate-limit hold (`hub/rate_hold.rs` `restore_rate_hold`), read back to the
+    // newest completed turn: a chat with none near its end read its whole log at every start.
+    "rate_limit_held",
+    "rate_limit_parked",
+    "rate_limit_lifted",
+    "rate_limit_unparked",
 ];
 
 /// The folder of a chat's copies, beside its `events`.
@@ -173,6 +185,46 @@ impl Header {
         out.push(b'\n');
         Some(out)
     }
+}
+
+/// The copy `copy` of a segment's kinds, written to `to` as the copy of `segment`, a file with the
+/// same bytes the copy covers but another device or inode: a staged prefix that could not be
+/// linked into the chat's folder (another file system) and was copied (`hub/transfer_precopy.rs`
+/// `adopt_index`). A copy names its file by device, inode and birth, so the stage's did not pass
+/// for the copied segment, and the move's first scan read the whole log again, inside its
+/// freeze: 3.2 s of a 3.4 s freeze on 248 MB of log (2026-11-22,
+/// `a_live_move_freezes_for_the_tail_only_over_a_slow_link`). The caller vouches that the bytes
+/// are the same. False, and nothing written, when the copy is not whole or not of these kinds:
+/// the first scan makes one then, as for any segment.
+pub fn carry_copy(copy: &Path, segment: &Path, to: &Path) -> Result<bool> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    crate::config::private_state_file(copy)?.read_to_end(&mut bytes)?;
+    let Some(end) = bytes.iter().position(|b| *b == b'\n') else { return Ok(false) };
+    let Ok(header) = serde_json::from_slice::<Header>(&bytes[..end]) else { return Ok(false) };
+    let mut lines = bytes.split_off(end.saturating_add(1));
+    lines.truncate(usize::try_from(header.lines_len)?);
+    let file = (header.dev, header.ino, header.born_ns);
+    let whole = lines.len() as u64 == header.lines_len
+        && fnv_on(FNV_START, &lines) == header.lines_hash
+        && seal(file, header.len, header.kinds, header.parsed, header.lines_len, header.lines_hash)
+            == header.seal
+        && lines.last().is_none_or(|b| *b == b'\n');
+    let stamp = Stamp::of(&crate::config::private_state_file(segment)?)?;
+    if !whole
+        || header.schema != SCHEMA
+        || header.kinds != kinds()
+        || stamp.id.2 == 0
+        || stamp.len < header.len
+    {
+        return Ok(false);
+    }
+    let carried =
+        Header::new(stamp.id, header.len, header.parsed, header.lines_len, header.lines_hash);
+    let mut out = carried.line().ok_or_else(|| anyhow::anyhow!("kind index header too long"))?;
+    out.extend_from_slice(&lines);
+    crate::config::write_atomic_unsynced(to, &out)?;
+    Ok(true)
 }
 
 /// FNV-1a, 64 bits, of a copy's file, coverage, kinds and its lines' length and hash: stable
@@ -349,14 +401,19 @@ impl LocalStore {
             }
             true
         };
-        for (index, path) in self.segments(id)?.into_iter().rev() {
-            if self.segment_starts.first_seq(id, index, &path)?.is_some_and(|first| first >= before)
+        let segments = self.segments(id)?;
+        let end = self.segment_starts.end(id, &segments, before)?;
+        for (index, path) in segments[..end].iter().rev() {
+            let index = *index;
+            if self.segment_starts.first_seq(id, index, path)?.is_some_and(|first| first >= before)
             {
                 continue;
             }
-            let mut file = crate::config::private_state_file(&path)?;
-            let copy =
-                if indexed { self.copy_for_read_back(id, index, &path, &file)? } else { None };
+            let mut file = super::cold_segments::open_segment(path)?;
+            let copy = match file.local() {
+                Some(local) if indexed => self.copy_for_read_back(id, index, path, local)?,
+                _ => None,
+            };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
@@ -380,7 +437,12 @@ impl LocalStore {
                     }
                 }
                 None => {
-                    let end = offset_of_seq(&mut file, before)?;
+                    let end = match &mut file {
+                        super::cold_segments::SegmentFile::Cold(cold) => {
+                            cold.offset_of_seq(before)?
+                        }
+                        local => offset_of_seq(local, before)?,
+                    };
                     for_each_line_rev_from(&mut file, end, &mut line)?;
                 }
             }
@@ -436,6 +498,34 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        self.scan_kinds_from(id, 0, kinds, strict, visit)
+    }
+
+    /// [`Self::scan_kinds_in`] of the records past `after` only. The segments before the one
+    /// that holds `after + 1` hold no such record (seqs only grow from segment to segment,
+    /// `store/segment_starts.rs`), so they are not read, copies or segments: a log load past a
+    /// restore point read every segment's copy from the log's start, a share of the whole
+    /// history on every daemon start (goal infinite-chats: 69 MB of a 514 MB chat). The visitor
+    /// still sees only records past `after`; the segment it starts in is read whole.
+    pub(super) fn scan_kinds_past(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        strict: bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_from(id, after, kinds, strict, &mut |rec| rec.seq <= after || visit(rec))
+    }
+
+    fn scan_kinds_from(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        strict: bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
         test_scan_delay();
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then), as `scan_strict` does.
@@ -445,7 +535,9 @@ impl LocalStore {
         }
         let copied = kinds.iter().all(|k| INDEXED_KINDS.contains(k));
         let scan = Scan { kinds, copied, strict, heads: false };
-        for (index, path) in self.segments(id)? {
+        let segments = self.segments(id)?;
+        let start = self.segment_starts.start(id, &segments, after)?;
+        for (index, path) in segments.into_iter().skip(start) {
             if !self.scan_segment(id, index, &path, &scan, visit)? {
                 break;
             }
@@ -462,9 +554,12 @@ impl LocalStore {
         scan: &Scan<'_>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<bool> {
-        let mut file = crate::config::private_state_file(path)?;
+        let mut file = super::cold_segments::open_segment(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
-        let stamp = if scan.copied { Some(Stamp::of(&file)?) } else { None };
+        let stamp = match file.local() {
+            Some(local) if scan.copied => Some(Stamp::of(local)?),
+            _ => None,
+        };
         let (mut copy, from, mut parsed) = match stamp
             .as_ref()
             .and_then(|s| self.read_kind_index(id, index, s))

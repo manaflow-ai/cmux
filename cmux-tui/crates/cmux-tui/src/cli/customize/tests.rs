@@ -419,6 +419,43 @@ fn recipes_are_profiles_to_use_and_open_shows_their_guide() {
 }
 
 #[test]
+fn use_takes_a_recipe_by_name_and_a_saved_profile_of_that_name_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let run =
+        |request, at| execute(&customize, request, "cli", at, &super::ask::NoChat).ok().unwrap();
+
+    // No `recipes` first: the name alone finds the recipe, theme file included.
+    let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 1_000);
+    assert_eq!(used.json()["profile"], "ukiyo-e");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("\"ukiyo-e\""), "{settings}");
+    run(Request::Discard, 2_000);
+
+    // A saved profile called the same wins over the recipe.
+    run(Request::Save { name: "ukiyo-e".to_owned(), note: "mine".to_owned() }, 3_000);
+    let used = run(Request::Use { source: "ukiyo-e".to_owned(), watch: false }, 4_000);
+    assert_eq!(used.json()["profile"], "ukiyo-e");
+    let settings = fs::read_to_string(dir.path().join("config/cmux-next.json")).unwrap();
+    assert!(!settings.contains("themeFile"), "{settings}");
+    run(Request::Discard, 5_000);
+
+    // Neither a profile nor a recipe: the profile error stands.
+    assert!(
+        execute(
+            &customize,
+            Request::Use { source: "no-such-look".to_owned(), watch: false },
+            "cli",
+            6_000,
+            &super::ask::NoChat
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
     let tried = |source: Option<&str>, ms: u64| {
         Ok(Request::Try { source: source.map(str::to_owned), duration_ms: ms })
@@ -430,6 +467,10 @@ fn try_parses_a_profile_and_minutes_and_keep_and_revert_take_nothing() {
     assert_eq!(parse(&words(&["keep"])), Ok(Request::Keep));
     assert_eq!(parse(&words(&["revert"])), Ok(Request::Revert));
     assert_eq!(parse(&words(&["settle", "--wait"])), Ok(Request::Settle { wait: true }));
+    // Code to try on: the same words `use` takes, timed.
+    assert_eq!(parse(&words(&["try", "pr:43496", "-m", "5"])), tried(Some("pr:43496"), 300_000));
+    assert_eq!(parse(&words(&["try", "dir:~/src/cmux"])), tried(Some("dir:~/src/cmux"), 600_000));
+    assert_eq!(parse(&words(&["settle", "--wait", "--code"])), Ok(Request::SettleCode));
     for bad in [
         &["try", "--minutes"][..],
         &["try", "--minutes", "0"],
@@ -507,17 +548,25 @@ fn schema_lists_what_can_change_and_needs_no_store() {
     assert!(parse(&words(&["schema", "--yaml"])).is_err());
 
     // The MCP path answers from this build's tables before it opens the store.
-    let views = super::run_json(&words(&["schema", "views"]), "mcp").expect("views");
+    let views =
+        super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema", "views"]), "mcp")
+            .expect("views");
     let slots = views["views"].as_array().expect("a list of view slots");
     assert!(slots.iter().any(|slot| slot["interface"] == "cmux.section/1"));
     assert!(views.get("settings").is_none());
-    let all = super::run_json(&words(&["schema"]), "mcp").expect("the whole schema");
+    let all = super::run_json(&crate::cli::GlobalArgs::default(), &words(&["schema"]), "mcp")
+        .expect("the whole schema");
     let accent = all["settings"]
         .as_array()
         .and_then(|rows| rows.iter().find(|row| row["key"] == "appearance.accent"))
         .expect("appearance.accent is listed");
     assert!(accent.get("default").is_some() && accent.get("schema").is_some());
-    let ts = super::run_json(&words(&["schema", "--typescript"]), "mcp").expect("typescript");
+    let ts = super::run_json(
+        &crate::cli::GlobalArgs::default(),
+        &words(&["schema", "--typescript"]),
+        "mcp",
+    )
+    .expect("typescript");
     assert!(ts["source"].as_str().is_some_and(|s| s.contains("export interface CmuxSettings")));
 
     let human = Answer::Schema(
@@ -529,4 +578,26 @@ fn schema_lists_what_can_change_and_needs_no_store() {
     assert!(human.starts_with("View slots"), "{human}");
     assert!(human.contains("cmux.section/1") && human.contains("defaultRegion: top|middle|bottom"));
     assert!(human.contains("\nNext:\n"));
+}
+
+#[test]
+fn doctor_reads_by_default_and_a_fix_names_its_finding_and_kind() {
+    use super::doctor::Request as Doctor;
+    use cmux_customize::library::doctor::FixKind;
+    assert_eq!(parse(&words(&["doctor"])), Ok(Request::Doctor(Doctor::Report { announce: false })));
+    assert_eq!(
+        parse(&words(&["doctor", "--announce"])),
+        Ok(Request::Doctor(Doctor::Report { announce: true }))
+    );
+    assert_eq!(
+        parse(&words(&["doctor", "fix", "layer-on:pr-7", "off"])),
+        Ok(Request::Doctor(Doctor::Fix { id: "layer-on:pr-7".to_owned(), kind: FixKind::Off }))
+    );
+    assert_eq!(
+        parse(&words(&["doctor", "dismiss", "unknown-key:mystery"])),
+        Ok(Request::Doctor(Doctor::Dismiss { id: "unknown-key:mystery".to_owned() }))
+    );
+    assert!(parse(&words(&["doctor", "fix", "layer-on:pr-7", "delete"])).is_err());
+    assert!(parse(&words(&["doctor", "fix", "--all", "off"])).is_err());
+    assert!(parse(&words(&["doctor", "dismiss"])).is_err());
 }

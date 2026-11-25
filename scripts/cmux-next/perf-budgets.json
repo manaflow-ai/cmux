@@ -10,6 +10,10 @@
   "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
   "idle": ["idle\\..*\\.app_cpu_pct"],
   "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"],
+  "tab_scale": ["tab_switch\\.terminal\\.(2|30)\\.e2e"],
+  "tab_close": ["tab_close\\.terminal\\.burst\\.input_to_commit", "tab_close\\.chat\\.burst\\.input_to_commit"],
+  "surfaces_scale": ["cmd_t\\.idle_(10|30)ws\\.key_to_visible", "ctrl_backtick\\.idle_(10|30)ws\\.key_to_visible"],
+  "many_chats": ["many_chats\\.main_thread_pct", "many_chats\\.hangs_over_250ms"],
   "terminal_burst": ["terminal_burst\\.(open|close)\\.\\d+\\.key_to_visible", "terminal_burst\\.new_terminal\\.(first|last)\\.key_to_visible", "terminal_burst\\.new_terminal\\.growth", "terminal_burst\\.close_terminal\\.key_to_state"]
  },
  "rows": {
@@ -48,6 +52,12 @@
    "unit": "ms/s",
    "floor": 3.0,
    "what": "main-thread ms per second while 15 agents tick (15 busy sidebar spinners; a465's 1/20-spinner xbench rows are in scripts/perf-bench/budgets.json, nightly gate)"
+  },
+  "sidebar\\.\\d+\\.ticking\\.row_maps_per_tick": {
+   "p95": 1.0,
+   "unit": "rows",
+   "floor": 0.2,
+   "what": "sidebar rows the row feed maps per agent tick (debug.sidebar_perf row_maps over the ticks): its own row at most, at 100 workspaces as at 1,000 (O(changed), never O(all); Leo's NIGHTLY 2026-11-21)"
   },
   "panes\\..*\\.frame": {
    "p95": 8.33,
@@ -96,6 +106,12 @@
    "unit": "ms",
    "floor": 1.0,
    "what": "Cmd-Shift-D: key to split visible"
+  },
+  "tab_close\\..*": {
+   "p95": 10.0,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "tab close: each of 20 Cmd-W at 40 ms on terminal or chat tabs, key to the next commit (burst-bench.py; Lawrence 2026-10-23: \"need to make sure repeated cmd w is instant\", target < 10 ms p95)"
   },
   "tab_switch\\..*": {
    "p95": 16.7,
@@ -156,6 +172,24 @@
    "unit": "%",
    "floor": 1.0,
    "what": "app CPU while 15 agents tick (15 busy spinners)"
+  },
+  "many_chats\\.main_thread_pct": {
+   "p95": 0.5,
+   "unit": "%",
+   "floor": 0.3,
+   "what": "many-chats (bench_power.py: 200 agent chat tabs, 10 streaming, 13 Chromium tabs, the New Tab page shown): the app's main-thread CPU % over the 60 s window; before the hidden-chat fix 1.06 % with six 10 s stalls, after it 0.18 % with none (cmux#48392)"
+  },
+  "many_chats\\.hangs_over_(100|250)ms": {
+   "p95": 0,
+   "unit": "stalls",
+   "floor": 1.0,
+   "what": "many-chats: main-thread stalls (debug.hangs) over 100 / 250 ms in the 60 s window; none is the target"
+  },
+  "many_chats\\.hang_max_ms": {
+   "p95": 250,
+   "unit": "ms",
+   "floor": 20.0,
+   "what": "many-chats (bench_power.py, Leo's ~200 agent chat tabs, 10 streaming, the New Tab page shown): the longest main-thread stall in the 60 s window (debug.hangs)"
   },
   "idle\\..*\\.app_cpu_pct": {
    "p95": 0.5,

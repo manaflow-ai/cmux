@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -237,8 +238,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     var showsTitlebarBadge = false {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
-    /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
+    /// The host pressure indicator after the band and the badge, then the extensions' status items (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    var extensionStatusStrip: AppStatusStripView? { didSet { oldValue?.removeFromSuperview(); extensionStatusStrip.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
     /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
     var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
@@ -254,10 +256,10 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// reorder that added no view (no add hook ran), and the sidebar stays
     /// above Chromium pages and pane overlays (R126) as an occluder of the
     /// window's overlay host. The sidebar's resize band gets a catcher panel
-    /// above pages, like a pane divider's hit area.
-    func windowDidLayout() {
+    /// above pages, like a pane divider's hit area. The lights only after a pass that laid out a view (`placesTrafficLights`).
+    func windowDidLayout(placesTrafficLights: Bool = true) {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow) // before the guard: needs no overlay host
-        if let window { TrafficLightsLine.apply(in: window) } // AppKit's own titlebar layout in this pass put them back at its place
+        if placesTrafficLights, let window { TrafficLightsLine.apply(in: window) } // AppKit's own titlebar layout in this pass put them back at its place
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)

@@ -174,6 +174,11 @@ handoff_trace() {
   /usr/bin/log show --last 2m --style compact --predicate \
     'process == "CmuxShare" OR process == "ShareHost" OR eventMessage CONTAINS "CmuxShare" OR eventMessage CONTAINS "share-host"' \
     2>&1 | grep -v '^Timestamp\|^Filtering' | tail -60 || true
+  # ShareViewController's own steps (loadView, beginRequest, each loadItem, the open and its answer): none at all
+  # means the extension's principal class never loaded.
+  printf 'extension steps (%s):\n' "$ext_id"
+  /usr/bin/log show --last 2m --style compact --info --predicate "subsystem == \"$ext_id\"" \
+    2>&1 | grep -v '^Timestamp\|^Filtering' | tail -30 || true
 }
 said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) || {
   status=$?

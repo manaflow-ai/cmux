@@ -128,6 +128,8 @@ public:
     [[nodiscard]] Result<ConversationRunResult> conversation_run(const ConversationRunRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunAppendResult> conversation_run_append(const ConversationRunAppendRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationRunsResult> conversation_runs(const ConversationRunsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationScheduledListResult> conversation_scheduled_list(const ConversationScheduledListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationScheduledOpResult> conversation_scheduled_op(const ConversationScheduledOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSnapshotResult> conversation_snapshot(const ConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationThreadResult> conversation_thread(const ConversationThreadRequest& request, RequestOptions options = {});
@@ -234,6 +236,7 @@ public:
     [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> pin_workspace(const PinWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> process_census(const ProcessCensusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ProcessInfoResult> process_info(const ProcessInfoRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> put_blob(const PutBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});

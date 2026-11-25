@@ -7,6 +7,8 @@ import { UiProvider } from "../../ui/UiProvider";
 import { SceneRenderer } from "./SceneRenderer";
 import { sceneGradient, sceneStyle } from "./sceneStyle";
 import { scenePalette, sceneSymbolRendering, symbolLayerPaint } from "./sceneSymbolRendering";
+import { appSceneIcon, resolveSceneSymbol } from "./SceneSymbol";
+import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import { SceneStore, type SceneOp } from "./store";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -145,6 +147,49 @@ test("multicolor colors a layered weather glyph per layer and keeps the tint on 
   // A symbol with no multicolor entry draws in the tint.
   expect(symbolLayerPaint("folder", "multicolor", undefined)).toBeUndefined();
   expect(symbolLayerPaint("sun.max.fill", "monochrome", undefined)).toBeUndefined();
+});
+
+test("weather SF names draw the pack's sun, crescent or cloud, not the missing-icon mark", () => {
+  const weather = [
+    "sun.max",
+    "sun.max.fill",
+    "sun.min",
+    "sunrise.fill",
+    "sunset",
+    "moon",
+    "moon.fill",
+    "moon.stars.fill",
+    "cloud.fill",
+    "cloud.sun.fill",
+    "cloud.sun.rain.fill",
+    "cloud.sun.bolt",
+    "cloud.rain",
+    "cloud.drizzle.fill",
+    "cloud.heavyrain.fill",
+    "cloud.bolt.rain.fill",
+    "cloud.hail",
+    "cloud.sleet.fill",
+    "cloud.snow.fill",
+    "cloud.moon.fill",
+    "cloud.moon.rain.fill",
+    "cloud.fog",
+  ];
+  for (const name of weather) expect([name, appSceneIcon(name)]).not.toEqual([name, "icon.missing"]);
+  expect(resolveSceneSymbol(bundledIconPack.icons, "sun.max.fill")).toEqual({
+    name: "appearance.light",
+    paintAs: "sun.max",
+  });
+  expect(resolveSceneSymbol(bundledIconPack.icons, "moon.stars.fill")).toEqual({
+    name: "appearance.dark",
+    paintAs: "moon",
+  });
+  expect(resolveSceneSymbol(bundledIconPack.icons, "cloud.sun.rain.fill")).toEqual({ name: "cloud", paintAs: "cloud" });
+  // The stand-in sun is yellow in multicolor; a stand-in cloud keeps the tint (its rain is not drawn).
+  expect(symbolLayerPaint("sun.max", "multicolor", undefined)!(0, 2)).toEqual({ color: "#FFCC00" });
+  expect(symbolLayerPaint("cloud", "multicolor", undefined)).toBeUndefined();
+  // Names that only look like weather still miss.
+  expect(appSceneIcon("cloud.sun.rain.fill.extra")).toBe("icon.missing");
+  expect(appSceneIcon("sunflower")).toBe("icon.missing");
 });
 
 test("hierarchical lowers later layers' opacity; palette colors layers in order, the last repeating", () => {

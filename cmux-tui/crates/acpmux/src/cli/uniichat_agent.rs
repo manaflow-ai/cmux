@@ -13,9 +13,12 @@
 //! The socket names no device, so UniiChat's agent gets no shell or screen
 //! on this computer: it is a chat backend, not a remote hand.
 //!
-//! Sign-in is UniiChat's own: the token `unii login` keeps at
-//! `$UNII_HOME/<host>/token` (default `~/.unii`). No token, or one the
-//! server refuses, fails the session with the setup steps.
+//! Sign-in is UniiChat's own: the token `unii login` (or this adapter's own
+//! `uniichat-agent login`, `uniichat_login.rs`, which needs no `unii`) keeps
+//! at `$UNII_HOME/<host>/token` (default `~/.unii`). No token, or one the
+//! server refuses, fails the session with the setup steps. Its ACP sign-in is
+//! a `terminal` method: `cmux harness login unii` runs this command line
+//! again with `login`, in that terminal.
 //!
 //! Memory: UniiChat keeps one chat per account that never ends, so by
 //! default a prompt sends only its last text block (a Chief turn's new
@@ -345,7 +348,9 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                 "authMethods": [{
                     "id": "unii-login",
                     "name": "Sign in to UniiChat",
-                    "description": format!("{SETUP}.")
+                    "type": "terminal",
+                    "args": ["login"],
+                    "description": "Sign in with your email or GitHub name: UniiChat sends a link, and you type the code it shows."
                 }]
             }),
         ),
@@ -450,8 +455,7 @@ async fn connect(endpoint: &Endpoint, token: &str) -> Result<Socket, (i64, Strin
         "authorization",
         format!("Bearer {token}").parse().map_err(|_| (AUTH_REQUIRED, endpoint.signed_out()))?,
     );
-    match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req)).await
-    {
+    match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req)).await {
         Err(_) => Err((-32603, format!("UniiChat: {} did not answer in 20 s", endpoint.host))),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(r)))
             if matches!(r.status().as_u16(), 401 | 403) =>
@@ -666,8 +670,9 @@ mod tests {
                 .unwrap();
         let err = e.token().unwrap_err();
         assert!(err.contains("not signed in to uniichat.com"), "{err}");
-        assert!(err.contains("unii login"), "{err}");
-        assert!(err.contains("install.sh"), "{err}");
+        // No `unii` program to install first (first-run finding 2): cmux's own sign-in.
+        assert!(err.contains("cmux harness login unii"), "{err}");
+        assert!(!err.contains("install.sh"), "{err}");
     }
 
     #[test]

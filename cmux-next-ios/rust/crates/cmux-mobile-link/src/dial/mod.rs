@@ -15,6 +15,8 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub(crate) mod turn;
+/// Measurement support (cmux-mobile-path-probe).
+pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
 pub mod wireguard;
 
@@ -75,6 +77,34 @@ pub enum LinkPath {
     NoPath,
 }
 
+impl LinkPath {
+    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`, `none`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Turn => "turn",
+            Self::TurnTls => "turn-tls",
+            Self::NoPath => "none",
+        }
+    }
+}
+
+impl TransportKind {
+    /// The transport's wire name (`link_stat`): `webrtc` or `wireguard`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WebRtc => "webrtc",
+            Self::WireGuard => "wireguard",
+        }
+    }
+}
+
+/// A [`DialOptions::impair_inbound`] hook: whether the datagram came through
+/// this side's TURN allocation, where from, and its size in bytes, to its fate
+/// (`None` drops it, `Some(delay)` delivers it that much later).
+#[doc(hidden)]
+pub type ImpairInbound = fn(bool, &std::net::SocketAddr, usize) -> Option<Duration>;
+
 #[derive(Debug, Clone)]
 pub struct DialOptions {
     /// ICE servers (from `GET /v1/ice`). STUN entries also serve WireGuard
@@ -118,6 +148,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: called with each plain UDP datagram's length as
+    /// WireGuard hands it to the OS (the bytes a radio sends).
+    #[doc(hidden)]
+    pub on_udp_sent: Option<fn(&std::net::SocketAddr, usize)>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after
@@ -126,10 +160,13 @@ pub struct DialOptions {
     pub restrict_inbound_udp: bool,
     /// Test and measurement support: what WireGuard does with each datagram
     /// it receives, by whether it came through this side's TURN allocation
-    /// and where from: `None` drops it (a cut path), `Some(delay)` delivers
-    /// it that much later, in order (a path's one-way latency).
+    /// and where from, and its size in bytes: `None` drops it (a cut path,
+    /// a loss), `Some(delay)` delivers it that much later, ordered by when
+    /// it is due (a path's one-way latency; jitter reorders, as on UDP).
+    /// `testing::shape_by_profile` (feature `testing`) plays a named phone
+    /// link profile.
     #[doc(hidden)]
-    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr) -> Option<Duration>>,
+    pub impair_inbound: Option<ImpairInbound>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
@@ -221,6 +258,7 @@ impl Default for DialOptions {
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
             input_lane: true,
@@ -248,6 +286,40 @@ pub fn turn_url_count(servers: &[IceServer]) -> usize {
         .count()
 }
 
+/// The peer address a direct path's bytes go to, for telling the LAN from the internet:
+/// `None` on a relayed path, before a route, or where the transport does not say.
+pub type PeerAddr = watch::Receiver<Option<std::net::IpAddr>>;
+
+/// A peer address on this network: private, link-local or loopback (IPv4, or IPv6 unique-local
+/// and link-local). Tailnet and CGNAT addresses are routed, so they are not.
+pub fn is_lan(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_lan(std::net::IpAddr::V4(v4)),
+            None => {
+                let first = v6.segments()[0];
+                v6.is_loopback()
+                    || (first & 0xffc0) == 0xfe80
+                    || ((first & 0xfe00) == 0xfc00 && !is_cgnat(ip))
+            }
+        },
+    }
+}
+
+/// The route a link's bytes take, as one word: `direct-lan` (a peer address on this network),
+/// `direct-wan` (routed: the internet, a tailnet, CGNAT), `direct` (direct, address unknown),
+/// `relay` (a TURN server, over UDP, TCP or TLS) or `none`.
+pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static str {
+    match (path, peer) {
+        (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
+        (LinkPath::Direct, Some(_)) => "direct-wan",
+        (LinkPath::Direct, None) => "direct",
+        (LinkPath::Turn | LinkPath::TurnTls, _) => "relay",
+        (LinkPath::NoPath, _) => "none",
+    }
+}
+
 /// Whether `ip` is in 100.64.0.0/10 (Tailscale and other CGNAT overlays).
 pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -260,6 +332,25 @@ pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     }
 }
 
+/// Where a direct path's peer address is, as one word: `lan` (on this network, [`is_lan`]),
+/// `tailnet` (100.64.0.0/10 or Tailscale's IPv6 range, [`is_cgnat`]: a tailnet, or a carrier's
+/// CGNAT), `wan` (any other routed address) or empty (relayed, no route yet, or unknown). The
+/// phone's DEBUG hand-off receipt names it, so a dev link over Tailscale is never taken for the
+/// LAN or internet path a user without Tailscale gets.
+pub fn peer_scope(peer: Option<std::net::IpAddr>) -> &'static str {
+    // An IPv4-mapped IPv6 peer is its IPv4 address.
+    let peer = peer.map(|ip| match ip {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, std::net::IpAddr::V4),
+        ip => ip,
+    });
+    match peer {
+        Some(ip) if is_cgnat(ip) => "tailnet",
+        Some(ip) if is_lan(ip) => "lan",
+        Some(_) => "wan",
+        None => "",
+    }
+}
+
 /// A byte stream a link can run on.
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
@@ -268,6 +359,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
     pub path: watch::Receiver<LinkPath>,
+    pub peer: PeerAddr,
     /// Holds the peer connection or tunnel open.
     pub guard: Box<dyn Any + Send>,
     /// The input lane's stream, when both sides negotiated one. It may open
@@ -277,6 +369,12 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// Holds the transport while the link is parked (WireGuard); `None`
+    /// when it cannot be held (WebRTC).
+    pub hold: Option<crate::link::HoldHook>,
+    /// Pings and pongs as datagrams, when both sides listed
+    /// [`crate::link::LIVENESS_LANE`] (WireGuard).
+    pub liveness: Option<crate::link::LivenessDatagrams>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -443,6 +541,8 @@ pub struct Connected {
     pub link: Link,
     pub transport: TransportKind,
     pub path: watch::Receiver<LinkPath>,
+    /// The peer address of a direct path ([`route_name`]).
+    pub peer: PeerAddr,
     pub session_id: String,
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
@@ -488,12 +588,25 @@ pub async fn connect(
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+    })
 }
 
 /// Mac side: answer `first` and run a link on the result.
@@ -525,17 +638,72 @@ pub async fn answer(
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_route_is_lan_wan_or_relay_by_its_path_and_peer_address() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on ethernet and a phone on the same home wifi.
+        assert_eq!(route_name(LinkPath::Direct, ip("192.168.1.23")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("10.0.0.5")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("169.254.3.4")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fe80::1")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fd12:3456::1")), "direct-lan");
+        assert_eq!(route_name(LinkPath::Direct, ip("::ffff:192.168.1.23")), "direct-lan");
+        // A hole-punched public address, a carrier's CGNAT, a tailnet: routed.
+        assert_eq!(route_name(LinkPath::Direct, ip("203.0.113.9")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("100.101.102.103")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("fd7a:115c:a1e0::1")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, ip("2001:db8::1")), "direct-wan");
+        assert_eq!(route_name(LinkPath::Direct, None), "direct");
+        assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
+        assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
+        assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    #[test]
+    fn a_peer_is_on_this_network_a_tailnet_or_the_internet() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on the phone's own wifi or ethernet.
+        assert_eq!(peer_scope(ip("192.168.1.23")), "lan");
+        assert_eq!(peer_scope(ip("10.0.0.5")), "lan");
+        assert_eq!(peer_scope(ip("fe80::1")), "lan");
+        assert_eq!(peer_scope(ip("::ffff:192.168.1.23")), "lan");
+        // Tailscale (and a carrier's CGNAT), IPv4, IPv4-mapped and IPv6: never the LAN.
+        assert_eq!(peer_scope(ip("100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("100.64.0.1")), "tailnet");
+        assert_eq!(peer_scope(ip("::ffff:100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("fd7a:115c:a1e0::1")), "tailnet");
+        // A hole-punched public address.
+        assert_eq!(peer_scope(ip("203.0.113.9")), "wan");
+        assert_eq!(peer_scope(ip("100.128.0.1")), "wan");
+        assert_eq!(peer_scope(ip("2001:db8::1")), "wan");
+        // A relayed path, or no route yet.
+        assert_eq!(peer_scope(None), "");
+    }
 
     fn error(session_id: Option<&str>) -> SignalingEvent {
         SignalingEvent::Error {

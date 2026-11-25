@@ -4,6 +4,66 @@
 //! "API Error: 503 no non-exhausted claude accounts available" and sat failed.
 use super::*;
 
+#[tokio::test]
+async fn capacity_retries_separated_by_model_progress_do_not_end_a_healthy_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "capacity-progress").await;
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id,
+        "prompt": [{"type": "text", "text": "capacity-retry-progress"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "completed");
+    assert!(records(&hub, &id, "capacity_retry_exhausted").is_empty());
+    assert!(records(&hub, &id, "auto_resume_scheduled").is_empty());
+}
+
+#[tokio::test]
+async fn capacity_retries_inside_codex_end_and_use_the_backed_off_budget() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
+    let id = new_session(&mut c, "capacity-inner-loop").await;
+    let result = tokio::time::timeout(Duration::from_secs(2), c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "capacity-inner-loop"}], "_meta": {"acpmux": {"promptId": "p-cap-inner"}}}),
+    )).await.expect("capacity retries must end without waiting for the harness to give up");
+    assert!(result.unwrap_err().contains("Selected model is at capacity"));
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    let scheduled = records(&hub, &id, "auto_resume_scheduled");
+    assert_eq!(scheduled.len(), 2);
+    assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
+    assert_eq!(records(&hub, &id, "auto_resume_exhausted").len(), 1);
+    assert_eq!(records(&hub, &id, "user_message").len(), 3);
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+}
+
+#[tokio::test]
+async fn repeated_capacity_errors_exhaust_one_backed_off_retry_chain() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
+    let id = new_session(&mut c, "capacity-bounded").await;
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-three: build it"}], "_meta": {"acpmux": {"promptId": "p-cap-bounded"}}}),
+    )
+    .await
+    .unwrap_err();
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    let scheduled = records(&hub, &id, "auto_resume_scheduled");
+    assert_eq!(scheduled.len(), 2);
+    assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
+    let exhausted = records(&hub, &id, "auto_resume_exhausted");
+    assert_eq!(exhausted.len(), 1);
+    assert_eq!(exhausted[0]["reason"], "capacity");
+    assert_eq!(exhausted[0]["attempts"], 2);
+    assert_eq!(records(&hub, &id, "user_message").len(), 3);
+    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+}
+
 /// The records of one kind in a session, oldest first.
 fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
     hub.events(id, 0, 10_000)

@@ -148,7 +148,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
     /// shows there instead.
     static func onPullRequestBadge(_ badge: SidebarPullRequestBadgeView?, window: NSWindow, screenPoint: CGPoint) -> Bool {
-        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false
+        guard let badge, !badge.isHidden, badge.alphaValue > 0, badge.badge?.items.isEmpty == false
         else { return false }
         return window.convertToScreen(badge.convert(badge.bounds, to: nil)).contains(screenPoint)
     }
@@ -164,16 +164,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let openedByRequest = detailsRequested == id && !body.isDetailsExpanded
         if openedByRequest { body.expandDetails() }
         self.body = body
-        let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
-        let options = DesignSettings.shared.workspaceHoverCard
-        let wantsTimeline = options.layout != .classic
-        let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
-        // The workspace on screen needs no digest: the person is looking at it.
-        let looked = ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
-        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
-                                                     looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
-        body.configure(content)
-        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
+        let content = fill(body, with: workspace, ws, in: list)
         body.onDetailsChanged = { [weak self] in self?.detailsChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self else { return }
@@ -188,13 +179,58 @@ final class WorkspaceHoverCardController: HoverCardSource {
             guard let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
             list.model.send(.closeTab(workspace: ws, tab: tabID))
         }
+        // A port's row opens it in a browser tab of this workspace, on its machine's localhost (`SidebarIntent.openPort`).
+        body.onOpenPort = { [weak self, weak list] url, label in
+            guard let self else { return }
+            list?.model.send(.openPort(workspace: ws, url: url, label: label))
+            self.coordinator.dismiss(.action)
+        }
         body.setResources(resources.report)
         bodyID = id
         if openedByRequest { startSampling(id) }
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
         updateTicker()
-        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
-                             cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
+        return cardBody(body, in: list)
+    }
+
+    /// The card body for the first visible workspace row, made and configured as its card would be but not
+    /// shown (``HoverCardCoordinator/warm()``): no sampling, ticker, custom card or actions, which a real show sets.
+    /// The first hover then reuses it instead of building the card (about 50 ms of the first card's show).
+    func hoverCardWarmBody() -> HoverCardBody? {
+        guard body == nil, let list,
+              let ws = list.displayed.rows.lazy.compactMap({ row -> WorkspaceID? in
+                  if case .workspace(let id) = row.key { id } else { nil }
+              }).first,
+              let workspace = list.hoverCardRow(ws) else { return nil }
+        let body = WorkspaceHoverCardView()
+        body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
+        self.body = body
+        fill(body, with: workspace, ws, in: list)
+        body.setResources(resources.report)
+        return cardBody(body, in: list)
+    }
+
+    /// Configures `body` with workspace `ws`'s card content (its facts, history and tabs), and returns that content.
+    @discardableResult
+    private func fill(_ body: WorkspaceHoverCardView, with workspace: SidebarWorkspace, _ ws: WorkspaceID,
+                      in list: SidebarListView) -> WorkspaceHoverCardContent {
+        let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
+        let options = DesignSettings.shared.workspaceHoverCard
+        let wantsTimeline = options.layout != .classic
+        let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
+        // The workspace on screen needs no digest: the person is looking at it.
+        let looked = ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
+        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
+                                                     looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
+        body.configure(content)
+        body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
+        body.configurePaneShape(workspace.paneShape)
+        return content
+    }
+
+    private func cardBody(_ body: WorkspaceHoverCardView, in list: SidebarListView) -> HoverCardBody {
+        HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true,
+                      cornerRadius: WorkspaceHoverCardView.cardCornerRadius) { [weak body] in body?.applyColors() }
     }
 
     /// A group header's summary card (`GroupHoverCardSummary`): no sampling, no ticker.
@@ -251,6 +287,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
         body?.tabList.onClose = nil
+        body?.onOpenPort = nil
         body?.onDetailsChanged = nil
         bodyID = nil
         releaseCustom()
@@ -384,6 +421,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The kind icon, leading the name on the card's icon column; a Cloud or remote card has none
     /// (its machine reads once, in `hostLabel`).
     private let kindIcon = HoverCardIconView()
+    /// The shown screen's splits (ask-890db939a2); hidden for a one-pane workspace.
+    let paneShape = WorkspacePaneShapeView()
     /// Where a Cloud or remote workspace runs ("Cloud", the host's name), once, in the secondary ink
     /// after the name, its reachability dot beside it; local has none (Leo 2026-11-02, on a card that
     /// said Cloud four times: "the tiny cloud icon the repeated cloud cloud cloud").
@@ -404,6 +443,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let statsRow = NSStackView()
     /// Rex-style default: tabs are the useful affordance; rich details stay behind an explicit toggle.
     let detailsToggle = WorkspaceHoverCardDisclosure()
+    /// The ports the workspace's terminals serve, one button each, under the tab list with details open or not.
+    private let portsStack = NSStackView()
+    private(set) var portViews: [WorkspaceHoverCardPortRow] = []
+    /// A port row was clicked: its URL and label (the controller opens it in a browser tab of the workspace).
+    var onOpenPort: ((_ url: String, _ label: String) -> Void)?
     /// The summary header's line under the name: tab count, running and unread (`style.header`).
     private let summaryLabel = ChromeLabel(labelWithString: "")
     private let summaryRow = NSStackView()
@@ -535,10 +579,15 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         // The shipped card is Rex-style: tabs are immediately available and a one-click
         // details disclosure keeps the existing rich content available. Gallery variants
         // retain their requested tab placement when details are expanded.
-        var rows: [NSView] = [customSlot, titleRow, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
-        let tabIndex = tabPlacement == .afterTitle ? 3 : (tabPlacement == .afterStatus ? 5 : 9)
+        var rows: [NSView] = [customSlot, titleRow, paneShape, summaryRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
+        let tabIndex = tabPlacement == .afterTitle ? 4 : (tabPlacement == .afterStatus ? 6 : 10)
         rows.insert(tabList, at: tabIndex)
-        rows.insert(detailsToggle, at: tabIndex + 1)
+        rows.insert(portsStack, at: tabIndex + 1)
+        rows.insert(detailsToggle, at: tabIndex + 2)
+        portsStack.orientation = .vertical
+        portsStack.alignment = .leading
+        portsStack.spacing = 0
+        portsStack.isHidden = true
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -567,7 +616,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
             detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            portsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            paneShape.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             activity.centerXAnchor.constraint(equalTo: activitySlot.centerXAnchor),
@@ -632,7 +683,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
-        return lines + tabList.reportedLines
+        return lines + tabList.reportedLines + portViews.filter { !$0.isHidden }.map(\.row.shownText)
     }
 
     /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
@@ -718,6 +769,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
         factsStack.isHidden = !content.facts.contains { $0.kind != "machine" }
+        configurePorts(content.ports)
         pendingTimelineAt = now
         applyColors()
         updateDetailsVisibility()
@@ -828,6 +880,13 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
+    /// Shows `shape`, the workspace's splits, under the title; nil hides the miniature.
+    func configurePaneShape(_ shape: SidebarPaneShape?) {
+        guard paneShape.shape != shape else { return }
+        contentChanged()
+        paneShape.shape = shape
+    }
+
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {
         contentChanged()
         tabList.configure(title: title, tabs: tabs, now: now, machine: machine)
@@ -856,7 +915,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let point = superview?.convert(windowPoint, from: nil) ?? windowPoint
         var hit = hitTest(point)
         while let view = hit {
-            if view === detailsToggle { return true }
+            if view === detailsToggle || view is WorkspaceHoverCardPortRow { return true }
             if view === customSlot, detailsExpanded { return true }
             hit = view.superview
         }
@@ -973,6 +1032,27 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         lastSampled = nil
     }
 
+    /// One button per port (`WorkspaceHoverCardContent.ports`), reused card to card; none hides the stack.
+    private func configurePorts(_ ports: [WorkspaceHoverCardContent.Fact]) {
+        while portViews.count < ports.count {
+            let row = WorkspaceHoverCardPortRow()
+            portsStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: portsStack.widthAnchor).isActive = true
+            portViews.append(row)
+        }
+        for (index, row) in portViews.enumerated() {
+            let fact = index < ports.count ? ports[index] : nil
+            row.isHidden = fact == nil
+            guard let fact else { continue }
+            row.configure(fact, image: NSImage.icon(fact.icon, size: Self.iconSize), font: Self.bodyFont, iconSide: Self.iconSize)
+            row.onPress = { [weak self] in
+                guard let url = fact.link else { return }
+                self?.onOpenPort?(url, fact.text)
+            }
+        }
+        portsStack.isHidden = ports.isEmpty
+    }
+
     private func addFactRow() {
         let row = HoverCardRowView()
         // The card takes its width from its content (cx-k9mc).
@@ -1039,6 +1119,7 @@ extension WorkspaceHoverCardView {
     func applyColors() {
         tabList.applyColors()
         detailsToggle.applyColors()
+        paneShape.applyColors()
         performWithTheme {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.
@@ -1062,6 +1143,7 @@ extension WorkspaceHoverCardView {
         // Claude desktop's session card), each row in its own theme tokens; no fill of its own,
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
+        for row in portViews { row.applyColors() }
         resourceRow.applyColors()
         hostDot.applyColors()
     }

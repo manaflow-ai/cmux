@@ -11,8 +11,12 @@ import UniformTypeIdentifiers
 /// opened the thread. The thread view moves its rows (the root goes up under the header), so the spot
 /// the person had just clicked was then the blurred backdrop, and the next click on it closed the view.
 /// The click after that opened it again. In Messages, a click on the opener again does not close the
-/// thread: the view opens once and stays. The real view over a real `HomeStore` (`HomeChatRig`); clicks
-/// go through the pane's click path (`ChatController.clicked`).
+/// thread: the view opens once and stays. Since Lawrence's recording of 2026-11-23 ("notice how clicking some
+/// parts fails to close it") only the further presses of the multi-click that opened the view keep it open; a
+/// later single click there is on the backdrop and closes it (`HomeThreadOpenerSpotTests`). The real view over a
+/// real `HomeStore` (`HomeChatRig`); the opening click goes through the pane's click path
+/// (`ChatController.clicked`), the multi-click's further presses through the outside-click monitor's
+/// (`PaneThread.clicked` with the press's click count).
 @MainActor @Suite(.serialized) struct HomeThreadReclickTests {
     /// The root (mine) with three Chief replies in its thread; the transcript shows its preview.
     private func threadRig() async throws -> HomeChatRig {
@@ -57,9 +61,9 @@ import UniformTypeIdentifiers
         let rows = demo.threadViews.map(\.frame)
         let scroll = r.view.controller.host.scrollView.contentView.bounds.origin.y
 
-        // The capture's clicks: the same spot, again and again.
+        // The capture's clicks: the same spot, again and again, as one multi-click.
         for click in 2...5 {
-            r.view.controller.clicked(p)
+            #expect(r.view.controller.thread.clicked(p, clickCount: click), "press \(click) on the opener's spot was not taken")
             for _ in 0..<4 { r.frame() }
             #expect(r.view.debugOpenThread == root, "click \(click) on the opener's spot closed the thread")
             #expect(demo.threadViews.map(\.frame) == rows, "click \(click) moved the thread's rows")
@@ -92,7 +96,7 @@ import UniformTypeIdentifiers
         #expect(r.view.debugOpenThread == nil, "a backdrop click away from the opener closes the thread")
     }
 
-    /// The capture's five clicks on the opener as a filmstrip (`.build/home-thread-reclick.png`; a fleet step
+    /// The capture's five presses on the opener (one multi-click) as a filmstrip (`.build/home-thread-reclick.png`; a fleet step
     /// returns it with `--artifact`): the transcript, then the view after each click. It checks only that it
     /// drew, so the same test gives the before picture on a commit without the fix. The blur filter does not
     /// draw offscreen, so the transcript under the thread shows sharp.
@@ -119,8 +123,8 @@ import UniformTypeIdentifiers
         }
         var frames: [CGImage] = []
         if let f = shot() { frames.append(f) }
-        for _ in 1...5 {
-            r.view.controller.clicked(p)
+        for click in 1...5 {
+            if click == 1 { r.view.controller.clicked(p) } else { _ = r.view.controller.thread.clicked(p, clickCount: click) }
             for _ in 0..<30 { r.frame() }
             if let f = shot() { frames.append(f) }
         }

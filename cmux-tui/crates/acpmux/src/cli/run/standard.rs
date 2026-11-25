@@ -9,13 +9,20 @@ pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::Dispatch(..)
+            | Command::Bg(..)
+            | Command::Notices { .. }
+            | Command::Open(..)
+            | Command::OpenTab(..)
             | Command::Briefs(..)
             | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
+            | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::Archive { .. }
+            | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
             | Command::Preset { .. }
@@ -32,9 +39,12 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Inbox(..)
             | Command::Deliver { .. }
             | Command::Chats(..)
+            | Command::Board
             | Command::Process(..)
+            | Command::Gc { .. }
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::Account(..)
             | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
@@ -51,6 +61,36 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Bg(cmd) => {
+            let client = connect(true).await?;
+            crate::cli::bg::run(client.as_ref(), cmd, json_out).await
+        }
+        Command::Notices { session, thread, mark_read } => {
+            let session = session
+                .or_else(|| std::env::var(crate::acpmux_mcp::SESSION_ENV).ok())
+                .filter(|id| !id.trim().is_empty())
+                .ok_or_else(|| {
+                    crate::cli::errors::AppError::usage(
+                        "notices needs a session, or ACPMUX_SESSION_ID inside an agent session",
+                    )
+                })?;
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(
+                client.as_ref(),
+                &session,
+                thread.as_deref(),
+                mark_read,
+                None,
+                None,
+                None,
+                None,
+                false,
+                json_out,
+            )
+            .await
+        }
+        Command::Open(args) => crate::cli::app_bridge::run(args, false, json_out).await,
+        Command::OpenTab(args) => crate::cli::app_bridge::run(args, true, json_out).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
@@ -114,12 +154,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
         }
+        Command::Search { query, limit } => {
+            crate::cli::session_search::all(connect(true).await?, query.join(" "), limit, json_out)
+                .await
+        }
         Command::SessionSearch(args) => {
             crate::cli::session_search::run(connect(true).await?, args, json_out).await
         }
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
+        }
+        Command::Archive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
+        }
+        Command::Unarchive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, false, json_out).await
         }
         Command::RulesCmd { session, rules, clear } => {
             orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await
@@ -174,7 +224,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Schema => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.as_bytes());
+            let _ = std::io::stdout().write_all(crate::schema::SCHEMA.inflate().as_bytes());
             Ok(())
         }
         Command::Defaults { family, pairs, clear } => {
@@ -215,20 +265,25 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Ls(args) => super::ls::run(args, json_out).await,
-        Command::New(args) if args.parent.is_some() => {
-            super::parent::run(*args, json_out, deadline).await
-        }
         Command::New(args) => {
-            let args = *args;
+            let mut args = *args;
+            for notice in args.apply_compat() {
+                eprintln!("{notice}");
+            }
+            if args.parent.is_some() {
+                return super::parent::run(args, json_out, deadline).await;
+            }
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
             let launch = launch::Launch::prepare(&args)?;
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
+            let promptless =
+                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none();
             if new_requires_tty(
                 json_out,
-                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
+                promptless,
                 args.detach,
                 std::io::stdin().is_terminal(),
                 std::io::stdout().is_terminal(),
@@ -250,6 +305,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let folder_named = args.cwd.is_some() || launch.worktree.is_some();
             let target =
                 crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let placed = matches!(target, crate::cli::place::Target::Place(_));
             let host = match target {
                 crate::cli::place::Target::Place(work) => {
                     before_deadline(
@@ -296,6 +352,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(n) = &launch.name {
                 meta.set("name", json!(n));
+                // Placed or started on another machine, it keeps its name: a taken one gets a
+                // `-N` suffix there, never the agent's name. `--reuse` finds the one running.
+                if keeps_name_suffixed(placed, host.as_deref(), launch.reuse) {
+                    meta.set("ifNameTaken", json!(crate::hub::SUFFIX_TAKEN_NAME));
+                }
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
@@ -360,6 +421,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
+            // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
+            // gets the session the first one made, or makes it, never a second one.
+            meta.set(crate::hub::create_key::FIELD, json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
@@ -371,10 +435,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // and runs the whole find-or-create again, so it finds that session and
             // never makes a second one; a handover can happen twice in a row
             // (systemd's daemon taking over one the CLI started), hence two tries.
-            // Without a name to find it by, a retry could make a duplicate: no retry,
-            // except after the daemon's shutdown refused the create before making
-            // anything (`refused_before_create`): a self-update's restart, or one on a
-            // failing disk, then never fails a new session.
+            // Any other create resends its create key (`hub/create_key.rs`) to a daemon that
+            // keeps keys, when the one that closed kept them too: the next daemon answers
+            // with the session the first made, or makes it. A restart while it waits (a
+            // self-update under a benchmark's `new -d`, a lane VM 2026-11-21) then
+            // never fails the create, and never makes two. Only to this daemon's own
+            // sessions: one on a peer may run a daemon that ignores the key. Without a key
+            // a retry could make a duplicate: no retry, except after the daemon's shutdown
+            // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
                 match find_or_create(
@@ -390,13 +458,39 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     Err(error)
                         if reconnects < NEW_RECONNECTS
                             && ((launch.reuse && key.is_some() && daemon_closed_error(&error))
-                                || refused_before_create(&error)) =>
+                                || refused_before_create(&error)
+                                || (daemon_closed_error(&error)
+                                    && keyed_resend(host.as_deref(), &client))) =>
                     {
                         reconnects += 1;
-                        client =
+                        let named = launch.reuse && key.is_some();
+                        let next =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                        // A daemon that keeps no keys (a rollback) could make a second one.
+                        if !named
+                            && !refused_before_create(&error)
+                            && !keyed_resend(host.as_deref(), &next)
+                        {
+                            return Err(error);
+                        }
+                        client = next;
                     }
-                    found => break found?,
+                    // A machine this daemon has no peer for may still be reached by the
+                    // configured new relay (`new_relay.rs`).
+                    Err(error) => match crate::cli::new_relay::for_refusal(
+                        host.as_deref(),
+                        &error,
+                        promptless,
+                    ) {
+                        Some((relay, machine, words)) => {
+                            return crate::cli::new_relay::start(
+                                relay, &machine, words, json_out, deadline,
+                            )
+                            .await;
+                        }
+                        None => return Err(error),
+                    },
+                    Ok(found) => break found,
                 }
             };
             let id = crate::cli::resolve::routed_id(&v)?;
@@ -418,6 +512,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(session_id)
                 .to_owned();
+            // Its name was taken there: it runs under the suffixed one (`ifNameTaken`).
+            if let Some(asked) = v.pointer("/_meta/acpmux/requestedName").and_then(Value::as_str) {
+                eprintln!("{asked:?} is taken there, so the session is named {name:?}");
+            }
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
             let daemon_cli_path = client.daemon_cli_path();
@@ -480,8 +578,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
-                         use `acpmux send {name}` to give it more",
-                        session_id.get(..8).unwrap_or(session_id)
+                         use `{} send {name}` to give it more",
+                        session_id.get(..8).unwrap_or(session_id),
+                        crate::cli::entry::program()
                     );
                 }
                 return Ok(());
@@ -744,7 +843,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 prompt_id.class.get_or_insert_with(|| "question".to_owned());
                 prompt_id.wake_or_fail = true;
             }
-            let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            let steer = send_steers(steer, no_steer, no_wait, agent);
             if let Some(tag) = tag {
                 if !attach.is_empty() {
                     return Err(errors::AppError::usage(
@@ -805,8 +904,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
             // more when config.json names a mesh hub: the hub delivers it (`server/mesh_send.rs`).
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
+            // The fan-out note runs beside the send and is never waited on (`send_fanout.rs`).
+            let fanout = Arc::new(std::sync::Mutex::new(None));
+            let fanout_slot = fanout.clone();
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
+                let note = note_fanout(&client, &session, &text, prompt_id.from_agent.as_deref());
+                *fanout_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some(note);
                 if harness_agent {
                     let named = prompt_id.from_agent.as_deref();
                     let sender = crate::cli::sender::sending_as_on(&client, named).await;
@@ -831,23 +936,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .await
                         .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
                 }
-                // A sub-session's send to its parent waits for the parent's turn to end, as its
-                // send_message does (`hub/subsession_send.rs`), --steer or not.
-                // A queued send asks these of the daemon for at most PRE_QUEUE_WAIT: each may go
-                // to a peer that is slow or down, and the message must be queued regardless.
-                if steer {
-                    let parent = to_parent(&client, &session);
-                    let parent = async {
-                        Ok(if no_wait {
-                            tokio::time::timeout(PRE_QUEUE_WAIT, parent).await.unwrap_or(false)
-                        } else {
-                            parent.await
-                        })
-                    };
-                    if before_deadline(deadline, &session, parent).await? {
-                        steer = false;
-                    }
-                }
+                // A sub-session's send to its parent steers like any agent's, as its send_message
+                // does (`hub/subsession_send.rs`): a busy parent reads it at its next tool step.
+                // Leo, 2026-10-29, of a lane's report left behind its coordinator's 15-minute
+                // turn: "the drain guy came back but it's still not doing the right thing".
                 if no_wait {
                     let _ = tokio::time::timeout(PRE_QUEUE_WAIT, announce_machine_wake(&client, &session)).await;
                     return super::send_async::queue(
@@ -933,6 +1025,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await
             }
             .await;
+            let note = fanout.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            if let Some(line) = note.and_then(fanout_warning_if_known) {
+                eprintln!("{line}");
+            }
             match (sent, relay) {
                 (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
                     crate::cli::send_relay::send_with_deadline(
@@ -951,6 +1047,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         && crate::cli::send_relay::no_such_session(&e)
                         && crate::mesh_http::configured() =>
                 {
+                    let client = before_deadline(deadline, &relay_session, connect(true)).await?;
+                    super::send_async::queue(
+                        &client,
+                        &relay_session,
+                        &relay_text,
+                        mesh_steer,
+                        &mesh_prompt,
+                        superseding,
+                        json_out,
+                        deadline,
+                    )
+                    .await
+                }
+                // The target's machine is down: the message goes to this daemon's outbox, which
+                // tries it again and, for an `ssh://` machine, carries it over ssh
+                // (`server/ssh_carry.rs`). Said, so the sender knows no reply is streamed.
+                (Err(e), _)
+                    if !no_wait
+                        && !attaching
+                        && crate::cli::errors::classify(&e).detail == "peer_unreachable" =>
+                {
+                    eprintln!(
+                        "acpmux: {relay_session}'s machine is unreachable; queued here instead of waiting for the reply (an ssh machine gets it over ssh)"
+                    );
                     let client = before_deadline(deadline, &relay_session, connect(true)).await?;
                     super::send_async::queue(
                         &client,
@@ -1015,7 +1135,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 }
                 if let Some(next) = value.get("next").and_then(Value::as_u64) {
-                    println!("More: acpmux inbox --before {next}");
+                    let program = crate::cli::entry::program();
+                    let verb = if program == "cmux agent" { "team-inbox" } else { "inbox" };
+                    println!("More: {program} {verb} --before {next}");
                 }
             } else if method == method::MUX_TEAM_READ {
                 println!(
@@ -1071,9 +1193,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
-        Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
+        Command::Board => super::board::run(json_out).await,
+        Command::Process(args) => crate::cli::process::run_args(args, json_out).await,
+        #[cfg(unix)]
+        Command::Gc { apply } => crate::cli::process_census::gc(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
@@ -1091,8 +1219,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
         }
         Command::Tail { session, last, follow, since } => {
-            orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
-                .await
+            crate::cli::session_tail::tail(
+                connect(true).await?,
+                &session,
+                last,
+                since,
+                follow,
+                suppress_reads,
+            )
+            .await
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
@@ -1149,6 +1284,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 g("eventCount"),
                 g("lastSeq")
             );
+            if let Some(line) = super::transfer::move_progress_line(&v) {
+                println!("{line}");
+            }
             if let Some(modes) = v.pointer("/modes/availableModes").and_then(Value::as_array) {
                 let names: Vec<String> = modes
                     .iter()
@@ -1189,6 +1327,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+/// Whether a create whose connection `client` closed may be sent again with its create key
+/// (`hub/create_key.rs`): a session on this daemon, which lists that it keeps the key.
+fn keyed_resend(host: Option<&str>, client: &Client) -> bool {
+    host.is_none() && client.daemon_lists(crate::hub::create_key::FEATURE)
+}
+
+/// Whether a named `new` asks the creating daemon to keep a taken name with a `-N` suffix
+/// (`ifNameTaken`): a start placed (`--machine auto`) or sent to another machine, unless it
+/// is `--reuse`, which finds the running session by that name instead.
+fn keeps_name_suffixed(placed: bool, host: Option<&str>, reuse: bool) -> bool {
+    !reuse && (placed || host.is_some())
 }
 
 /// How many times a named `new --reuse` reconnects after the daemon closed its
@@ -1358,7 +1509,7 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
 }
 
 /// The longest a queued send waits on a question to the daemon before it queues the message:
-/// whether the target is the sender's parent, whether its machine is paused. Either may go to
+/// whether the target's machine is paused. It may go to
 /// a peer that is slow or down; on 2026-11-02 sends from a Mac at load 380 hit `timeout 100`
 /// waiting on peers.
 const PRE_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
@@ -1399,32 +1550,6 @@ fn send_queues(w: SendWait) -> bool {
 /// steer it queues.
 fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool {
     !no_steer && (steer || no_wait || agent)
-}
-
-/// Whether the session `target` names is the parent of the acpmux session this send runs in
-/// (its `startedBy`). Only a sub-session asks which session `target` is.
-async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
-    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
-        return false;
-    };
-    let info = |key: &str| {
-        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false, "row": true}))
-    };
-    let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
-        return false;
-    };
-    if target == parent {
-        return true;
-    }
-    let Ok(key) = orchestrate::expand_session_key(target) else { return false };
-    info(&key)
-        .await
-        .is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
-}
-
-/// The session that started the one `info` describes, if one did.
-fn started_by(info: &Value) -> Option<String> {
-    info.get("startedBy").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
@@ -1536,16 +1661,15 @@ fn held_messages(sessions: &[Value]) -> Vec<Value> {
             let mut row = h.clone();
             row.set("session", name.clone());
             row.set("sessionId", id.clone());
-            row.set("answer", json!(HELD_ANSWER));
+            row.set("answer", json!(format!(
+                "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with {} send",
+                crate::cli::entry::program()
+            )));
             out.push(row);
         }
     }
     out
 }
-
-/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
-/// release it, so it waits for that chat's approval or expires.
-const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
 
 /// One `pending` line for a held message.
 fn held_message_line(h: &Value) -> String {
@@ -1561,6 +1685,43 @@ fn held_message_line(h: &Value) -> String {
     )
 }
 
+/// Notes this send with the daemon (`send_fanout.rs`) on a task of its own, started before
+/// the send's own requests on the same connection and never waited on: the send adds no
+/// latency for it (the prompt's sha256 aside, microseconds). Its answer is read when the send is done ([`fanout_warning_if_known`]).
+fn note_fanout(
+    client: &Arc<crate::client::Client>,
+    session: &str,
+    text: &str,
+    from: Option<&str>,
+) -> tokio::task::JoinHandle<Option<String>> {
+    let params = json!({
+        "hash": crate::send_fanout::prompt_hash(text),
+        "session": session,
+        "machine": crate::send_fanout::machine_of(session),
+        "from": from,
+    });
+    let client = client.clone();
+    FANOUT_NOTES.spawn_named("send fan-out note", async move {
+        let reply = client.request(method::MUX_SEND_FANOUT, params).await.ok()?;
+        crate::send_fanout::warning(&reply)
+    })
+}
+
+/// The owner of the send's fan-out notes: the CLI process, which ends them when it exits.
+static FANOUT_NOTES: std::sync::LazyLock<cmux_scope::Scope> =
+    std::sync::LazyLock::new(|| cmux_scope::Scope::new("acpmux send fan-out notes"));
+
+/// The fan-out warning, if the daemon has already answered the note; else none, and the send
+/// does not wait for it (a daemon without the method answers an error: none too).
+fn fanout_warning_if_known(note: tokio::task::JoinHandle<Option<String>>) -> Option<String> {
+    use futures::FutureExt as _;
+    if !note.is_finished() {
+        // Dropped, not aborted: the note still reaches the daemon while the process lives.
+        return None;
+    }
+    note.now_or_never()?.ok().flatten()
+}
+
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
@@ -1568,7 +1729,10 @@ fn team_receipt_line(receipt: &Value) -> String {
     let decision = receipt.get("startWork").and_then(Value::as_str).unwrap_or("information");
     let state = receipt.get("state").and_then(Value::as_str).unwrap_or("queued");
     let id = receipt.get("messageId").and_then(Value::as_str).unwrap_or("?");
-    format!("{state} to {canonical}; startWork={decision} (acpmux send --status mesh:{id})")
+    format!(
+        "{state} to {canonical}; startWork={decision} ({} send --status mesh:{id})",
+        crate::cli::entry::program()
+    )
 }
 
 /// The id of a `new`'s first prompt: it names the Claude Code subagent that sends it
@@ -1579,6 +1743,10 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
     prompt.from_agent =
         args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    // A named first prompt proves its sender as `send --from` does (`sender_token.rs`).
+    if prompt.from_agent.is_some() {
+        prompt.sender_token = crate::sender_token::of_this_send(None).ok().flatten();
+    }
     prompt
 }
 
@@ -1599,6 +1767,17 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
+        // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.
+        assert!(super::keeps_name_suffixed(false, Some("far-host"), false));
+        assert!(super::keeps_name_suffixed(true, None, false));
+        assert!(super::keeps_name_suffixed(true, Some("far-host"), false));
+        // `--reuse` finds the running session by that name; a start here is refused as before.
+        assert!(!super::keeps_name_suffixed(true, Some("far-host"), true));
+        assert!(!super::keeps_name_suffixed(false, None, false));
+    }
+
     #[test]
     fn relay_flags_are_the_relay_record_the_daemon_reads() {
         use crate::cli::command::{Cli, Command};
@@ -1637,8 +1816,28 @@ mod tests {
         assert!(line.contains("@user_42/coordinator"));
         assert!(line.contains("startWork=information"));
     }
-    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
+    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers};
     use serde_json::json;
+
+    /// The send never waits on its fan-out note: an unanswered note yields nothing at once, an
+    /// answered one its warning.
+    #[tokio::test]
+    async fn a_fanout_note_is_read_only_if_already_answered() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let pending = super::FANOUT_NOTES.spawn(async move {
+            let _ = rx.await;
+            Some("late".to_owned())
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(super::fanout_warning_if_known(pending), None);
+        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        drop(tx);
+        let done = super::FANOUT_NOTES.spawn(async { Some("warned".to_owned()) });
+        while !done.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(super::fanout_warning_if_known(done).as_deref(), Some("warned"));
+    }
 
     #[test]
     fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {
@@ -1679,14 +1878,6 @@ mod tests {
         assert!(read_through_hub(&json!({"sessionId": "s", "peer": "machine-b", "via": "hub"})));
         assert!(!read_through_hub(&json!({"sessionId": "s", "peer": "machine-b"})));
         assert!(!read_through_hub(&json!({"sessionId": "s"})));
-    }
-
-    #[test]
-    fn a_sub_session_names_the_parent_that_started_it() {
-        let child = json!({"sessionId": "child", "startedBy": "p"});
-        assert_eq!(started_by(&child).as_deref(), Some("p"));
-        assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
-        assert_eq!(started_by(&json!({"sessionId": "old"})), None);
     }
 
     #[test]

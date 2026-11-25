@@ -5,20 +5,36 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Projected folders (RFD 0007): a Mac folder on a Cloud machine from a stat-only manifest, file bytes fetched on first read, edits kept in an upper folder on the machine"
+description = "Projected folders (RFD 0007): a Mac folder on a Cloud machine, or a git commit on a lane VM, from a stat-only manifest, file bytes fetched on first read, edits kept in an upper folder on the machine"
 
 [lints]
 workspace = true
 
 [dependencies]
 anyhow.workspace = true
+cmux-process.workspace = true
 bincode = "1.3.3"
+flate2.workspace = true
+# Blocking HTTP(S) for the blob seeding chain (peers.rs); reqwest's blocking client runs a
+# private tokio runtime on its own thread, so the crate stays sync (as cmux-server does).
+reqwest = { workspace = true, features = ["blocking"] }
+rustls.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha1 = "0.10"
+# The id check on every byte a peer, the controller SSD or R2 sends: SHA-1 that detects the known
+# collision attacks (the algorithm git itself ships), so a crafted collision is refused (hq RFD 0008).
+sha1collisiondetection = { version = "0.3", default-features = false }
+sha2.workspace = true
 zstd.workspace = true
+# O_NOFOLLOW for the way back (layer.rs), on the Mac too.
+libc.workspace = true
+cmux-file-lock.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-fuser = { version = "=0.14.0", default-features = false }
-libc.workspace = true
+# abi-7-31 (a superset of 7.12): big writes (128 KiB a request, not 4 KiB), the notifier that drops
+# what the kernel cached of a file that changed outside the mount, and FUSE_AUTO_INVAL_DATA (7.20).
+fuser = { version = "=0.14.0", default-features = false, features = ["abi-7-31"] }
 
 [dev-dependencies]
 tempfile = "3"
