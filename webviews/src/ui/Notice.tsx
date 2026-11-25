@@ -183,8 +183,8 @@ export function Notice({
       data-placement={placement}
       data-state={state}
       data-look={v2 ? look : undefined}
-      // One material per surface: a floating toast is the App's toast glass above (host glass); every other
-      // notice keeps the page's own material, a stack toast its floating one while experiments.toastGlass is off.
+      // One material per surface: a notice without the App's toast glass keeps the page's material,
+      // and says which (ui/glass/hostGlass.ts).
       data-page-glass={
         floats
           ? undefined

@@ -19,6 +19,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { catalogFiles, readCatalog } from "./catalog.mjs";
 
 const webviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const repo = path.resolve(webviews, "..");
@@ -106,7 +107,7 @@ export const PAGES = {
       { file: "webviews/src/pages/diff/Localizable.xcstrings" },
       // The changes view's Stage, Commit and Push, which the viewer reuses (cx-ueuc8, diff-viewer/git.ts).
       {
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) =>
           all.filter(
             (key) =>
@@ -150,11 +151,11 @@ export const PAGES = {
     inputs: ["schemas/settings/settings-schema.json"],
     catalogs: [
       {
-        file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
+        file: `${sources}/CmuxNextSettings/Localizable.xcstrings.d`,
         keys: () => schemaKeys("schemas/settings/settings-schema.json"),
       },
       {
-        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings.d`,
         // `settingsWindow.` keys too: the page draws the Swift window's cards (R82 commits 2-5).
         keys: (all) => all.filter((key) => key.startsWith("settingsPage.") || key.startsWith("settingsWindow.")),
       },
@@ -206,7 +207,7 @@ export const PAGES = {
       { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
       {
         // Connect Claude's one click and its progress line, the chat's connect card's own words.
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) => all.filter((key) => key.startsWith("connect.")),
       },
       // Settings > Integrations > Connections: the shared connect card and All connections.
@@ -230,7 +231,7 @@ export const PAGES = {
         keys: () => ["terminalHistory.unavailable"],
       },
       {
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: () => [
           "files.searching",
           "find.next",
@@ -281,7 +282,7 @@ export const PAGES = {
     out: "webviews/src/pages/debug-settings/generated/strings.json",
     catalogs: [
       {
-        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings.d`,
         keys: (all) => all.filter((key) => key.startsWith("debugSettings.") || key === "settingsWindow.reset"),
       },
     ],
@@ -436,7 +437,7 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/pane-strings.json",
     catalogs: [
       {
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) =>
           all.filter(
             (key) =>
@@ -476,7 +477,7 @@ export const PAGES = {
     out: "webviews/src/pages/changelog/generated/pane-strings.json",
     catalogs: [
       {
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) =>
           all.filter(
             (key) =>
@@ -504,7 +505,7 @@ export const PAGES = {
     out: "webviews/src/pages/settings/generated/pane-strings.json",
     catalogs: [
       {
-        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) =>
           all.filter(
             (key) => key.startsWith("planUsage.") || key.startsWith("connect.") || CONNECT_CARD_KEYS.includes(key),
@@ -532,7 +533,7 @@ export const PAGES = {
   agentPane: {
     out: "webviews/src/agent-session/acpmux/generated/strings.json",
     catalogs: [
-      { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" },
+      { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d" },
       // An app section's failure row (apps/scene/SceneFailure.tsx) says what the native
       // AppFailureNSView says: the app platform's own `apps.failure.` and Reload keys.
       {
@@ -581,7 +582,7 @@ function localized(entry, locale) {
 export function generate(page) {
   const wanted = [];
   for (const catalog of page.catalogs) {
-    const strings = readJSON(catalog.file).strings;
+    const strings = readCatalog(path.join(repo, catalog.file)).strings;
     const keys = catalog.keys ? [...catalog.keys(Object.keys(strings))] : Object.keys(strings);
     for (const key of keys) wanted.push([key, strings[key]]);
   }
@@ -639,7 +640,8 @@ function outputsOf(page, json) {
 function inputsOf(page) {
   return [
     fileURLToPath(import.meta.url),
-    ...[...page.catalogs.map((c) => c.file), ...(page.inputs ?? [])].map((f) => path.join(repo, f)),
+    ...page.catalogs.flatMap((c) => catalogFiles(path.join(repo, c.file))),
+    ...(page.inputs ?? []).map((f) => path.join(repo, f)),
   ];
 }
 

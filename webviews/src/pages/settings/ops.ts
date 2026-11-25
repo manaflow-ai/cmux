@@ -813,7 +813,13 @@ export type ModelsState = {
 
 /** Where Connect Claude's run is: opening the sign-in page, waiting on the person, saving the token. */
 export type ClaudeTokenPhase = "starting" | "signing_in" | "saving";
-export type ClaudeTokenState = { attempt: string | null; phase: ClaudeTokenPhase | null; error: string | null };
+/** `saved`: the last run ended with its token saved (a Cancel ends with neither it nor an error); older hosts omit it. */
+export type ClaudeTokenState = {
+  attempt: string | null;
+  phase: ClaudeTokenPhase | null;
+  error: string | null;
+  saved?: boolean;
+};
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
@@ -1185,12 +1191,13 @@ export type LibraryEntry = {
   code?: LibraryCode;
 };
 
-/** A pull request's code as a library entry: its web part is served on this app while it is on and
- * the highest such entry; what it cannot carry needs a build. */
+/** Code not in this build as a library entry (cmux-customize `CodeLayer`): a pull request, a branch, a
+ * commit, a local folder or a fork. Its web part is served on this app while it is on and the highest
+ * such entry; what it cannot carry needs a build. */
 export type LibraryCode = {
-  /** Where the code comes from (cmux-customize `CodeKind`); absent on a PR, which older entries all are. */
+  /** Where the code comes from; absent for a PR (older entries, and the wire skips `pr`). */
   kind?: "pr" | "branch" | "sha" | "dir" | "fork";
-  /** The branch, the full commit, the folder's absolute path, or `OWNER/REPO@REF`; absent on a PR. */
+  /** The branch, the full commit, the folder's path or `OWNER/REPO@REF`; absent for a PR. */
   source?: string;
   /** `owner/name`. */
   repo: string;
@@ -2083,9 +2090,6 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
-  /** When the connection's sign-in lapses (RFC 3339, the platform's `connection.expiresAt`); null or
-   * absent when the platform does not say. The card offers Reconnect a few days before. */
-  expiresAt?: string | null;
   /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
    * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
   loopback: boolean;
