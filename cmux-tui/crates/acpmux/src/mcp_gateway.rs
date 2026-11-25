@@ -79,6 +79,7 @@ const PORTS_REMEMBERED: usize = 24;
 /// Where a port with no kept one is derived: the IANA dynamic range, so a derived port cannot be
 /// a registered service's.
 const DERIVED_PORT_BASE: u16 = 49_152;
+#[cfg(test)]
 const DERIVED_PORT_SPAN: u16 = 8_192;
 /// `DERIVED_PORT_SPAN - 1`. The span is a power of two, so a port is derived with a mask instead
 /// of a division or a remainder: no arithmetic that can panic in a debug build, and none that can
@@ -118,6 +119,46 @@ struct Kept {
     launch: Launch,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     initialize: Option<Value>,
+    /// The server's own answers to the harness's start, kept for this launch ([`Answers`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    answers: Option<Answers>,
+}
+
+/// The chat's server's answers to `initialize` and `tools/list`, from its last start for this
+/// launch and binary. Every harness start (a new chat, each wake from hibernation) asks both
+/// before anything else, so each started the chat's `cmux mcp serve` and kept it for
+/// [`IDLE_STOP`], although most wakes never call a cmux tool: a live chat held one more
+/// process than it used. The gateway answers them from here when the same request was answered
+/// for the same launch and binary ([`stamp`]) before; a call starts the server as before, with
+/// the harness's kept `initialize` replayed. The list the harness gets on a wake is then the one
+/// it had, so its prompt prefix (and the prompt cache) stays the same.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct Answers {
+    /// The server binary's [`stamp`] when they were given: an update answers afresh.
+    stamp: String,
+    /// `initialize`'s params and the server's result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    initialize: Option<(Value, Value)>,
+    /// `tools/list`'s params and the server's result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    list: Option<(Value, Value)>,
+}
+
+/// The binary `launch` runs, as its size and modification time: another build (an app update at
+/// the same path) has another stamp. A command found on `PATH` stamps as its name.
+fn stamp(launch: &Launch) -> String {
+    let at = std::fs::metadata(&launch.command).ok();
+    let modified = at
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    format!("{}:{}:{modified}", launch.command.display(), at.map_or(0, |m| m.len()))
+}
+
+/// The methods a kept answer may stand in for.
+fn answered_from_kept(method: &str) -> bool {
+    matches!(method, "initialize" | "tools/list")
 }
 
 /// `run/mcp-gateway.json`.
@@ -286,6 +327,15 @@ pub fn register(session: &str, launch: Launch) -> Option<Endpoint> {
     active()?.register(session, launch)
 }
 
+/// The chat's harness hibernated (`hub/idle.rs`): nothing will ask its server anything until
+/// the harness starts again, so the server stops now instead of after [`IDLE_STOP`]. Its launch
+/// and kept answers stay, so the wake answers its start from them ([`Answers`]).
+pub fn hibernated(session: &str) {
+    if let Some(gateway) = current() {
+        gateway.stop_chat(session);
+    }
+}
+
 /// The chat ended: its server stops and its launch file goes.
 pub fn forget(home: &Path, session: &str) {
     let _ = crate::home_fs::remove_file(launch_path(home, session));
@@ -435,7 +485,7 @@ fn ports_chats_are_configured_at(home: &Path) -> Vec<u16> {
         }
     }
     // Newest config first: the ports most likely to belong to a chat that is still running.
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut seen = std::collections::HashSet::new();
     found.into_iter().map(|(_, port)| port).filter(|p| seen.insert(*p)).collect()
 }
@@ -662,6 +712,18 @@ impl Gateway {
         child.as_ref().map(Child::id).filter(|_| server.live())
     }
 
+    /// Stops the chat's server and drops its tool servers, unless a request is in flight.
+    pub fn stop_chat(&self, session: &str) {
+        let chat = self.chats.lock().unwrap_or_else(PoisonError::into_inner).get(session).cloned();
+        let Some(chat) = chat.filter(|c| c.inflight.load(Ordering::SeqCst) == 0) else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        chat.release_tools();
+        let scope = chat.scope.clone();
+        scope.spawn_named("mcp gateway stop", async move { chat.stop().await });
+    }
+
     /// How many chats have a server running now.
     pub fn running(&self) -> usize {
         let chats: Vec<_> =
@@ -682,9 +744,10 @@ impl Gateway {
             .get(session)
             .map(|c| c.kept.lock().unwrap_or_else(PoisonError::into_inner).clone());
         // The harness starting again sends `initialize` again; until then a kept one replays.
-        let initialize =
-            before.as_ref().filter(|k| k.launch == launch).and_then(|k| k.initialize.clone());
-        let kept = Kept { launch, initialize };
+        let same = before.as_ref().filter(|k| k.launch == launch);
+        let initialize = same.and_then(|k| k.initialize.clone());
+        let answers = same.and_then(|k| k.answers.clone());
+        let kept = Kept { launch, initialize, answers };
         crate::agent_tools::write_private(&path, &serde_json::to_vec(&kept)?)?;
         match chats.get(session) {
             Some(_) if before.as_ref().is_some_and(|k| k.launch == kept.launch) => {}
@@ -765,6 +828,34 @@ impl Chat {
 
     /// An idle chat's tool servers go with their daemon connection; its next request makes them
     /// again.
+    /// The kept result for `method` asked with `params` ([`Answers`]), if the same was answered
+    /// for this launch and binary.
+    fn kept_answer(&self, method: &str, params: &Value) -> Option<Value> {
+        let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let answers = kept.answers.as_ref().filter(|a| a.stamp == stamp(&kept.launch))?;
+        let slot = if method == "initialize" { &answers.initialize } else { &answers.list };
+        slot.as_ref().filter(|(asked, _)| asked == params).map(|(_, result)| result.clone())
+    }
+
+    /// Keeps the server's `result` for `method` asked with `params`, in memory and in the chat's
+    /// launch file (so the next daemon has it too).
+    fn keep_answer(&self, method: &str, params: Value, result: Value) {
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let stamp = stamp(&kept.launch);
+        let answers = kept.answers.get_or_insert_with(Answers::default);
+        if answers.stamp != stamp {
+            *answers = Answers { stamp, ..Answers::default() };
+        }
+        let slot = if method == "initialize" { &mut answers.initialize } else { &mut answers.list };
+        if slot.as_ref().is_some_and(|(p, r)| *p == params && *r == result) {
+            return;
+        }
+        *slot = Some((params, result));
+        let bytes = serde_json::to_vec(&*kept).unwrap_or_default();
+        drop(kept);
+        let _ = crate::agent_tools::write_private(&self.file, &bytes);
+    }
+
     fn release_tools(&self) {
         self.tools.lock().unwrap_or_else(PoisonError::into_inner).take();
         self.tools_daemon.release();
@@ -1174,12 +1265,29 @@ async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
         drop(kept);
         let _ = crate::agent_tools::write_private(&chat.file, &bytes);
     }
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    if method == "ping" || answered_from_kept(&method) {
+        let kept =
+            if method == "ping" { Some(json!({})) } else { chat.kept_answer(&method, &params) };
+        if let Some(result) = kept {
+            let answer = json!({"jsonrpc": "2.0", "id": id, "result": result});
+            let _ =
+                respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await;
+            return;
+        }
+    }
     chat.inflight.fetch_add(1, Ordering::SeqCst);
     let streams = request.header("accept").is_some_and(|a| a.contains("text/event-stream"))
         && message.pointer("/params/_meta/progressToken").is_some();
     let answer = relay(chat, &message, &method, streams, stream).await;
     chat.inflight.fetch_sub(1, Ordering::SeqCst);
     chat.touch();
+    if let (true, Ok(result)) =
+        (answered_from_kept(&method), answer.as_ref().map(|a| a.get("result")))
+        && let Some(result) = result
+    {
+        chat.keep_answer(&method, params, result.clone());
+    }
     let answer = answer.unwrap_or_else(|e| {
         json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": format!("cmux MCP server: {e:#}")}})
     });

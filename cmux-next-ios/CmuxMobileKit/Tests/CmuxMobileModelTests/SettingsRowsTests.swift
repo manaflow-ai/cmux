@@ -76,6 +76,37 @@ import Testing
         #expect(SettingsDeviceRows.rootValue(service: nil, hasService: false, liveMacs: live) == "2")
     }
 
+    @Test func sizingSharesAccountDevicesBeforeDiscoveryAndKeepsTeamMacsWhenTheyArrive() {
+        var kept = mac("kept", "Kept build", online: false)
+        kept.machineID = "computer"
+        let directory = [kept, mac("remote"), phone("iphone")]
+        let cold = SettingsDeviceRows.sizingMacs(teams: [], activeTeamID: "team", service: directory, accountID: "me")
+        #expect(cold.map(\.id) == ["kept", "remote"])
+        let live = Team(id: "team", name: "Studio", macs: [
+            MacDevice(id: "current", name: "Live build", isOnline: true, ownerUserID: "me", machineID: "computer"),
+            MacDevice(id: "colleague", name: "Colleague's Mac", isOnline: true, ownerUserID: "other")
+        ])
+        let refreshed = SettingsDeviceRows.sizingMacs(teams: [live], activeTeamID: "team", service: directory, accountID: "me")
+        #expect(refreshed.map(\.id) == ["current", "colleague", "remote"])
+    }
+
+    @MainActor @Test func sizingKeepsPeersOnlyWhileTheirTeamIsVisibleAndUntilItAnswersAgain() {
+        let store = LastKnownListStore(directory: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+        defer { store.removeAll() }
+        let cache = store.list(accountID: "owner", screen: "terminal-sizing-peers")
+        let first = TerminalSizingPeers(cache: cache)
+        let a = Team(id: "a", name: "A", macs: [])
+        let b = Team(id: "b", name: "B", macs: [])
+        let peer = MacDevice(id: "peer", name: "Peer", isOnline: false, ownerUserID: "another")
+        let mine = MacDevice(id: "mine", name: "Mine", isOnline: true, ownerUserID: "owner")
+        first.replace(teamID: "a", devices: [peer, mine], accountID: "owner")
+        let reopened = TerminalSizingPeers(cache: cache)
+        #expect(reopened.visible(in: [a, b]) == [peer])
+        #expect(reopened.visible(in: [b]).isEmpty)
+        reopened.replace(teamID: "a", devices: [], accountID: "owner")
+        #expect(TerminalSizingPeers(cache: cache).visible(in: [a, b]).isEmpty)
+    }
+
     @Test func notificationValues() {
         #expect(NotificationPermission.on.rootValue(push: true) == "On")
         #expect(NotificationPermission.on.rootValue(push: false) == "Chief only")

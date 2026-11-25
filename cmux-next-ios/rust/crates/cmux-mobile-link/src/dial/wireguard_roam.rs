@@ -40,6 +40,8 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use super::*;
+use crate::dial::portmap;
+use crate::dial::turn::LateTurn;
 
 /// Overlay UDP port of the roaming messages, next to the link's 7420.
 pub const ROAM_PORT: u16 = 7421;
@@ -391,13 +393,37 @@ impl RelayShared {
     }
 }
 
+/// The peer's mapped endpoints as an announcement names them: only those it
+/// also lists as endpoints, and its protocol only when this build knows the
+/// word.
+fn peer_mapped_of(endpoints: &[String], mapped: &[String], mapped_by: Option<&str>) -> portmap::PeerMapped {
+    let addresses: Vec<SocketAddr> = mapped
+        .iter()
+        .filter(|text| endpoints.contains(text))
+        .take(MAX_MAPPED)
+        .filter_map(|text| text.parse().ok())
+        .collect();
+    let protocol = if addresses.is_empty() { None } else { mapped_by.and_then(portmap::protocol_word) };
+    portmap::PeerMapped { addresses, protocol }
+}
+
 /// Relayed addresses one announcement carries (a phone has one TURN
 /// allocation), so the message stays within one tunnel datagram.
 const MAX_RELAYED: usize = 2;
 
+/// Mapped addresses one announcement carries (one per session socket).
+const MAX_MAPPED: usize = 2;
+
 /// This side's endpoints to announce, which of them are its TURN relayed
-/// addresses, and which of those ride TCP or TLS.
-type Announcement = (Vec<String>, Vec<String>, Vec<String>);
+/// addresses, which of those ride TCP or TLS, and which endpoint its router
+/// mapped (and by which protocol).
+struct Announcement {
+    endpoints: Vec<String>,
+    relayed: Vec<String>,
+    relayed_tls: Vec<String>,
+    mapped: Vec<String>,
+    mapped_by: Option<String>,
+}
 
 /// Waits before each new try to replace a dead TURN allocation.
 const TURN_RETRIES: [Duration; 5] = [
@@ -424,6 +450,14 @@ enum RoamMessage {
         /// Which of `relayed` ride TCP or TLS to their server.
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// Which of `endpoints` this side's router mapped for it
+        /// ([`super::super::portmap`]); absent from older peers, which offer
+        /// none, and ignored by them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mapped: Vec<String>,
+        /// Which protocol mapped them (`pcp`, `nat-pmp` or `upnp`).
+        #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
+        mapped_by: Option<String>,
     },
     Ack {
         generation: u64,
@@ -507,6 +541,17 @@ pub(super) struct Session {
     roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
     route_to: Arc<watch::Sender<Option<SocketAddr>>>,
+    /// This side's router mapping of the current socket's port (a Mac with
+    /// a mapper, [`portmap::install`]); replaced on a roam, dropped (and so
+    /// deleted at the router) with the session.
+    mapping: Mutex<Option<JoinHandle<()>>>,
+    /// The mapped endpoint now offered, and the protocol that mapped it.
+    own_mapped: Mutex<Option<(String, &'static str)>>,
+    /// The mapped endpoint was among the endpoints already (STUN found the
+    /// same address), so it stays when the mapping goes.
+    mapped_was_offered: Mutex<bool>,
+    /// The peer's endpoints it labeled mapped (the phone's `link_stat`).
+    peer_mapped: Arc<Mutex<portmap::PeerMapped>>,
     relay: Option<RelayPlan>,
     relay_shared: Arc<RelayShared>,
     relay_watch: Mutex<Option<JoinHandle<()>>>,
@@ -565,6 +610,10 @@ impl Session {
             roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
             route_to: parts.route_to,
+            mapping: Mutex::new(None),
+            own_mapped: Mutex::new(None),
+            mapped_was_offered: Mutex::new(false),
+            peer_mapped: Arc::new(Mutex::new(portmap::PeerMapped::default())),
             relay: parts.relay,
             relay_shared: parts.relay_shared,
             relay_watch: Mutex::new(None),
@@ -603,19 +652,47 @@ impl Session {
         why: &'static str,
         start: impl std::future::Future<Output = bool> + Send + 'static,
     ) {
+        self.retry_turn_after(why, start, LateTurn::default());
+    }
+
+    /// [`Self::retry_turn`], also taking a grant from `late` (allocations
+    /// that ran past their bound) as soon as one lands: a grant the server
+    /// made seconds ago is not thrown away for a new allocation's round trips.
+    fn retry_turn_after(
+        self: &Arc<Self>,
+        why: &'static str,
+        start: impl std::future::Future<Output = bool> + Send + 'static,
+        late: LateTurn,
+    ) {
         let weak = Arc::downgrade(self);
+        let since = self.roams.load(Ordering::Relaxed);
         let task = tokio::spawn(async move {
             if !start.await {
                 return;
             }
             for wait in TURN_RETRIES {
-                tokio::time::sleep(wait).await;
+                let landed = tokio::select! {
+                    () = tokio::time::sleep(wait) => None,
+                    Some(turn) = late.landed() => Some(turn),
+                };
                 let Some(session) = weak.upgrade() else { return };
                 if session.closed.load(Ordering::Relaxed) {
                     return;
                 }
+                if let Some(turn) = landed {
+                    tracing::info!(session = session.session_id, "a late TURN grant landed; taking it");
+                    session.take_turn(since, turn).await;
+                    return;
+                }
                 tracing::info!(session = session.session_id, "{why}");
-                if session.replace_turn().await {
+                if session.replace_turn(since, &late).await {
+                    return;
+                }
+            }
+            if let Some(turn) = late.landed().await {
+                let Some(session) = weak.upgrade() else { return };
+                if !session.closed.load(Ordering::Relaxed) {
+                    session.take_turn(since, turn).await;
                     return;
                 }
             }
@@ -625,17 +702,34 @@ impl Session {
     }
 
     /// Take a new TURN allocation on the current network and tell the peer
-    /// its address; `false` when none could be had.
-    async fn replace_turn(self: &Arc<Self>) -> bool {
+    /// its address; `false` when none could be had. A grant landing in
+    /// `late` meanwhile (from the roam numbered `since`) is taken instead.
+    async fn replace_turn(self: &Arc<Self>, since: u64, late: &LateTurn) -> bool {
         // Allocate before taking the roam lock: a roam meanwhile must not wait
         // seconds for an allocation that belongs to the old network.
         let roams = self.roams.load(Ordering::Relaxed);
-        let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
+        let (turn, roams) = tokio::select! {
+            Some(turn) = late.landed() => (turn, since),
+            turn = TurnCarrier::allocate_keeping(&self.options, late) => match turn {
+                Some(turn) => (turn, roams),
+                None => return false,
+            },
+        };
+        self.take_turn(roams, turn).await
+    }
+
+    /// Install `turn`, allocated while the roam count was `roams`, and tell
+    /// the peer its address. A later roam's network makes it stale: it is
+    /// dropped (released).
+    async fn take_turn(self: &Arc<Self>, roams: u64, turn: TurnCarrier) -> bool {
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
             // A roam took its own allocation on the new network, or started
             // its own retry.
             return true;
+        }
+        if let Some(timeline) = lock(&self.last_roam).as_ref() {
+            timeline.mark("turn_retry_allocated");
         }
         let Ok(net) = self.net() else { return true };
         let (old, _) = lock(&self.relayed).clone();
@@ -684,7 +778,9 @@ impl Session {
             }
             found
         };
-        let (reflexive, turn) = tokio::join!(reflexive, turn_beside(&self.options, false, turn_side));
+        let late = LateTurn::default();
+        let (reflexive, turn) =
+            tokio::join!(reflexive, turn_beside_keeping(&self.options, false, turn_side, Some(&late)));
         let blocked = asked > 0 && reflexive.is_empty();
         // A STUN answer came after all: the early allocation is dropped
         // (released) unused.
@@ -717,7 +813,7 @@ impl Session {
             let _ = net.refresh().await;
             gather.allocated();
         } else if turn_missed {
-            self.retry_turn("no TURN allocation at answer; taking one", async { true });
+            self.retry_turn_after("no TURN allocation at answer; taking one", async { true }, late);
         }
         if endpoints.len() != known {
             self.announce(endpoints, relayed, relayed_tls);
@@ -763,7 +859,15 @@ impl Session {
             loop {
                 match events.recv().await {
                     Some(SessionEvent::Signal(SignalEnvelope {
-                        payload: SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls },
+                        payload:
+                            SignalPayload::WgEndpoints {
+                                generation,
+                                endpoints,
+                                relayed,
+                                relayed_tls,
+                                mapped,
+                                mapped_by,
+                            },
                         ..
                     })) => {
                         let _ = inject.send(RoamMessage::Endpoints {
@@ -771,6 +875,8 @@ impl Session {
                             endpoints,
                             relayed,
                             relayed_tls,
+                            mapped,
+                            mapped_by,
                         });
                     }
                     Some(SessionEvent::Signal(SignalEnvelope {
@@ -820,6 +926,7 @@ impl Session {
                 reach,
                 injected,
                 resignal,
+                peer_mapped: Arc::clone(&self.peer_mapped),
                 signal: SignalTarget {
                     dialer: self.dialer,
                     signaling: Arc::clone(&self.signaling),
@@ -847,6 +954,10 @@ impl Session {
         if let Some(task) = lock(&self.turn_monitor).take() {
             task.abort();
         }
+        // Dropping the mapping deletes it at the router.
+        if let Some(task) = lock(&self.mapping).take() {
+            task.abort();
+        }
         if let Some(task) = lock(&self.relay_watch).take() {
             task.abort();
         }
@@ -866,13 +977,92 @@ impl Session {
     /// the network changed, so the peer resends what it sent lately).
     /// `relayed`: which of `endpoints` are this side's TURN relayed
     /// addresses; `relayed_tls`: which of those ride TCP or TLS.
+    /// The mapped endpoint (if any, and still among `endpoints`) is labeled
+    /// so.
     fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>, relayed_tls: Vec<String>) {
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
         }
+        let (mapped, mapped_by) = match lock(&self.own_mapped).as_ref() {
+            Some((address, protocol)) if endpoints.contains(address) => {
+                (vec![address.clone()], Some((*protocol).to_owned()))
+            }
+            _ => (Vec::new(), None),
+        };
         if let Some(tx) = lock(&self.announce).as_ref() {
-            let _ = tx.send((endpoints, relayed, relayed_tls));
+            let _ = tx.send(Announcement { endpoints, relayed, relayed_tls, mapped, mapped_by });
         }
+    }
+
+    /// Ask this process's mapper ([`portmap::install`], a Mac host) to map
+    /// `port`, the session socket's, in the background, and offer the
+    /// mapped address to the peer once (and each time) the router gives
+    /// one. Nothing waits for it. A roam replaces it with its new socket's.
+    pub(super) fn map_port(self: &Arc<Self>, port: u16) {
+        if self.dialer || no_plain_udp(&self.options) {
+            return;
+        }
+        let Some(mapper) = portmap::mapper() else { return };
+        let weak = Arc::downgrade(self);
+        let roams = self.roams.load(Ordering::Relaxed);
+        let task = tokio::spawn(async move {
+            let Some(mapping) = mapper.map(port).await else {
+                tracing::debug!(port, "no port mapping on this network");
+                return;
+            };
+            let portmap::PortMapping { protocol, mut external, lease: _lease } = mapping;
+            loop {
+                let address = *external.borrow_and_update();
+                let Some(session) = weak.upgrade() else { return };
+                if !session.offer_mapped(roams, address.map(|address| (address, protocol))).await {
+                    return;
+                }
+                drop(session);
+                if external.changed().await.is_err() {
+                    // The mapper gave up on it: stop offering it.
+                    if let Some(session) = weak.upgrade() {
+                        session.offer_mapped(roams, None).await;
+                    }
+                    return;
+                }
+            }
+        });
+        if let Some(old) = lock(&self.mapping).replace(task) {
+            old.abort();
+        }
+    }
+
+    /// Offer `mapped` (or stop offering the old mapped endpoint) to the peer,
+    /// unless the session roamed since `roams` (a new socket, a new mapping)
+    /// or closed: then `false`.
+    async fn offer_mapped(&self, roams: u64, mapped: Option<(SocketAddr, &'static str)>) -> bool {
+        let _one_at_a_time = self.roaming.lock().await;
+        if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
+            return false;
+        }
+        let mapped = mapped.map(|(address, protocol)| (address.to_string(), protocol));
+        let old = std::mem::replace(&mut *lock(&self.own_mapped), mapped.clone());
+        if old == mapped {
+            return true;
+        }
+        let mut endpoints = lock(&self.endpoints).clone();
+        if let Some((old, _)) = &old
+            && !*lock(&self.mapped_was_offered)
+        {
+            // Only the mapping offered it (not STUN as well).
+            endpoints.retain(|endpoint| endpoint != old);
+        }
+        if let Some((address, protocol)) = &mapped {
+            tracing::info!(session = self.session_id, %address, protocol, "offering the router's mapped endpoint");
+            // A NAT that keeps the port maps to the reflexive address STUN found.
+            *lock(&self.mapped_was_offered) = endpoints.contains(address);
+            if !endpoints.contains(address) {
+                endpoints.push(address.clone());
+            }
+        }
+        let (relayed, relayed_tls) = lock(&self.relayed).clone();
+        self.announce(endpoints, relayed, relayed_tls);
+        true
     }
 
     async fn stun_servers(&self) -> Vec<SocketAddr> {
@@ -892,6 +1082,17 @@ impl Session {
         let timeline = Timeline::new();
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
+        // The old socket's mapping is of no use on the new socket (or network).
+        if let Some(task) = lock(&self.mapping).take() {
+            task.abort();
+        }
+        if let Some((old, _)) = lock(&self.own_mapped).take()
+            && !std::mem::take(&mut *lock(&self.mapped_was_offered))
+        {
+            // Only the mapping offered it (not STUN as well).
+            lock(&self.endpoints).retain(|endpoint| *endpoint != old);
+        }
+        *lock(&self.mapped_was_offered) = false;
         let Ok(net) = self.net() else { return timeline };
         let socket = match bind_udp() {
             Ok(socket) => socket,
@@ -922,7 +1123,12 @@ impl Session {
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
         // On the transport the new network allows: UDP, else TLS.
         let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
-        let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
+        // Allocations that run past their bound stay here: a miss below
+        // takes the first grant that lands instead of asking again.
+        let late = LateTurn::default();
+        let turn = async {
+            if keeps_turn { TurnCarrier::allocate_keeping(&self.options, &late).await } else { None }
+        };
         let reflexive = async {
             let mut deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
@@ -946,7 +1152,7 @@ impl Session {
             // below when this one misses.
             keeps_turn = true;
             self.keeps_turn.store(true, Ordering::Relaxed);
-            turn = TurnCarrier::allocate(&self.options).await;
+            turn = TurnCarrier::allocate_keeping(&self.options, &late).await;
         }
         let known = endpoints.len();
         for address in reflexive {
@@ -974,7 +1180,7 @@ impl Session {
             if missed_turn(keeps_turn, None, &self.options) {
                 // The new network's TURN server did not answer in time: keep
                 // asking (this also replaces a retry started on the old one).
-                self.retry_turn("roam took no TURN allocation; taking one", async { true });
+                self.retry_turn_after("roam took no TURN allocation; taking one", async { true }, late);
             }
         }
         if endpoints.len() != known {
@@ -982,6 +1188,8 @@ impl Session {
         }
         timeline.mark("roam_gathered");
         tracing::info!(session = self.session_id, timings = %timeline.summary(), "WireGuard roamed");
+        // After the roam counted itself: the mapping belongs to this socket.
+        self.map_port(port);
         timeline
     }
 
@@ -1022,11 +1230,14 @@ struct SignalTarget {
 
 impl SignalTarget {
     fn send(&self, message: &RoamMessage) {
-        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls } = message.clone() else {
+        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls, mapped, mapped_by } =
+            message.clone()
+        else {
             return;
         };
         let client = lock(&self.signaling).clone();
-        let payload = SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls };
+        let payload =
+            SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls, mapped, mapped_by };
         if let Err(error) = client.send_signal(&self.peer, &self.session_id, payload) {
             tracing::debug!(%error, "endpoint announcement not sent through signaling");
         }
@@ -1040,6 +1251,8 @@ struct ControlChannels {
     reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
     resignal: mpsc::UnboundedReceiver<()>,
+    /// Where the peer's mapped endpoints are kept (for `link_stat`).
+    peer_mapped: Arc<Mutex<portmap::PeerMapped>>,
     signal: SignalTarget,
 }
 
@@ -1054,7 +1267,8 @@ async fn run_control(
     channels: ControlChannels,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
-    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, signal } = channels;
+    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, peer_mapped, signal } =
+        channels;
     // The latest announcement, for a resend through a new signaling socket.
     let mut latest: Option<RoamMessage> = None;
     let mut generation = 0u64;
@@ -1086,12 +1300,15 @@ async fn run_control(
                 send_message(&socket, peer, &message).await;
             }
             endpoints = announce.recv() => {
-                let Some((mut endpoints, relayed, relayed_tls)) = endpoints else { return };
+                let Some(Announcement { mut endpoints, relayed, relayed_tls, mapped, mapped_by }) = endpoints
+                else {
+                    return;
+                };
                 // Past the limit, drop plain endpoints from the end first: a long
-                // list never loses the relayed ones, and the order (the first
-                // endpoint tells the peer the network changed) stays.
+                // list never loses the relayed or mapped ones, and the order (the
+                // first endpoint tells the peer the network changed) stays.
                 while endpoints.len() > MAX_ENDPOINTS {
-                    match endpoints.iter().rposition(|text| !relayed.contains(text)) {
+                    match endpoints.iter().rposition(|text| !relayed.contains(text) && !mapped.contains(text)) {
                         Some(index) => {
                             endpoints.remove(index);
                         }
@@ -1102,7 +1319,11 @@ async fn run_control(
                 let relayed: Vec<String> =
                     relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
                 let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
-                let message = RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls };
+                let mapped: Vec<String> =
+                    mapped.into_iter().filter(|text| endpoints.contains(text)).take(MAX_MAPPED).collect();
+                let mapped_by = mapped_by.filter(|_| !mapped.is_empty());
+                let message =
+                    RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls, mapped, mapped_by };
                 send_message(&socket, peer, &message).await;
                 // Also through signaling: the peer may not receive anything
                 // from this side's new address yet.
@@ -1152,7 +1373,14 @@ async fn run_control(
                             return;
                         }
                     }
-                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints, relayed, relayed_tls }) => {
+                    Ok(RoamMessage::Endpoints {
+                        generation: theirs,
+                        endpoints,
+                        relayed,
+                        relayed_tls,
+                        mapped,
+                        mapped_by,
+                    }) => {
                         send_message(&socket, peer, &RoamMessage::Ack { generation: theirs }).await;
                         if theirs <= applied {
                             continue;
@@ -1169,6 +1397,9 @@ async fn run_control(
                         }
                         let relayed: Vec<String> = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
                         let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
+                        if !endpoints.is_empty() {
+                            *lock(&peer_mapped) = peer_mapped_of(&endpoints, &mapped, mapped_by.as_deref());
+                        }
                         if control.send(Control::PeerEndpoints { endpoints, relayed, relayed_tls }).is_err() {
                             return;
                         }
@@ -1238,7 +1469,8 @@ pub fn rehome(client: &SignalingClient) -> usize {
 
 /// The marks of session `session_id`'s latest roam.
 pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
-    live().into_iter().find(|s| s.session_id == session_id).and_then(|s| lock(&s.last_roam).clone())
+    // Both sides of a session run in one process in tests: the side that roamed.
+    live().into_iter().filter(|s| s.session_id == session_id).find_map(|s| lock(&s.last_roam).clone())
 }
 
 /// The phone is back from the background with a parked link: move its
@@ -1261,6 +1493,16 @@ pub fn resume_session(session_id: &str) {
 pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     let session = find(session_id, dialer)?;
     Some(session.roam().await)
+}
+
+/// How a dialer's session uses its peer's router mapping now: the protocol
+/// that mapped the peer's offered endpoint, and whether the plain-UDP route
+/// goes to it (`link_stat` `portmap`). `None`: no such session, or the peer
+/// offered no mapped endpoint.
+pub fn portmap_use(session_id: &str) -> Option<portmap::PortmapUse> {
+    let session = find(session_id, true)?;
+    let route = *session.route_to.borrow();
+    lock(&session.peer_mapped).use_by(route)
 }
 
 /// Test support: the endpoints one side of `session_id` last told its peer.
@@ -1494,6 +1736,108 @@ pub fn simulate_turn_loss(session_id: Option<&str>, dialer: bool) -> usize {
 mod tests {
     use super::*;
 
+    /// An answer-side session with `endpoints`, no tunnel (`net` none), and
+    /// its announcements collected.
+    async fn offering(
+        signaling: &crate::testing::FakeSignaling,
+        endpoints: &[&str],
+    ) -> (Arc<Session>, mpsc::UnboundedReceiver<Announcement>) {
+        let client = SignalingClient::connect(&signaling.base_url, "user:alice", "team", "mac")
+            .await
+            .expect("signaling");
+        let session = Session::register(SessionParts {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            peer: "phone".into(),
+            dialer: false,
+            peer_ip: Ipv4Addr::new(10, 64, 0, 2),
+            signaling: Arc::new(Mutex::new(client)),
+            net: Arc::new(Mutex::new(None)),
+            control: mpsc::unbounded_channel().0,
+            reach: mpsc::unbounded_channel().1,
+            options: DialOptions::default(),
+            stun: Vec::new(),
+            endpoints: endpoints.iter().map(|e| (*e).to_owned()).collect(),
+            relayed: (Vec::new(), Vec::new()),
+            keeps_turn: false,
+            turn_dead: None,
+            route_to: Arc::new(watch::channel(None).0),
+            relay: None,
+            relay_shared: Arc::new(RelayShared::default()),
+        });
+        let (tx, rx) = mpsc::unbounded_channel();
+        *lock(&session.announce) = Some(tx);
+        (session, rx)
+    }
+
+    fn sent(rx: &mut mpsc::UnboundedReceiver<Announcement>) -> (Vec<String>, Vec<String>, Option<String>) {
+        let a = rx.try_recv().expect("an announcement");
+        (a.endpoints, a.mapped, a.mapped_by)
+    }
+
+    fn strings(all: &[&str]) -> Vec<String> {
+        all.iter().map(|e| (*e).to_owned()).collect()
+    }
+
+    /// The mapped endpoint's lifecycle on the answer side: offered labeled,
+    /// replaced when the router's address changes, withdrawn when the
+    /// mapping lapses, kept when STUN found it too, and dropped by a roam,
+    /// after which the old socket's mapping can no longer offer anything.
+    #[tokio::test]
+    async fn the_mapped_endpoint_is_offered_replaced_withdrawn_and_dropped_on_roam() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let lan = "192.168.1.20:51000";
+        let (session, mut rx) = offering(&signaling, &[lan]).await;
+        let mapped: SocketAddr = "203.0.113.7:40000".parse().unwrap();
+        let moved: SocketAddr = "203.0.113.7:40001".parse().unwrap();
+
+        assert!(session.offer_mapped(0, Some((mapped, "pcp"))).await);
+        assert_eq!(
+            sent(&mut rx),
+            (strings(&[lan, "203.0.113.7:40000"]), strings(&["203.0.113.7:40000"]), Some("pcp".into()))
+        );
+        // The same address again: nothing new to say.
+        assert!(session.offer_mapped(0, Some((mapped, "pcp"))).await);
+        assert!(rx.try_recv().is_err());
+        // The router renewed it on another port: the old one goes.
+        assert!(session.offer_mapped(0, Some((moved, "pcp"))).await);
+        assert_eq!(
+            sent(&mut rx),
+            (strings(&[lan, "203.0.113.7:40001"]), strings(&["203.0.113.7:40001"]), Some("pcp".into()))
+        );
+        // It lapsed: withdrawn, unlabeled.
+        assert!(session.offer_mapped(0, None).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan]), Vec::new(), None));
+
+        // STUN found the same address: labeled while mapped, kept after.
+        let stun = "203.0.113.9:51000";
+        lock(&session.endpoints).push(stun.to_owned());
+        assert!(session.offer_mapped(0, Some((stun.parse().unwrap(), "nat-pmp"))).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan, stun]), strings(&[stun]), Some("nat-pmp".into())));
+        assert!(session.offer_mapped(0, None).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan, stun]), Vec::new(), None));
+
+        // A roam drops a mapping-only endpoint (and keeps a STUN one), and
+        // the old socket's mapping, from before the roam, offers nothing.
+        assert!(session.offer_mapped(0, Some((mapped, "upnp"))).await);
+        let _ = sent(&mut rx);
+        let _ = session.roam().await;
+        assert_eq!(*lock(&session.endpoints), strings(&[lan, stun]));
+        assert!(lock(&session.own_mapped).is_none());
+        assert!(!*lock(&session.mapped_was_offered));
+        assert!(!session.offer_mapped(0, Some((moved, "upnp"))).await, "a stale mapping is not offered");
+        assert!(rx.try_recv().is_err());
+        // The new socket's mapping (after the roam) is.
+        assert!(session.offer_mapped(1, Some((moved, "upnp"))).await);
+        assert_eq!(sent(&mut rx).1, strings(&["203.0.113.7:40001"]));
+        // A roam while the mapped endpoint is the one STUN found keeps it.
+        assert!(session.offer_mapped(1, Some((stun.parse().unwrap(), "pcp"))).await);
+        let _ = sent(&mut rx);
+        let _ = session.roam().await;
+        assert!(lock(&session.endpoints).contains(&stun.to_owned()), "the STUN endpoint stays");
+        assert!(!lock(&session.endpoints).contains(&"203.0.113.7:40001".to_owned()));
+        session.close();
+    }
+
     #[test]
     fn roam_messages_are_small_json() {
         let message = RoamMessage::Endpoints {
@@ -1501,6 +1845,8 @@ mod tests {
             endpoints: vec!["203.0.113.7:40000".into()],
             relayed: Vec::new(),
             relayed_tls: Vec::new(),
+            mapped: Vec::new(),
+            mapped_by: None,
         };
         let text = serde_json::to_string(&message).unwrap();
         assert_eq!(text, r#"{"t":"endpoints","generation":3,"endpoints":["203.0.113.7:40000"]}"#);
@@ -1510,6 +1856,8 @@ mod tests {
             endpoints: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_ENDPOINTS],
             relayed: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
             relayed_tls: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
+            mapped: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_MAPPED],
+            mapped_by: Some("nat-pmp".into()),
         };
         // Fits one datagram of the 1280-byte tunnel.
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
@@ -1526,6 +1874,54 @@ mod tests {
             serde_json::from_str::<RoamMessage>(r#"{"t":"reach"}"#).unwrap(),
             RoamMessage::Reach { from: None, via: None }
         );
+    }
+
+    /// PROTOCOL.md "Mapped endpoints": a mapped endpoint is a plain endpoint
+    /// plus a label, so a phone that predates it still dials it, and a new
+    /// phone reads an old Mac's announcement as "nothing mapped".
+    #[test]
+    fn mapped_label_is_backward_compatible_both_ways() {
+        // New Mac -> old phone: the old message type (no `mapped` fields)
+        // still decodes and keeps the mapped address among its endpoints.
+        #[derive(serde::Deserialize, Debug)]
+        #[serde(tag = "t", rename_all = "kebab-case")]
+        enum OldRoam {
+            Endpoints {
+                generation: u64,
+                endpoints: Vec<String>,
+                #[serde(default)]
+                relayed: Vec<String>,
+            },
+        }
+        let new = RoamMessage::Endpoints {
+            generation: 4,
+            endpoints: vec!["192.168.1.9:40000".into(), "203.0.113.7:41000".into()],
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            mapped: vec!["203.0.113.7:41000".into()],
+            mapped_by: Some("pcp".into()),
+        };
+        let text = serde_json::to_string(&new).unwrap();
+        assert!(text.contains(r#""mapped":["203.0.113.7:41000"],"mappedBy":"pcp""#), "{text}");
+        let OldRoam::Endpoints { generation, endpoints, relayed } = serde_json::from_str(&text).unwrap();
+        assert_eq!((generation, relayed.len()), (4, 0));
+        assert!(endpoints.contains(&"203.0.113.7:41000".to_owned()));
+        // Old Mac -> new phone: no label, nothing mapped.
+        let old = r#"{"t":"endpoints","generation":2,"endpoints":["203.0.113.7:40000"]}"#;
+        let RoamMessage::Endpoints { endpoints, mapped, mapped_by, .. } = serde_json::from_str(old).unwrap()
+        else {
+            panic!("not endpoints")
+        };
+        assert!(mapped.is_empty() && mapped_by.is_none());
+        assert_eq!(peer_mapped_of(&endpoints, &mapped, mapped_by.as_deref()), portmap::PeerMapped::default());
+        // A label naming no endpoint, or a protocol this build does not know.
+        let peer = peer_mapped_of(
+            &["203.0.113.7:41000".to_owned()],
+            &["203.0.113.7:41000".to_owned(), "198.51.100.1:1".to_owned()],
+            Some("future-proto"),
+        );
+        assert_eq!(peer.addresses, vec!["203.0.113.7:41000".parse::<SocketAddr>().unwrap()]);
+        assert_eq!(peer.protocol, None);
     }
 
     /// A relay clock whose tunnel started `ago`, with nothing heard.
