@@ -5261,8 +5261,9 @@ cmux-tui. fast gates is four jobs in series (resolve and route in parallel, rece
 filtered checkout in three of them: 67 s, 95 s and 76 s of 275 s; its gates ran 71 s (crash-class rules), 24 s
 (prepush gate), 17 s (crash ratchet).
 
-What changed: a same-repository pull request's checkouts (router, resolve, fast-check-route, gates) carry no blob
-filter; a fork keeps it. A pull request runs a tier: ci/steps.toml marks every step that needs a tool, and every
+What changed: a same-repository pull request's router checkout carries no blob filter; a fork keeps it. The fast
+gates' resolve, fast-check-route and gates checkouts keep `blob:none` off the pool, because on a pool VM #55973's own
+unfiltered mirror checkout runs instead. A pull request runs a tier: ci/steps.toml marks every step that needs a tool, and every
 web-browser step, `tier = "push"`, and `ci/run run --tier pr` skips them; pr_router.py counts only the pr tier's
 steps, so a head that routes only push steps starts no runner (its check reads skipped). cmux-next-base-linux.yml
 runs every routed linux step on the feat-cmux-next tip after each landing, with no tier, so a red there is fixed

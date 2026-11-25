@@ -790,6 +790,7 @@ exit "$status"
 # check remain blocking. The old job's warm 4-vCPU p90 was about 63 s, under this step's 300-second limit.
 [step.diff-sidecar-check]
 job = "linux"
+tier = "push"
 timeout = 300
 title = "Diff sidecar checks"
 about = "the diff sidecar's Rust tests and generated protocol types pass, with fmt and clippy reported as warnings on feat-cmux-next"
@@ -844,6 +845,7 @@ exit "$status"
 # One shard alone, 121 s on 8 CPUs.
 [step.web-tests-1]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (1/4)"
@@ -874,6 +876,7 @@ exit "$status"
 
 [step.web-tests-2]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (2/4)"
@@ -904,6 +907,7 @@ exit "$status"
 
 [step.web-tests-3]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (3/4)"
@@ -934,6 +938,7 @@ exit "$status"
 
 [step.web-tests-4]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web tests (4/4)"
@@ -969,6 +974,7 @@ exit "$status"
 # web-typecheck step it could change what tsgo reads mid-run. 145 s on 8 CPUs, alone, warm bun cache.
 [step.web-production-build]
 job = "linux"
+tier = "push"
 timeout = 360
 alone = true
 title = "Web production build"
