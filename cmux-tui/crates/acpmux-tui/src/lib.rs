@@ -33,6 +33,7 @@ mod reconnect_wait;
 mod run;
 mod scheduler;
 mod state;
+mod task_hat;
 mod terminal;
 pub use run::run;
 

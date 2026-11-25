@@ -446,14 +446,26 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
         (Some(_), None) => 4,
         (None, _) => 0,
     };
+    // The chat's task list while steps are left (task_hat.rs), one row over the composer when no
+    // card docks there and the transcript keeps room.
+    let hat = if card_h == 0 && main.height > input_h + 8 {
+        app.selected_session().and_then(crate::task_hat::of).map(|l| crate::task_hat::line(&l))
+    } else {
+        None
+    };
+    let hat_h = u16::from(hat.is_some());
     let card = Rect {
         x: col_x + 1,
         y: composer.y.saturating_sub(card_h),
         width: col_w.saturating_sub(2),
         height: card_h,
     };
-    let transcript =
-        Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h - card_h };
+    let transcript = Rect {
+        x: main.x,
+        y: main.y,
+        width: main.width,
+        height: main.height - input_h - card_h - hat_h,
+    };
     app.areas.column = Rect { x: col_x, y: transcript.y, width: col_w, height: transcript.height };
     app.areas.sidebar = sidebar;
     app.areas.sidebar_rule = if sidebar_w == 0 {
@@ -472,6 +484,11 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     }
     draw_transcript(f, transcript, app);
     draw_composer(f, composer, app);
+    if let Some(hat) = hat.as_deref() {
+        // Two columns in, as the composer's text sits.
+        let w = col_w.saturating_sub(4) as usize;
+        f.buffer_mut().set_stringn(col_x + 2, composer.y - 1, truncate(hat, w), w, c.dim());
+    }
     draw_status(f, app.areas.status, app);
     let chips = std::mem::take(&mut app.host_chips);
     for (r, key) in chips {
