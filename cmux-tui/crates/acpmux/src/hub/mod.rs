@@ -34,12 +34,12 @@ mod agent_pairs;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
+pub(crate) mod pool_pressure;
 mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 pub use person_hold::PromptTriager;
 pub(crate) mod restricted;
-mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
 pub use prompt_coach::CoachRewriter;
@@ -467,7 +467,7 @@ mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
-mod pull_requests;
+pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) use crate::questions;
 mod remote_cwd;
@@ -505,6 +505,8 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod pause;
+/// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
+pub(crate) mod pause_state;
 pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
@@ -1172,6 +1174,8 @@ pub struct Hub {
     pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
+    /// Agent byte channels: listeners and open channels (`server/channels.rs`).
+    pub(crate) channels: crate::server::channels::Channels,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
     pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
     /// Each peer session's events as this daemon saw them, kept on disk
@@ -1735,6 +1739,7 @@ impl Hub {
             peer_notice_projection_hook: StdMutex::new(None),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
+            channels: Default::default(),
             github_app: Default::default(),
             peer_snapshots,
             peer_notices,
@@ -2365,7 +2370,6 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
-            rolling: StdMutex::new(Default::default()),
             coach: Default::default(),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),

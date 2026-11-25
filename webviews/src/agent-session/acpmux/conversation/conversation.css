@@ -8075,12 +8075,14 @@ a.cv-sha:focus-visible {
 }
 /* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
    its own while the turn runs. */
-.cv-plan:not([data-ended], [data-earlier]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan:not([data-ended], [data-earlier], [data-still]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-width: 0;
 }
-/* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
+/* Left in progress when its turn ended, or kept between turns (the hat's `still` list): a plain
+   ring, not a spinner frozen mid-turn, and never a blank mark (cmux#51039). */
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
+.cv-plan[data-still] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
 }
 
@@ -9021,6 +9023,26 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
    Its chevron is every row's (`.cv-rotor`). */
 button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
+}
+/* The running turn's "Working for ›" (WorkingFor.tsx, #50987): its label is the toggle that opens
+   the work, drawn as "Worked for" is, so the turn's end swaps its words and nothing moves. The
+   counts after it stay buttons of their own. */
+.cv-worked__toggle {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  min-width: 0;
+  height: 100%;
+  cursor: default;
+}
+.cv-worked__toggle:is(:hover, :focus-visible) * {
+  color: var(--cv-text);
+}
+.cv-worked__toggle:focus-visible {
+  outline: 2px solid var(--cv-focus-ring, Highlight);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 .cv-worked.has-divider.is-toggle {
   height: calc(var(--cv-tool-row-height) + var(--grid-gap-foot));

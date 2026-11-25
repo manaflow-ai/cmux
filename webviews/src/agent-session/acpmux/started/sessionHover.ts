@@ -135,6 +135,11 @@ export class SessionHoverStore {
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
+    if (this.released) {
+      this.dirty ||= sessions !== this.pending;
+      this.pending = sessions;
+      return;
+    }
     const last = this.last;
     this.last = sessions;
     if (this.patch(sessions, replacedSince(last, sessions))) return;
@@ -181,7 +186,7 @@ export class SessionHoverStore {
     this.from = from;
     this.count = sessions.length;
     this.order = sessions.map((entry) => entry.sessionId);
-    if (changed) for (const listener of this.listeners) listener();
+    if (changed) this.notify();
   }
 
   /// The same sessions as last time, some of them changed: only the changed ones' cards are made
@@ -220,8 +225,62 @@ export class SessionHoverStore {
       this.keys.set(id, key);
       notify = true;
     }
-    if (notify) for (const listener of this.listeners) listener();
+    if (notify) this.notify();
     return true;
+  }
+
+  /// The page is hidden: the cards and link indexes go, the list they are made from stays (the
+  /// pane's snapshot holds it). A hidden chat keeps its data and nothing derived from it, so 100 open
+  /// chats do not each hold a card per listed chat (hq#21290). Lists set while released wait for
+  /// ``restore``; a read while released makes the cards again first, telling no one.
+  release(): void {
+    if (this.released) return;
+    this.pending = this.last;
+    this.released = true;
+    this.infos = new Map();
+    this.keys = new Map();
+    this.agents = new Map();
+    this.agentSessions = new Map();
+    this.hosts = new Map();
+    this.from = new Map();
+    this.last = undefined;
+    this.count = -1;
+    this.order = [];
+  }
+
+  /// The page shows again: the cards are made from the latest list, and readers are told when a list
+  /// came while it was hidden.
+  restore(): void {
+    if (!this.released) return;
+    const dirty = this.dirty;
+    this.rebuild();
+    if (dirty) this.notify();
+  }
+
+  private released = false;
+  /// A list set while released (``dirty``), or the last one before it.
+  private pending: readonly AcpmuxSessionEntry[] | undefined;
+  private dirty = false;
+  private quiet = false;
+
+  private rebuild(): void {
+    if (!this.released) return;
+    this.released = false;
+    this.dirty = false;
+    const pending = this.pending;
+    this.pending = undefined;
+    if (!pending) return;
+    this.quiet = true;
+    try {
+      this.set(pending);
+    } finally {
+      this.quiet = false;
+    }
+  }
+
+  private notify(): void {
+    if (this.quiet) return;
+    for (const listener of this.listeners) listener();
   }
 
   /// `last` with chats listed after it (a new chat, a sub-agent started): only the new chats' cards are
@@ -258,21 +317,25 @@ export class SessionHoverStore {
   }
 
   get(sessionId: string): SessionHoverInfo | undefined {
+    this.rebuild();
     return this.infos.get(sessionId);
   }
 
   /// The listed chat an agent link names (``agentLinkKey``), or undefined.
   byAgent(harness: string, agentSessionId: string): string | undefined {
+    this.rebuild();
     return this.agents.get(agentLinkKey(harness, agentSessionId));
   }
 
   /// The listed chat whose harness's own session id is `agentSessionId`, whatever its harness.
   byAgentSession(agentSessionId: string): string | undefined {
+    this.rebuild();
     return this.agentSessions.get(agentSessionId);
   }
 
   /// The machine chat `sessionId` runs on, as the session list names it.
   host(sessionId: string): string | undefined {
+    this.rebuild();
     return this.hosts.get(sessionId);
   }
 
