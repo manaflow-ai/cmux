@@ -1,4 +1,6 @@
-use super::{on_target_words, parse_new, session_meta, take_attach};
+use super::{
+    CODEX_AGENT_CHAT_STOP_CONDITION, on_target_words, parse_new, session_meta, take_attach,
+};
 use serde_json::json;
 
 #[test]
@@ -44,6 +46,22 @@ fn a_peer_chat_names_the_peer_and_carries_no_env() {
     assert_eq!(meta.get("env"), None);
     assert!(parse_new(&["--peer"]).is_err());
     assert!(parse_new(&["--peer="]).is_err());
+}
+
+#[test]
+fn a_codex_agent_chat_keeps_working_until_it_reports_completion() {
+    let chat = parse_new(&[
+        "--harness",
+        "codex",
+        "--",
+        "fix the gateway and report the commit when it is done",
+    ])
+    .unwrap();
+    let meta = session_meta(&chat, "0123456789abcdef0123456789abcdef");
+    assert_eq!(
+        meta.get("stopCondition"),
+        Some(&json!(CODEX_AGENT_CHAT_STOP_CONDITION))
+    );
 }
 
 fn strings(list: &[&str]) -> Vec<String> {
