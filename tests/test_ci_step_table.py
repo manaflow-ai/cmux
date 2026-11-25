@@ -456,6 +456,15 @@ class StepResultsTest(unittest.TestCase):
         same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
         self.assertTrue(same.write)
 
+    def test_from_env_off_actions_when_asked(self) -> None:
+        pool = {"CI_STEP_RESULTS": "on", "CI_STEP_RESULTS_REPO": "o/r", "CI_STEP_RESULTS_SHA": "abc",
+                "CI_STEP_RESULTS_RUN_URL": "http://controller/jobs/7", "CI_STEP_RESULTS_RUNNER": "pool-1"}
+        s = ci_steps.StepResults.from_env(pool)
+        self.assertTrue(s.write)
+        self.assertEqual(s.meta, {"repo": "o/r", "sha": "abc", "run_url": "http://controller/jobs/7", "runner": "pool-1"})
+        self.assertFalse(ci_steps.StepResults.from_env({**pool, "CI_STEP_RESULTS_WRITE": "0"}).write)
+        self.assertIsNone(ci_steps.StepResults.from_env({"CI_STEP_RESULTS": "auto"}), "off Actions: only on asks")
+
     def test_an_unreachable_controller_is_a_miss(self) -> None:
         s = ci_steps.StepResults("http://127.0.0.1:9", True, {}, timeout=1)
         self.assertIsNone(s.lookup("0" * 64, "a"))

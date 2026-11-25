@@ -43,7 +43,9 @@ a fail evicts the key on the controller, and the step's real result is the job's
 weaker than routing: the runner already skips a step whose inputs a change does not touch, which
 trusts the same `inputs` with the same tree. Steps that read the event (the advisory job, a step with
 `labels`, a run that names one of EVENT_VARS) or set `reuse = false` always run. Any controller error
-is a miss. Off: CI_STEP_RESULTS=off; controller: CI_STEP_RESULTS_URL (default the fleet's).
+is a miss. Off: CI_STEP_RESULTS=off; controller: CI_STEP_RESULTS_URL (default the fleet's). Outside Actions it
+is off unless CI_STEP_RESULTS=on (a build fleet job: CI_STEP_RESULTS_REPO, _SHA, _RUN_URL, _RUNNER name the
+run, CI_STEP_RESULTS_WRITE=0 makes it read only).
 """
 
 from __future__ import annotations
@@ -321,8 +323,19 @@ class StepResults:
 
     @classmethod
     def from_env(cls, env: dict[str, str]) -> "StepResults | None":
-        if env.get("CI_STEP_RESULTS", "").lower() in ("off", "0", "false") or env.get("GITHUB_ACTIONS") != "true":
+        switch = env.get("CI_STEP_RESULTS", "").lower()
+        if switch in ("off", "0", "false"):
             return None
+        if env.get("GITHUB_ACTIONS") != "true":
+            # Off Actions only when asked: the build fleet's pool runs a pull request's fast tier as a controller
+            # job (cmuxterm-hq fast_verdict.sh), on the tailnet, and names its run and whether it may write.
+            if switch not in ("on", "1", "true"):
+                return None
+            meta = {"repo": env.get("CI_STEP_RESULTS_REPO", ""), "sha": env.get("CI_STEP_RESULTS_SHA", ""),
+                    "run_url": env.get("CI_STEP_RESULTS_RUN_URL", ""),
+                    "runner": env.get("CI_STEP_RESULTS_RUNNER", "") or os.uname().nodename}
+            write = env.get("CI_STEP_RESULTS_WRITE", "1").lower() not in ("off", "0", "false")
+            return cls(env.get("CI_STEP_RESULTS_URL") or CONTROLLER, write, meta)
         if env.get("RUNNER_ENVIRONMENT") == "github-hosted":
             return None  # a GitHub VM is not on the tailnet: every lookup would wait to fail
         write = True
