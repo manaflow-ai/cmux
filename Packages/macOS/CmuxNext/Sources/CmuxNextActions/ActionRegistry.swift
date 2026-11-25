@@ -204,7 +204,7 @@ public final class ActionRegistry {
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     /// Keycaps read with no kept answer (``shortcutKeycaps(for:)``), for the cache tests.
-    @ObservationIgnored private(set) var keycapsBuilds = 0
+    @ObservationIgnored internal(set) var keycapsBuilds = 0
     @ObservationIgnored var shortcutIndex: ShortcutIndex? {
         didSet { if shortcutIndex == nil { askToWarmBindingTable() } }
     }
