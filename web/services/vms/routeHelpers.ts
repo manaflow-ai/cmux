@@ -70,6 +70,7 @@ import {
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
   vmProviderCapacityCopy,
+  vmHostRecoveryCopy,
   vmStateConflictCopy,
   vmProviderTimeoutCopy,
   vmRouteDeadlineCopy,
@@ -981,6 +982,7 @@ export const vmWorkflowErrorResponders = {
     // the machine, an unresponsive guest, or a machine in the wrong state.
     switch (providerConflictKind(error.cause)) {
       case "capacity": return vmProviderCapacityResponse(error, context.locale);
+      case "host_recovery": return vmHostRecoveryResponse(error, context.locale);
       case "unresponsive": return vmGuestUnresponsiveResponse(error, context.locale);
       case "state": return vmStateConflictResponse(error, context.locale);
       default: return vmProviderOperationErrorResponse(error);
@@ -1470,6 +1472,36 @@ async function vmStateConflictResponse(error: VmProviderOperationError, locale: 
     diagnostics: { provider: error.provider },
   });
 }
+
+/**
+ * The machine's retained disk is held by a provider host that is down, so the
+ * provider refuses to start it anywhere until that host is recovered. The
+ * disk and its files are kept. This is a provider incident, not the caller's
+ * fault and not a transient blip: a retry right away meets the same refusal,
+ * so the answer names the recovery, says the files are kept, tells the user
+ * not to delete or recreate the machine, and spaces retries out with a long
+ * Retry-After. It stays an operator fault so the incident pages: only the
+ * provider can recover the host (https://github.com/manaflow-ai/cmux/issues/44783).
+ */
+async function vmHostRecoveryResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmHostRecoveryCopy(locale);
+  return vmErrorResponse({
+    error: "vm_host_recovery_pending",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: VM_HOST_RECOVERY_RETRY_AFTER_SECONDS,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, providerCode: "provider_host_recovery" },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/** Seconds a client waits before retrying a machine whose host is being recovered. */
+const VM_HOST_RECOVERY_RETRY_AFTER_SECONDS = 300;
 
 /** Seconds a client waits before retrying a capacity refusal. */
 const VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS = 30;

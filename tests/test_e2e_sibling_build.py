@@ -244,8 +244,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("macos", str(sibling_job["runs-on"]))
         # The same Linux fallback as the runner job. The runner job holds an App key, so no variable
         # moves it; the sibling holds none and may still follow LINUX_RUNNER.
+        # Or the persistent Linux pool label, which same-repository Linux jobs name (PR #47956).
         fallback = self.jobs["runner"]["runs-on"].rsplit("||", 1)[1]
-        self.assertTrue(sibling_job["runs-on"].endswith("||" + fallback), sibling_job["runs-on"])
+        self.assertTrue(
+            sibling_job["runs-on"].endswith("||" + fallback)
+            or sibling_job["runs-on"].replace(" ", "").endswith("||'cmux-linux'}}"),
+            sibling_job["runs-on"],
+        )
         self.assertIn("sibling", self.jobs["build"]["needs"])
         wait = next(step for step in sibling_job["steps"] if "e2e_sibling_build.py wait" in str(step.get("run")))
         self.assertTrue(wait["run"].endswith("|| true"))

@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import unittest.mock
 import urllib.error
@@ -453,6 +454,7 @@ class TransportTests(unittest.TestCase):
         self.addCleanup(setattr, publisher, "_ledger_at_start", None)
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
         self.addCleanup(setattr, publisher, "_secondary_waits", 0)
+        self.addCleanup(setattr, publisher, "_last_write", None)
         waits = []
         with patch.object(publisher, "_sleep", side_effect=waits.append):
             publisher.publish(self.client, 42, [[self.file()], [], []])
@@ -598,8 +600,44 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(len(waits), 1)
         self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
 
+    def test_the_write_spacing_never_waits_longer_than_the_spacing(self):
+        # `pause_between_writes` waits out `WRITE_PAUSE_SECONDS - (now - _last_write)`, which is
+        # only a spacing while `_last_write` came from the same clock as `now`. A stamp from
+        # ahead of that clock -- a test that froze the clock, a reader of another process's
+        # number -- turns a 1 s spacing into hours. A spacing waits at most itself.
+        publisher._last_write = time.monotonic() + 15000  # the stamp, not the clock, comes from elsewhere
+        self.addCleanup(setattr, publisher, "_last_write", None)
+        paused = []
+        with patch.object(publisher, "_pause", side_effect=paused.append):
+            publisher.pause_between_writes()
+        self.assertLessEqual(max(paused, default=0.0), publisher.WRITE_PAUSE_SECONDS)
+
+    def test_the_clock_is_a_seam_of_its_own_not_the_shared_time_module(self):
+        # Freezing a clock through `publisher.time` mutates the stdlib module for the whole
+        # process -- every later test, thread and selector timeout reads the frozen value, and a
+        # module global stamped while it was frozen outlives the patch. Tests freeze this seam.
+        frozen = 15855.009572078305
+        with patch.object(publisher, "_monotonic", return_value=frozen):
+            self.assertEqual(publisher._monotonic(), frozen)
+            self.assertNotEqual(time.monotonic(), frozen)
+
+    def test_rate_limit_wait_is_capped_when_the_deadline_round_trip_rounds_up(self):
+        # The budget is held as a deadline, `monotonic() + budget`, and the remaining wait is read
+        # back as `deadline - monotonic()`. In floating point that round trip can return a hair
+        # more than the budget: at monotonic 15855.009572078305 it is 600.0000000000018, so the
+        # wait handed to _sleep exceeded the cap it was granted on a runner whose clock landed
+        # there. The cap must hold for every clock value, not most of them.
+        self.assertGreater((15855.009572078305 + 600) - 15855.009572078305, 600)
+        reset = int(publisher.time.time()) + 3600
+        with patch.object(publisher, "_monotonic", return_value=15855.009572078305):
+            waits = self.rate_limited_publish(
+                (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)},
+                 {"message": "API rate limit exceeded"}))
+        self.assertEqual(len(waits), 1)
+        self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
+
     def test_rate_limit_that_outlasts_the_budget_fails(self):
-        publisher._rate_limit_deadline = publisher.time.monotonic() - 1
+        publisher._rate_limit_deadline = publisher._monotonic() - 1
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
         self.responses = [(403, {"x-ratelimit-remaining": "0"}, {"message": "API rate limit exceeded"})]
         with patch.object(publisher, "_sleep"):

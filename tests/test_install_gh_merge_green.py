@@ -47,6 +47,14 @@ else:
     print(json.dumps({"heads": {s: {"found": found} for s in shas}, "unread": {}}))
 """
 
+# `gh api .../actions/workflows/ci-fast-guards.yml/runs?...status=success...`: the
+# newest green main commit, from the file `green` next to it (empty: none).
+FAKE_GH = """#!/bin/sh
+here=$(dirname "$0")
+echo "$*" >> "$here/gh-calls"
+cat "$here/green" 2>/dev/null || true
+"""
+
 
 class DefaultTestsCoverTheHelpersTests(unittest.TestCase):
     """An install runs DEFAULT_TESTS before it trusts a new main. Every scripts/ci helper gh-merge-green runs whose
@@ -262,7 +270,14 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         fake.write_text(FAKE_GLAEDA)
         fake.chmod(0o755)
         self.env["GH_MERGE_GREEN_GLAEDA"] = str(fake)
+        gh = self.root / "fakebin" / "gh"
+        gh.write_text(FAKE_GH)
+        gh.chmod(0o755)
+        self.env["GH_MERGE_GREEN_GH"] = str(gh)
         self.set_ci(verdict)
+
+    def set_green(self, sha):
+        (self.root / "fakebin" / "green").write_text(sha + "\n")
 
     def set_ci(self, verdict):
         (self.root / "fakebin" / "verdict").write_text(verdict)
@@ -315,6 +330,53 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         result = self.assert_ok(self.installer("update"))
         self.assertIn("not passed", result.stderr)
         self.assertEqual(self.gh_merge_green("x#11").stdout, "v1 x#11\n")
+
+    def test_a_submitter_only_mac_installs_the_newest_green_main_when_the_tip_is_not_read(self):
+        # 2026-11-04..18 on one of Leo's Macs: glaeda-gh never read a main tip, so the install stayed 14 days old.
+        self.assert_ok(self.install())
+        self.submitter_only_mac("pending")
+        green = self.commit_version("v2", tests_pass=False)
+        self.commit_version("v3", tests_pass=False)
+        self.set_green(green)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("newest main commit", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#12").stdout, "v2 x#12\n")
+        self.assertEqual((self.home / "checked").read_text().strip(), green)
+        calls = (self.root / "fakebin" / "gh-calls").read_text()
+        self.assertIn("ci-fast-guards.yml/runs", calls)
+        self.assertNotIn("--paginate", calls)
+
+    def test_a_submitter_only_mac_installs_the_tip_when_only_the_rest_read_saw_it_pass(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("pending")
+        tip = self.commit_version("v2", tests_pass=False)
+        self.set_green(tip)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("newest main commit", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#17").stdout, "v2 x#17\n")
+        self.assertEqual((self.home / "checked").read_text().strip(), tip)
+
+    def test_a_submitter_only_mac_ignores_a_green_commit_that_is_not_on_main(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("pending")
+        self.commit_version("v2", tests_pass=False)
+        self.set_green("0" * 40)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("not passed", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#13").stdout, "v1 x#13\n")
+
+    def test_launcher_warns_when_its_install_was_not_confirmed_current_for_days(self):
+        self.assert_ok(self.install())
+        fresh = self.gh_merge_green("x#14")
+        self.assertEqual(fresh.stdout, "v1 x#14\n")
+        self.assertNotIn("confirmed current", fresh.stderr)
+        old = __import__("time").time() - 10 * 86400
+        os.utime(self.home / "checked", (old, old))
+        stale = self.gh_merge_green("x#15")
+        self.assertEqual(stale.stdout, "v1 x#15\n")
+        self.assertIn("more than 3 days ago", stale.stderr)
+        self.env["GH_MERGE_GREEN_STALE_DAYS"] = "0"
+        self.assertNotIn("confirmed current", self.gh_merge_green("x#16").stderr)
 
     def test_replaces_the_old_checkout_symlink(self):
         self.bin.mkdir()
