@@ -140,7 +140,8 @@ pub fn migrate_legacy_state(state: &Path, next_dir: &str) -> std::io::Result<Vec
     for &name in STATE_ITEMS {
         let (old, new) = (old_dir.join(name), new_dir.join(name));
         let Ok(meta) = old.symlink_metadata() else { continue };
-        if new.symlink_metadata().is_ok() {
+        let (is_file, is_dir) = (meta.file_type().is_file(), meta.file_type().is_dir());
+        if !(is_file || is_dir) || new.symlink_metadata().is_ok() {
             continue;
         }
         if new_dir.symlink_metadata().is_err() {
@@ -150,16 +151,14 @@ pub fn migrate_legacy_state(state: &Path, next_dir: &str) -> std::io::Result<Vec
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
             builder.create(&new_dir)?;
         }
-        if meta.file_type().is_file() {
+        if is_file {
             match std::fs::hard_link(&old, &new) {
                 Ok(()) => std::fs::remove_file(&old)?,
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => return Err(error),
             }
-        } else if meta.file_type().is_dir() {
-            std::fs::rename(&old, &new)?;
         } else {
-            continue;
+            std::fs::rename(&old, &new)?;
         }
         moved.push(name);
     }
