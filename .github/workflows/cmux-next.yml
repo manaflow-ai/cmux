@@ -49,12 +49,12 @@ on:
       - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
-      - skills/cmux-acpmux/SKILL.md
+      - skills/*/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
-      - skills/cmux/SKILL.md
+      - skills/cmux-ui-preview/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -442,12 +442,12 @@ on:
       - backend/catalog/cloud-operations.json
       - backend/packages/home-core/conformance/**
       - mux/packages/brain/conformance/**
-      - skills/cmux-acpmux/SKILL.md
+      - skills/*/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
-      - skills/cmux/SKILL.md
+      - skills/cmux-ui-preview/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -872,6 +872,8 @@ jobs:
       ffi_repin: ${{ steps.route.outputs.ffi_repin }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-502
       fast_tier_cargo: ${{ steps.route.outputs.fast_tier_cargo }}
+      # The breaker-wired jobs red on feat-cmux-next now (JSON list, `[]` off a pull request): RFD 0148 row 12.
+      base_red_jobs: ${{ steps.base-red.outputs.red_jobs || '[]' }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
       swift: ${{ steps.route.outputs.swift }}
@@ -948,7 +950,22 @@ jobs:
           BASE_MERGE_CARRY: ${{ format('{0}', vars.CMUX_NEXT_BASE_MERGE_CARRY) != '0' }}
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+          PR_FAST_ONLY: ${{ format('{0}', vars.CI_PR_FAST_ONLY) != '0' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
+      # RFD 0148 row 12 (Leo, 2026-11-24: "ci! i hope we're continuing to cut and optimize"): a job red on
+      # feat-cmux-next right now is red on the pull request too, and gh-merge-green excuses that red as the base's, so
+      # it is not started (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci
+      # runs it, vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-23: 6.8k PR minutes of fast tier (cargo) ran
+      # while red on the base (fast tier itself is push-only since note-556) (build-fleet/data fleet-data-raw gh-jobs).
+      - name: Jobs red on the base right now
+        id: base-red
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/base_red_skip.py decide-many --workflow cmux-next.yml --runs 12 --job "cmux-next fast tier (cargo)" >> "$GITHUB_OUTPUT"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-359
       - name: Probe the same-tree cmux-tui
@@ -3621,7 +3638,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
   fast-tier-cargo:
     needs: [push-head-preflight, path_route]
-    if: ${{ !cancelled() && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
+    if: ${{ !cancelled() && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') && !contains(fromJSON(needs.path_route.outputs.base_red_jobs || '[]'), 'cmux-next fast tier (cargo)') }}
     name: cmux-next fast tier (cargo)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci' && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
@@ -5015,6 +5032,7 @@ jobs:
   # Mac run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
   # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
   # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-24: 0 of 37 PR runs green in 2 h, about 10k min a day.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-556
   generated-files-base-red:
     needs: [path_route]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'generated-files' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
