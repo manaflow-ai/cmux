@@ -129,6 +129,7 @@ fn user_timers_count_and_the_systems_do_not() {
     s.timers = [
         "systemd:apt-daily.timer",
         "systemd:cmux-machine-health.timer",
+        "systemd:cmux-chief-update.timer",
         "cron.d:e2scrub_all",
         "cron:cmux",
         "cron.d:nightly-backup",

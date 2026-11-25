@@ -66,15 +66,6 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
-    /// Whether a tab's grid card shows the connecting placeholder (spinner
-    /// and label): only once its session was started (its page was laid
-    /// out). A tab not opened in this launch has no session yet, so a spinner
-    /// there never ends (D5, T-TABS-02): it shows its saved frame, or the
-    /// static placeholder.
-    public func cardShowsConnecting(sessionStarted: Bool) -> Bool {
-        !isAttached && sessionStarted
-    }
-
     /// The quiet line by the composer once an outage has lasted
     /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
     /// transport error ("daemon channel closed").
@@ -91,11 +82,13 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// The title pill's subtitle once an outage lasted
     /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
-    /// the working directory: the page itself gets no status row.
+    /// the working directory: the page itself gets no status row. A link still
+    /// coming back (connecting, reattaching) says nothing: the pill keeps the
+    /// working directory and the last frame stays (Leo, 2026-11-24: "let's just
+    /// keep optimistically connecting and reinforcing the connection").
     public var pillSubtitle: String? {
         switch self {
-        case .connecting: return "Connecting…"
-        case .reattaching: return "Reattaching…"
+        case .connecting, .reattaching: return nil
         case .offline: return "Mac offline"
         case .failed: return "Can't connect"
         case .attached: return nil
@@ -187,6 +180,14 @@ public protocol TerminalSession: AnyObject {
     /// answer came in time: it may have been typed, so the text stays out of
     /// the composer (a second Send would type it twice).
     func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
+    /// The composer's Send of a one-line draft to a full-screen program:
+    /// `text` typed and Return, in one request to where the terminal runs
+    /// (a Mac daemon's `send {text, submit:true}` with `send-typed-submit-v1`),
+    /// never the text and a separate Return a link blip can split. Returns
+    /// false when this session cannot: the screen then types through its
+    /// mirror. `notSent` and `maybeSent` as for
+    /// ``sendPasteAndSubmit(_:notSent:maybeSent:)``.
+    func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -249,6 +250,18 @@ public protocol TerminalSession: AnyObject {
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// One page of Find over the Mac's whole history for this terminal (`terminal-find`,
+    /// newest match first). Nil: this session cannot (no Mac daemon, or one without the
+    /// command, or the mirror's rows are not the Mac's rows, as in a projection): the screen
+    /// searches its mirror instead.
+    func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage?
+    /// How much of the Mac's history the mirror holds (``TerminalFindRowMap``). Nil with no Mac daemon.
+    var findMirror: TerminalFindMirror? { get }
+    /// The mirror should hold the Mac's history row `daemonRow`, `rowsFromBottom` rows above its
+    /// bottom row, which it does not now (a Find match older than the mirror): a replay with that
+    /// history follows, as for ``loadOlderHistory()``. Returns whether it asked.
+    @discardableResult
+    func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool
     /// The phone projects this terminal itself (``TerminalProjectingSession``):
     /// the session claims a size only when told to, and never holds the
     /// Mac's own grid back from the screen while the primary screen shows.
@@ -259,17 +272,59 @@ public protocol TerminalSession: AnyObject {
     /// A projection keeps those lines when it re-wraps at a new width.
     /// Called as the page scrolls; others ignore it.
     func noteReaderRowsFromEnd(_ rows: Int)
+    /// A vertical pan over a full-screen app (the alternate screen), `rows`
+    /// positive toward older content: the rows of wheel that still go to the
+    /// app. A session that holds the rows the app scrolled off paints a pan
+    /// within them itself (`cmux-terminal-projection` decides) and returns
+    /// 0; others send all of it, as before.
+    func panHeldRows(_ rows: Double) -> Double
+    /// A key or a tap: a session showing held rows shows the app's live
+    /// screen again. Others ignore it.
+    func returnToLiveScreen()
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// Fit to Phone for the program in the foreground, the projection's one
+    /// exception (``TerminalProjectingSession``): whether the phone claims its
+    /// grid for it now; nil for a session that does not project.
+    var fitsToPhone: Bool? { get }
+    /// The title menu's Fit to Phone: fits the foreground program now (and
+    /// remembers it), or gives the Mac its grid back (and forgets it).
+    func toggleFitToPhone()
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
     /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
     /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
     func reportPaint(_ samples: [TerminalPaintTally.Sample])
+    /// On the alternate screen: rows a full-screen app scrolled away that the
+    /// phone keeps (0 for a session that keeps none).
+    var tuiTranscriptRowsAbove: Int { get }
+    /// The full-screen app's transcript as one document for a fresh terminal
+    /// of the app's grid (``TerminalTUITranscript``), nil when none is kept.
+    func tuiTranscript() -> TerminalTUITranscript?
     /// Drops the keys held for the attach (``TerminalSessionEvent/inputHeld(bytes:)``), at the
     /// person's word: none is sent. Sessions that hold no keys ignore it.
     func discardHeldInput()
+}
+
+/// A full-screen app's transcript (Leo, 2026-11-24: "where's us simply
+/// scrolling a cached-on-phone view of a lot of the existing terminal data
+/// that's been sent and rendered?"): VT bytes that paint, in a fresh terminal
+/// of the app's grid, the rows the app scrolled away and then its screen.
+/// The phone scrolls it natively, with no round trip to the app.
+public struct TerminalTUITranscript: Equatable, Sendable {
+    /// The paint: the document's rows, oldest first, then the cursor on the last.
+    public var bytes: Data
+    /// The document's rows.
+    public var rows: Int
+    /// The document row the app's screen begins at.
+    public var screenTop: Int
+
+    public init(bytes: Data, rows: Int, screenTop: Int) {
+        self.bytes = bytes
+        self.rows = rows
+        self.screenTop = screenTop
+    }
 }
 
 extension TerminalSession {
@@ -278,6 +333,9 @@ extension TerminalSession {
 
     /// Sessions with no Mac daemon paste through the screen's mirror.
     public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
+
+    /// Sessions with no Mac daemon type through the screen's mirror.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool { false }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
@@ -309,18 +367,37 @@ extension TerminalSession {
 
     public func requestHistoryRows(_ rows: Int) {}
 
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? { nil }
+
+    public var findMirror: TerminalFindMirror? { nil }
+
+    @discardableResult
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
+
     public func setProjectsLocally(_ projects: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 
+    public func panHeldRows(_ rows: Double) -> Double { rows }
+
+    public func returnToLiveScreen() {}
+
     public var underlyingSession: AnyObject { self }
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public var fitsToPhone: Bool? { nil }
+
+    public func toggleFitToPhone() {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 
     public func discardHeldInput() {}
 
     public var hostGridOwnerName: String? { nil }
+
+    public var tuiTranscriptRowsAbove: Int { 0 }
+
+    public func tuiTranscript() -> TerminalTUITranscript? { nil }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

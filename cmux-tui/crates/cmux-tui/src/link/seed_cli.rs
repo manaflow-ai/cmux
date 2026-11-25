@@ -89,6 +89,7 @@ mod held;
 mod hop;
 mod pull;
 mod record;
+mod route;
 
 pub(super) use hop::{
     abandon as hop_abandon, hop_bulk, hop_frozen, land, many_stashes, started as hop_started,
@@ -118,6 +119,11 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
 /// Longest time between two `git.seed.status` requests (the first waits are shorter:
 /// [`super::spans::PollWait`]).
 const STATUS_EVERY: Duration = Duration::from_millis(500);
+/// How long a `git.seed.status` asks the machine to hold its answer while the job runs
+/// (cmux-tui-core `git_seed::job`): it answers as soon as the job ends or reaches its head,
+/// so a seed's end costs no poll sleep and no extra request. A machine that answers without
+/// `waited` is older, and is paused for between requests as before.
+pub(crate) const STATUS_HOLD_MS: u64 = 500;
 /// Longest a seed job is waited for (a first clone of a big repository).
 const SEED_DEADLINE: Duration = Duration::from_secs(45 * 60);
 /// Least time between two progress lines.
@@ -655,6 +661,9 @@ fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
         return None;
     }
     let local = std::fs::canonicalize(local).ok()?;
+    if route::enabled() && !routed_to_projection(&local) {
+        return None;
+    }
     let key = sync_cli::project::move_key(remote);
     match sync_cli::project::restart(socket, &local, remote, &key) {
         Ok(Ok(answer)) => {
@@ -676,6 +685,32 @@ fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
             None
         }
     }
+}
+
+/// With [`route::enabled`]: whether the estimate over this Mac's uplink routes the folder to a
+/// projection (RFD 0066 piece 9). A whole snapshot is not built yet (RFD 0066 pieces 2-3), so
+/// that route, and an estimate that fails, leave the seed or copy to go as before. The
+/// snapshot behind a listing-first route is not built yet either: the line says when the
+/// laptop could sleep once it is.
+fn routed_to_projection(local: &Path) -> bool {
+    let Ok(estimate) = sync_cli::estimate::of_folder(local) else {
+        return false;
+    };
+    // A rate this Mac never measured is the router's conservative default.
+    let uplink = if estimate.measured { estimate.rate } else { route::DEFAULT_UPLINK };
+    let mut route = route::choose(estimate.folder_bytes, estimate.folder_files, uplink);
+    // A listing cut short counts at least this much: never a whole snapshot.
+    if !estimate.complete && route == route::Route::WholeSnapshot {
+        route = route::Route::ListingFirstSnapshotBehind;
+    }
+    let sleep = route::sleep_minutes(estimate.folder_bytes, uplink);
+    eprintln!(
+        "cmux link seed push: route {route:?} ({}, {} files, uplink {uplink} B/s{}; the laptop could sleep in {sleep} min once a snapshot uploads behind)",
+        sync_cli::bytes_text(estimate.folder_bytes),
+        estimate.folder_files,
+        if estimate.measured { "" } else { ", default rate: none measured" },
+    );
+    route != route::Route::WholeSnapshot
 }
 
 /// A push that projected: the machine's answer to it.
@@ -956,6 +991,8 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         .map(|item| {
             let kind = if item.why.starts_with("a separate git repository") {
                 "repository"
+            } else if item.why.starts_with("a big file") {
+                "big"
             } else {
                 "secret"
             };
@@ -1202,7 +1239,7 @@ fn wait_job(
 ) -> Result<Ended, SeedError> {
     let mut report = throttled();
     loop {
-        let status = call("git.seed.status", json!({"job": job}))?;
+        let status = call("git.seed.status", json!({"job": job, "wait_ms": STATUS_HOLD_MS}))?;
         match status.get("state").and_then(Value::as_str) {
             Some("done") => {
                 super::spans::remote("git.seed.start", &status);
@@ -1245,7 +1282,10 @@ fn wait_job(
                 format!("the seed did not finish within {} minutes", SEED_DEADLINE.as_secs() / 60),
             ));
         }
-        pause();
+        // The machine held the answer while the job ran: ask again at once.
+        if status.get("waited").and_then(Value::as_bool) != Some(true) {
+            pause();
+        }
     }
 }
 
@@ -1414,6 +1454,7 @@ mod tests {
             bundle_bytes: 10,
             unchanged: false,
             lfs_attributes: Vec::new(),
+            lfs_files: Vec::new(),
         }
     }
 
