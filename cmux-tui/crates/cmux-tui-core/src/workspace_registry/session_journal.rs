@@ -1543,7 +1543,8 @@ pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64>
         .prepare_cached(
             "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
-           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_pruned_ranges), 0)
          )",
         )?
         .query_row([], |row| row.get::<_, i64>(0))?;
