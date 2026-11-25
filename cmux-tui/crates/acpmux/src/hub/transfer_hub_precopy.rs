@@ -31,7 +31,8 @@ use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
 use super::transfer_pull::{
-    MANIFEST_PULL_VERSION, MAX_BODY, plain_daemon, pull_error, pull_manifest, write_pulled_manifest,
+    MANIFEST_PULL_WIRE_VERSION, MAX_BODY, plain_daemon, pull_error, pull_manifest,
+    write_pulled_manifest,
 };
 use super::*;
 
@@ -89,7 +90,7 @@ impl Hub {
             // Past one hub message: the target pulls the manifest from the prepare's folder.
             let dir = inside(&transfers_dir(), prepare_id)?;
             let reference = write_pulled_manifest(&dir, prepare_id, prepared)?;
-            body = json!({"version": MANIFEST_PULL_VERSION, "sessionId": session_id,
+            body = json!({"version": MANIFEST_PULL_WIRE_VERSION, "sessionId": session_id,
                           "stage": {"manifestPull": reference}});
         }
         let op = crate::mesh_relay_config::MOVE_OP;

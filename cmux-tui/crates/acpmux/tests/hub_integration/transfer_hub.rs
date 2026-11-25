@@ -19,7 +19,7 @@
 
 use super::transfer::texts;
 use super::*;
-use acpmux::hub::transfer_pull::{MANIFEST_PULL_VERSION, MAX_BODY, OLD_VERSION_REFUSAL};
+use acpmux::hub::transfer_pull::{MANIFEST_PULL_WIRE_VERSION, MAX_BODY, OLD_VERSION_REFUSAL};
 use acpmux::hub::transfer_pull::{PageSource, TransferDial};
 use acpmux::mesh::{
     Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
@@ -485,7 +485,7 @@ async fn a_manifest_past_one_hub_message_is_pulled_and_the_chat_lands_whole() {
     assert_eq!(answer["moved"]["sessionId"], id.as_str(), "{answer}");
     let sent = mesh.sent.lock().unwrap().clone();
     assert_eq!(sent.len(), 1, "one control");
-    assert_eq!(sent[0]["version"], MANIFEST_PULL_VERSION, "by reference");
+    assert_eq!(sent[0]["version"], MANIFEST_PULL_WIRE_VERSION, "by reference");
     assert!(sent[0].get("manifest").is_none(), "no manifest inline");
     assert_eq!(sent[0]["manifestPull"]["bytes"], begin.to_string().len(), "{}", sent[0]);
     assert!(sent[0].to_string().len() <= MAX_BODY);
@@ -533,7 +533,7 @@ async fn an_old_target_refuses_a_pulled_manifest_clearly_and_the_chat_is_given_b
     )
     .await
     .unwrap_err();
-    assert_eq!(mesh.sent.lock().unwrap()[0]["version"], MANIFEST_PULL_VERSION);
+    assert_eq!(mesh.sent.lock().unwrap()[0]["version"], MANIFEST_PULL_WIRE_VERSION);
     let data = refused.data.clone().unwrap_or(Value::Null);
     assert_eq!(data["refused"], true, "the client aborts on it: {refused:?}");
     assert_eq!(data["reason"], "transfer.target_too_old", "{refused:?}");

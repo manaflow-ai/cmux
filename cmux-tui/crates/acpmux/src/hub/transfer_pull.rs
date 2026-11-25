@@ -32,7 +32,7 @@
 //! A manifest of any size: one hub message holds 64 KiB ([`MAX_BODY`]), and a long chat's
 //! manifest is more (a 56-turn lane, 2026-11-24, refused `transfer.size`). A body that fits goes
 //! as version 1, as before, so an old target takes it unchanged. One that does not goes as
-//! version 2 ([`MANIFEST_PULL_VERSION`]): the source writes the manifest into the move's folder
+//! version 2 ([`MANIFEST_PULL_WIRE_VERSION`]): the source writes the manifest into the move's folder
 //! ([`MANIFEST_FILE`]) and the body names it by `manifestPull: {transferId, bytes, sha256}`; the
 //! target reads it over the same circuit as the pages (method `manifest`, [`pull_manifest`]),
 //! checks its size and hash, and goes on as with one sent inline. The precopy's `stage` does the
@@ -59,7 +59,7 @@ const MOVE_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
 /// The largest control body one hub message carries (`server/mesh_relay.rs` refuses more).
 pub const MAX_BODY: usize = 64 * 1024;
 /// The control body version of a `move` (or `stage`) whose manifest the target pulls.
-pub const MANIFEST_PULL_VERSION: u64 = 2;
+pub const MANIFEST_PULL_WIRE_VERSION: u64 = 2;
 /// What the control hook answers a body version it does not take: an old build's words exactly,
 /// which the source reads as "this target pulls no manifest" ([`too_old`]).
 pub const OLD_VERSION_REFUSAL: &str = "unsupported control body version";
@@ -633,7 +633,7 @@ impl Hub {
                 o.remove("manifest");
             }
             body.set("manifestPull", reference);
-            body.set("version", json!(MANIFEST_PULL_VERSION));
+            body.set("version", json!(MANIFEST_PULL_WIRE_VERSION));
             if body.to_string().len() > MAX_BODY {
                 return Err(pull_error(
                     "size",

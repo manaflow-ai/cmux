@@ -859,10 +859,10 @@ async fn run_control(
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
     // Version 2 is a `move` whose manifest the target pulls over the circuit
-    // (`hub/transfer_pull.rs` `MANIFEST_PULL_VERSION`); every other op stays at 1.
+    // (`hub/transfer_pull.rs` `MANIFEST_PULL_WIRE_VERSION`); every other op stays at 1.
     let version = body.get("version").and_then(serde_json::Value::as_u64);
     let pulled_move = op == crate::mesh_relay_config::MOVE_OP
-        && version == Some(crate::hub::transfer_pull::MANIFEST_PULL_VERSION);
+        && version == Some(crate::hub::transfer_pull::MANIFEST_PULL_WIRE_VERSION);
     if version != Some(1) && !pulled_move {
         return Some(Ack::refused(crate::hub::transfer_pull::OLD_VERSION_REFUSAL));
     }
