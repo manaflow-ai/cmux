@@ -1,0 +1,32 @@
+/* A subagent composer's read-only model and mode chips (SubagentForkChips.tsx): the chat's chips in
+   the muted text color, which every theme and the glass keep legible, never a lowered opacity that
+   reads as a broken control. Hover and the open menu still light the chip: a click forks. */
+.acpmux-chip-readonly .acpmux-picker-button,
+.acpmux-chip-readonly .acpmux-model-name,
+.acpmux-chip-readonly .acpmux-mode-text {
+  color: var(--agent-muted);
+}
+.acpmux-chip-readonly span.acpmux-picker-button {
+  cursor: default;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-chip-readonly span.acpmux-picker-button:hover {
+    background: none;
+  }
+}
+
+/* The `hover` look: the chips keep their room and show only while the pointer or focus is on the
+   composer, so nothing in the row moves when they do. */
+.acpmux-composer:not(:hover, :focus-within) .acpmux-subagent-chips--hover {
+  visibility: hidden;
+}
+
+/* The fork menu's first line: why the chip is fixed, in the menu's description text. */
+.acpmux-subagent-fork-note {
+  max-width: 280px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 1.35;
+  white-space: normal;
+}
