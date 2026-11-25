@@ -468,7 +468,8 @@
           "symbol": "laptopcomputer",
           "note": "Devices holds what the Server page showed; its old links open it (legacy_ids). It sits under Accounts and Devices, where the join prompt's \"Settings > Devices\" points (Leo 2026-11-22: \"i also couldnt find settings devices control\").",
           "groups": [
-            {"group": "settings.group.screenSharing", "note": "Whether an agent or the CLI may start viewing the person's own devices without their click."}
+            {"group": "settings.group.screenSharing", "note": "Whether an agent or the CLI may start viewing the person's own devices without their click."},
+            {"group": "settings.group.tailnet", "note": "Preferences for adding Cloud machines to the person's Tailscale or Headscale tailnet."}
           ],
           "lead": ["devices"],
           "trail": ["server", "tailnet"],
