@@ -78,6 +78,12 @@
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
 .acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+/* Header Path (agentPane.display.headerBreadcrumb, off by default; Taste Board #20): repo / branch / title
+   as one monospace path. The leading parts are muted and shrink first; the slashes are fainter still. */
+.acpmux-thread-crumbs{display:flex;align-items:baseline;min-width:0;max-width:60vw;padding:0 4px;font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--text-control);line-height:var(--acpmux-header-control-height,26px);white-space:nowrap;overflow:hidden;cursor:default;user-select:none}
+.acpmux-thread-crumb{flex:0 1000 auto;min-width:3ch;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
+.acpmux-thread-crumb-sep{flex:none;color:color-mix(in srgb,var(--agent-muted) 55%,transparent)}
+.acpmux-thread-crumbs .acpmux-thread-title{flex:0 1 auto;padding:0;max-width:none;font-family:inherit;font-size:inherit}
 .acpmux-delete-dialog.ui-dialog{--ui-dialog-padding:var(--ds-space-4)}
 .acpmux-delete-dialog{max-width:360px;padding:var(--ui-dialog-padding,var(--ds-space-4));color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}

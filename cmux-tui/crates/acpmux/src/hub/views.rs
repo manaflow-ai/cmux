@@ -309,6 +309,11 @@ pub fn lane(summary: &Value) -> Value {
 /// leaves part of a secret unmasked. Null when there is neither, or when a
 /// person's own message is the last one (it says nothing new).
 fn lane_step(summary: &Value) -> Value {
+    // A chat waiting for capacity says so, never its harness's raw "API Error: 529 …" reply
+    // (`capacity_wait.rs`): "paused for capacity, resumes ~22:41Z".
+    if let Some(line) = super::capacity_wait::paused_line(&summary["capacityWait"]) {
+        return Value::String(line);
+    }
     let reply = || {
         (summary["lastMessage"]["role"] == "agent")
             .then(|| summary["lastMessage"]["text"].as_str())
@@ -469,7 +474,14 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true)
+        self.summary_with_tools(session, true, false)
+    }
+
+    /// The whole row of a chat for the `session_changed` that follows one of its records: its
+    /// summary, with the time breakdown only when the row owes it
+    /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
+    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, true, true)
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -520,6 +532,12 @@ impl Hub {
                 hub.seed_time_breakdown(&session, backfill);
             }
         });
+    }
+
+    /// [`Self::seed_time_breakdown`] for a server test that needs a chat with a breakdown.
+    #[cfg(test)]
+    pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
+        self.seed_time_breakdown(session, false);
     }
 
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
@@ -691,7 +709,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false)
+        self.summary_with_tools(session, false, false)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -705,7 +723,9 @@ impl Hub {
         Some(cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some())
     }
 
-    fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
+    /// `change_row`: the row follows a record (`session_change_summary`), so it carries the
+    /// time breakdown only when owed.
+    fn summary_with_tools(&self, session: &Session, with_tools: bool, change_row: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
@@ -802,7 +822,6 @@ impl Hub {
             last_message: last_message(&m),
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
-            rolling_summary: m.rolling_summary.clone(),
             approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
@@ -941,6 +960,13 @@ impl Hub {
                 retry.as_ref(),
                 retry_deciding,
             ),
+            // One calm capacity wait for every client to draw (`capacity_wait.rs`).
+            capacity_wait: super::capacity_wait::of(
+                m.last_turn.as_ref(),
+                retry.as_ref(),
+                retry_deciding,
+                session.rate_hold.until(),
+            ),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
             retry_deciding,
@@ -955,7 +981,15 @@ impl Hub {
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
             usage_stats: self.usage_stats_of(session, &m),
             // A detail/attach read seeds this lazily; census rows never scan journals.
-            time_breakdown: with_tools.then(|| self.cached_time_breakdown(session)).flatten(),
+            time_breakdown: match (with_tools, change_row) {
+                (false, _) => None,
+                (true, false) => self.cached_time_breakdown(session),
+                (true, true) => session
+                    .time_breakdown
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .row_snapshot(crate::store::now_ms()),
+            },
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -979,6 +1013,12 @@ impl Hub {
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
         }
+        // Auto mode (`auto_session/record.rs`): where the chat runs and what the person can do.
+        // On every row, so the pane tells Auto off from a daemon without Auto.
+        summary.set(
+            "autoSession",
+            crate::auto_session::record::AutoRecord::row_of(m.auto_session.as_ref()),
+        );
         // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
         // unfinished closes from `ls --closed --json`.
         if m.status == SessionStatus::Closed
@@ -1239,6 +1279,9 @@ impl Hub {
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
+            // This daemon's scale-up: idle, adding or cooling, and the last run's outcome
+            // (`fleet_elastic.rs`, version 1).
+            "scaleUp": super::admission_scale_up::ScaleUp::daemon().status(std::time::Instant::now()),
             "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it
@@ -1271,6 +1314,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
+            // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
+            "fleetHold": self.fleet_hold_shown(),
         })
     }
 }

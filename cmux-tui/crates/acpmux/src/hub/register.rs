@@ -412,8 +412,9 @@ impl Hub {
             if let Some(map) = tags.as_object_mut() {
                 map.insert(REGISTERED_TAG.to_owned(), json!("true"));
             }
-            mark_registered(&session.id)
-                .map_err(|e| RpcError::internal(format!("could not keep the registration: {e}")))?;
+            mark_registered(&session.id).map_err(|e| {
+                crate::recovery::write_error("could not keep the registration", e, None)
+            })?;
             // A stale or contested registration this one replaces no longer holds
             // (`bridge.rs` `note_unreached`).
             let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
@@ -432,7 +433,9 @@ impl Hub {
                     crate::qos::off_worker(|| {
                         crate::claude_peers::save_token(&home, &session.id, &kept)
                     })
-                    .map_err(|e| RpcError::internal(format!("could not keep the token: {e}")))?;
+                    .map_err(|e| {
+                        crate::recovery::write_error("could not keep the token", e, None)
+                    })?;
                     token_kept = true;
                 }
                 _ => crate::qos::off_worker(|| {
