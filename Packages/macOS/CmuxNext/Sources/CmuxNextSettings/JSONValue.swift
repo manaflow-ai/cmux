@@ -97,7 +97,7 @@ public enum JSONValue: Sendable, Hashable, Codable {
         case is NSNull:
             self = .null
         case let number as NSNumber:
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            if number.isBoolean {
                 self = .bool(number.boolValue)
             } else {
                 self = .number(number.doubleValue)
@@ -281,5 +281,18 @@ extension JSONValue: ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, Ex
     public init(arrayLiteral elements: JSONValue...) { self = .array(elements) }
     public init(dictionaryLiteral elements: (String, JSONValue)...) {
         self = .object(Dictionary(elements, uniquingKeysWith: { _, last in last }))
+    }
+}
+
+extension NSNumber {
+    /// Whether this boxed number is a Bool (a JSON or property list true/false), not a number.
+    /// Darwin boxes Bool as CFBoolean; Linux Foundation has no such type, so there a Bool is
+    /// the `c` type NSNumber(value: Bool) reports.
+    var isBoolean: Bool {
+        #if canImport(Darwin)
+        CFGetTypeID(self) == CFBooleanGetTypeID()
+        #else
+        String(cString: objCType) == "c"
+        #endif
     }
 }

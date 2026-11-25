@@ -1,0 +1,29 @@
+# CmuxNextSettings' files the Linux settings exporter compiles (scripts/cmux-next/regenerate-settings-exports-linux.sh),
+# relative to Sources/CmuxNextSettings: the schema and managed-preferences model without AppKit or the controller.
+# The generated *.generated.swift (gen-settings-sources.py --swift-out) are added by the script.
+BrowserOmnibarSetting.swift
+JSONValue.swift
+Managed/ManagedPolicyKey.swift
+Managed/ManagedPreferences+Features.swift
+Managed/ManagedPreferences.swift
+Managed/ManagedPreferencesManifest+Docs.swift
+Managed/ManagedPreferencesManifest.swift
+Schema/DeterministicJSON.swift
+Schema/OmnibarSettingsSchema.swift
+Schema/SettingChoice.swift
+Schema/SettingConsumer.swift
+Schema/SettingDescriptor+Palette.swift
+Schema/SettingDescriptor+Values.swift
+Schema/SettingDescriptor.swift
+Schema/SettingKind.swift
+Schema/SettingPaletteExposure.swift
+Schema/SettingSurfacePlan.swift
+Schema/SettingText.swift
+Schema/SettingsPageLayout+Categories.swift
+Schema/SettingsSchema+Retired.swift
+Schema/SettingsSchema.swift
+Schema/SettingsSchemaExport.swift
+Schema/SettingsSchemaSamples.swift
+Schema/SettingsText.swift
+SettingsDiagnostic.swift
+WorkspaceRowSetting.swift

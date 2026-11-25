@@ -65,7 +65,7 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
     public static func json(fromPropertyList value: Any) -> JSONValue? {
         switch value {
         case let number as NSNumber:
-            if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
+            if number.isBoolean { return .bool(number.boolValue) }
             return .number(number.doubleValue)
         case let string as String:
             return .string(string)

@@ -241,7 +241,12 @@ extension SettingDescriptor {
         switch unit {
         case .points: return String(format: SettingsText.text("settings.value.points", "%@ pt"), number)
         // "1,300 ms", localized by Foundation.
-        case .milliseconds: return Measurement(value: value, unit: UnitDuration.milliseconds).formatted(.measurement(width: .abbreviated))
+        case .milliseconds:
+            #if canImport(Darwin)
+            return Measurement(value: value, unit: UnitDuration.milliseconds).formatted(.measurement(width: .abbreviated))
+            #else
+            return "\(number) ms"  // swift-corelibs-foundation has no Measurement.formatted; palette text is not exported.
+            #endif
         case .seconds: return String(format: SettingsText.text("settings.value.seconds", "%@ s"), number)
         case .minutes: return String(format: SettingsText.text("settings.value.minutes", "%@ min"), number)
         case .days: return days(Int(value.rounded())) ?? number
@@ -251,9 +256,13 @@ extension SettingDescriptor {
 
     /// "30 days", localized by Foundation.
     private static func days(_ count: Int) -> String? {
+        #if canImport(Darwin)
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.day]
         formatter.unitsStyle = .full
         return formatter.string(from: DateComponents(day: count))
+        #else
+        return nil
+        #endif
     }
 }
