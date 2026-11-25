@@ -69,11 +69,10 @@ public final class GitHubConnections {
     }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
-    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map { resumable(Ask(scope: $0, repo: nil)) } == true) }
-
-    /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
-    /// connect whose response was lost (replaying it returns the same pending connection's URL).
-    private func resumable(_ ask: Ask) -> Bool { authorizations[ask] != nil || connectKeys[ask] != nil }
+    /// A pending connection never blocks Connect (#46018): this launch resumes its own flow (its cached URL, or the key
+    /// of a connect whose answer was lost); one it can't resume (another launch's, or one whose return to cmux failed)
+    /// can't be finished, so Connect asks for a new one and the stale one expires on its own (30 min).
+    public var canConnect: Bool { ready && !busy && !connected }
 
     /// An active connection's Reconfigure: its installation's page on GitHub, where the person changes the account's
     /// or org's repository access (another account or org: Disconnect, then Connect GitHub picks it).
@@ -109,11 +108,9 @@ public final class GitHubConnections {
             switch action {
             case "githubConnect":
                 linkRefusal = nil // a new Connect starts over
-                // A pending flow from another launch has no resumable URL or key here.
-                // Keep it pending until refresh or disconnect resolves that flow. A card's ask (a
-                // repository) goes to the API whatever the list says: the API knows what covers it.
+                // A card's ask (a repository) goes to the API whatever the list says: the API knows what covers it.
                 let ask = Ask(scope: bound, repo: repo)
-                guard ready, repo != nil || !connected, repo != nil || !pending || resumable(ask) else { return }
+                guard ready, repo != nil || !connected else { return }
                 if let authorization = authorizations[ask], authorization.expires <= now() {
                     authorizations[ask] = nil
                     connectKeys[ask] = nil

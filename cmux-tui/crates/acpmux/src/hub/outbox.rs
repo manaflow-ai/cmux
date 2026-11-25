@@ -409,6 +409,9 @@ pub struct OutboxState {
     /// or hung disk does.
     #[cfg(test)]
     stall: StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Injected once, at the journal write, before the usual rollback.
+    #[cfg(test)]
+    pub(crate) next_write_error: StdMutex<Option<std::io::Error>>,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -867,6 +870,12 @@ impl OutboxState {
             {
                 let _ = started.send(());
                 let _ = go_on.recv();
+            }
+            #[cfg(test)]
+            if let Some(error) =
+                self.next_write_error.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                return Err(error.into());
             }
             let journal = journal_path(&path);
             if lines.iter().any(|b| *b != b'\n') {
