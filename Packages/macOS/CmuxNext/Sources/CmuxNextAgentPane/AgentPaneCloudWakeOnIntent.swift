@@ -27,6 +27,9 @@ public final class AgentPaneCloudWakeOnIntent {
         }
     }
 
+    /// The wake hint's protocol version this shell sends (cmux-cloud-handlers `WAKE_HINT_VERSION`).
+    public static let version = 1
+
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud.wake-hint")
     private let port: Port
     private var timers: [String: DemandTimer] = [:]

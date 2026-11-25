@@ -279,6 +279,14 @@ public final class AgentPaneCloudMachines {
     /// Forwards a wake-on-intent hint (machine, raw signal, sender version) to the rules; true when it
     /// resumed the machine. Never a gesture.
     public var wakeHint: (@MainActor (String, String, Int) async -> Bool)?
+
+    /// A raw wake-on-intent signal the Mac shell saw (a paused machine's terminal tab shown), sent like
+    /// the page's `cloudMachine.wakeHint`; the rules (debounce, cap, re-pause) are Rust's.
+    public func intent(_ id: String, signal: String) {
+        guard let wakeHint else { return }
+        // task-owner: one hint; the rules answer at once and the resume is bounded by its own Cloud call
+        Task { _ = await wakeHint(id, signal, AgentPaneCloudWakeOnIntent.version) }
+    }
     /// What follows the account's active team for ``publishTeamChange()``; a new one replaces it.
     public var teamWatch: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// The account's last Cloud plan read (``Plan``), reused for a minute: the list's `plan`.
