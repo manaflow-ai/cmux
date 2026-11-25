@@ -20,6 +20,11 @@
 //! - **Owner records are stored with the peer**: [`OwnerRecord`] rows (healthy, round trip, when
 //!   checked, last error, calls carried) in `~/.acpmux/broker-owners/<socket name>.json`, written
 //!   after each check, so a restart starts from the last pick and `cat` shows why it was made.
+//!
+//! `lane-gh` speaks first (one request line, then the broker's reply), so each connection's
+//! first bytes go with its `remote.pipe` as `early` bytes and ride right behind the stream's
+//! OPEN: the reply comes one relay round trip after the connect, not two (the OPEN's answer,
+//! then the request and its reply). A daemon from before `early` carries them after its reply.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -220,7 +225,7 @@ pub async fn check_all(owners: &Owners, daemon: &Path) {
 pub async fn check(owner: &str, daemon: &Path) -> Result<Duration, String> {
     let started = Instant::now();
     let ping = async {
-        let mut pipe = open_pipe(owner, daemon).await.map_err(|e| format!("{e:#}"))?;
+        let mut pipe = open_pipe(owner, daemon, &[]).await.map_err(|e| format!("{e:#}"))?;
         pipe.write_all(b"{\"op\":\"ping\",\"check_push\":false}\n")
             .await
             .map_err(|e| format!("send the ping: {e}"))?;
@@ -265,15 +270,24 @@ fn bind(socket: &Path) -> Result<UnixListener> {
     UnixListener::bind(socket).with_context(|| format!("listen at {}", socket.display()))
 }
 
+/// The most of a connection's first bytes sent as a pipe's `early` bytes
+/// (`HubCarrier::EARLY_BYTES`; the CLI builds without the `hub-carrier` feature).
+const EARLY_BYTES: usize = 64 * 1024;
+/// How long a connection's first bytes are waited for before its pipe opens without them: a
+/// `lane-gh` call writes its request as soon as it connects.
+const FIRST_BYTES_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Carry one client connection to the first owner whose pipe opens (module docs).
 pub(crate) async fn carry_any(
     mut client: UnixStream,
     owners: &Owners,
     daemon: &Path,
 ) -> Result<()> {
+    // Read once: a refused pipe never handed them to a broker, so the next owner gets the same.
+    let early = first_bytes(&mut client).await;
     let mut refusals = Vec::new();
     for owner in owners.order() {
-        let opened = tokio::time::timeout(OPEN_BOUND, open_pipe(&owner, daemon)).await;
+        let opened = tokio::time::timeout(OPEN_BOUND, open_pipe(&owner, daemon, &early)).await;
         let mut pipe = match opened {
             Ok(Ok(pipe)) => pipe,
             Ok(Err(e)) => {
@@ -297,18 +311,36 @@ pub(crate) async fn carry_any(
     Err(anyhow!("no owner's broker reachable: {}", refusals.join("; ")))
 }
 
-/// A `remote.pipe` to `owner`'s lane-gh broker on the daemon at `daemon`, past its reply line.
-pub(crate) async fn open_pipe(owner: &str, daemon: &Path) -> Result<UnixStream> {
+/// What the client sent first, within [`FIRST_BYTES_WAIT`] (empty when it sent nothing yet or
+/// closed: the pipe then opens without early bytes and carries whatever comes).
+async fn first_bytes(client: &mut UnixStream) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+    let mut early = vec![0u8; EARLY_BYTES];
+    let n = match tokio::time::timeout(FIRST_BYTES_WAIT, client.read(&mut early)).await {
+        Ok(Ok(n)) => n,
+        _ => 0,
+    };
+    early.truncate(n);
+    early
+}
+
+/// A `remote.pipe` to `owner`'s lane-gh broker on the daemon at `daemon`, past its reply line,
+/// whose stream starts with `early`, sent with the request so the daemon puts them behind the
+/// stream's OPEN.
+pub(crate) async fn open_pipe(owner: &str, daemon: &Path, early: &[u8]) -> Result<UnixStream> {
     let mut stream = UnixStream::connect(daemon)
         .await
         .with_context(|| format!("this machine's daemon at {}", daemon.display()))?;
     // `hub_carrier::LANE_GH_BROKER_SERVICE`; the CLI builds without the `hub-carrier` feature.
-    let request = Message::request(
-        1,
-        method::MUX_REMOTE_PIPE,
-        json!({"machine": owner, "service": "lane-gh-broker"}),
-    );
-    stream.write_all(request.to_line().as_bytes()).await?;
+    let mut params = json!({"machine": owner, "service": "lane-gh-broker"});
+    if !early.is_empty() {
+        params["early"] = early.len().into();
+    }
+    let request = Message::request(1, method::MUX_REMOTE_PIPE, params);
+    // One write: the request line and its early bytes reach the daemon together.
+    let mut out = request.to_line().into_bytes();
+    out.extend_from_slice(early);
+    stream.write_all(&out).await?;
     // One line, read a byte at a time so no carried byte is buffered away.
     let mut line = Vec::new();
     let mut reader = BufReader::with_capacity(1, &mut stream);
