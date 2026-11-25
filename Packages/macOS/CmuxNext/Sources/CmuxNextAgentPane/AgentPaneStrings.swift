@@ -26,6 +26,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .localizedModule)
     }
 
+    /// A folder the person picked for a chat that no longer exists (a reboot wiped a temporary
+    /// folder, a worktree was removed): which one, and the way out.
+    static func folderMissingMessage(_ path: String) -> String {
+        String(format: String(localized: "agentPane.error.folderMissing",
+                              defaultValue: "The folder %@ no longer exists. Pick another folder.", bundle: .localizedModule),
+               path)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .localizedModule)
