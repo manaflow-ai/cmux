@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.models.spreadUsage.help" : {
+      "comment" : "Settings > Models: help text of the spread toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند نفاد أحد الاشتراكات، تنتقل المحادثة إلى اشتراك آخر بالنموذج نفسه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kada jedna pretplata potroši limit, chat prelazi na drugu s istim modelom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når et abonnement er brugt op, flytter en chat til et andet med samme model."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ist ein Abo aufgebraucht, wechselt ein Chat zu einem anderen mit demselben Modell."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When one subscription runs out, a chat moves to another with the same model."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuando una suscripción se agota, el chat pasa a otra con el mismo modelo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quand un abonnement est épuisé, la discussion passe à un autre avec le même modèle."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando un abbonamento si esaurisce, una chat passa a un altro con lo stesso modello."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "あるサブスクリプションの上限に達すると、同じモデルを使える別のサブスクリプションにチャットが移ります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "នៅពេលការជាវមួយអស់ ការជជែកផ្លាស់ទៅការជាវផ្សេងទៀតដែលមានម៉ូដែលដដែល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "한 구독의 한도가 다 되면 같은 모델을 쓰는 다른 구독으로 채팅이 옮겨갑니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når ett abonnement er brukt opp, flyttes en chat til et annet med samme modell."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy jedna subskrypcja się wyczerpie, czat przechodzi na inną z tym samym modelem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando uma assinatura se esgota, o chat passa para outra com o mesmo modelo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда одна подписка исчерпана, чат переходит на другую с той же моделью."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อการสมัครสมาชิกหนึ่งใช้หมด แชตจะย้ายไปยังอีกรายการที่มีโมเดลเดียวกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir abonelik tükendiğinde sohbet, aynı modeli sunan başka bir aboneliğe geçer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли одна підписка вичерпана, чат переходить на іншу з тією самою моделлю."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi một gói hết hạn mức, cuộc trò chuyện chuyển sang gói khác có cùng mô hình."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一个订阅用完后，聊天会转到另一个提供同一模型的订阅。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "一個訂閱用完後，聊天會轉到另一個提供同一模型的訂閱。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
