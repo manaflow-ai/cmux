@@ -34,7 +34,8 @@ public final class SystemClipboardPasteboard: RemoteClipboardPasteboard {
 
 /// Whether a session may sync its clipboard: the `remoteDesktop.clipboard` setting, and for
 /// `ownDevicesOnly` only a session to one of the person's own devices.
-public nonisolated enum RemoteClipboardPolicy {
+public nonisolated struct RemoteClipboardPolicy {
+    public nonisolated init() {}
     public static func allows(_ setting: RemoteDesktopSettings.Clipboard, ownDevice: Bool) -> Bool {
         switch setting {
         case .always: true
