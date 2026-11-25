@@ -3769,6 +3769,12 @@
       "title" : "Composer Hat: Two Groups",
       "type" : "boolean"
     },
+    "experiments.foldSummaryCounts" : {
+      "default" : false,
+      "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
+      "title" : "Fold Summary Counts",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
