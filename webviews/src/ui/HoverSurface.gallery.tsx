@@ -38,18 +38,22 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
     // Each surface sits where the app puts it: centered on its target, 4 px above (or below) it,
     // inside the stage.
     const stageBox = root.getBoundingClientRect();
-    for (const surface of surfaces) {
+    const gap = 4;
+    // Measure every surface first, then place them, so no placement forces a second layout.
+    const placements = surfaces.flatMap((surface) => {
       const target = root.querySelector(surface.dataset.galleryAnchor ?? "");
-      if (!target) continue;
+      if (!target) return [];
       const anchor = target.getBoundingClientRect();
       const box = surface.getBoundingClientRect();
-      const gap = 4;
       const centered = anchor.left + anchor.width / 2 - box.width / 2 - stageBox.left;
       const left = Math.max(gap, Math.min(centered, stageBox.width - box.width - gap));
       const top =
         surface.dataset.gallerySide === "bottom"
           ? anchor.bottom + gap - stageBox.top
           : anchor.top - gap - box.height - stageBox.top;
+      return [{ surface, left, top }];
+    });
+    for (const { surface, left, top } of placements) {
       surface.style.left = `${left}px`;
       surface.style.top = `${top}px`;
     }
