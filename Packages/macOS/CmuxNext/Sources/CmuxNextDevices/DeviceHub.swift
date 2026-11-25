@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 import os
 
 /// The signed-in user's devices as this app sees them: who is online, who
@@ -334,11 +335,13 @@ public final class DeviceHub {
     /// Reads the list now, and again after each failure, until one read succeeds: the socket's connect is
     /// not the only way to a list (a socket that never connects left Your Devices on "Loading" for good).
     private func readListUntilListed(run: Int) async {
-        // wakeup-allow: retries a failed device-list read every `listRetryDelay` until one succeeds or the hub stops.
+        var backoff = Backoff(initial: listRetryDelay, maximum: max(listRetryDelay, .seconds(60)))
+        // wakeup-allow: each failed read awaits Backoff.wait; ends on a listed read, cancel or a new run.
         while !Task.isCancelled, run == generation, !devicesListed {
             await refreshDevices()
             guard !devicesListed, !Task.isCancelled else { return }
-            do { try await ContinuousClock().sleep(for: listRetryDelay) } catch { return }
+            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+            do { try await backoff.wait(owner: "device-hub.list-retry") } catch { return }
         }
     }
 
