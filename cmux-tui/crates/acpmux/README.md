@@ -455,8 +455,10 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
-`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport`,
+`agent_exited` or `disk`), null otherwise. A turn a full disk cut ("No space left on device")
+waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
+re-checked every 15 s), then goes on the same way. Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
 words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
