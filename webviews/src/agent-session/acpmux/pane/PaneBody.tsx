@@ -2,6 +2,7 @@
 // header, transcript, side panels, asks, composer slot and dialogs), moved out of App.tsx as it was.
 // A plain render function AcpmuxPane calls inline for its `pane`, so React sees the same element
 // tree (no component boundary of its own); every hook stays in AcpmuxPane, and this holds no state.
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type React from "react";
 import type { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import type { sideChatRow } from "../header/sideChatRow";
@@ -197,6 +198,8 @@ export type PaneBodyDeps = NewTabShown &
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
     trayHandle: TrayHandleSide;
+    /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
+    hatPill: HatPillPlace | undefined;
     chatMinimapBeside: boolean;
     hasBottomAsk: boolean;
     setPaneMain: (element: HTMLDivElement | null) => void;
@@ -513,6 +516,7 @@ export function drawPaneBody({
   previewBeside,
   jumpPlaceArm,
   trayHandle,
+  hatPill,
   chatMinimapBeside,
   hasBottomAsk,
   setPaneMain,
@@ -828,6 +832,8 @@ export function drawPaneBody({
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
           data-jump-place={jumpPlaceArm}
           data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
+          // The tucked hat's pill and how it shares the center line with the disc (jumpPlace.css).
+          data-hat-pill={hatPill}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts

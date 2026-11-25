@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
+import { TEXT_ROLL_WIDTH } from "../../../ui/motion/TextRoll";
 import { cssTimeMs } from "../conversation/fold";
 import { motionAllowed } from "./trayMotionModel";
 
 /// The glides `useGlide` starts, told apart from a node's other animations.
 const GLIDE = "acpmux-glide";
-/// A Tick's width ease (`slide`): the one animation that already carries the parts after it.
-export const SLIDE = "acpmux-slide";
+/// A Tick's width ease (TextRoll's): the one animation that already carries the parts after it.
+const SLIDE = TEXT_ROLL_WIDTH;
 
 /// The parts of `row` that `selector` names move to a new place as one glide instead of a jump (Leo,
 /// 2026-11-09, on the hat's "+2 more" and time: "the animations don't track properly to squishy"):

@@ -301,6 +301,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     count: 2,
     what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
+  "src/agent-session/acpmux/conversation/compoundPlay.ts": {
+    count: 1,
+    what: "the compound motion scenarios' composer field eases its height (the gallery and its browser harness); transcript rows, never a menu",
+  },
   "src/agent-session/acpmux/conversation/turnFold.ts": {
     count: 2,
     what: "a turn folds: the rows that stay move, and copies of the rows it took away fade on the lead",
@@ -315,9 +319,9 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "Session Info Show more / Show less grow and close in place; a scrolled list's first row slides to its place on close",
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
-  "src/agent-session/acpmux/subagents/trayMotion.tsx": {
-    count: 2,
-    what: "a status line's width easing as its words slide; the hat's +N more and time gliding to their new place in the row",
+  "src/agent-session/acpmux/subagents/trayGlide.ts": {
+    count: 1,
+    what: "the hat's +N more and time gliding to their new place in the row",
   },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },
@@ -329,9 +333,9 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a tab bar's or segmented control's highlight travels to the selected item",
   },
   "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
-  "src/ui/motion/useTextSwap.ts": {
-    count: 4,
-    what: "a running call's words on the Working and activity lines change: the old rise out, the new rise in, the clock slides",
+  "src/ui/motion/TextRoll.tsx": {
+    count: 1,
+    what: "a live one-line label's cell eases its width from the old words' to the new ones' as they roll",
   },
   "src/ui/noticeMorph.ts": {
     count: 1,

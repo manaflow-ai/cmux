@@ -112,7 +112,9 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
+import { commandStatus, itemStart, trayItemKey, type TrayItem, SILENT_TURN_ICON } from "./runningTray";
+import type { SilentTurn } from "../conversation/silentTurns";
+import { backgroundTurnLabel } from "../conversation/backgroundTurns";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
@@ -128,6 +130,7 @@ import { HatFaces, type HatFace } from "./HatFaces";
 import { hatFaces } from "./hatFacesModel";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
+import { earlierPlanHat } from "./earlierPlanHat.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
 import { trayHead, trayHeadGroups, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
@@ -331,6 +334,11 @@ export const SubagentTray = memo(function SubagentTray({
   const [column] = useState(() => experimentArm(trayColumnLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
+  // An earlier turn's plan is a collapsed chip, never opened by default (earlierPlanHat.experiment.ts;
+  // Leo, 2026-11-25: "do we want to render it like that tho in teh composer hat"): only the person's
+  // click on it while it shows opens it, whatever the chat's remembered fold says.
+  const [earlierArm] = useState(() => experimentArm(earlierPlanHat));
+  const [chipOpened, setChipOpened] = useState(false);
   const [headClock] = useState(() => experimentArm(trayHeadClockLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
@@ -405,7 +413,12 @@ export const SubagentTray = memo(function SubagentTray({
   const lone = !planned && items.length + finished.length === 1 ? (items[0] ?? finished[0]) : undefined;
   const headed = items.length + finished.length > 0 || planned;
   // A header that opens the panel never expands in place.
-  const open = !headed || (opened === true && opensPanel !== "header");
+  const earlierChip = planned && planEarlier && earlierArm !== "before" && items.length + finished.length === 0;
+  const open = !headed || (opened === true && opensPanel !== "header" && (!earlierChip || chipOpened));
+  // A chip that left and a later one that shows start folded again.
+  useEffect(() => {
+    if (!earlierChip) setChipOpened(false);
+  }, [earlierChip]);
   // The `hide` arm (hatOpen.experiment.ts): a headed hat hides from a button in its header, not the top edge.
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
@@ -691,7 +704,8 @@ export const SubagentTray = memo(function SubagentTray({
   // plan the head keeps the work's ring.
   const planOnly = Boolean(planText) && !workText;
   // While the turn runs, a plan-only header spins and counts the turn's time (cmux#51039).
-  const planMark = planOnly ? planHeadMark({ working, turnSince }) : undefined;
+  // An earlier turn's chip neither spins nor counts: no step of this turn's is at work in it.
+  const planMark = planOnly ? planHeadMark({ working: working && !earlierChip, turnSince }) : undefined;
   // A plan-only header has no items to time: it counts the turn while the turn runs (cmux#51039).
   const headSince = itemsSince ?? planMark?.since;
   const moreCount = items.length - shownNames.length;
@@ -730,6 +744,7 @@ export const SubagentTray = memo(function SubagentTray({
     }
     setTuckQuiet(true);
     setOpened(!open);
+    setChipOpened(!open);
     rememberTrayOpen(chat, !open);
   };
   // A click on a deck's mark (HatHeadDeck.tsx) opens its line as the line's own open does: a subagent's
@@ -856,6 +871,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
       data-open-look={openLook}
+      data-earlier-chip={earlierChip ? earlierArm : undefined}
       data-header-look={headerLook === "today" ? undefined : headerLook}
       data-hide-at={hideAt}
       data-sized={(resizes && hatHeight !== undefined) || undefined}
@@ -1423,6 +1439,33 @@ export const SubagentTray = memo(function SubagentTray({
         </>
       );
     }
+    if (item.kind === "turn") {
+      // A silent turn (conversation/silentTurns.ts): a finished line in the command's row style, its
+      // time, and opened, what it did and any words it kept to itself.
+      const name = silentTurnName(t, item.turn);
+      const steps = item.turn.steps.join("\n");
+      return (
+        <>
+          <AgentLine
+            name={name}
+            chevron
+            icon={SILENT_TURN_ICON}
+            working={false}
+            status="done"
+            doneLook={doneLook}
+            state={t(STATUS_LABEL.done)}
+            quiet
+            expanded={isOpen}
+            trayColumns
+            time={<Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />}
+            onOpen={steps || item.turn.reply ? toggleThis : undefined}
+          />
+          <TrayLineFold open={isOpen}>
+            <TrayAgentDetail name={name} task={steps || undefined} latest={item.turn.reply} />
+          </TrayLineFold>
+        </>
+      );
+    }
     // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
     const sessionPhase = sessionRetry(item.session);
     const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
@@ -1577,6 +1620,13 @@ function loneHeadOf(
       time: commandTime(item.command),
     };
   }
+  if (item.kind === "turn")
+    return {
+      title: silentTurnName(t, item.turn),
+      status: "done",
+      state: t(STATUS_LABEL.done),
+      time: <Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />,
+    };
   // The chat's retry, as its line reads it (retryState.ts `sessionRetry`): a failed turn that acpmux
   // retries reads as retrying, never Failed.
   const phase = sessionRetry(item.session);
@@ -1598,15 +1648,7 @@ function loneHeadOf(
 /// start times, never a label per item.
 /// The first two names of `leading` (longest-running first, trayHeadOrder.ts).
 function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[] {
-  return leading
-    .slice(0, 2)
-    .map((item) =>
-      item.kind === "agent"
-        ? subagentTaskLabel(t, item.agent)
-        : item.kind === "command"
-          ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
-          : item.session.title,
-    );
+  return leading.slice(0, 2).map((item) => itemName(t, item));
 }
 
 const NO_PARTS: readonly TrayHeadPart[] = [];
@@ -1620,7 +1662,15 @@ function itemName(t: Translate, item: TrayItem): string {
     ? subagentTaskLabel(t, item.agent)
     : item.kind === "command"
       ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
-      : item.session.title;
+      : item.kind === "turn"
+        ? silentTurnName(t, item.turn)
+        : item.session.title;
+}
+
+/// A silent turn's line (conversation/silentTurns.ts): what started it, as the transcript's
+/// background-turn line names it ("Background update", "Scheduled check").
+function silentTurnName(t: Translate, turn: SilentTurn): string {
+  return turn.background ? backgroundTurnLabel(t, turn.background) : t("backgroundTurn.other");
 }
 
 /// The header's kinds (trayFoldHead.experiment.ts `kinds`): each kind's mark then its count, one gap
@@ -1789,12 +1839,14 @@ function stackMarks(
           }
         : item.kind === "command"
           ? { key: "commands", icon: "terminal" }
-          : {
-              key: itemKey(item),
-              harness: item.session.harness,
-              tone: agentTone(item.session.sessionId),
-              icon: "agent.chat",
-            },
+          : item.kind === "turn"
+            ? { key: "turns", icon: SILENT_TURN_ICON }
+            : {
+                key: itemKey(item),
+                harness: item.session.harness,
+                tone: agentTone(item.session.sessionId),
+                icon: "agent.chat",
+              },
     );
   }
   return marks;

@@ -6,7 +6,7 @@ import { Spinner, type SpinnerLook } from "./Spinner";
 export const SPINNER_DELAY_MS = 300;
 
 /// True once `delayMs` has passed since mount; at once when `delayMs` is 0.
-export function useDelayedVisible(delayMs: number = SPINNER_DELAY_MS): boolean {
+function useDelayedVisible(delayMs: number = SPINNER_DELAY_MS): boolean {
   const [visible, setVisible] = useState(delayMs <= 0);
   useEffect(() => {
     if (delayMs <= 0) {

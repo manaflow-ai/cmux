@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -92,6 +92,18 @@ export function FolderPopover({
   const cloudFolders = sources?.cloudFolders;
   const cloud = cloudFolders !== undefined;
   const github = sources?.github;
+  // The repository the person wanted when Connect or Choose more repositories… started came back listed (the app
+  // finished GitHub's return): it becomes the chat's folder with no second click (Leo 2026-11-25).
+  const returned = github?.state.returned;
+  const takeReturned = github?.onTakeReturned;
+  const returnedPrivate = github?.state.repos?.find((item) => item.fullName === returned)?.private ?? false;
+  useEffect(() => {
+    if (!returned) return;
+    // Taken first: the store forgets it, so this runs once per return.
+    takeReturned?.();
+    rememberAddedRepo({ fullName: returned, private: returnedPrivate });
+    if (githubFolder(returned) !== current) onPick(githubFolder(returned));
+  }, [returned, takeReturned, returnedPrivate, current, onPick]);
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [searchCollapsed, setSearchCollapsed] = useState<ReadonlySet<string>>(() => new Set());

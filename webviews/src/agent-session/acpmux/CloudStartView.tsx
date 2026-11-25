@@ -45,7 +45,7 @@ type QuietLook = "inline" | "stacked" | "hint" | "thinking";
 /// When the stage on the line began: the host's start time, else the moment this view first showed
 /// the stage, so the clock always counts (a host that sends no start time for a step still gets
 /// seconds on its line, never a bare label). A new stage starts its own count.
-export function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
+function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
   const seen = useRef<{ id: QuietStage["id"]; at: number } | undefined>(undefined);
   if (!stage) {
     seen.current = undefined;
