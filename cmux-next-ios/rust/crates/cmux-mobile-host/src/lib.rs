@@ -22,6 +22,7 @@ pub mod chief_policy;
 pub(crate) mod cloud_acp;
 pub mod config;
 pub mod control;
+pub mod dial_mailbox;
 pub mod host;
 pub mod link_deflate;
 pub mod link_socket;
