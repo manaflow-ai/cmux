@@ -31,6 +31,8 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const PIECE = 6 * 1024 * 1024;
 const NAME_PREFIX = "cmux-test-chief-";
 const HOME = "/home/cmux";
+/** How long a machine create keeps resending a timed-out request under its key. */
+const CREATE_BUDGET_MS = 240_000;
 const DIR = `${HOME}/.cmux-chief-proof`;
 /** The machine's cmux-tui, as the journey finds it. */
 const FIND_CMUX = 'c=$(command -v cmux-tui || true); [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
@@ -101,7 +103,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (Number.isFinite(at) && at > Date.UTC(2026, 0, 1) && Date.now() - at > 3_600_000 && m.status !== "deleted" && m.status !== "deleting") await remove(String(m.id));
     }
     machine = await J.step("create machine", async () => {
-      const a = await api.op("cloud.machine.create", { name: `${NAME_PREFIX}${tag}`, size: { cpu: 4, memory_mb: 8192, disk_mb: 16384 } }, `${tag}-create`);
+      // A create the API holds past op()'s 60 s request bound is sent again under the same key (it cannot make a
+      // second machine), until CREATE_BUDGET_MS: runs 45563369047 and 45561125243 timed out at 60 s on staging.
+      const t0 = Date.now();
+      let a: any;
+      for (let tries = 1; ; tries++) {
+        try {
+          a = await api.op("cloud.machine.create", { name: `${NAME_PREFIX}${tag}`, size: { cpu: 4, memory_mb: 8192, disk_mb: 16384 } }, `${tag}-create`);
+          if (tries > 1) say(`create answered on try ${tries} after ${Math.round((Date.now() - t0) / 1000)} s`);
+          break;
+        } catch (e) {
+          const timedOut = (e as Error)?.name === "TimeoutError" || /operation timed out/i.test(String((e as Error)?.message));
+          if (!timedOut || Date.now() - t0 > CREATE_BUDGET_MS) throw new Error(`${(e as Error).message} (try ${tries}, ${Math.round((Date.now() - t0) / 1000)} s)`);
+          say(`create try ${tries} timed out at ${Math.round((Date.now() - t0) / 1000)} s; sending it again under the same key`);
+        }
+      }
       const id = typeof a?.machine === "string" ? a.machine : a?.machine?.id ?? a?.machine_id ?? a?.id;
       if (typeof id !== "string") throw new Error(`create answered no machine id`);
       return { value: id, detail: id };
