@@ -100,7 +100,7 @@ extension ActionMenuContext {
 
     /// The menus in the order Settings > Menus lists them: the ones people open most first.
     public static let editorOrder: [ActionMenuContext] = [
-        .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
+        .workspaceRow, .workspaceGroup, .sidebarNew, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
         .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine,
         .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .divider, .screen, .screenGroup, .screenBar,
         .terminalSelection,
@@ -110,7 +110,7 @@ extension ActionMenuContext {
 
     public var menuArea: MenuArea {
         switch self {
-        case .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
+        case .workspaceRow, .workspaceGroup, .sidebarNew, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
              .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine: .workspace
         case .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .divider, .screen, .screenGroup, .screenBar: .tabs
         case .terminalSelection: .terminal
@@ -131,6 +131,7 @@ extension ActionMenuContext {
         case .workspaceRow: String(localized: "menu.name.workspaceRow", defaultValue: "Workspace", bundle: .localizedModule)
         case .workspaceGroup: String(localized: "menu.name.workspaceGroup", defaultValue: "Workspace Group", bundle: .localizedModule)
         case .sidebarBackground: String(localized: "menu.name.sidebarBackground", defaultValue: "Sidebar", bundle: .localizedModule)
+        case .sidebarNew: String(localized: "menu.name.sidebarNew", defaultValue: "New Workspace Button", bundle: .localizedModule)
         case .terminalSelection: String(localized: "menu.name.terminalSelection", defaultValue: "Terminal", bundle: .localizedModule)
         case .browserPage: String(localized: "menu.name.browserPage", defaultValue: "Web Page", bundle: .localizedModule)
         case .browserLink: String(localized: "menu.name.browserLink", defaultValue: "Link", bundle: .localizedModule)

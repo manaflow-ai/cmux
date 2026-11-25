@@ -903,6 +903,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the Cargo.lock merge driver
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_merge_cargo_lock.py
+
       # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
       - name: Validate string catalogs are edited in place
         if: ${{ !cancelled() && matrix.group == 'ci' }}
