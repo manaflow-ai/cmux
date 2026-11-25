@@ -611,7 +611,9 @@ test("a Cloud offered after the New Tab mounts still grants the default folder, 
 test("after a relaunch, Cloud's New Tab starts where the last Cloud chat did, not in This Mac's last folder (cmux#53226)", async () => {
   const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
   const posted: unknown[] = [];
-  (window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> }).cmuxAcpmuxActions = {
+  (
+    window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> }
+  ).cmuxAcpmuxActions = {
     "newTab.remember": async (params) => void posted.push(params),
   };
   try {
@@ -650,16 +652,17 @@ test("after a relaunch, a remembered Cloud folder of this Mac is the default and
 
 test("the New Tab context's Cloud pick reaches the page: a folder or a GitHub repository, a relative path never", async () => {
   const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
-  expect(newTabHost({ newTab: { cloudStartedProject: "github:acme/api" } })?.cloudStartedProject).toBe("github:acme/api");
+  expect(newTabHost({ newTab: { cloudStartedProject: "github:acme/api" } })?.cloudStartedProject).toBe(
+    "github:acme/api",
+  );
   expect(newTabHost({ newTab: { cloudStartedProject: PICKED } })?.cloudStartedProject).toBe(PICKED);
   expect(newTabHost({ newTab: { cloudStartedProject: "acme/api" } })?.cloudStartedProject).toBeUndefined();
   expect(newTabHost({ newTab: { cloudStartedProject: HOME } })?.cloudStartedProject).toBeUndefined();
 });
 
 test("the app's Cloud pick seeds this run's copy, so a chat restored after a relaunch (no New Tab context) reads it", async () => {
-  const { cloudPickChoices, forgetAppCloudPickForTests } = await import(
-    "../src/agent-session/acpmux/newtab/startedProject"
-  );
+  const { cloudPickChoices, forgetAppCloudPickForTests } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
   // The prewarmed spare page had the context; a restored chat's page (another module instance) has none.
   expect(cloudPickChoices("github:acme/api")).toEqual(["github:acme/api"]);
   forgetAppCloudPickForTests();
