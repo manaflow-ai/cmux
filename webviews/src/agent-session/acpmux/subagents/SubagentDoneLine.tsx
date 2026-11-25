@@ -58,6 +58,7 @@ import {
 } from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
+import { revealControls } from "../../../ui/revealCover";
 import { AgentMessageRow } from "../conversation/AgentMessageRow";
 import { messagePreview } from "../conversation/agentMessageRowModel";
 import { doneReportLook } from "./doneReport.experiment";
@@ -336,10 +337,11 @@ function DoneLine({
   return (
     <div className="cv-tools">
       <TranscriptActivityRowShell
-        className="cv-tool cv-subagent-done-row"
+        className="cv-tool cv-subagent-done-row ui-reveal-host"
         // The pointer's wider target: its trailing time and chevron open the view too.
         onClick={quietOpen ? headerToggleClick(() => quietOpen(agent.id)) : undefined}
         attributes={{
+          "data-reveal-overlap": "",
           "data-state": waiting ? "retrying" : agent.state,
           ...(look && { "data-look": look }),
           ...(compact && { "data-report-look": "compact" }),
@@ -367,14 +369,17 @@ function DoneLine({
             // What it was asked to do and why it failed, in the line itself: no chip, no ring and
             // no hover card over the row above (cmux#52916, on "Subagent  Failed" with a ringed
             // chip and a "Failed · 0s" card). The whole failure shows only where the line cuts it.
-            // tooltip-allow: the line cuts the failure to its first sentence; its whole text
-            <span className="cv-tool__text cv-subagent-failed__text" title={cutFailure ? whole : undefined}>
+            <span
+              className="cv-tool__text cv-subagent-failed__text ui-reveal-text"
+              // tooltip-allow: the line cuts the failure to its first sentence; its whole text
+              title={cutFailure ? whole : undefined}
+            >
               <span className="cv-subagent-failed__title">{name}</span>
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
           ) : (
             /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
-            <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
+            <span className="cv-tool__text cv-agent-activity__sentence ui-reveal-text" title={whole}>
               {!waiting && before}
               <SubagentChipPreview agent={agent} name={name}>
                 <AgentTag
@@ -396,40 +401,51 @@ function DoneLine({
             </span>
           )}
         </LineControl>
-        {inline}
-        {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
-        {resumed.note}
-        {(lineButton || controls.menu.length > 0) && (
-          <span className="cv-subagent-done__actions">
-            {lineButton}
-            {action && controls.menu.includes("retry") && (
-              <Menu>
-                <MenuButton
-                  className="cv-iconbtn cv-iconbtn--compact"
-                  data-menu="subagent-done"
-                  label={t("retry.menu")}
-                  title={t("retry.menu")}
-                  aria-haspopup="menu"
-                >
-                  <Icon name="action.more" size={14} />
-                </MenuButton>
-                <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                  {/* The row's one Retry, here only when the line has none (`doneLineControls`). */}
-                  <MenuItem className="acpmux-quick-item" onSelect={run}>
-                    {t("retry.action")}
-                  </MenuItem>
-                </MenuPopup>
-              </Menu>
-            )}
-          </span>
-        )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
+          {/* The hover-only controls (Retry, Resume or Restart, ⋯) sit just before the time and lie
+              over the words' end when the words reach them, never in a column of their own: at rest
+              the words run to the time, and on hover they fade out under the controls as the controls
+              come in (ui/motion .ui-reveal-text; Leo, 2026-11-24: "you're early ellipsis-ing because
+              of a button that doesnt even always show"). */}
+          {(inline || lineButton || controls.menu.length > 0) && (
+            <span className="cv-subagent-done__controls ui-reveal" ref={revealControls}>
+              {inline}
+              {(lineButton || controls.menu.length > 0) && (
+                <span className="cv-subagent-done__actions">
+                  {lineButton}
+                  {action && controls.menu.includes("retry") && (
+                    <Menu>
+                      <MenuButton
+                        className="cv-iconbtn cv-iconbtn--compact"
+                        data-menu="subagent-done"
+                        label={t("retry.menu")}
+                        title={t("retry.menu")}
+                        aria-haspopup="menu"
+                      >
+                        <Icon name="action.more" size={14} />
+                      </MenuButton>
+                      <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
+                        {/* The row's one Retry, here only when the line has none (`doneLineControls`). */}
+                        <MenuItem className="acpmux-quick-item" onSelect={run}>
+                          {t("retry.action")}
+                        </MenuItem>
+                      </MenuPopup>
+                    </Menu>
+                  )}
+                </span>
+              )}
+            </span>
+          )}
+          {/* A refusal's note is the row's state, not a hover control: it takes room only while it
+              shows, before the time, so the controls before the trail never lie over it. */}
+          {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
+          {resumed.note}
           <ReactionMark reaction={agent.reaction} />
           {!waiting && time && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {agent.state !== "completed" && (
           <span
-            className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
+            className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron ui-reveal-under${open ? "" : " is-idle"}`}
             aria-hidden
           >
             <ChevronRight size={14} />
