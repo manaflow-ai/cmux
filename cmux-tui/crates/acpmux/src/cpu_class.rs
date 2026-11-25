@@ -3,11 +3,12 @@
 //! and a busy Mac makes a dragged pane's page trail it (cmuxterm-hq#4947: p95 55 ms with 14 busy
 //! processes at the default class, 6 ms with the same load at background class).
 //!
-//! `dynamic` (the default, `cpu_class/pressure.rs`) runs the harness and what it starts at the
-//! agent tier's nice (+11 on macOS, the utility clamp's base priority) with normal disk I/O, and
-//! puts the whole tree in `PRIO_DARWIN_BG` only while the Mac is contended: the interactive
-//! thread wakes late and the CPUs are busy. It takes it out again within seconds once that clears,
-//! and never while the person waits on the chat's turn. A static background class starved: on
+//! `normal` (the default) runs the harness and what it starts at the agent tier's nice (+11 on
+//! macOS, the utility clamp's base priority) with normal disk I/O. `dynamic` (opt-in,
+//! `cpu_class/pressure.rs`) additionally puts the whole tree in `PRIO_DARWIN_BG` only while the
+//! Mac is contended: the interactive thread wakes late and the CPUs are busy. It takes it out
+//! again within seconds once that clears, and never while the person waits on the chat's turn. A
+//! static background class starved: on
 //! 2026-11-25 Lucas's Claude Code tool calls ran at background class for 87 minutes, and stayed
 //! there after his CPU fell to 80% (Leo: "we ought to have more dynamic stuff").
 //!
@@ -85,7 +86,7 @@
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
 //! (`acpmux config --set session.cpu_class=normal`), then [`default_for`] the harness:
-//! `dynamic`, or `normal` for a Claude Code launcher or a Codex app-server. Linux sessions get their
+//! `normal` (the default), or `normal` for a Claude Code launcher or a Codex app-server. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
@@ -111,7 +112,7 @@ pub enum CpuClass {
 }
 
 /// The class a session runs at when nothing names one, and its harness is no launcher.
-pub const DEFAULT: CpuClass = CpuClass::Dynamic;
+pub const DEFAULT: CpuClass = CpuClass::Normal;
 
 /// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
 /// path into one of them is Claude Code under another name: the native installer's `claude` is a
@@ -921,7 +922,7 @@ mod tests {
 
     /// `sr2 claude` is the case that starved (module docs, item 2).
     #[test]
-    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_dynamic() {
+    fn a_claude_launcher_and_claude_itself_default_to_normal() {
         let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
         for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
@@ -934,7 +935,7 @@ mod tests {
             "/Users/me/.claude/local/node_modules/.bin/cli",
             "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
         ] {
-            assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
+            assert_eq!(default(HarnessKind::ClaudeStdio, agent), CpuClass::Normal, "{agent}");
         }
         // An empty argv runs `claude`.
         assert_eq!(default_for(HarnessKind::ClaudeStdio, &[]), DEFAULT);
@@ -975,7 +976,7 @@ mod tests {
         let bg = Some(CpuClass::Background);
         let normal = Some(CpuClass::Normal);
         let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
-        assert_eq!(resolve(None, None, None), CpuClass::Dynamic);
+        assert_eq!(resolve(None, None, None), CpuClass::Normal);
         assert_eq!(resolve(None, None, normal), CpuClass::Normal);
         // The daemon's env overrides config; the profile overrides both.
         assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
@@ -983,7 +984,7 @@ mod tests {
         assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
         // A value that names no class is skipped.
         assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(resolve(Some(""), None, None), CpuClass::Dynamic);
+        assert_eq!(resolve(Some(""), None, None), CpuClass::Normal);
         assert_eq!(resolve(Some("Dynamic"), None, bg), CpuClass::Dynamic);
         // What the harness defaults to comes last: any named class wins over it.
         let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);

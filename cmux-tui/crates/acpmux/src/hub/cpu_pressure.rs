@@ -13,9 +13,23 @@
 use super::*;
 use crate::cpu_class::CpuClass;
 use crate::cpu_class::pressure::{Sample, Sampler, TICK, mono_ms, wants_background};
+use std::time::Duration;
 
 /// Wakes the loop before its next tick: a turn the person waits on just started.
 static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Advances a periodic deadline past `now` without replaying missed samples. A wake burst can
+/// win the `select!` repeatedly, so the deadline is checked after every wake as well as by the
+/// timer arm itself.
+fn timer_due(next: &mut tokio::time::Instant, now: tokio::time::Instant) -> bool {
+    if now < *next {
+        return false;
+    }
+    let periods = now.duration_since(*next).as_nanos() / TICK.as_nanos() + 1;
+    let nanos = TICK.as_nanos().saturating_mul(periods).min(u64::MAX as u128) as u64;
+    *next = next.checked_add(Duration::from_nanos(nanos)).unwrap_or(now + TICK);
+    true
+}
 
 /// A turn the person waits on started: its harness leaves background class now, not within a
 /// tick.
@@ -36,18 +50,20 @@ impl Hub {
         }
         let weak = Arc::downgrade(self);
         self.scope.spawn_until_cancelled("cpu-pressure", async move {
+            let mut next_tick = tokio::time::Instant::now() + TICK;
             loop {
-                let woke = tokio::select! {
-                    _ = tokio::time::sleep(TICK) => false,
-                    _ = WAKE.notified() => true,
+                tokio::select! {
+                    _ = tokio::time::sleep_until(next_tick) => {},
+                    _ = WAKE.notified() => {},
                 };
                 let Some(hub) = weak.upgrade() else { break };
-                if woke {
+                let now = tokio::time::Instant::now();
+                if timer_due(&mut next_tick, now) {
+                    hub.cpu_pressure_tick(Sampler::read()).await;
+                } else {
                     // A wake only reapplies the current controller decision. Sampling here
                     // would count the same host reading twice when prompts arrive in a burst.
                     hub.cpu_pressure_reapply().await;
-                } else {
-                    hub.cpu_pressure_tick(Sampler::read()).await;
                 }
             }
         });
@@ -112,13 +128,17 @@ impl Hub {
         }
     }
 
-    /// The person waits on this chat's turn: their own prompt started it, a person shows the chat
-    /// and attends it, and no token or tool result has come yet.
+    /// The person waits on this chat's turn: their own prompt started it, a person shows and
+    /// attends the chat, and the turn has not ended. Keeping the whole turn at the agent tier
+    /// protects tool calls after the first output token as well as the initial response.
     pub(super) fn cpu_waited_on(&self, session: &Session) -> bool {
-        session.awaiting_reply.load(Ordering::SeqCst)
-            && session.turn.lock().unwrap_or_else(|e| e.into_inner()).is_some()
-            && self.attended(session)
-            && self.person_has_shown(session)
+        let person_turn = session
+            .turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|turn| turn.persons && !turn.trigger);
+        person_turn && self.attended(session) && self.person_has_shown(session)
     }
 
     /// `session info`'s `cpuClass` for `session`: its harness's class and demotions, whether the
@@ -137,5 +157,28 @@ impl Hub {
             obj.insert("host".into(), host);
         }
         view
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TICK, timer_due};
+    use std::time::Duration;
+
+    #[test]
+    fn a_wake_burst_cannot_starve_or_replay_periodic_samples() {
+        let start = tokio::time::Instant::now();
+        let mut next = start + TICK;
+        let mut samples = 0;
+        for millis in (0..1000).step_by(10) {
+            if timer_due(&mut next, start + Duration::from_millis(millis)) {
+                samples += 1;
+            }
+        }
+        assert_eq!(samples, 0, "the first deadline has not arrived");
+        assert!(timer_due(&mut next, start + TICK));
+        assert!(!timer_due(&mut next, start + TICK + Duration::from_millis(1)));
+        assert!(timer_due(&mut next, start + Duration::from_secs(4)));
+        assert!(!timer_due(&mut next, start + Duration::from_secs(4)));
     }
 }

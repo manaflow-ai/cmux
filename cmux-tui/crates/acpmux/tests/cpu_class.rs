@@ -564,15 +564,16 @@ fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
     assert!(priority > BACKGROUND_PRI, "the launcher runs at background class (pri {priority})");
 }
 
-/// Claude Code itself defaults to `dynamic`: the agent tier's nice, and on a calm Mac no
-/// background class (Leo, 2026-11-25: Lucas's tool calls sat at background class for 87 minutes).
+/// Claude Code itself defaults to `normal`: the agent tier's nice, and on a calm Mac no
+/// background class. `dynamic` remains available as an explicit class (Leo, 2026-11-25:
+/// Lucas's tool calls sat at background class for 87 minutes).
 #[test]
 fn cpu_class_claude_itself_runs_above_background_while_the_host_is_calm() {
     let priority = default_class_of_claude_harness_named("cl", "claude");
     assert!(priority > BACKGROUND_PRI, "Claude Code is at background class (pri {priority})");
 }
 
-/// The dynamic default keeps the harness and its tools at a terminal's disk tier while the host
+/// The normal default keeps the harness and its tools at a terminal's disk tier while the host
 /// is calm, even though agent hosts themselves use the utility tier.
 #[test]
 fn cpu_class_a_hosted_harness_and_its_tools_keep_the_default_disk_tier() {
