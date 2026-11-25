@@ -446,6 +446,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         watching: None,
         composer_draft: None,
+        pinned: false,
         preset_mode_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
