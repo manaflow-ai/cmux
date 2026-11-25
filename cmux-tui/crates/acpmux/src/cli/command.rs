@@ -946,6 +946,26 @@ pub enum Command {
         after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
     )]
     Icon { session: String, icon: Option<String> },
+    /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
+    /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
+    /// Each name it takes over keeps the names that one answered to.
+    #[command(
+        after_help = "Examples:\n  acpmux succeed old-host/old-lane\n  acpmux succeed --session lane-b lane-a"
+    )]
+    Succeed {
+        /// The session that takes over (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+        /// `HOST/NAME`, or a NAME on this machine.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Role addresses a session answers to: `goal:SLUG`, `area:NAME`, `topic:NAME`. A message
+    /// to one reaches the session that claimed it last, here and through the mesh hub.
+    Role {
+        #[command(subcommand)]
+        cmd: RoleCmd,
+    },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -1381,6 +1401,26 @@ pub enum SecretCmd {
     /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
     /// the profile file. Reads a hidden prompt, or stdin; never prints it.
     Set { id: String, key: String },
+}
+
+#[derive(Subcommand)]
+pub enum RoleCmd {
+    /// Claim ADDRESS: every other session here gives it up.
+    #[command(after_help = "Examples:\n  acpmux role claim goal:ci-linux-on-pool")]
+    Claim {
+        address: String,
+        /// The session that claims it (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Give ADDRESS up.
+    Release {
+        address: String,
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Every role and successor entry the sessions here hold.
+    Ls,
 }
 
 #[derive(Subcommand)]
