@@ -108,8 +108,17 @@ final class JoystickEngine {
 
     /// The finger is on the joystick.
     var touching = false {
-        didSet { if touching { returnTask?.cancel(); returning = false } }
+        didSet {
+            if touching { returnTask?.cancel(); returning = false }
+            #if DEBUG
+            if touching, !oldValue { touches += 1 }
+            #endif
+        }
     }
+    #if DEBUG
+    /// DEBUG, for TerminalComposerTapBleedUITests: touches that reached the joystick.
+    private(set) var touches = 0
+    #endif
     /// Springing back after release.
     private(set) var returning = false
     @ObservationIgnored private var returnTask: Task<Void, Never>?
