@@ -39,6 +39,8 @@ KEYWISE_DRIVERS = {
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
     "cmux-insertions-v1": "scripts/merge-insertions.py",
+    # Cargo.lock: package-wise, written in cargo's own order (scripts/merge-cargo-lock.py).
+    "cmux-cargo-lock-v1": "scripts/merge-cargo-lock.py",
     # The Mac-only exports (settings schema, docs/mdm): a three-way merge, never one side.
     "cmux-export-v1": "scripts/merge-insertions.py",
     # Generated files: three-way when clean, else this branch's copy for the rebuild (never `true`).
@@ -217,9 +219,10 @@ class Workflow(unittest.TestCase):
 
     def test_the_write_token_is_contents_only_on_an_ephemeral_runner(self):
         job = self.doc["jobs"]["catch-up"]
-        # A Blacksmith VM runs one job and is destroyed; no variable can move
-        # the write token to a reused mini.
-        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"])
+        # The repair JIT label (#48727: a one-job GCP VM, deleted after the job) or, with its switch
+        # off, a Blacksmith VM that runs one job and is destroyed; no variable can move the write
+        # token to a reused mini.
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"])
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])

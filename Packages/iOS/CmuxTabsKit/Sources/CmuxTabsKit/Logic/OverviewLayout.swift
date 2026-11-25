@@ -119,9 +119,33 @@ struct OverviewLayout: Equatable, Sendable {
         (0..<count).first { card($0).insetBy(dx: -8, dy: -16).contains(point) }
     }
 
+    /// This layout holding at least `index + 1` cards. The zoom's card end
+    /// and the live page's card take the grid's own layout through this, so
+    /// they land on the slot the grid draws (one tab plus the new tab's
+    /// placeholder is two cards, not the lone centred card).
+    func holding(_ index: Int) -> OverviewLayout {
+        var grid = self
+        grid.count = max(count, index + 1)
+        return grid
+    }
+
     func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {
         let origin = contentOrigin ?? CGPoint(x: 0, y: -fallbackOffset)
         return card(index).offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    /// `rect` (screen, at the grid's resting scale) where the grid draws it
+    /// now: scaled about the screen's center as the grid's settle animation
+    /// scales it (`TabTransitionVariant.gridScale`, the same function the
+    /// grid's `scaleEffect` uses). The zoom aims at this, computed in the same
+    /// frame, so the page lands on its cell as the neighbours do, with no
+    /// frame-late origin read through the scale.
+    func zoomScaled(_ rect: CGRect, shown: Double, variant: TabTransitionVariant = .safari) -> CGRect {
+        let k = CGFloat(variant.gridScale(shown: shown))
+        guard k != 1 else { return rect }
+        let cx = size.width / 2, cy = size.height / 2
+        return CGRect(x: cx + (rect.minX - cx) * k, y: cy + (rect.minY - cy) * k,
+                      width: rect.width * k, height: rect.height * k)
     }
 
     /// Whether the card and its title row are fully on screen between the
@@ -207,5 +231,17 @@ struct CardResidencyPlan: Equatable, Sendable {
         }
         step.next = step.visible.first ?? best?.index
         return step
+    }
+}
+
+/// The grid's card size, for a host that draws a card's picture ahead (at the size the grid
+/// will show it, not a guess that drifts from the grid on a wider page or a lone card).
+public struct TabsKitOverviewGeometry {
+    public init() {}
+    /// The width in points of each card when the grid lists `cards` tabs (the first `pinned`
+    /// of them pinned) in a page `pageWidth` wide with `columns` columns.
+    public static func cardWidth(pageWidth: CGFloat, columns: Int, cards: Int, pinned: Int = 0) -> CGFloat {
+        OverviewLayout(size: CGSize(width: pageWidth, height: 1), safeTop: 0, safeBottom: 0, count: cards,
+                       pinned: pinned, columns: columns).cardWidth
     }
 }

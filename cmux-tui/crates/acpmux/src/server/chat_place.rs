@@ -69,7 +69,7 @@ pub(super) async fn set(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
 /// "this-mac"|"cloud"|"machine"|"nowhere", hybrid?, id?}, why, chip, local: {name, busy, room,
 /// ramFree}}`.
 pub(super) async fn read(hub: &Hub, params: &Value) -> Value {
-    let verdict = super::place::place(hub, &json!({})).await;
+    let verdict = super::place::place(hub, &json!({"hubHealth": false})).await;
     // An existing chat's stored pin, for a read with no pick of its own.
     let stored = chat_of(params)
         .filter(|c| !picks().contains_key(c))
@@ -98,7 +98,7 @@ fn answer(
         .unwrap_or_default();
     let machines = peers
         .iter()
-        .filter(|row| crate::placement::peer_down(row).is_none())
+        .filter(|row| crate::placement::link_down(row).is_none())
         .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
         .collect();
     let facts = Facts { local: place_mode::local_of(verdict), account, machines };

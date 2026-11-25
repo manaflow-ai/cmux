@@ -22,6 +22,12 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     /// When the person last focused or used one of the workspace's tabs, nil when never: a recent
     /// workspace wins equal and near-equal matches (``PaletteRecencyPrior``).
     public var lastUsed: Date?
+    /// How many tabs the workspace holds, nil when the source does not say (the preview pane's Tabs).
+    public var tabCount: Int?
+    /// How many of them run an agent (a chat or a terminal agent), nil when the source does not say.
+    public var agentCount: Int?
+    /// The git branch of its folder, nil when unknown.
+    public var branch: String?
 
     /// The words that find a workspace whose one tab Go to Workspace folds into its row (a lone
     /// tab is its workspace; Leo 2026-11-03: "some of these are way too duplicated"): the tab's
@@ -55,7 +61,10 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
 
     public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
                 groupName: String? = nil, machineName: String? = nil, agentID: String? = nil, keywords: [String] = [],
-                sidebarRank: Int? = nil, lastUsed: Date? = nil) {
+                sidebarRank: Int? = nil, lastUsed: Date? = nil, tabCount: Int? = nil, agentCount: Int? = nil, branch: String? = nil) {
+        self.tabCount = tabCount
+        self.agentCount = agentCount
+        self.branch = branch
         self.lastUsed = lastUsed
         self.keywords = keywords
         self.sidebarRank = sidebarRank

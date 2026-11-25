@@ -18,6 +18,9 @@ extension SidebarItemRowView {
     /// Places the controls on hover and keeps the title and the trailing marks clear of them.
     func layoutHoverActions(in b: NSRect) {
         let shown = showsHoverActions
+        // Last, shown or not: no two icons share a box (Leo 2026-11-22: "fucking overlapping icons"), whatever the
+        // alphas below say.
+        defer { clearMarksMeetingIcons(keep: [hoverMore, hoverUnpin], marks: [rowBadge, badge, activity, taskCount], fades: false) }
         if shown, hoverMore == nil, onMore != nil {
             let button = OverflowButton.rowControl(label: Strings.workspaceMenu)
             button.onPress = { [weak self] in self?.onMore?() }
