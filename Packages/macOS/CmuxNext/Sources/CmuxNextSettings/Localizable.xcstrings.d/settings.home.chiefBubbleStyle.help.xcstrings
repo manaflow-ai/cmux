@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.chiefBubbleStyle.help" : {
+      "comment" : "Help of the Chief chat's bubble style setting (home.chiefBubbleStyle). iMessage is Apple's product name; keep it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iMessage: blue and gray. Theme: your theme's colors."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: أزرق ورمادي. السمة: ألوان سمتك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: plavo i sivo. Tema: boje tvoje teme."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: blå og grå. Tema: dit temas farver."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: Blau und Grau. Theme: die Farben deines Themes."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: azul y gris. Tema: los colores de tu tema."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage : bleu et gris. Thème : les couleurs de votre thème."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: blu e grigio. Tema: i colori del tuo tema."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: 青とグレー。テーマ: テーマの色。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage៖ ខៀវ និងប្រផេះ។ រចនាប័ទ្ម៖ ពណ៌នៃរចនាប័ទ្មរបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: 파란색과 회색. 테마: 테마의 색상."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: blått og grått. Tema: temaets farger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: niebieski i szary. Motyw: kolory Twojego motywu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: azul e cinza. Tema: as cores do seu tema."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: синий и серый. Тема: цвета вашей темы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: สีน้ำเงินและสีเทา ธีม: สีของธีมของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: mavi ve gri. Tema: temanızın renkleri."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: синій і сірий. Тема: кольори вашої теми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage: xanh và xám. Chủ đề: màu của chủ đề."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage：蓝色和灰色。主题：使用你的主题颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "iMessage：藍色和灰色。主題：你的主題顏色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
