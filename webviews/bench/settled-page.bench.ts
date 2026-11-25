@@ -288,7 +288,7 @@ function installFrameReader() {
   type Rec = {
     t: number;
     copyShown: boolean;
-    rows: { id: string; top: number }[];
+    rows: { id: string; top: number; bottom: number }[];
     composer: { top: number; height: number } | null;
     scrollTop: number | null;
     drawnBy?: number;
@@ -370,7 +370,7 @@ function installFrameReader() {
       for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
         const box = row.getBoundingClientRect();
         if (box.height > 0 && box.bottom > view.top && box.top < view.bottom)
-          rows.push({ id: row.dataset.rowId ?? "", top: box.top, h: box.height, w: box.width, edge: row.dataset.edge ?? row.className.slice(0, 80) } as never);
+          rows.push({ id: row.dataset.rowId ?? "", top: box.top, bottom: box.bottom });
       }
     rows.sort((x, y) => x.top - y.top);
     const composer = rootHidden
@@ -393,7 +393,7 @@ function installFrameReader() {
       })(),
       ...(scroller
         ? {
-            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} cw=${scroller.clientWidth} ow=${scroller.offsetWidth} fonts=${document.fonts.status} thread=${(() => {
+            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} thread=${(() => {
               const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
               return thread
                 ? `${thread.style.cssText.replace(/\s+/g, "")}|h=${thread.getBoundingClientRect().height.toFixed(1)}`
@@ -465,6 +465,9 @@ async function framesOf(page: Page, mark: string): Promise<Read> {
   return page.evaluate(() => (window as unknown as { __settle: Reader }).__settle.stop());
 }
 
+/** A row's bottom edge in the frame, its top when the frame did not read one. */
+const bottomOfRow = (row: FrameRecord["rows"][number]) => (row as { bottom?: number }).bottom ?? row.top;
+
 /** How far a frame's thread was drawn from its place (the follow glide), 0 when not read. */
 const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy ?? 0;
 
@@ -475,7 +478,7 @@ const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy 
  */
 function streamView(frame: FrameRecord): FrameRecord {
   const offset = (frame.scrollTop ?? 0) - drawnBy(frame);
-  const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset }));
+  const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset, bottom: bottomOfRow(row) + offset }));
   let bottom = -1;
   rows.forEach((row, at) => {
     if (bottom < 0 || row.top >= rows[bottom]!.top) bottom = at;
@@ -494,12 +497,35 @@ function streamView(frame: FrameRecord): FrameRecord {
 function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
-    const before = new Map(a.rows.map((row) => [row.id, row.top]));
+    const before = new Map(a.rows.map((row) => [row.id, row]));
     const offset = (frame: FrameRecord) => (frame.scrollTop ?? 0) - drawnBy(frame);
+    // The reply streaming above the live row: the bottom-most row left after `streamView` took the live row out. When
+    // it grew with its foot held in the view, the view followed it: its top and every row above it rose by its growth
+    // in the view. In a frame where nothing above changed that is a view move only, which the content check below
+    // already passes; in the frame where the history mounts above (every row's content top moves, the offset absorbs
+    // it), the same follow read as a shift of the reply and each row above it.
+    const reply = b.rows.reduce<FrameRecord["rows"][number] | undefined>(
+      (best, row) => (!best || row.top >= best.top ? row : best),
+      undefined,
+    );
+    const replyBefore = reply && before.get(reply.id);
+    let follow: number | undefined;
+    if (reply && replyBefore) {
+      const rise = reply.top - offset(b) - (replyBefore.top - offset(a));
+      const footMoved = bottomOfRow(reply) - offset(b) - (bottomOfRow(replyBefore) - offset(a));
+      const grew = bottomOfRow(reply) - reply.top - (bottomOfRow(replyBefore) - replyBefore.top);
+      if (
+        grew > MOVE_TOLERANCE_PX &&
+        Math.abs(footMoved) <= 2 * MOVE_TOLERANCE_PX &&
+        Math.abs(rise + grew) <= 2 * MOVE_TOLERANCE_PX
+      )
+        follow = rise;
+    }
     for (const row of b.rows) {
-      const top = before.get(row.id);
+      const top = before.get(row.id)?.top;
       if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
       const [viewA, viewB] = [top - offset(a), row.top - offset(b)];
+      if (follow !== undefined && Math.abs(viewB - viewA - follow) <= 2 * MOVE_TOLERANCE_PX) continue;
       if (Math.abs(viewA - viewB) > MOVE_TOLERANCE_PX)
         return `row ${row.id} view ${viewA.toFixed(1)} -> ${viewB.toFixed(1)}, content ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
     }
@@ -679,7 +705,7 @@ try {
   releases.push(() => statics.stop(true));
   const base = `http://127.0.0.1:${statics.port}`;
   const urlFor = (session: string) =>
-    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${session}`;
+    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${session}`;
 
   const browser: Browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());
@@ -791,7 +817,7 @@ try {
         if (process.env.FRAMES === "1" && judged.shifts > 0)
           for (const frame of read.frames.filter((one) => one.t >= read.t0))
             console.log(
-              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}+${(row as never as {h:number}).h?.toFixed(1)}w${(row as never as {w:number}).w?.toFixed(1)}[${(row as never as {edge:string}).edge}]`).join(" ")}`,
+              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
             );
         let bottom: string | undefined;
         for (const frame of read.frames) {
