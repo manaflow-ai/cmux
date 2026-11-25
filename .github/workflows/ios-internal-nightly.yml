@@ -131,7 +131,11 @@ jobs:
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
 
+      # Bounded: a fetch that hangs on the mini (run 45608822951, 2026-11-25:
+      # 90 min in this step, then the job timeout cancelled the run) fails
+      # here in minutes, and the trigger's backoff retries it.
       - name: Checkout the commit
+        timeout-minutes: 20
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -292,7 +296,12 @@ jobs:
     needs: previous-build
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 15
+    # Every step below has its own bound, together under this one. A job
+    # timeout reads as `cancelled`, which continue-on-error does not cover: it
+    # turned runs whose upload succeeded into cancelled runs (45580371273 and
+    # 45630066679, 2026-11-25), and every reader skips a cancelled run. A step
+    # timeout is a failed step, which continue-on-error does cover.
+    timeout-minutes: 30
     continue-on-error: true
     permissions:
       contents: read
@@ -304,6 +313,8 @@ jobs:
       ASC_REF: ${{ needs.previous-build.outputs.ref }}
     steps:
       - name: Checkout the builder branch (trusted script)
+        timeout-minutes: 12
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -315,6 +326,7 @@ jobs:
 
       # A failed note never stops the upload: the signer then sends the first line only.
       - name: Write the note
+        timeout-minutes: 10
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
