@@ -226,7 +226,8 @@ public final class AgentPaneSeedSource {
             let given = await late.value()
             if let draft = given?.draft, !draft.isEmpty { value?.draft = draft }
             if value?.prompt?.isEmpty == false || value?.promptAttachments?.isEmpty == false {
-                value?.prompt = Self.prompt(value?.prompt, queued: given?.queued)
+                let prompt = value?.prompt
+                value?.prompt = Self.prompt(prompt, queued: given?.queued)
             }
         }
         let seed = value
