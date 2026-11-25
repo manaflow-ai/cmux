@@ -6,7 +6,7 @@ import type { PeerLinkState } from "./protocol/generated/types";
 /// snapshot that dropped that row would leave the picker no state, so it would read the peer as ready.
 type LinkState = PeerLinkState | "restarting";
 const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "restarting", "offline"]);
-/// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `since`, `nextRetryAt`), what the pane
+/// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `downReason`, `since`, `nextRetryAt`), what the pane
 /// draws (linkState.ts); `state` stays the older word every other reader compares.
 type Link = {
   state: LinkState;
@@ -25,6 +25,7 @@ const same = (a: Link | undefined, b: Link) =>
   a.detail?.link === b.detail?.link &&
   a.detail?.carrier === b.detail?.carrier &&
   a.detail?.cause === b.detail?.cause &&
+  a.detail?.downReason === b.detail?.downReason &&
   a.detail?.nextRetryAt === b.detail?.nextRetryAt;
 
 /// One local/app connection's snapshot and pushed state. The daemon names both proven origins
