@@ -202,7 +202,7 @@ struct CloudStartChat {
         let name = machine.machine.title, storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
         // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
         // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
-        return try await CloudSeedRefusal.copying(machine: name, diskMb: machine.machine.size.flatMap { $0.diskMb ?? $0.storageMb }, grow: { await self.growDisk(machine, for: $0) }, declined: declined) { refusal in do {
+        return try await CloudSeedRefusal.copying(machine: name, diskMb: machine.machine.size?.storageMb, grow: { await self.growDisk(machine, for: $0) }, declined: declined) { refusal in do {
                 return try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
                                                            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
                                                            notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, refusal, key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in

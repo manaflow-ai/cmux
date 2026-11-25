@@ -132,8 +132,8 @@ public final class AgentPaneCloudMachines {
 
             /// From a record's size; nil when it names none of the three.
             public init?(_ size: CloudMachine.Size?) {
-                guard let size, size.cpu != nil || size.memoryMb != nil || (size.diskMb ?? size.storageMb) != nil else { return nil }
-                self.init(cpu: size.cpu, memoryMb: size.memoryMb, diskMb: size.diskMb ?? size.storageMb)
+                guard let size, size.cpu != nil || size.memoryMb != nil || size.storageMb != nil else { return nil }
+                self.init(cpu: size.cpu, memoryMb: size.memoryMb, diskMb: size.storageMb)
             }
 
             /// The reply's `size` object: only the positive numbers the record gave.
