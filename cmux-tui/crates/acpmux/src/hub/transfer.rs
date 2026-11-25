@@ -19,6 +19,15 @@ pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 /// copied hash to, `{"native/<label>/<path>": {length, sha256}}` (`export_grown`).
 pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
 
+/// [`Hub::import_into`]'s `(live, guarded, replace_durable, defer_finalize, staged)`.
+pub(super) type ImportOptions<'a> = (
+    bool,
+    Option<super::transfer_guard::GuardedImport<'a>>,
+    bool,
+    bool,
+    Option<&'a transfer_out::transfer_precopy::StagedPrefix>,
+);
+
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
     std::fs::read(marker)
@@ -119,71 +128,27 @@ impl Hub {
         if let Some(after) = after {
             super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
         }
+        // Each surface's unsent draft and who sent the queued prompts (`composers.rs`), which
+        // live in memory, not the log; the images the drafts hold go with the prompts' images.
+        let composers = {
+            let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
+            images.extend(c.image_ids());
+            c.bundled()
+        };
         super::prompt_images::bundle_images(&images, &dir)?;
-        // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
-        // live in memory, not the log.
-        let composers = session.composers.lock().unwrap_or_else(|e| e.into_inner()).bundled();
         crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
-        let native = crate::native::locate(&meta);
-        let harness = self.export_harness_state(&meta, &dir)?;
+        // The agent's own files (`transfer_agent_files.rs`), which an Auto snapshot carries too.
+        let files = self.export_agent_files(&meta, &dir, dest, grown)?;
         let mut manifest = json!({
             "schema": "acpmux.bundle.v1",
             "id": meta.id,
             "eventCount": event_count,
             "lastSeq": meta.last_seq,
-            "native": [],
-            "harness": harness,
+            "native": files.native,
+            "harness": files.harness,
         });
         if let Some(after) = after {
             manifest.set("afterSeq", json!(after));
-        }
-        let mut copied = Vec::new();
-        if !native.is_empty() {
-            crate::home_fs::create_dirs(dir.join("native"))?;
-            let home = dirs::home_dir().unwrap_or_default();
-            let mut digests = serde_json::Map::new();
-            for (label, src) in native {
-                let fast = grown.and_then(|(prepared, held)| {
-                    let rel = crate::native::grow_into_from(
-                        &src,
-                        prepared,
-                        &dir.join("native"),
-                        &label,
-                        &home,
-                    );
-                    let rel = rel
-                        .inspect_err(|e| tracing::debug!("native file not grown: {e:#}"))
-                        .ok()??;
-                    let at = format!("native/{rel}");
-                    if let Some(digest) = held.get(&at) {
-                        digests.insert(at, digest.clone());
-                    }
-                    Some(rel)
-                });
-                let rel = match fast {
-                    Some(rel) => Ok(rel),
-                    None => crate::native::copy_into(&src, &dir.join("native"), &label),
-                };
-                if let Ok(rel) = rel {
-                    copied.push(json!({"label": label, "path": rel, "source": src}));
-                }
-            }
-            if !digests.is_empty() {
-                let digests = Value::Object(digests).to_string();
-                crate::home_fs::write(dest.join(NATIVE_DIGESTS), digests)?;
-            }
-        }
-        // OpenCode keeps its sessions in a database: the session goes as its export. A failed
-        // export still moves the chat, which then resumes from this log only.
-        match crate::native::export_opencode(&meta, &dir.join("native")) {
-            Ok(Some(rel)) => {
-                copied.push(json!({"label": crate::native::OPENCODE_EXPORT, "path": rel}))
-            }
-            Ok(None) => {}
-            Err(e) => tracing::warn!(session = %meta.id, "opencode session not bundled: {e:#}"),
-        }
-        if !copied.is_empty() {
-            manifest.set("native", Value::Array(copied));
         }
         crate::home_fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
         Ok(dir)
@@ -212,6 +177,50 @@ impl Hub {
         defer_finalize: bool,
         staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
     ) -> Result<Arc<Session>, RpcError> {
+        self.import_into_held(
+            bundle,
+            name,
+            live,
+            guarded,
+            replace_durable,
+            defer_finalize,
+            staged,
+            false,
+        )
+        .await
+    }
+
+    /// `import_into`; a `hold`ing one (Auto's, `auto_import.rs`) is published frozen by Auto and
+    /// stays so with no gap: it does not end the freeze when it is done. Whoever asked frees it
+    /// when the holder loop accepts the import (`auto_hold.rs` `auto_activate`).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn import_into_held(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+        live: bool,
+        guarded: Option<super::transfer_guard::GuardedImport<'_>>,
+        replace_durable: bool,
+        defer_finalize: bool,
+        staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
+        hold: bool,
+    ) -> Result<Arc<Session>, RpcError> {
+        let (the_chat, plain) = (false, (live, guarded, replace_durable, defer_finalize, staged));
+        self.import_placing(bundle, name, plain, the_chat, hold).await
+    }
+
+    /// [`Self::import_into`] with its `(live, guarded, replace_durable, defer_finalize, staged)`.
+    /// `the_chat`: the bundle is the chat itself (Auto mode's Cloud copy, `auto_import.rs`), so
+    /// an agent file here that holds other bytes is replaced (`native::restore_replacing`).
+    pub(super) async fn import_placing(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+        plain: ImportOptions<'_>,
+        the_chat: bool,
+        hold: bool,
+    ) -> Result<Arc<Session>, RpcError> {
+        let (live, guarded, replace_durable, defer_finalize, staged) = plain;
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
@@ -359,6 +368,7 @@ impl Hub {
             None if staged.is_some_and(|s| s.history_later) => {
                 crate::native::restore_linked(bundle, &meta).unwrap_or_default()
             }
+            None if the_chat => crate::native::restore_replacing(bundle, &meta).unwrap_or_default(),
             None => crate::native::restore(bundle, &meta).unwrap_or_default(),
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
@@ -413,7 +423,7 @@ impl Hub {
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
         // the source's move, not one of this daemon's.
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(transfer_out::IMPORTING.to_owned());
+            Some(if hold { super::AUTO_AWAY } else { transfer_out::IMPORTING }.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
@@ -439,7 +449,9 @@ impl Hub {
             return Err(RpcError::internal("import: could not durably record imported"));
         }
         // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
-        self.end_move(&session);
+        if !hold {
+            self.end_move(&session);
+        }
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();
@@ -591,7 +603,7 @@ impl Hub {
         }
     }
 
-    fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
+    pub(super) fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
         if meta.harness != "cmux-harness" {
             return Ok(Value::Null);
         }
