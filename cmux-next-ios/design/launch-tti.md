@@ -16,7 +16,9 @@ log line. Every build has them; their cost is a fixed set of names taken once.
 | `workspaces_list_frame` | the Workspaces list's first frame with a row was presented (with the list rig, a seeded `ws-sN` row) |
 | `workspace_row_tap` | a workspace row was tapped |
 | `chat_composer_ready` | the first frame with an agent chat's composer shown was presented (not a chat face parked behind a terminal) |
+| `chat_first_row_frame` | the first frame with a readable transcript row in the agent chat was presented |
 | `terminal_ready` | a terminal attached to its session presented a frame |
+| `terminal_first_row_frame` | the first frame with non-empty real terminal output was presented |
 | `terminal_key_sent` | the first single printable key typed into a terminal was accepted by its session |
 | `terminal_echo_presented` | that key's byte, as text in the same terminal's output (not in an escape sequence), was presented |
 
@@ -37,6 +39,25 @@ cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA
 
 `SUMMARY.md` gets one line per flow and phase (p50, min-max); `launch-tti.jsonl` has every run.
 Add `--arg profile` for an Instruments Time Profiler trace of the same runs.
+
+### Cold live rows
+
+`LaunchColdLiveUITests` uses the paired live daemon and requires the test runner to provide
+`CMUX_MOBILE_UI_CHAT_WORKSPACE` and `CMUX_MOBILE_UI_TERMINAL_WORKSPACE`. It prints one
+`LAUNCHCOLDLIVE` row per fresh simulator boot, including `first_frame`,
+`chat_first_row_frame`, or `terminal_first_row_frame`. Run one or more link profiles and host-load
+profiles with repeatable arguments. `duress=off` with `net=` uses the existing `cmux-duress` idle
+replay with that `cmux-fault` link profile, while a named duress preset keeps its host load and
+overrides its link profile.
+
+```bash
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
+  --arg test --arg ui=LaunchColdLiveUITests --arg net=lte --arg net=lossy-3 \
+  --arg duress=off --arg duress=duress --artifact artifacts/ios-sim/evidence.zip
+```
+
+Each sample is retained under `ui-cold/`; `SUMMARY.md` reports p50/p90 by link, load, flow, and
+mark. The simulator script changes take effect only after this script lands on the base branch.
 
 Limits: the terminal is the mock session (no Mac, no network): the network half of a real
 first key is the link's, timed by `ConnectTimeline` (`timing launch ...` steps). A simulator

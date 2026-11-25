@@ -1587,6 +1587,7 @@ async fn dispatch_request_with_identity(
                         method::MUX_TAILNET_LOGIN,
                         method::MUX_TAILNET_STATE,
                         method::MUX_TAILNET_LOGOUT,
+                        method::MUX_TAILNET_PLACEMENT,
                         method::MUX_TAILNET_JOIN,
                     ]
                     .map(Value::from),
@@ -2804,6 +2805,20 @@ async fn dispatch_request_with_identity(
                     .with_data(json!({"reason": "not_built"})))
             }
         }
+        // The stable tailnet node's placements: the local app (or CLI) says where each
+        // workspace runs; the front reads the table at each new connection.
+        method::MUX_TAILNET_PLACEMENT => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may move tailnet placements",
+                ));
+            }
+            let message: cmux_tailnet_front::PlacementMessage = serde_json::from_value(params)
+                .map_err(|e| RpcError::invalid_params(format!("placement: {e}")))?;
+            let applied = hub.tailnet_placements.apply(&message);
+            let reply = cmux_tailnet_front::PlacementReply::from(&applied);
+            serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
+        }
         method::MUX_STATUS => Ok(hub.status().await),
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
@@ -3664,6 +3679,10 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // The app's pane draws nothing of a chat it does not show: no stream while hidden.
+            // Never a peer daemon's link, which attaches hidden for the people it carries.
+            let quiet_hidden = params.get("quietHidden") == Some(&Value::Bool(true))
+                && conn.origin != Origin::Peer;
             if params.get("hold") == Some(&Value::Bool(true)) {
                 let filter = hold_attach_filter(&params)?;
                 if attach_shows(conn, &params) {
@@ -3683,6 +3702,9 @@ async fn dispatch_request_with_identity(
                         idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                         remote: false,
                         rows: None,
+                        quiet_hidden,
+                        left_out: 0,
+                        left_from: 0,
                     },
                 );
                 let detail = hub.session_detail(&s);
@@ -3739,6 +3761,9 @@ async fn dispatch_request_with_identity(
                     idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                     remote: false,
                     rows: None,
+                    quiet_hidden,
+                    left_out: 0,
+                    left_from: 0,
                 },
             );
             let settled_key = match settled {

@@ -234,6 +234,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         return recorder
     }()
+    /// Session output bytes Ghostty parsed: each presented frame's painted-through offset (`painted`).
+    private var parsedBytes = 0
     /// A tap in a full-screen app: a click when the app asked for the mouse,
     /// and it focuses the terminal (not a tap that stops a fling).
     lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
@@ -862,6 +864,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            self.panFrames.painted(self.parsedBytes)
             #if DEBUG
             self.rttLog.presented()
             #endif
@@ -1187,15 +1190,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard chrome == .embedded, insets != embeddedInsets else { return }
         embeddedInsets = insets
         tuiTop.constant = insets.top
-        // Solid under the status bar, then an 18 pt fade that ends at the top
-        // inset: row 0 at rest is at full brightness, and only rows scrolled
-        // up under the status bar fade (R1-5).
-        statusScrimHeight?.constant = insets.top
-        if insets.top > 18 { statusScrim.gradient.locations = [0, NSNumber(value: Double((insets.top - 18) / insets.top)), 1] }
+        applyStatusScrim()
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
         view.setNeedsLayout()
+    }
+
+    /// Embedded: where the page's chrome ends this frame (`TerminalTabPage.chromeTop`). A
+    /// collapsed top bar's is above `embeddedInsets.top`; the grid stays at the inset (its
+    /// rows never change with the bar) and the scrim shrinks to this, so the band the bar
+    /// gave back shows the rows under it, not a solid strip under the pill.
+    private var embeddedChromeTop: CGFloat?
+
+    /// The chrome's line moved (the top bar collapsed or expanded).
+    func needsChromeTop(_ top: CGFloat) -> Bool {
+        chrome == .embedded && embeddedChromeTop != top
+    }
+
+    func setChromeTop(_ top: CGFloat) {
+        guard chrome == .embedded else { return }
+        embeddedChromeTop = top
+        applyStatusScrim()
+        view.setNeedsLayout()
+    }
+
+    /// Solid under the chrome, then an 18 pt fade that ends at its line: row 0
+    /// at rest is at full brightness, and only rows scrolled up under the
+    /// chrome fade (R1-5).
+    private func applyStatusScrim() {
+        let top = min(embeddedChromeTop ?? embeddedInsets.top, embeddedInsets.top)
+        statusScrimHeight?.constant = top
+        if top > 18 { statusScrim.gradient.locations = [0, NSNumber(value: Double((top - 18) / top)), 1] }
     }
 
     /// Top of the content area (under the navigation bar or the status bar).
@@ -2412,6 +2438,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
+        parsedBytes += raw
         pacer.finished()
         paintParsed += raw
         // A full-screen app taller than the phone (the Mac's rows as of the
@@ -3073,6 +3100,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        if model.connectionState.isAttached,
+           !LaunchMarks.shared.has("terminal_first_row_frame"),
+           let text = surface.activeAreaText(),
+           TerminalHeldFrame.nonBlankRows(in: text, limit: max(1, surface.grid.rows)) > 0 {
+            LaunchMarks.shared.markNextFrame("terminal_first_row_frame")
+        }
         #if DEBUG
         if model.connectionState.isAttached { OpenMarks.shared?.note("terminal_ready") }
         ResumeMarks.shared?.note(model.connectionState.isAttached ? "terminal_frame" : "terminal_detached")
