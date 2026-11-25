@@ -102,7 +102,8 @@ public struct RemoteInstaller: Sendable {
     private func put(_ plan: RemoteInstallPlan, on host: SSHHost, environment: [String: String],
                      progress: @Sendable (Phase) -> Void) async throws -> String {
         progress(.remoteDownload)
-        let fetched = try await ssh(host, script: plan.fetchScript, environment: environment, label: "remote install")
+        let fetched = try await ssh(host, script: plan.fetchScript, environment: environment, label: "remote install",
+                                   idle: true)
         if fetched.status == 0 { return fetched.stdout }
         let error = try failure(fetched)
         guard error.fallsBackToUpload else { throw error }
@@ -111,7 +112,7 @@ public struct RemoteInstaller: Sendable {
         let file = try await localCopy(plan, environment: environment)
         progress(.upload)
         let uploaded = try await SSHProcessRunner.run(commandLine.command(host, plan.uploadCommand), input: .file(file),
-                                                   environment: environment, deadline: .seconds(1800),
+                                                   environment: environment, idle: Self.transferIdle,
                                                    label: "upload cmux-tui to \(host.destination)")
         if uploaded.status == 255, let failure = SSHFailure.classify(status: 255, stderr: uploaded.stderr) { throw failure }
         guard uploaded.status == 0 else { throw RemoteInstallError.notWritable(uploaded.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
@@ -120,6 +121,15 @@ public struct RemoteInstaller: Sendable {
         return installed.stdout
     }
 
+    /// How long an install, download or upload may go without progress before it is cut off. There
+    /// is no total bound: a slow link that keeps moving runs as long as it needs. Progress is any
+    /// byte on ssh's or curl's stdout or stderr (the remote script prints a progress line every
+    /// 10 s while the staged file grows), growth of the local partial file (curl -s is silent), or
+    /// ssh reading more of the upload file. 120 s is twelve missed remote ticks and twice curl's own
+    /// `--speed-time 60` stall check, so a healthy transfer never meets it and a stalled ssh or an
+    /// unreachable host still fails within about two minutes.
+    static let transferIdle: Duration = .seconds(120)
+
     /// Gives the machine's install lock back (cx-3r9mt); a failure leaves it to expire.
     public func releaseLock(_ plan: RemoteInstallPlan, on host: SSHHost, environment: [String: String]) async {
         _ = try? await ssh(host, script: RemoteInstallPlan.releaseLockScript(remoteBinary: plan.remoteBinary, token: plan.lockToken),
@@ -127,9 +137,15 @@ public struct RemoteInstaller: Sendable {
     }
 
     private func ssh(_ host: SSHHost, script: String, environment: [String: String], label: String,
-                     deadline: Duration = .seconds(1800)) async throws -> SSHProcessResult {
-        let result = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(script.utf8)), environment: environment,
-                                                 deadline: deadline, label: "\(label) \(host.destination)")
+                     deadline: Duration = .seconds(1800), idle: Bool = false) async throws -> SSHProcessResult {
+        let result: SSHProcessResult
+        if !idle {
+            result = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(script.utf8)), environment: environment,
+                                                    deadline: deadline, label: "\(label) \(host.destination)")
+        } else {
+            result = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(script.utf8)), environment: environment,
+                                                    idle: Self.transferIdle, label: "\(label) \(host.destination)")
+        }
         if result.status == 255, let failure = SSHFailure.classify(status: 255, stderr: result.stderr) { throw failure }
         return result
     }
@@ -160,7 +176,7 @@ public struct RemoteInstaller: Sendable {
         }
         let partial = file.appendingPathExtension("partial")
         let result = try await SSHProcessRunner.run(["/usr/bin/curl"] + plan.localDownloadArguments(to: partial), environment: environment,
-                                                 deadline: .seconds(1800), label: "download \(plan.artifact)")
+                                                 idle: Self.transferIdle, watching: partial, label: "download \(plan.artifact)")
         guard result.status == 0 else {
             throw RemoteInstallError.downloadFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
