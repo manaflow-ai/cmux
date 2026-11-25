@@ -33,3 +33,15 @@ fn pause_and_resume_wait_for_the_server() {
         assert!(action.waits_for_result, "{id} must wait for the server's answer");
     }
 }
+
+/// `cmux cloud move --wait` (and bring-back, transfer-local, move-to-machine) copies a folder and
+/// moves a chat: minutes, never 2 s. Without the flag the app answered `action.run did not finish
+/// within 1999 ms` two seconds into the CLI's 45 s wait, so the caller never heard how the move
+/// ended (cloud-session-move-to-cloud-production, 40 failed runs to 2026-11-24T23:47:53Z).
+#[test]
+fn cloud_moves_wait_for_their_result() {
+    for id in ["cloudMove", "cloudBringBack", "cloudTransferLocal", "cloudMoveToMachine"] {
+        let action = find(id).unwrap_or_else(|| panic!("{id} is in the catalog"));
+        assert!(action.waits_for_result, "{id} must get the waited-run deadline, not the 2 s one");
+    }
+}
