@@ -254,13 +254,18 @@ pub struct ServiceAuthority {
     /// source of who the person is ([`Service::Acpmux`] names them to acpmux
     /// from it).
     grant: Option<Arc<CarrierGrant>>,
+    /// The session came over this machine's own user (kernel-verified unix peer or an SSH
+    /// login, [`InboundAuthEvidence::Kernel`] / [`InboundAuthEvidence::Ssh`]): its
+    /// `mux-control` streams carry the owner's role stamp ([`Self::mux_role`]), so a
+    /// personal box's daemon serves it the owner's file ops (a `cmux ssh --repo` seed).
+    same_owner: bool,
 }
 
 impl ServiceAuthority {
     /// Refuse every service. Callers add authority deliberately rather than
     /// inheriting access when the protocol gains a new service.
     pub fn none() -> Self {
-        Self { services: Box::new([]), grant: None }
+        Self { services: Box::new([]), grant: None, same_owner: false }
     }
 
     /// Preserve the service access held by devices before service-scoped
@@ -277,6 +282,7 @@ impl ServiceAuthority {
                 Service::ComputerUse,
             ]),
             grant: None,
+            same_owner: false,
         }
     }
 
@@ -288,7 +294,7 @@ impl ServiceAuthority {
                 unique.push(service);
             }
         }
-        Self { services: unique.into_boxed_slice(), grant: None }
+        Self { services: unique.into_boxed_slice(), grant: None, same_owner: false }
     }
 
     /// This authority, held by the session `grant` admitted.
@@ -305,6 +311,23 @@ impl ServiceAuthority {
     /// The carrier grant that admitted the session, if one did.
     pub fn grant(&self) -> Option<&Arc<CarrierGrant>> {
         self.grant.as_ref()
+    }
+
+    /// This authority, held by a session this machine's own user opened (kernel or SSH
+    /// evidence): see [`Self::mux_role`].
+    pub fn same_owner(mut self) -> Self {
+        self.same_owner = true;
+        self
+    }
+
+    /// The role to stamp on each `mux-control` stream (`mux_carrier_role.rs`): the grant's
+    /// signed role, the owner's for a same-owner session, and `None` (no stamp) otherwise.
+    pub fn mux_role(&self) -> Option<Option<cmux_link::token::VmKind>> {
+        match &self.grant {
+            Some(grant) => Some(grant.vm_kind),
+            None if self.same_owner => Some(Some(cmux_link::token::VmKind::Owner)),
+            None => None,
+        }
     }
 }
 
