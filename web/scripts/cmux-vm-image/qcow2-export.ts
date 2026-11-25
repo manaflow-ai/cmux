@@ -26,11 +26,14 @@ export function exportScript(putUrl: string): string {
     `mkdir -p ${EXPORT_DIR} ${ROOT_BIND}`,
     `mountpoint -q ${ROOT_BIND} || mount --bind / ${ROOT_BIND}`,
     `mount -o remount,bind,ro ${ROOT_BIND}`,
-    "command -v zstd >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q zstd >/dev/null",
+    // The baked image ships without apt lists (roll 45615566876: "Unable to locate package zstd"), so update first.
+    "command -v zstd >/dev/null || { apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q zstd >/dev/null; }",
     `tar --numeric-owner --xattrs --xattrs-include='*' --acls --sparse -C ${ROOT_BIND} --exclude=./var/tmp/cmux-qcow2 -cf - . | zstd -q -T0 -6 -o ${EXPORT_DIR}/rootfs.tar.zst`,
     `sha256sum ${EXPORT_DIR}/rootfs.tar.zst | cut -d' ' -f1 > ${EXPORT_DIR}/sha256`,
     `stat -c %s ${EXPORT_DIR}/rootfs.tar.zst > ${EXPORT_DIR}/bytes`,
-    `curl -fsS --retry 5 --retry-all-errors --max-time 1800 -T ${EXPORT_DIR}/rootfs.tar.zst ${q(putUrl)}`,
+    // No -f: R2's 403 body (SignatureDoesNotMatch, AccessDenied, RequestTimeTooSkewed, ...) names the cause; -f hid it (roll 45690843632).
+    `code=$(curl -sS --retry 5 --retry-all-errors --max-time 1800 -o ${EXPORT_DIR}/put.out -w '%{http_code}' -T ${EXPORT_DIR}/rootfs.tar.zst ${q(putUrl)}) || code=curl-failed`,
+    `case "$code" in 2??) ;; *) echo "R2 PUT $code: $(head -c 600 ${EXPORT_DIR}/put.out 2>/dev/null) date=$(date -u +%Y%m%dT%H%M%SZ)" >&2; exit 22;; esac`,
   ].join("\n");
 }
 
