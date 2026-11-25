@@ -37,12 +37,6 @@ struct KeyRecorder: Equatable {
         return Event(keys: keys, done: isFinished, cancelled: false)
     }
 
-    /// The stroke a key-down records: its first reading (as the dispatcher
-    /// matches it), or nil for a bare modifier.
-    static func stroke(for event: NSEvent) -> Shortcut? {
-        ActionRegistry.shortcuts(for: event).first { !$0.key.isEmpty }
-    }
-
     /// The glyphs of the held modifiers in the menu order (⌃⌥⇧⌘), as a stroke's display writes them.
     static func heldGlyphs(_ flags: NSEvent.ModifierFlags) -> String {
         [(NSEvent.ModifierFlags.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]

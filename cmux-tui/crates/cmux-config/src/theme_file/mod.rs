@@ -637,6 +637,7 @@ fn expectation(refusal: &Refusal) -> String {
             format!("expected one of {} or {shape}", choices.join(", "))
         }
         Accepted::Shape(shape) => format!("expected {shape}"),
+        Accepted::Document { schema, reason } => format!("expected a {schema} document ({reason})"),
         Accepted::Domain { name, values: Some(values) } if values.len() <= 12 => {
             format!("expected a {name}: {}", values.join(", "))
         }

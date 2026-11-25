@@ -13,8 +13,10 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::{future::Future, pin::Pin, sync::OnceLock};
 use tokio::sync::{Notify, broadcast};
+#[path = "watch_timers.rs"]
+pub(crate) mod timers;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Watch {
     pub id: String,
@@ -27,12 +29,32 @@ pub struct Watch {
     pub active: bool,
     pub cursors: BTreeMap<String, watch_events::Cursor>,
     pub offline: BTreeSet<String>,
+    /// A time watch (`watch_timers.rs`): when it next falls due, in ms since the epoch. A state
+    /// watch has none. Every time field is optional so files of older daemons still open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+    /// `--every`: the period of a recurring time watch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every_ms: Option<u64>,
+    /// `--until` of an `--every` watch: no fire is due after this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<u64>,
+    /// The message a time watch sends when it falls due.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 impl Watch {
     fn status(&self) -> Value {
-        json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
-            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline})
+        let mut v = json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
+            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline});
+        if self.prompt.is_some() {
+            v["nextDueMs"] = json!(self.due_ms);
+            v["everyMs"] = json!(self.every_ms);
+            v["endMs"] = json!(self.end_ms);
+            v["prompt"] = json!(self.prompt);
+        }
+        v
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -92,6 +114,8 @@ impl Jobs {
 pub struct Watches {
     inner: Mutex<Inner>,
     wake: Notify,
+    /// Wakes the timer task to re-arm after an add or remove (`watch_timers.rs`).
+    timers: Notify,
     jobs: Mutex<Jobs>,
     available: Notify,
     /// Tests: how often the loop of `start` came around, and a panic asked of its next pass.
@@ -168,6 +192,7 @@ impl Watches {
         let result = watch.status();
         self.change(|s| s.watches.insert(watch.id.clone(), watch))?;
         self.wake.notify_one();
+        self.timers.notify_one();
         Ok(result)
     }
     pub fn list(&self, hub: &Hub) -> Value {
@@ -183,16 +208,66 @@ impl Watches {
     /// Remove a watch: it makes no new wake. Wakes it already owes stay pending and are still
     /// delivered (`drain`), since their events happened before the removal; returns how many.
     pub fn remove(&self, id: &str) -> Result<Option<usize>, RpcError> {
-        self.change(|s| {
+        let removed = self.change(|s| {
             s.watches.remove(id)?;
             Some(s.pending.values().filter(|d| watch_of(d) == Some(id)).count())
-        })
+        })?;
+        self.timers.notify_one();
+        Ok(removed)
     }
     pub fn start(hub: &Arc<Hub>) {
         for _ in 0..REMOTE_WORKERS {
             tokio::spawn(remote_worker(Arc::clone(hub)));
         }
         let weak = Arc::downgrade(hub);
+        let timer_weak = weak.clone();
+        // One task sleeps until the earliest time watch is due; an add or remove re-arms it.
+        crate::supervise::restarting("watch-timer", &hub.fatal, move || {
+            let weak = timer_weak.clone();
+            async move {
+                let Some(hub) = weak.upgrade() else { return };
+                hub.wait_logs().await;
+                hub.wait_startup().await;
+                loop {
+                    let rearm = hub.watches.timers.notified();
+                    let now = crate::store::now_ms();
+                    let earliest = match hub.watches.fire_timers(now) {
+                        Ok((fired, earliest)) => {
+                            if !fired.is_empty() {
+                                tracing::info!(
+                                    "watch timer fired {}: {}",
+                                    fired.len(),
+                                    fired.join(" ")
+                                );
+                                drain(&hub, false);
+                            }
+                            earliest
+                        }
+                        Err(e) => {
+                            // Not saved: nothing fired. Try again soon rather than never.
+                            tracing::error!("watch timer: {e}");
+                            Some(now + timers::SLACK_MS)
+                        }
+                    };
+                    let sleep = async {
+                        match earliest {
+                            Some(due) => {
+                                let ms = due
+                                    .saturating_sub(crate::store::now_ms())
+                                    .min(timers::MAX_SLEEP_MS);
+                                tokio::time::sleep(std::time::Duration::from_millis(ms)).await
+                            }
+                            None => std::future::pending().await,
+                        }
+                    };
+                    tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        () = rearm => {}
+                        () = sleep => {}
+                    }
+                }
+            }
+        });
         // After a panic the loop starts over: subscribed again, then a full reconcile.
         crate::supervise::restarting("watch", &hub.fatal, move || {
             let weak = weak.clone();
@@ -286,25 +361,33 @@ fn commit(
     }
     hub.watches.change(|saved| {
         let Some(w) = saved.watches.get_mut(&old.id) else { return };
-        if !w.active || w.cursors.get(key) != old.cursors.get(key) { return; }
-        if !resolved && key.split_once('/').is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p)) { return; }
+        if !w.active || w.cursors.get(key) != old.cursors.get(key) {
+            return;
+        }
+        if !resolved
+            && key
+                .split_once('/')
+                .is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p))
+        {
+            return;
+        }
         if let Some(cursor) = next.cursors.get(key) {
             w.cursors.insert(key.into(), cursor.clone());
         }
         if let Some((peer, _)) = key.split_once('/') {
-            if next.offline.contains(peer) { w.offline.insert(peer.into()); }
-            else { w.offline.remove(peer); }
+            if next.offline.contains(peer) {
+                w.offline.insert(peer.into());
+            } else {
+                w.offline.remove(peer);
+            }
         }
-        if resolved { w.active = false; }
+        if resolved {
+            w.active = false;
+        }
         if !lines.is_empty() {
             let id = uuid::Uuid::now_v7().to_string();
-            let now = crate::store::now_ms();
-            let request = json!({"sessionId": w.to, "prompt": [{"type": "text", "text": format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"))}],
-                "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
-                    "watchId": w.id, "watchDone": resolved}}});
-            saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), unproven_caller: None, not_terminal: false, state: State::Queued, attempts: 0, never_sent: false, resends: 0, resent_at: 0, relay_post: None, open_on_peer: false, pin: None, proof: None, error: None,
-                accepted: None, created_at: now, updated_at: now });
+            let text = format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"));
+            saved.pending.insert(id.clone(), timers::delivery(w, id, text, resolved));
         }
     })
 }
@@ -533,6 +616,7 @@ mod tests {
             active: true,
             cursors: BTreeMap::new(),
             offline: BTreeSet::new(),
+            ..Default::default()
         };
         let mut saved = Saved::default();
         saved.watches.insert("big".into(), watch("big", "\u{e9}".repeat(2 << 20)));
@@ -586,6 +670,7 @@ mod tests {
                 active: true,
                 cursors: BTreeMap::from([("peer/s".to_string(), cursor)]),
                 offline: BTreeSet::new(),
+                ..Default::default()
             },
         );
         std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
@@ -625,6 +710,7 @@ mod tests {
                 active: true,
                 cursors,
                 offline: BTreeSet::new(),
+                ..Default::default()
             })
             .unwrap();
         let before = tokio::runtime::Handle::current().metrics().num_alive_tasks();
@@ -717,6 +803,7 @@ mod tests {
                 active: true,
                 cursors,
                 offline: BTreeSet::new(),
+                ..Default::default()
             })
             .unwrap();
         let reads = Arc::new(Mutex::new(Vec::<(String, tokio::time::Instant)>::new()));

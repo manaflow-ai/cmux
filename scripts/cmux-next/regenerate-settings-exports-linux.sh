@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # regenerate-settings-exports.sh's contract (directory mode), off the Mac: rewrites every export
 # settings-exports.txt (or CMUX_SETTINGS_EXPORTS_LIST) lists, from the settings sources, with
-# export-settings-links-linux.sh --only settings, and copies the ones that changed (all of them with
+# export-settings-linux.sh, and copies the ones that changed (all of them with
 # CMUX_SETTINGS_EXPORTS_ALL=1) into OUT at their repository paths, with "regenerated: PATH" lines.
 # check-settings-exports.sh runs it as CMUX_SETTINGS_EXPORTS_REGEN and base-autofix-exports-pack.sh as
 # CMUX_BASE_EXPORTS_REGENERATE_SETTINGS, in the Linux generated-files job (cmux-next.yml).
@@ -19,7 +19,7 @@ cd "$root"
 marker="$(mktemp)"
 trap 'rm -f "$marker"' EXIT
 sleep 1 # sleep-ok: an mtime-granularity tick: the marker must be older than anything the export writes
-CMUX_SETTINGS_EXPORTS_LIST="$list" "$here/export-settings-links-linux.sh" --only settings
+CMUX_SETTINGS_EXPORTS_LIST="$list" "$here/export-settings-linux.sh"
 listed="$(printf '%s\n' "${exports[@]}")"
 while IFS= read -r path; do
   [[ -n "$path" ]] || continue

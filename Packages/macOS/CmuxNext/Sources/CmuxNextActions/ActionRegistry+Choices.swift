@@ -80,9 +80,7 @@ extension ActionRegistry {
     /// The menu items of an argument: every case of an enumeration, or the
     /// pinned values of a suggested string.
     nonisolated static func menuChoices(_ argument: ActionArgument) -> (ActionArgument, [ActionEnumCase])? {
-        if case .enumeration(let cases) = argument.kind { return (argument, cases) }
-        if let suggestions = argument.suggestions, !suggestions.pinned.isEmpty { return (argument, suggestions.pinned) }
-        return nil
+        MenuChoiceRules.menuChoices(argument)
     }
 }
 
