@@ -257,6 +257,7 @@ function Card({
                   <EditDiff
                     file={file}
                     whole
+                    flat
                     label={fromRoot(file.path)}
                     actions={
                       <>
