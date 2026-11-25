@@ -204,7 +204,7 @@
 .acpmux-chips:has(> .acpmux-connect-float) { position: relative; }
 .acpmux-connect-float {
   position: absolute;
-  z-index: 20;
+  z-index: var(--layer-overlay);
   bottom: calc(100% + var(--ds-space-2));
   left: 0;
   width: min(380px, 100%);

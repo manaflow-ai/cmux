@@ -1245,9 +1245,8 @@ export type DoctorRun =
   | { verb: "doctor-recover" };
 
 /** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
- * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
- * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
-export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+ * last version of a broken file that loaded, the broken text moved aside first. */
+export type DoctorFixKind = "off" | "remove" | "restore";
 
 /** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
  * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
@@ -1279,8 +1278,7 @@ export type DoctorFindingKind =
   | "unknown-key"
   | "wrong-folder"
   | "old-build"
-  | "override"
-  | "not-default";
+  | "override";
 
 /** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
 export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
@@ -1328,6 +1326,77 @@ export type LibraryAnswer = {
   code?: string;
   message?: string;
 };
+
+/** One installed setup, a layer of the person's stack (`cmux --json setup gallery`'s `stack`, top
+ * first). `catalog: false`: installed from a repo the gallery does not list. */
+export type LookLayer = {
+  id: string;
+  name: string;
+  on: boolean;
+  /** 1 is the top: where two looks that are on set the same thing, it wins. */
+  position: number;
+  /** The repo it was installed from (`github.com/OWNER/NAME`), or a folder. */
+  source: string;
+  commit: string;
+  catalog: boolean;
+};
+
+/** One look of the reviewed catalog (cmux-customize `setup/looks.json`). */
+export type Look = {
+  id: string;
+  name: string;
+  tagline: string;
+  repo: string;
+  tags: string[];
+  /** Its `stack` row when installed, else null. */
+  installed: LookLayer | null;
+};
+
+/** `cmux --json setup gallery`: the catalog and every installed setup, top first (no network). */
+export type LooksGallery = { looks: Look[]; stack: LookLayer[] };
+
+/** `cmux --json setup preview ID --scheme S`: the look's golden-sample image, fetched once and
+ * cached by the CLI. */
+export type LookPreview = { id: string; scheme: "light" | "dark"; path: string; dataUrl: string; cached: boolean };
+
+/** What an install would change: the `details` of `setup.needs_consent` (cmux-tui
+ * `cli/setup/repo.rs` `card`, cmux-customize `setup.rs` `Plan`). Every text in it comes from the
+ * look's repo, so the page draws it as text only. */
+export type LookConsentCard = {
+  setup: {
+    id: string;
+    name: string;
+    description?: string;
+    version?: string;
+    /** The theme file it selects (`appearance.themeFile`). */
+    theme?: string;
+    settings: Array<{ key: string; value: unknown; replaces?: unknown }>;
+    /** `part`: settings, keybindings, themes, views, styles, automations. */
+    files: Array<{ path: string; part: string; replaces: boolean }>;
+    /** How many shortcuts it adds (merged into the person's). */
+    keybindings: number;
+    actions: Array<{ name: string; kind: string; runs: string; replaces: boolean }>;
+    extensions: string[];
+    requires?: string;
+    /** The app its views install as, in a layer of its own. */
+    layer?: string;
+  };
+  source: { reference: string; repository?: string | null; commit: string; page?: string | null; local: boolean };
+  reviewed: boolean;
+  /** `scopes` null: the extension's own card shows them. */
+  extensions: Array<{ reference: string; app?: string | null; installed: boolean; scopes: string[] | null }>;
+  undo: string;
+};
+
+/** One `cmux setup` verb the Looks card runs (`cmux.settings.looks`). `install` without `yes`
+ * answers the consent card; with `yes` it installs the `REPO@COMMIT` the card pinned. `order` sends
+ * every installed id, top first. */
+export type LooksRun =
+  | { verb: "gallery" }
+  | { verb: "preview"; id: string; scheme: "light" | "dark" }
+  | { verb: "install"; reference: string; yes?: boolean }
+  | { verb: "remove" | "on" | "off"; id: string }
+  | { verb: "order"; ids: string[] };
 
 /** A connection the page reports to the checklist (`cmux customize checklist --has NAME`): the
  * steps Rust cannot read from a file. */
@@ -2515,6 +2584,10 @@ export type SettingsOps = {
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: one `cmux setup` verb through the bundled CLI (Settings > Appearance > Looks): its JSON,
+   * or its error envelope (`code`, `message`, `details`). install, remove, on, off and order run only
+   * on the person's click or key in the page. */
+  "cmux.settings.looks": [LooksRun, unknown];
   /** Native: the Customize cmux checklist through the bundled CLI (`cmux --json customize checklist
    * --has NAME...`), read-only (Settings > General). */
   "cmux.settings.customize.checklist": [

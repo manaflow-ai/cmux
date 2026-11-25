@@ -26,6 +26,8 @@ mod auto_hold;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// The per-lane fan-out cap (`lane_fanout.rs`).
+pub(crate) mod lane_fanout;
 // A create with no room here starts on the peer placement picks.
 pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
