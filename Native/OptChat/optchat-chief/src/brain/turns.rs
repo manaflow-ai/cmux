@@ -800,6 +800,21 @@ impl Brain {
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
         }
+        // The rest of the tail, in the order it was sent (open items and held
+        // news after the subagents-at-work line, the turn-start digest and
+        // the turn checks last), so the inspector sends the same bytes again.
+        if let Some(block) = &open_items {
+            layout["open_items"] = serde_json::json!(block);
+        }
+        if let Some(block) = &held_news {
+            layout["held_news"] = serde_json::json!(block);
+        }
+        if let Some(block) = &turn_start {
+            layout["turn_start"] = serde_json::json!(block);
+        }
+        if let Some(block) = &checks {
+            layout["turn_checks"] = serde_json::json!(block);
+        }
         if keep {
             layout["kept"] = serde_json::json!({
                 "reuse": reuse.as_ref().map(|r| r.kept.session.clone()),
