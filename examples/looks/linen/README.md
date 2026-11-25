@@ -8,7 +8,7 @@ A soft, consumer chat look with almost no chrome. One centered 768 px reading co
 page, in larger 16 px type. Your prompts are gray pills on the right with 20 px corners; the
 replies are plain text with no bubble and no frame. While work runs the status line says
 Thinking and stays on it, a thin ring spins on the chat's row and tab, and the work folds into
-one gray line ("Worked for 17s") you can open. The sidebar is a history: a soft gray (#f9f9f9)
+one gray line ("Worked for 17s") you can open. The sidebar is a history: a soft gray (#fcfcfc)
 panel with no line beside it, your chats grouped by how recent they are under plain gray
 headings, one line each with its age at the right and pin and archive on hover. There is no
 brand hue: Send is a round black button (white in Dark), links are the text's own color with an
@@ -19,8 +19,8 @@ It is built only from public surfaces, so you can copy any part of it:
 | File | What it does |
 | --- | --- |
 | `cmux-setup.json` | Picks the theme file; sets the chat in the system font at 16 px on a 1.6 line, code at 0.9, one centered 768 px column, no minimap, work folded with the status staying on Thinking, "work locally" under the composer at its left, the session panel pushing the column aside, a made file as one folded card; the sidebar as a history grouped by recency under plain headings, one line per chat with its age, pin and archive on hover, a search button, a compact hover card; a capsule address field |
-| `themes/linen.json` | Default, Light. Page `#ffffff`, text `#0d0d0d`, the sidebar `#f9f9f9` with no border, code on `#f9f9f9`, accent black `#0d0d0d` with white on it, selection `#cfe0fc`, the unread blue, toast green and Delete red as the terminal palette |
-| `themes/linen-dark.json` | Dark. Page `#212121`, text `#f3f3f3`, the sidebar a step darker `#181818`, code on `#181818`, accent near-white `#f3f3f3` with the page color on it, selection `#28446e`, the palette lifted for the dark page |
+| `themes/linen.json` | Default, Light. Page `#ffffff`, text `#0d0d0d`, the sidebar `#fcfcfc` with no border, code on `#fcfcfc`, accent black `#0d0d0d` with white on it, selection `#cfe0fc`, the unread blue, toast green and Delete red as the terminal palette |
+| `themes/linen-dark.json` | Dark. Page `#212121`, text `#f3f3f3`, the sidebar a step darker `#181818`, code on `#181818`, accent near-white `#f3f3f3` with the page color on it, selection `#5a76a0`, the palette lifted for the dark page |
 | `agent-pane/theme.css` | The gray prompt pill (the text at 7% over the page, no edge, 20 px corners), cards on a faint fill with a 10% hairline, gray secondary text at 66% and 58%, links in the text color, and the soft menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card that reads like a message preview (title and age, then two or three gray lines of the chat's last reply or prompt, then where it runs) and history rows in regular weight with a thin spinning ring |
 | `markdown/theme.css` | The Markdown viewer's paint: plain text with no frame. Headings with no rule, code in a soft gray block with 12 px corners, quotes on a gray line, links in the text's own color. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |

@@ -25,7 +25,6 @@ enum Strings {
     }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .localizedModule) }
-    static var restoringDetails: String { String(localized: "sidebar.restoring.details", defaultValue: "Details", bundle: .localizedModule) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
     static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .localizedModule) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .localizedModule) }
@@ -35,7 +34,6 @@ enum Strings {
     /// Projects and Recents' header over workspaces in no group (`ListHeaderRowView`).
     static var recents: String { String(localized: "sidebar.section.recents", defaultValue: "Recents", bundle: .localizedModule) }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .localizedModule) }
-    static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .localizedModule) }
     /// An open empty group's row (`EmptyGroupRowView`).
     static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .localizedModule) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .localizedModule) }
@@ -114,6 +112,10 @@ enum Strings {
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .localizedModule) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .localizedModule) }
+    /// An agent's given name with the one it had before (the hover card's agent line): "Mango — fka claude-sr2-coord".
+    static func formerlyKnownAs(_ name: String, former: String) -> String {
+        String(localized: "sidebar.workspace.formerlyKnownAs", defaultValue: "\(name) — fka \(former)", bundle: .localizedModule)
+    }
     /// The bell-slash mark's tooltip on a muted workspace's row.
     static var notificationsMuted: String {
         String(localized: "sidebar.workspace.notificationsMuted", defaultValue: "Notifications muted", bundle: .localizedModule)

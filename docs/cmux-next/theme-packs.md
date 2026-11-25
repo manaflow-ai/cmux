@@ -38,6 +38,7 @@ cmux pack undo                                    # back to the look you had
 | `look` | An object of settings, as dotted keys (`"appearance.accent": "theme"`) or nested objects. |
 | `colors` | The terminal theme's colors: `background`, `foreground`, `cursor`, `selection`, `accent`, `0` to `15`, `palette`. Each is `"#RRGGBB"`. |
 | `slots` | Slot id to variant id (`"chat.thinkingIndicator": "pulse"`). Ids and variants are in `schemas/theme/slots.json`. |
+| `fonts` | The pack's own font files, as `assets/` paths (`"fonts": ["assets/fonts/Sakura-Mono.otf"]`): `.ttf`, `.otf`, `.ttc`, `.woff` or `.woff2`, each at most 32 MB, at most 32. The app registers them for itself while the pack is in use, and drops them when another look applies; nothing is installed on the Mac. Name a family in `look` (`"terminal.fontFamily": "Sakura Mono"`). |
 | `$schema` | Allowed, ignored. |
 
 Any other top-level key is skipped with a message. At most 4096 values are read from `look`.
@@ -58,7 +59,7 @@ rest still applies.
 | `backgrounds` | `appearance.background*`, `appearance.paneBackgrounds`, `appearance.wallpaper*`, `ui.reducedBackgrounds`: wallpapers, their tint, opacity and rotation, including pictures and videos from `assets/`. |
 | `motion` | `ui.animation*` (speed and the per-area switches), `ui.paneAnimations`, `ui.calm`. |
 | `tabs` | `appearance.tabShape`, `appearance.metrics.tab*`. |
-| `fonts` | `terminal.fontFamily`, `terminal.fontSize`, `appearance.font*`, `appearance.metrics.chromeFont*`. |
+| `fonts` | `terminal.fontFamily`, `terminal.fontSize`, `appearance.font*`, `appearance.metrics.chromeFont*`, and the `fonts` section. |
 | `components` | `sidebar.*` and the `slots` section. |
 
 A key matches by prefix, so `appearance.backgroundOpacity` is `backgrounds`. The code is
@@ -77,11 +78,12 @@ rest of the pack still applies.
 
 | Problem | What is dropped |
 |---|---|
-| A key whose capability isn't declared | That key (or `colors`, or `slots`, as a section) |
+| A key whose capability isn't declared | That key (or `colors`, `slots` or `fonts`, as a section) |
 | An unknown key, a wrong type, a number out of range, an unknown choice | That key. The check is the one `cmux settings set` makes. |
 | A bad color (not `#RRGGBB`) | That color |
 | A `file:` or `folder:` value that leaves `assets/` (`../`, an absolute path, a link out), points at a missing file, or is too big or the wrong kind | That key |
 | An unknown slot, or a variant the slot doesn't have | That slot. It keeps its default. |
+| A font file that leaves `assets/`, is missing, too big, not a font kind, or whose first bytes aren't a font's | That file. The look falls back to the next family in its list. |
 | An unknown top-level key | Skipped |
 | A bad `id` | Replaced by `local/FOLDER` |
 | A `capabilities` entry that isn't a capability name, or a `capabilities` that isn't a list | That entry, or the list (so the pack changes nothing) |

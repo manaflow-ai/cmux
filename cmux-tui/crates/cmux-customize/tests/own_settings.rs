@@ -179,3 +179,42 @@ fn a_refused_value_written_during_an_open_preview_stops_a_try_on_before_it_write
     assert!(!home.config("themes/night.json").exists());
     assert!(!home.settings().contains("\"compact\""));
 }
+
+/// A stylesheet the person wrote that loads something by address: the pane
+/// refuses it (cmux.stylesheetGuard/1), but it is theirs like a stale value.
+const FETCHING_SHEET: &str = "@import 'https://x.example/a.css';\n";
+
+#[test]
+fn a_stylesheet_of_the_persons_that_fetches_never_blocks_a_profile_preview_apply_or_try_on() {
+    let home = Home::new("{}\n");
+    home.write("agent-pane/theme.css", FETCHING_SHEET);
+    let customize = home.customize();
+    let profile = profile("night.profile.json");
+    customize.preview_profile(&profile, "cli", 1).expect("the preview was refused");
+    customize.apply(None, "cli", 2).expect("the apply was refused");
+    let problems = customize.status().unwrap().problems;
+    assert!(
+        problems.iter().any(|problem| problem.line().contains("it has an @import")),
+        "status no longer reports the stylesheet: {problems:?}"
+    );
+    assert_eq!(fs::read_to_string(home.config("agent-pane/theme.css")).unwrap(), FETCHING_SHEET);
+    let fresh = Home::new("{}\n");
+    fresh.write("agent-pane/theme.css", FETCHING_SHEET);
+    fresh.customize().try_on(Some(&profile), 60_000, "cli", 1).expect("the try-on was refused");
+    assert_eq!(fs::read_to_string(fresh.config("agent-pane/theme.css")).unwrap(), FETCHING_SHEET);
+}
+
+#[test]
+fn a_change_that_writes_a_stylesheet_that_fetches_is_refused() {
+    let home = Home::new("{}\n");
+    home.write("agent-pane/theme.css", ":root { --cv-user-bubble-radius: 8px }\n");
+    let customize = home.customize();
+    customize.apply(None, "cli", 1).expect("a plain sheet was refused");
+    customize.begin("fetch a font", "cli", 2).unwrap();
+    home.write("agent-pane/theme.css", ".a { background: url(https://x.example/p.png) }\n");
+    let Err(Error::Invalid(problems)) = customize.apply(None, "cli", 3) else {
+        panic!("a stylesheet that fetches applied")
+    };
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].line().contains("url() that is not a data: URL"), "{problems:?}");
+}

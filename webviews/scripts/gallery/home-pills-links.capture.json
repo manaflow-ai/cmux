@@ -1,0 +1,79 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "pills-pill",
+      "entry": "home.messages-cards",
+      "variant": "pills-pill",
+      "width": 560,
+      "height": 200,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-pills, .hm-link-preview, .hm-gallery-card",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--cmux-button-radius:12px;--ds-radius-md:8px;--ds-space-2:6px}"
+      }
+    },
+    {
+      "name": "pills-two-line",
+      "entry": "home.messages-cards",
+      "variant": "pills-two-line",
+      "width": 560,
+      "height": 240,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-pills, .hm-link-preview, .hm-gallery-card",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--cmux-button-radius:12px;--ds-radius-md:8px;--ds-space-2:6px}"
+      }
+    },
+    {
+      "name": "pills-chips",
+      "entry": "home.messages-cards",
+      "variant": "pills-chips",
+      "width": 480,
+      "height": 160,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-pills, .hm-link-preview, .hm-gallery-card",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--cmux-button-radius:12px;--ds-radius-md:8px;--ds-space-2:6px}"
+      }
+    },
+    {
+      "name": "links-open",
+      "entry": "home.messages-cards",
+      "variant": "links-open",
+      "width": 560,
+      "height": 320,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-pills, .hm-link-preview, .hm-gallery-card",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--cmux-button-radius:12px;--ds-radius-md:8px;--ds-space-2:6px}"
+      }
+    },
+    {
+      "name": "links-files-closed",
+      "entry": "home.messages-cards",
+      "variant": "links-files-closed",
+      "width": 560,
+      "height": 320,
+      "deviceScaleFactor": 2,
+      "clip": ".hm-pills, .hm-link-preview, .hm-gallery-card",
+      "arms": {
+        "now": "",
+        "look": ":root:root{--cmux-button-radius:12px;--ds-radius-md:8px;--ds-space-2:6px}"
+      }
+    }
+  ]
+}
