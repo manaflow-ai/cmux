@@ -8,7 +8,7 @@
   "colors": {
     "background": "#020617",
     "foreground": "#f8fafc",
-    "selection": "#334155",
+    "selection": "#67768c",
     "accent": "#f8fafc"
   },
   "appearance.accent": "neutral",
@@ -64,7 +64,7 @@
   "layout.cornerPadding": 2,
   "layout.paneBorderWidth": 1,
   "ui.reducedBackgrounds": true,
-  "appearance.surfaces.sidebar.color": "#0f172a",
+  "appearance.surfaces.sidebar.color": "#020616",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#020617",
   "appearance.surfaces.agentPane.opacity": 1,

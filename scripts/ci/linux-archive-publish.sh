@@ -61,7 +61,7 @@ mkdir -p "$work/nfpm" && tar -xzf "$work/nfpm.tgz" -C "$work/nfpm" nfpm
 nfpm="$work/nfpm/nfpm"
 rpm_repo=1
 if ! command -v createrepo_c >/dev/null; then
-  timeout 300 sudo apt-get install -y -qq createrepo-c >/dev/null 2>&1 || true
+  bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" 300 sudo apt-get install -y -qq createrepo-c >/dev/null 2>&1 || true
 fi
 command -v createrepo_c >/dev/null || { echo "::warning::createrepo_c is unavailable; the yum repository is not published"; rpm_repo=0; }
 

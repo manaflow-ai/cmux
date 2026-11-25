@@ -426,6 +426,29 @@
       }
     },
     {
+      "id": "github",
+      "name": "GitHub",
+      "owner": "GitHub",
+      "kind": "mark",
+      "color": {
+        "tone": [
+          "#FFFFFF",
+          "#000000"
+        ]
+      },
+      "source": {
+        "url": "https://primer.style/foundations/icons/mark-github-16",
+        "file": "primer/octicons icons/mark-github-16.svg",
+        "license": "Primer Octicons are MIT; the mark is a trademark of GitHub."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://raw.githubusercontent.com/primer/octicons/main/icons/mark-github-16.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
       "id": "grok",
       "name": "Grok",
       "owner": "xAI",

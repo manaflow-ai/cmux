@@ -136,8 +136,32 @@ fn a_replay_page_that_cannot_advance_hands_the_turn_to_exec() {
 
 #[test]
 fn a_daemon_without_attach_is_refused_before_any_attach() {
-    let (_dir, path) = daemon(&["workspace-registry-v1"], json!({}), vec![]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("not-ready.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let requests = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut lines = BufReader::new(stream);
+        let mut commands = Vec::new();
+        let mut line = String::new();
+        while lines.read_line(&mut line).unwrap() > 0 {
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            line.clear();
+            commands.push(request["cmd"].as_str().unwrap().to_owned());
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": request["id"], "ok": true,
+                "data": {"capabilities": ["workspace-registry-v1"]}})
+            )
+            .unwrap();
+        }
+        commands
+    });
     assert!(observe(&path, 7, 0, Duration::from_secs(5)).is_err());
+    assert_eq!(requests.join().unwrap(), ["identify"], "no attach before readiness");
     assert!(observe(Path::new("/nonexistent/link.sock"), 7, 0, Duration::from_secs(1)).is_err());
 }
 

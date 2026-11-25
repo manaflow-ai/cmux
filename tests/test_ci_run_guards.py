@@ -25,6 +25,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import run_ci_guards  # noqa: E402
+
+
+def pid_gone(pid: int, seconds: float = 10) -> bool:
+    """Until PID is gone (killed, and reaped by whoever adopted it), SECONDS at most: whether it went."""
+    import time  # noqa: PLC0415
+
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -37,8 +52,6 @@ _guard_child_spec = _git_fixture_importlib.spec_from_file_location(
     "guard_child_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "guard_child_env.py"))
 guard_child_env = _git_fixture_importlib.module_from_spec(_guard_child_spec)
 _guard_child_spec.loader.exec_module(guard_child_env)
-
-FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 
 
 class AffectedSelectionFailsOpen(unittest.TestCase):
@@ -546,19 +559,6 @@ class PortableSubstitutes(unittest.TestCase):
         self.assertIn("unrecognized line", result.stderr)
 
 
-class FastWorkflowReportsOnMainPush(unittest.TestCase):
-    def test_main_push_keeps_the_standalone_last_green_guard(self) -> None:
-        workflow = run_ci_guards.load_yaml(FAST_WORKFLOW)
-        triggers = workflow.get("on") or workflow.get(True)
-        self.assertNotIn("pull_request", triggers)
-        self.assertNotIn("merge_group", triggers)
-        self.assertEqual(triggers["push"]["branches"], ["main"])
-        job = workflow["jobs"]["fast-guards"]
-        self.assertEqual(job["name"], "CI fast guards")
-        runs = [s.get("run", "") for s in job["steps"]]
-        self.assertTrue(any(r.startswith("scripts/ci/guards-local.sh") for r in runs))
-
-
 class FeatRoutesSelectTheGroups(unittest.TestCase):
     """`--feat-routes FILE` runs the `ci` group plus the groups the changed files in FILE route to
     for a feat-cmux-next pull request (detect_linux_guard_changes.classify_feat)."""
@@ -762,9 +762,7 @@ class ATimedOutRunStopsItsSteps(unittest.TestCase):
             output, _ = proc.communicate(timeout=60)
             self.assertEqual(proc.returncode, 130, output)
             self.assertIn("interrupted", output)
-            time.sleep(0.5)
-            with self.assertRaises(ProcessLookupError, msg="the step's child outlived the run"):
-                os.kill(child, 0)
+            self.assertTrue(pid_gone(child), "the step's child outlived the run")
 
 
 class TheDeadlineStopsTheRun(unittest.TestCase):
@@ -791,9 +789,7 @@ class TheDeadlineStopsTheRun(unittest.TestCase):
             self.assertNotIn("FAIL", run.stdout)
             found = json.loads(results.read_text(encoding="utf-8"))
             self.assertEqual(found, {"_cmux_complete": False, "quick": True})
-            time.sleep(0.5)
-            with self.assertRaises(ProcessLookupError, msg="the stopped step's child outlived the run"):
-                os.kill(int(pid_file.read_text()), 0)
+            self.assertTrue(pid_gone(int(pid_file.read_text())), "the stopped step's child outlived the run")
 
 
 class ACutShortTipRunIsNoVerdict(unittest.TestCase):

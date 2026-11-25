@@ -13,15 +13,41 @@ function rule(selector: string): string {
   return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
-// Its count sits in a control sized for two digits: a hundred running lines read "99+", never a
-// wider control (review of #36323 at 2c299524).
+// Its count is the real one, never capped at "99+" (Leo, 2026-11-22: "this can probably afford to
+// show more than 99 numbers"): the number up to 999, then a compact one rounded down, at most four
+// characters, and the pill's width in digits (a point is half one) for the line's gap.
 describe("tucked hat pull tab count", () => {
-  test("shows up to 99, then 99+", async () => {
+  test("shows the real count, compact past 999, never more than runs", async () => {
     const { pullTabCountText } = await import("../src/agent-session/acpmux/subagents/trayPullTabModel");
     expect(pullTabCountText(1)).toBe("1");
     expect(pullTabCountText(99)).toBe("99");
-    expect(pullTabCountText(100)).toBe("99+");
-    expect(pullTabCountText(1250)).toBe("99+");
+    expect(pullTabCountText(100)).toBe("100");
+    expect(pullTabCountText(128)).toBe("128");
+    expect(pullTabCountText(999)).toBe("999");
+    expect(pullTabCountText(1_000)).toBe("1k");
+    expect(pullTabCountText(1_250)).toBe("1.2k");
+    expect(pullTabCountText(1_299)).toBe("1.2k");
+    expect(pullTabCountText(2_300)).toBe("2.3k");
+    expect(pullTabCountText(9_999)).toBe("9.9k");
+    expect(pullTabCountText(12_800)).toBe("12k");
+    expect(pullTabCountText(128_000)).toBe("128k");
+    expect(pullTabCountText(999_999)).toBe("999k");
+    expect(pullTabCountText(1_250_000)).toBe("1.2M");
+    for (const n of [0, 7, 99, 100, 999, 1_000, 1_234, 9_999, 10_000, 99_999, 100_000, 999_999, 1_000_000, 5e9])
+      expect(pullTabCountText(n).length, String(n)).toBeLessThanOrEqual(4);
+  });
+
+  test("its width in digits, a point half one", async () => {
+    const { pullTabCountWidth } = await import("../src/agent-session/acpmux/subagents/trayPullTabModel");
+    expect(pullTabCountWidth("7")).toBe(1);
+    expect(pullTabCountWidth("128")).toBe(3);
+    expect(pullTabCountWidth("1.2k")).toBe(3.5);
+    expect(pullTabCountWidth("128k")).toBe(4);
+  });
+
+  test("every width the count can take has its gap in the composer's line", () => {
+    for (const mark of ["1", "2", "3", "3.5", "4"])
+      expect(css, mark).toContain(`.acpmux-tray-pull[data-mark="${mark}"] + .acpmux-composer`);
   });
 });
 

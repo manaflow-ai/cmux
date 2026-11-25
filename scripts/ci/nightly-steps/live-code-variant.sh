@@ -9,11 +9,16 @@
 #
 #   live-code-variant.sh build COMMIT OUT [SWIFT_FLAGS]   (fleet Mac, no secret) the overlay into OUT/overlay and
 #                                                         OUT/live-code-modules-<commit>.tar.gz
+#   live-code-variant.sh built COMMIT OUT                 (build-live-code-variant, last step) writes built=true to
+#                                                         GITHUB_OUTPUT only when both xcodebuild logs say BUILD
+#                                                         SUCCEEDED and the two archives exist; sign gates on it
 #   live-code-variant.sh graft DMG OVERLAY APP_OUT        the nightly DMG's app copied to APP_OUT with OVERLAY placed
-#                                                         in; prints the nightly's entitlements file path. Runs no
-#                                                         bundle code.
+#                                                         in (APP_OUT ending in / is a directory: the app keeps its
+#                                                         own name in it); prints the nightly's entitlements file
+#                                                         path. Runs no bundle code.
 #   live-code-variant.sh prepare PREFIX BUILD ARTIFACT  (sign-live-code-variant, no secret) the published nightly DMG
-#                                                         grafted with ARTIFACT/overlay.tar.gz into ./variant; writes
+#                                                         grafted with ARTIFACT/overlay.tar.gz into ./variant, the app
+#                                                         keeping its name (cmux NIGHTLY.app); writes
 #                                                         VARIANT_APP, VARIANT_ENTITLEMENTS and the names to GITHUB_ENV
 #   live-code-variant.sh sign APP ENTITLEMENTS            (signing keychain open, APPLE_SIGNING_IDENTITY) frameworks
 #                                                         the overlay added, then the main bundle (main-only)
@@ -43,14 +48,24 @@ case "$cmd" in
     tar -C "$o" -czf "$out/overlay.tar.gz" app build.json
     ls -l "$out"
     ;;
+  built)
+    commit="${1:?COMMIT}" out="${2:?OUT}"
+    for f in xcodebuild.log xcodebuild-relink.log; do
+      grep -q 'BUILD SUCCEEDED' "$out/overlay/$f" 2>/dev/null || die "$out/overlay/$f does not say BUILD SUCCEEDED"
+    done
+    for f in overlay.tar.gz "live-code-modules-$commit.tar.gz"; do [[ -s "$out/$f" ]] || die "no $out/$f"; done
+    echo "built=true" >> "${GITHUB_OUTPUT:?}"
+    ;;
   graft)
     dmg="${1:?DMG}" overlay="${2:?OVERLAY}" app_out="${3:?APP_OUT}"
-    [[ ! -e "$app_out" ]] || die "$app_out exists"
     mnt="$(mktemp -d)"
     hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null || die "cannot attach $dmg"
     trap 'hdiutil detach "$mnt" >/dev/null 2>&1 || hdiutil detach -force "$mnt" >/dev/null 2>&1 || true; rmdir "$mnt" 2>/dev/null || true' EXIT
     src="$(find "$mnt" -maxdepth 1 -name '*.app' -type d | head -1)"
     [[ -n "$src" ]] || die "$dmg holds no app"
+    # A directory: the variant keeps the nightly app's own name (cmux NIGHTLY.app), as the proof does.
+    [[ "$app_out" != */ ]] || app_out="${app_out%/}/$(basename "$src")"
+    [[ ! -e "$app_out" ]] || die "$app_out exists"
     mkdir -p "$(dirname "$app_out")"
     ditto "$src" "$app_out"
     ents="$(dirname "$app_out")/nightly.entitlements"
@@ -59,7 +74,8 @@ case "$cmd" in
     plutil -lint "$ents" >/dev/null || die "the nightly's entitlements are not a plist"
     want="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["ref"])' "$overlay/build.json")"
     have="$(plutil -extract CMUXCommit raw -o - "$app_out/Contents/Info.plist" 2>/dev/null || true)"
-    [[ "$want" == "$have" ]] || die "the overlay is of $want, the nightly of ${have:-no CMUXCommit}: not the same commit"
+    # nightly.yml stamps CMUXCommit with the short sha and build.json carries the full one: the same commit is a prefix.
+    [[ "$have" =~ ^[0-9a-f]{7,40}$ && "$want" == "$have"* ]] || die "the overlay is of $want, the nightly of ${have:-no CMUXCommit}: not the same commit"
     bash "$root/scripts/cmux-next/swap-binary.sh" place "$app_out" "$overlay" >&2
     # The Live mode mark (docs/cmux-next/live-code.md): a live code build's Info.plist says so.
     /usr/libexec/PlistBuddy -c 'Delete :CMUXLiveCodeBuild' "$app_out/Contents/Info.plist" 2>/dev/null || true
@@ -72,8 +88,10 @@ case "$cmd" in
     curl -fsSL --retry 5 --speed-limit 1000 --speed-time 120 -o nightly.dmg \
       "${NIGHTLY_NEXT_FEED_BASE:?}/$prefix-arm64-$build.dmg"
     mkdir overlay && tar -C overlay -xzf "$art/overlay.tar.gz"
-    ents="$(bash "$0" graft nightly.dmg overlay "$PWD/variant/cmux.app")"
-    { echo "VARIANT_APP=$PWD/variant/cmux.app"; echo "VARIANT_ENTITLEMENTS=$ents"
+    ents="$(bash "$0" graft nightly.dmg overlay "$PWD/variant/")"
+    app="$(find "$PWD/variant" -mindepth 1 -maxdepth 1 -name '*.app' -type d)"
+    [[ -n "$app" && "$app" != *$'\n'* ]] || die "the graft left not exactly one app in $PWD/variant"
+    { echo "VARIANT_APP=$app"; echo "VARIANT_ENTITLEMENTS=$ents"
       bash "$0" names "$prefix" "$build"; } >> "${GITHUB_ENV:?}"
     ;;
   sign)

@@ -72,7 +72,7 @@ class FakeServer(threading.Thread):
                    + struct.pack("!I", len(data)) + data)
         if self.split:
             conn.sendall(message[:6])
-            time.sleep(0.3)
+            time.sleep(0.3)  # sleep-ok: the stub server delays the rest of the message so the viewer sees a split read
             message = message[6:]
         conn.sendall(message)
 

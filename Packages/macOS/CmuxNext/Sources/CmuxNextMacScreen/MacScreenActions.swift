@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextDevices
@@ -15,6 +16,7 @@ public struct MacScreenActions {
     let refusal: (any Error) -> Void
     let listedDevices: @MainActor () async -> [MacScreenListedDevice]
     let worker: MacScreenWorkerSession
+    let startedBy: (ActionInvocation) -> String?
 
     /// - Parameters:
     ///   - refusal: Reports an open whose explicit target names nothing (`not_found`); every other failed open is
@@ -22,12 +24,15 @@ public struct MacScreenActions {
     ///   - listedDevices: The machines `cmux device list` lists, read when a name matches no device Screen Sharing
     ///     lists, so the refusal says why that machine offers no screen. None: the refusal lists Screen Sharing's devices.
     ///   - worker: cmux Remote's worker, the host of this Mac's session in a build that bundles cmux Remote.
+    ///   - startedBy: the name of the agent an automation run came from, shown on a tab it starts viewing;
+    ///     nil (the default) is ``agentName(_:)``, which tests replace.
     public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
                 providerKey: @escaping (String, String?) -> String?,
                 open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
                 refusal: @escaping (any Error) -> Void,
                 listedDevices: @escaping @MainActor () async -> [MacScreenListedDevice],
-                worker: MacScreenWorkerSession = .none) {
+                worker: MacScreenWorkerSession = .none,
+                startedBy: ((ActionInvocation) -> String?)? = nil) {
         self.pages = pages
         self.selectedTab = selectedTab
         self.providerKey = providerKey
@@ -35,6 +40,7 @@ public struct MacScreenActions {
         self.refusal = refusal
         self.listedDevices = listedDevices
         self.worker = worker
+        self.startedBy = startedBy ?? Self.agentName
     }
 
     /// No `cmux device list` (tests): a name Screen Sharing does not list is refused with Screen Sharing's devices.
@@ -42,9 +48,10 @@ public struct MacScreenActions {
     public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
                 providerKey: @escaping (String, String?) -> String?,
                 open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
-                refusal: @escaping (any Error) -> Void, worker: MacScreenWorkerSession = .none) {
+                refusal: @escaping (any Error) -> Void, worker: MacScreenWorkerSession = .none,
+                startedBy: ((ActionInvocation) -> String?)? = nil) {
         self.init(pages: pages, selectedTab: selectedTab, providerKey: providerKey, open: open, refusal: refusal,
-                  listedDevices: Self.noListedDevices, worker: worker)
+                  listedDevices: Self.noListedDevices, worker: worker, startedBy: startedBy)
     }
 
     private static func noListedDevices() async -> [MacScreenListedDevice] { [] }
@@ -59,8 +66,13 @@ public struct MacScreenActions {
         }
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
-            do { try open({ try Self.record(invocation, pages: pages) }, invocation, Self.connects(invocation)) }
-            catch { return refused(error, invocation) }
+            do { try open({ try Self.record(invocation, pages: pages, startedBy: startedBy) }, invocation, Self.isPerson(invocation)) }
+            catch {
+                pages.pendingStarters.removeAll()
+                return refused(error, invocation)
+            }
+            // An agent's start is its own tab's, prepared in this turn: one no tab took (no pane) never confirms a later one.
+            pages.pendingStarters.removeAll()
             return .done
         })
         registry.bindEffect("macScreen.stopViewing", effect: { invocation in
@@ -145,18 +157,43 @@ public struct MacScreenActions {
         }
     }
 
-    static func record(_ invocation: ActionInvocation, pages: MacScreenPages) throws -> MacScreenRecord {
-        try record(invocation, pages: pages, devices: pages.viewableDevices)
+    static func record(_ invocation: ActionInvocation, pages: MacScreenPages,
+                       startedBy: (ActionInvocation) -> String? = { _ in nil }) throws -> MacScreenRecord {
+        try record(invocation, pages: pages, devices: pages.viewableDevices, startedBy: startedBy)
     }
 
     /// `device` is the hub's device id or, from the CLI and agents, a device name (the Mac's Computer Name) among
     /// `devices`, the devices the home page lists. Names resolve here, at the action boundary: records and
     /// `MacScreenPages.record(forDevice:)` take only ids. No `device` opens the home page.
-    static func record(_ invocation: ActionInvocation, pages: MacScreenPages, devices: [HubDevice]) throws -> MacScreenRecord {
+    ///
+    /// A person's open asks for View Only when its tab shows. An agent's or the CLI's open of one of the person's
+    /// own devices asks for `scope` (View Only unless `full`) at once and names `startedBy`'s agent on the tab, unless
+    /// Only Your Click Starts Viewing a Screen is on (Leo, 2026-11-17: "why should it get held only be aperson's
+    /// click? i dont like that"). One that asks with `autoconnect` (``mayAutoconnect(_:pages:)``) starts View Only the
+    /// same way on any device. Any other automation open waits at the Connect card for the person.
+    static func record(_ invocation: ActionInvocation, pages: MacScreenPages, devices: [HubDevice],
+                       startedBy: (ActionInvocation) -> String? = { _ in nil }) throws -> MacScreenRecord {
         guard let value = invocation["device"] else { return MacScreenRecord(macID: nil) }
         guard let text = value.stringValue else { throw ActionFailure(message: missingDevice(among: devices)) }
         let id = try deviceID(named: text, among: devices)
-        return pages.record(forDevice: id, requesting: connects(invocation) ? .view : nil)
+        if isPerson(invocation) { return pages.record(forDevice: id, requesting: .view) }
+        let ownDevice = pages.agentMayStartViewing(id, among: devices)
+        guard ownDevice || mayAutoconnect(invocation, pages: pages) else { return pages.record(forDevice: id) }
+        return pages.record(forDevice: id, requesting: ownDevice ? scope(invocation) : .view,
+                            startedBy: MacScreenStarter(name: startedBy(invocation)))
+    }
+
+    /// The agent `invocation` came from, as the person knows it: the title of the agent session that sent it
+    /// (`callerAgentSession`, its acpmux lane: the name its chat and Agent Activity show), else the calling app.
+    /// Nil names none (a terminal's or a script's CLI call: `callerTerminal` is an id, not a name), and the tab
+    /// says "an agent".
+    static func agentName(_ invocation: ActionInvocation) -> String? {
+        invocation.callerAgentSession.flatMap { AgentLaneStore.shared.lane($0)?.title } ?? invocation.callerApp
+    }
+
+    /// `scope`: `full` asks for Full Control; `view`, or none, View Only (the catalog refuses any other value).
+    static func scope(_ invocation: ActionInvocation) -> SessionScope {
+        invocation["scope"]?.stringValue?.lowercased() == "full" ? .full : .view
     }
 
     /// The hub id `text` names: an id as is (listed or not, as before names resolved), else the one device whose
@@ -234,12 +271,12 @@ public struct MacScreenActions {
         invocation.origin == .user && !invocation.viaControlSocket && ActionRunScope.isPersonsAction()
     }
 
-    /// The opened tab connects to view at once, the way a person's open does: a person opened it, or the caller
-    /// asked with `autoconnect` (default off), so `cmux action run macScreen.open --device X --autoconnect` reaches
-    /// the hub with no Connect click. Both gates take it: the requested scope (`record(forDevice:requesting:)`) and
-    /// the confirmed record `makeHubPane` resumes it on. Leo, 2026-11-16: "At least like Linux to Mac".
-    static func connects(_ invocation: ActionInvocation) -> Bool {
-        isPerson(invocation) || autoconnects(invocation)
+    /// An automation open that asked with `autoconnect` (default off) starts viewing at once on any device, as an
+    /// agent's start (its tab is confirmed and names the agent), so `cmux action run macScreen.open --device X
+    /// --autoconnect` reaches the hub with no Connect click. Only Your Click Starts Viewing a Screen wins over it:
+    /// an agent never loosens the person's setting. Leo, 2026-11-16: "At least like Linux to Mac".
+    static func mayAutoconnect(_ invocation: ActionInvocation, pages: MacScreenPages) -> Bool {
+        autoconnects(invocation) && !pages.onlyPersonStartsViewing
     }
 
     /// `autoconnect: true`, as the CLI sends a bare `--autoconnect`, or `"true"` (`--autoconnect=true`, `--arg`).

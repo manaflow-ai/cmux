@@ -119,6 +119,42 @@ impl WorkspaceRegistry {
         Ok(topology)
     }
 
+    /// What a workspace commit that adds one workspace, closes none and leaves `active` as
+    /// the active workspace reads before it ([`Self::resource_topology_for_workspace_commit`]
+    /// for that case): the frame of the two ends of a focus move only (the workspace the focus
+    /// leaves and `active`, which may be the new one, without a row yet), and their active
+    /// screens' subtrees when the focus moves. No row of another workspace is read.
+    pub(crate) fn resource_topology_for_workspace_insert(
+        &self,
+        active: Option<&WorkspacePublicId>,
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let connection = self.connection.get();
+        let previous = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?;
+        let mut scope = previous.into_iter().collect::<Vec<_>>();
+        if let Some(active) = active
+            && !scope.contains(active)
+        {
+            scope.push(active.clone());
+        }
+        let mut topology = load_scope_frame(
+            &connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            &scope,
+        )?;
+        if topology.active_workspace.as_ref() != active {
+            let focus_ends = topology
+                .active_screens
+                .iter()
+                .filter_map(|(_, screen)| screen.clone())
+                .collect::<Vec<_>>();
+            load_screen_subtrees(&connection, &mut topology, &focus_ends)?;
+        }
+        Ok(topology)
+    }
+
     /// The stored subtrees of the active workspace and of `workspaces`: what
     /// a focus change reads, since it changes only the workspace it leaves and
     /// the one it focuses. One frame read names the active workspace.
@@ -127,14 +163,25 @@ impl WorkspaceRegistry {
         workspaces: &[WorkspacePublicId],
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         let connection = self.connection.get();
-        let mut topology =
-            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
-        let mut scope = topology.active_workspace.iter().cloned().collect::<Vec<_>>();
+        // The frame holds the active screen of the scope's workspaces only (the one the focus
+        // leaves and the ones it goes to): the frame of every workspace made each focus
+        // read, and each caller then search, a row for each workspace of the session.
+        let mut scope = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?
+            .into_iter()
+            .collect::<Vec<_>>();
         for workspace in workspaces {
             if !scope.contains(workspace) {
                 scope.push(workspace.clone());
             }
         }
+        let mut topology = load_scope_frame(
+            &connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            &scope,
+        )?;
         load_subtrees(&connection, &mut topology, &scope)?;
         Ok(topology)
     }

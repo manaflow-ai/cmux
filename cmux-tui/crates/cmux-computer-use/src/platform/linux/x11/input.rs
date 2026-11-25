@@ -183,6 +183,27 @@ impl X11Desktop {
         Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
     }
 
+    /// The pointer onto `target`, nothing pressed (a hover): XTest where it
+    /// may move the real pointer (foreground, or headless), else a synthetic
+    /// MotionNotify to the X window under the point.
+    pub(crate) fn move_impl(
+        &self,
+        target: &PointerTarget,
+        delivery: Delivery,
+    ) -> DResult<ActionOutcome> {
+        let c = self.client(target.window_id())?;
+        let p = self.point_of(&c, target)?;
+        if let Some(route) = self.xtest_route(&c, delivery, Some(p))? {
+            self.xtest_motion(p)?;
+            self.flush()?;
+            return Ok(ActionOutcome::delivered(route).at(p));
+        }
+        let (win, local) = self.deepest_at(&c, p)?;
+        self.send_motion(win, p, local, 0)?;
+        self.flush()?;
+        Ok(synthetic_note(ActionOutcome::delivered("xsendevent").at(p)))
+    }
+
     pub(crate) fn drag_impl(
         &self,
         window_id: &str,

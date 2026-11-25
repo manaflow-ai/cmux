@@ -101,7 +101,7 @@ pub enum Need {
 pub fn need_for(service: &str) -> Option<Need> {
     Some(match service {
         "echo" | "version" | "machine" => Need::Paired,
-        "file" | "file-preview" | "needs-you" | "appearance" | "appearance-wallpaper" => {
+        "file" | "file-preview" | "needs-you" | "appearance" | "appearance-wallpaper" | "tabs" => {
             Need::Grant(Grant::View)
         }
         // Answering a pairing request waiting here (`pair_requests.rs`) is answering for the
