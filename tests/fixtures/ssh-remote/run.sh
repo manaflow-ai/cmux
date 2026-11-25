@@ -26,14 +26,23 @@ HTTP_PID=$!
 python3 /usr/local/bin/ws_echo.py --host 127.0.0.1 --port "$REMOTE_WS_PORT" >"$LOG_DIR/ws.log" 2>&1 &
 WS_PID=$!
 
-sleep 0.2
-if ! kill -0 "$HTTP_PID" 2>/dev/null; then
-  echo "HTTP fixture failed to start (see $LOG_DIR/http.log)" >&2
+# Until both servers listen on their ports (ss, from iproute2), 10 s at most; a server that exits fails at once.
+listening() {
+  ss -Hltn "sport = :$1" 2>/dev/null | grep -q .
+}
+for _ in $(seq 1 100); do
+  kill -0 "$HTTP_PID" 2>/dev/null || break
+  kill -0 "$WS_PID" 2>/dev/null || break
+  listening "$REMOTE_HTTP_PORT" && listening "$REMOTE_WS_PORT" && break
+  sleep 0.1
+done
+if ! kill -0 "$HTTP_PID" 2>/dev/null || ! listening "$REMOTE_HTTP_PORT"; then
+  echo "HTTP fixture failed to start listening on $REMOTE_HTTP_PORT (see $LOG_DIR/http.log)" >&2
   cat "$LOG_DIR/http.log" >&2 || true
   exit 1
 fi
-if ! kill -0 "$WS_PID" 2>/dev/null; then
-  echo "WebSocket fixture failed to start (see $LOG_DIR/ws.log)" >&2
+if ! kill -0 "$WS_PID" 2>/dev/null || ! listening "$REMOTE_WS_PORT"; then
+  echo "WebSocket fixture failed to start listening on $REMOTE_WS_PORT (see $LOG_DIR/ws.log)" >&2
   cat "$LOG_DIR/ws.log" >&2 || true
   exit 1
 fi

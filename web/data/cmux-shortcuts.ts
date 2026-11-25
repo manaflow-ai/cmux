@@ -1,8 +1,9 @@
 // The keyboard shortcuts docs, built from the cmux-next action catalog
 // (DOCS-SHORTCUTS-FROM-CATALOG). cmux-shortcuts.generated.json is a copy of
 // the catalog's default shortcuts and chords with the app's own translated
-// titles; regenerate it with `bun web/scripts/export-docs-shortcuts.ts`
-// (web/tests/docs-shortcuts.test.ts checks that it is fresh).
+// titles. Only the base autofix writes it (RFD 0048: `bun web/scripts/export-docs-shortcuts.ts`
+// after each merge), so a pull request's copy may lag the catalog by one run;
+// web/tests/docs-shortcuts.test.ts judges the page built from the catalog itself.
 import type { Locale } from "../i18n/routing";
 import generated from "./cmux-shortcuts.generated.json";
 import type { DocsShortcutsFile, DocsWireShortcut } from "../scripts/export-docs-shortcuts";
@@ -53,32 +54,35 @@ export function shortcutConfigStroke(wire: DocsWireShortcut): string {
   return [...wire.modifiers, keyConfigNames[wire.key] ?? wire.key].join("+");
 }
 
-const file = generated as DocsShortcutsFile;
+/** The page's categories for a docs shortcuts file (the committed copy, or one built from the catalog). */
+export function shortcutCategoriesOf(file: DocsShortcutsFile): ShortcutCategory[] {
+  return file.sections.map((section) => ({
+    id: section.id.replace(/^category\./, ""),
+    title: section.title as LocalizedText,
+    shortcuts: section.shortcuts.map((row) => {
+      const strokes = row.chord ?? (row.shortcut ? [row.shortcut] : []);
+      // A chord's strokes are one sequence; otherwise the default key, then each
+      // table alias once, as alternatives.
+      const combos = row.chord
+        ? strokes.map(shortcutStroke)
+        : [...strokes, ...row.aliases.map((alias) => alias.keys[0])].map(shortcutStroke)
+            .filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
+      return {
+        id: row.id,
+        combos,
+        sequence: row.chord ? true : undefined,
+        description: row.title as LocalizedText,
+        configValue: row.chord ? JSON.stringify(row.chord.map(shortcutConfigStroke)) : strokes.map(shortcutConfigStroke)[0],
+      };
+    }),
+  }));
+}
 
-export const shortcutCategories: ShortcutCategory[] = file.sections.map((section) => ({
-  id: section.id.replace(/^category\./, ""),
-  title: section.title as LocalizedText,
-  shortcuts: section.shortcuts.map((row) => {
-    const strokes = row.chord ?? (row.shortcut ? [row.shortcut] : []);
-    // A chord's strokes are one sequence; otherwise the default key, then each
-    // table alias once, as alternatives.
-    const combos = row.chord
-      ? strokes.map(shortcutStroke)
-      : [...strokes, ...row.aliases.map((alias) => alias.keys[0])].map(shortcutStroke)
-          .filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
-    return {
-      id: row.id,
-      combos,
-      sequence: row.chord ? true : undefined,
-      description: row.title as LocalizedText,
-      configValue: row.chord ? JSON.stringify(row.chord.map(shortcutConfigStroke)) : strokes.map(shortcutConfigStroke)[0],
-    };
-  }),
-}));
+export const shortcutCategories: ShortcutCategory[] = shortcutCategoriesOf(generated as DocsShortcutsFile);
 
 /** The default keys of one shortcut as one string (`⌃⌘]`), for docs prose. */
-export function shortcutComboText(id: string, comboIndex = 0): string {
-  for (const category of shortcutCategories) {
+export function shortcutComboText(id: string, comboIndex = 0, categories = shortcutCategories): string {
+  for (const category of categories) {
     const combo = category.shortcuts.find((shortcut) => shortcut.id === id)?.combos[comboIndex];
     if (combo) return combo.join("");
   }

@@ -117,6 +117,12 @@ package final class AttentionBanners {
         if let sound = decision.sound, sound != "default" || !decision.desktop {
             host.soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop)
         }
+        let seen = self.arrival(item)
+        if AgentStatusAnnouncement.speaks(decision, bannersDenied: host.desktop.authorization == "denied",
+                                          appActive: seen.appActive, paneIsViewed: seen.paneIsViewed) {
+            AgentStatusAnnouncement.announce(.needsYou, name: incognito ? nil : item.tabTitle)
+            host.note("attention \(item.tabId) announced")
+        }
     }
 
     /// What the policy reads for `item`'s banner: whether its pane is viewed and its workspace

@@ -1,3 +1,4 @@
+import CryptoKit
 @testable import CmuxMobileDesign
 @testable import CmuxMobileLive
 import CmuxMobileTransport
@@ -8,7 +9,7 @@ import Testing
 import UIKit
 
 /// ask-87d30da8e5: each Mac's `appearance` frames; the focused Mac's reach the theme store (the
-/// accent), every Mac's reach its terminals, and no wallpaper is taken.
+/// chrome, the accent and the wallpaper behind the sidebar and Home), every Mac's reach its terminals.
 @MainActor
 @Suite struct MacAppearanceFeedTests {
     static func theme() -> CmuxMobileMacTheme {
@@ -38,20 +39,32 @@ import UIKit
         #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#202020"))
     }
 
-    /// A Mac that shows a wallpaper: its theme still applies, and the phone keeps no picture.
-    @Test func aFrameNamingAWallpaperAppliesItsThemeAndKeepsNoPicture() async throws {
+    /// Leo, 2026-11-22: "if someone adjusted their mac, the entire fucking point is that it follows
+    /// on the phone". A Mac that shows a wallpaper (and no chat look): its theme applies, its picture
+    /// is fetched and shown behind the sidebar and Home under the Mac's tint; Match Mac theme off
+    /// hides it.
+    @Test func aFrameNamingAWallpaperShowsItBehindTheChromeWhileMatchMacIsOn() async throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("MacAppearanceFeedTests-\(UUID().uuidString)", isDirectory: true)
         let name = "MacAppearanceFeedTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: name))
         let theme = CmuxMobileMacTheme(defaults: defaults, cache: CmuxMobileMacAppearanceCache(folder: folder))
         let feed = MacAppearanceFeed(theme: theme)
+        let picture = try #require(UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.orange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }.pngData())
+        let id = SHA256.hash(data: picture).map { String(format: "%02x", $0) }.joined()
         feed.focus(macID: "mac")
-        feed.apply(Self.frame(background: "#101010", wallpaper: ("ab12", 8)), macID: "mac")
+        feed.apply(Self.frame(background: "#101010", wallpaper: (id, picture.count)), macID: "mac") { _ in picture }
+        await feed.pictureFetch?.value
         await theme.settled()
         #expect(theme.palette?.bg == CmuxMobileRGBA(hex: "#101010"))
-        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
-        #expect(files == ["appearance.json"])
+        let shown = try #require(theme.wallpaper)
+        #expect(shown.tint == 0.6)
+        theme.matchesMac = false
+        #expect(theme.wallpaper == nil)
+        #expect(theme.palette == nil)
     }
 
     @Test func anUnusableFrameChangesNothing() async {
@@ -63,22 +76,25 @@ import UIKit
         #expect(feed.latest.isEmpty)
     }
 
-    /// Each Mac's terminals take that Mac's terminal theme, whether or not the phone focuses it and
-    /// whatever Match Mac theme says (that switch is the phone's chrome).
-    @Test func everyMacsTerminalThemeIsKeptWhateverTheFocusAndTheSwitch() async {
+    /// Every linked Mac's terminal theme is kept for its own terminals, whatever Mac the phone
+    /// focuses, while Match Mac theme is on (the default). Off, every terminal shows the phone's
+    /// stock look, and each open one recolors at once; on again, each shows its Mac's newest theme.
+    /// Leo, 2026-11-22: "if someone adjusted their mac, the entire fucking point is that it follows
+    /// on the phone. if you want it different, then it's a toggle."
+    @Test func everyMacsTerminalThemeIsKeptWhateverTheFocusAndTheSwitchOverridesIt() async {
         let theme = Self.theme()
-        theme.matchesMac = false
-        let terminals = CmuxMobileTerminalThemes(cached: nil)
+        #expect(theme.matchesMac)
+        let terminals = CmuxMobileTerminalThemes(cached: nil, macTheme: theme)
         let feed = MacAppearanceFeed(theme: theme, terminalThemes: terminals)
         feed.focus(macID: "mac-a")
         let terminal = ##","terminal":["background = #2b0b3f","foreground = #f9e79f","palette = 1=#ff3864"]}"##
         var frame = String(decoding: Self.frame(background: "#202020"), as: UTF8.self)
         frame.removeLast()
         let changed = MacRecorder()
-        // Posted on the main thread, delivered there at once (no queue).
+        // Posted on the main thread, delivered there at once (no queue); "*" is every terminal.
         let observer = NotificationCenter.default.addObserver(forName: CmuxMobileTerminalThemes.didChange, object: terminals, queue: nil) { note in
             let mac = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
-            MainActor.assumeIsolated { if let mac { changed.ids.append(mac) } }
+            MainActor.assumeIsolated { changed.ids.append(mac ?? "*") }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
         feed.apply(Data((frame + terminal).utf8), macID: "mac-b")
@@ -91,6 +107,21 @@ import UIKit
         // The same frame again changes nothing.
         feed.apply(Self.frame(background: "#101010"), macID: "mac-a")
         #expect(changed.ids == ["mac-b", "mac-a"])
+
+        // The override: off, every terminal is the phone's stock black, recolored at once.
+        theme.matchesMac = false
+        #expect(changed.ids == ["mac-b", "mac-a", "*"])
+        #expect(terminals.theme(for: "mac-b") == .stock)
+        #expect(terminals.theme(for: "mac-a")?.background == "#000000")
+        // The Mac changes theme meanwhile: kept, not shown.
+        feed.apply(Self.frame(background: "#303030"), macID: "mac-a")
+        #expect(terminals.theme(for: "mac-a") == .stock)
+        #expect(changed.ids == ["mac-b", "mac-a", "*"])
+        // On again: each terminal shows its Mac's newest theme.
+        theme.matchesMac = true
+        #expect(changed.ids == ["mac-b", "mac-a", "*", "*"])
+        #expect(terminals.theme(for: "mac-a")?.background == "#303030")
+        #expect(terminals.theme(for: "mac-b")?.background == "#2b0b3f")
     }
 
     /// Leo, 2026-11-22: "the theming seemed to disappear maybe for the terminal/background". An

@@ -111,4 +111,8 @@ export const L = {
   findMatchCase: "find.matchCase",
   findCount: "find.count",
   findNoMatches: "find.noMatches",
+  outlineLabel: "outline.label",
+  outlineShow: "outline.show",
+  print: "print.button",
+  printTitle: "print.title",
 } as const;

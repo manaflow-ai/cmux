@@ -50,6 +50,7 @@ swapped and every terminal survived.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import fcntl
 import hashlib
 import json
@@ -572,6 +573,12 @@ class Swapper:
         self.sock = sock
         self.env = env
         self.previous: Path | None = None  # the last cmux-tui this loop swapped in
+        # The owner's socket once an identify on it named the same pid `server status` did: the handoff's
+        # waits then ask the daemon itself (a millisecond) instead of starting a CLI per poll.
+        self.owner_sock: str | None = None
+        # Where the last app handoff's time went, as monotonic marks (`handoff_trace`): the owner lookup,
+        # the links, the SIGTERM, the old owner's exit, the app's drop, its ensure, the new owner's answer.
+        self.marks: dict[str, float] = {}
         # An app's daemon file and the copy of what it held before the first swap. Kept in the state
         # folder, one marker per session/socket, so a watcher that died never takes a swapped file for
         # the app's, and a watcher on another session never restores this one's.
@@ -613,6 +620,11 @@ class Swapper:
         if not match:
             return None
         pid = match.group(1)
+        if self.owner_sock is None:
+            sock = re.search(r'"socket"\s*:\s*"([^"]+)"', status.stdout)
+            sock = sock.group(1) if sock else self.sock
+            if sock and self.identify_pid(sock, 1.0) == int(pid):
+                self.owner_sock = sock
         try:
             # Linux names a file renamed over since the process started "PATH (deleted)", as an app's
             # owner's is right after a swap renames the new build over it; the owner still runs PATH's.
@@ -623,6 +635,51 @@ class Swapper:
             names = [line[1:] for line in out.stdout.splitlines() if line.startswith("n/")]
             exe = Path(names[0]) if names else Path("")
         return (int(pid), exe) if exe.is_absolute() and exe.is_file() else None
+
+    @staticmethod
+    def identify_pid(sock: str, timeout: float) -> int | None:
+        """The pid of the daemon answering on `sock`, or None (none answers in `timeout`)."""
+        try:
+            pid = request(Path(sock), {"cmd": "identify"}, timeout=max(timeout, 0.01)).get("pid")
+            return int(pid) if pid is not None else None
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return None
+
+    def owner_pid(self, cli: Path, timeout: float) -> int | None:
+        """The answering owner's pid: from its socket when known, else from `server status`."""
+        if self.owner_sock:
+            return self.identify_pid(self.owner_sock, min(timeout, 0.5))
+        owner = self.owner(cli, timeout=timeout)
+        return owner[0] if owner else None
+
+    @staticmethod
+    def place(source: Path, dest: Path) -> None:
+        """`dest` names the same file as `source`: a hard link (no bytes move), else a copy (another volume).
+        Nothing here writes a file in place: every change is a new file renamed over a name, so a link is a
+        copy that costs nothing (a debug cmux-tui is 614 MB: two copies per handoff were most of it)."""
+        dest.unlink(missing_ok=True)
+        try:
+            os.link(source, dest)
+        except OSError as error:
+            print(f"rust-live: place copies {source} -> {dest} ({error})", file=sys.stderr)
+            shutil.copy2(source, dest)
+
+    @staticmethod
+    def swap_in(staged: Path, target: Path) -> None:
+        """`staged` takes `target`'s name in one step. Linux: an exchange (renameat2 RENAME_EXCHANGE), then
+        the old file's name goes: ext4 renaming a file over another (auto_da_alloc) first writes out every
+        page of the new build still in memory, 0.33 s p50 of a 0.52 s handoff for a 1 GB debug cmux-tui
+        (fleet, 8 vCPU, load 4); an exchange does not. Elsewhere, or where the volume has no exchange: a rename."""
+        if sys.platform.startswith("linux"):
+            try:
+                libc = ctypes.CDLL(None, use_errno=True)
+                at_fdcwd, rename_exchange = -100, 2
+                if libc.renameat2(at_fdcwd, os.fsencode(staged), at_fdcwd, os.fsencode(target), rename_exchange) == 0:
+                    staged.unlink()  # now the old build's name; `before` and the build folder keep the file
+                    return
+            except (AttributeError, OSError):
+                pass  # a libc without renameat2 (before glibc 2.28)
+        os.replace(staged, target)
 
     @staticmethod
     def app_file(exe: Path) -> Path | None:
@@ -639,17 +696,22 @@ class Swapper:
             marker = self.marker()
             keep = (marker.with_suffix("") if marker else Path(tempfile.mkdtemp(prefix="rust-live-app-"))) / target.name
             keep.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, keep)
+            self.place(target, keep)
             self.app_original = (target, keep)
             if marker:
                 marker.write_text(json.dumps({"selector": self.selector, "file": str(target), "copy": str(keep)}) + "\n")
         before = target.with_name(f".{target.name}.rust-live-before")
         staged = target.with_name(f".{target.name}.rust-live")
-        shutil.copy2(target, before)
-        shutil.copy2(new, staged)
+        self.marks["keep"] = time.monotonic()
+        self.place(target, before)
+        self.marks["before_placed"] = time.monotonic()
+        self.place(new, staged)
+        self.marks["staged_placed"] = time.monotonic()
         staged.chmod(0o755)
-        os.replace(staged, target)  # the running owner keeps the file it mapped
+        self.swap_in(staged, target)  # the running owner keeps the file it mapped
+        self.marks["linked"] = time.monotonic()
         self.terminate_owner(new, pid)
+        self.marks["sigterm"] = time.monotonic()
         if self.wait_for_new_owner(new, pid) is None:
             os.replace(before, target)  # the app's next ensure runs the build that ran before
             late = self.owner(target, timeout=10)
@@ -670,8 +732,7 @@ class Swapper:
         """SIGTERM to `pid` only while it is still the session's owner: the copies before this can take
         seconds, and a pid that exited in that time can belong to another process (or the app's next
         owner) by now."""
-        current = self.owner(cli, timeout=10)
-        if not current or current[0] != pid:
+        if self.owner_pid(cli, timeout=10) != pid:
             return
         try:
             os.kill(pid, signal.SIGTERM)
@@ -679,13 +740,23 @@ class Swapper:
             pass
 
     def wait_for_new_owner(self, cli: Path, old: int) -> int | None:
+        # APP_OWNER_SECS bounds only a no-show: the wait ends the moment the next owner answers.
         deadline = time.monotonic() + APP_OWNER_SECS
         while time.monotonic() < deadline:
-            owner = self.owner(cli, timeout=deadline - time.monotonic())
-            if owner and owner[0] != old:
-                return owner[0]
-            time.sleep(0.05)
+            if "old_exited" not in self.marks and not Path(f"/proc/{old}").exists() and Path("/proc/self").exists():
+                self.marks["old_exited"] = time.monotonic()
+            pid = self.owner_pid(cli, timeout=deadline - time.monotonic())
+            if pid is not None and pid != old:
+                self.marks["new_answered"] = time.monotonic()
+                return pid
+            time.sleep(0.01)
         return None
+
+    def handoff_trace(self) -> dict:
+        """Seconds between the last handoff's marks, in the order they happened (a mark a host cannot
+        see, such as the old owner's exit without /proc, is left out)."""
+        marks = sorted(self.marks.items(), key=lambda kv: kv[1])
+        return {f"{a}->{b}": round(tb - ta, 4) for (a, ta), (b, tb) in zip(marks, marks[1:])}
 
     def restore_app(self) -> str | None:
         """Puts the app's own daemon file back and hands the daemon back to it (`stop`)."""
@@ -696,7 +767,7 @@ class Swapper:
             return None
         owner = self.owner(target)
         staged = target.with_name(f".{target.name}.rust-live")
-        shutil.copy2(keep, staged)
+        self.place(keep, staged)
         os.replace(staged, target)
         # Only this app's owner hands off: one running from somewhere else is not the swapped build.
         if owner and self.app_file(owner[1]) == target and self.handoff_to_file(owner[0], target) is None:
@@ -715,14 +786,18 @@ class Swapper:
         if "cmux-tui" in built:
             new = built["cmux-tui"]
             t0 = time.monotonic()
-            owner = self.owner(new)
+            self.marks = {"start": t0}
+            # `server status` from the build that already ran (warm pages; macOS assessed it once), not the new one.
+            owner = self.owner(self.previous if self.previous and self.previous.is_file() else new)
             target = self.app_file(owner[1]) if owner else None
+            self.marks["owner_found"] = time.monotonic()
             if self.previous is None:
                 self.previous = owner[1] if owner else None
             if owner and target:
                 self.app_handoff(new, owner[0], target)
                 steps["cmux-tui"] = "app handoff"
                 steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
+                steps["trace"] = self.handoff_trace()
                 self.previous = new
                 return self.swap_acpmux(built, steps)
             restart = self.cli(new, "server", "restart")
@@ -834,6 +909,9 @@ class Loop:
         t = time.time()
         ok, output = self.builder.build(daemons)
         entry["build_secs"] = round(time.time() - t, 3)
+        # The crates this build compiled (cargo's "Compiling NAME vX" lines): an edit that reaches more
+        # than the edited crate and its dependents is a settings mismatch, not the front end.
+        entry["compiled"] = re.findall(r"^\s*Compiling (\S+) v", output, re.M)
         if not ok:
             errors = [line for line in output.splitlines() if line.startswith(("error", "warning: build failed"))]
             entry.update(outcome="build_failed", errors=errors[:10] or output.strip().splitlines()[-10:])
@@ -1125,6 +1203,58 @@ def host_pids(state: Path) -> dict[str, int]:
     return found
 
 
+class MeasureApp:
+    """The app side of `measure --app`: one connection to the daemon held open, and on its drop the app's
+    reconnect (50 ms, then `server ensure` from the app's file until one answers, as DaemonConnection
+    and its endpoint provider do)."""
+
+    def __init__(self, app_file: Path, swapper: "Swapper"):
+        self.file, self.swapper = app_file, swapper
+        self.stopped = threading.Event()
+        self.conn: socket.socket | None = None
+        self.thread = threading.Thread(target=self.run, daemon=True, name="rust-live-measure-app")
+        self.connect()
+        self.thread.start()
+
+    def connect(self) -> None:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.connect(str(self.swapper.sock))
+        self.conn = conn
+
+    def run(self) -> None:
+        while not self.stopped.is_set():
+            try:
+                if self.conn is not None and self.conn.recv(65536):
+                    continue
+            except OSError:
+                pass
+            if self.stopped.is_set():
+                return
+            self.conn = None
+            self.swapper.marks.setdefault("app_dropped", time.monotonic())
+            delay = 0.05
+            while not self.stopped.wait(delay):
+                self.swapper.marks.setdefault("app_ensure", time.monotonic())
+                ensure = self.swapper.cli(self.file, "server", "ensure", timeout=30)
+                self.swapper.marks["app_ensured" if ensure.returncode == 0 else "app_ensure_failed"] = time.monotonic()
+                if ensure.returncode == 0:
+                    try:
+                        self.connect()
+                        break
+                    except OSError:
+                        pass
+                delay = min(delay * 2, 1.0)
+
+    def close(self) -> None:
+        self.stopped.set()
+        if self.conn is not None:
+            try:
+                self.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        self.thread.join(timeout=35)
+
+
 def percentile(values: list[float], fraction: float) -> float:
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round(fraction * (len(ordered) - 1))))
@@ -1152,9 +1282,16 @@ def command_measure(args) -> int:
     env.update(ACPMUX_HOME=str(work / "acpmux"), XDG_CONFIG_HOME=str(work / "xdg"))
     env.update(CMUX_TUI_STATE_DIR=str(work / "sessions"), CMUX_TUI_HOST_EXE_DIR=str(work / "host-exe"),
                CMUX_TUI_SHELL_INTEGRATION="none", SHELL="/bin/sh")
-    report: dict = {"tree": str(tree), "host": socket.gethostname(), "runs": [], "build_host": args.build_host or "here"}
+    report: dict = {"tree": str(tree), "host": socket.gethostname(), "runs": [], "build_host": args.build_host or "here",
+                    "cpus": os.cpu_count(), "load_procs": args.load, "app_handoff": args.app,
+                    # What the build inherits that changes what cargo compiles (a CI worker's env sets some).
+                    "build_env": {k: v for k, v in os.environ.items() if k.startswith(("CARGO_", "RUSTC", "RUSTFLAGS",
+                                                                                      "SCCACHE_"))}}
     builder = Builder(tree, state, args.build_host, args.target)
-    swapper = Swapper("rust-live-measure", str(sock), env)
+    swapper = Swapper("rust-live-measure", str(sock), env, state=work / "swapper" if args.app else None)
+    load = [subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True) for _ in range(args.load)]
+    app: MeasureApp | None = None
     swaps: list[dict] = []
     swapped = threading.Condition()
 
@@ -1180,10 +1317,20 @@ def command_measure(args) -> int:
         if not ok:
             raise RuntimeError("warm build failed: " + output.strip()[-2000:])
         first = builder.fetch(["cmux-tui"], state / "builds" / "0-warm")["cmux-tui"]
+        if args.app:
+            # The daemon runs from an app bundle's bin/cmux, so each swap is the app handoff; a thread plays
+            # the app's reconnect (DaemonConnection: first retry 50 ms after the drop, then its own ensure).
+            app_file = work / "cmux DEV.app" / "Contents" / "Resources" / "bin" / "cmux"
+            app_file.parent.mkdir(parents=True)
+            shutil.copy2(first, app_file)
+            (app_file.parent / "cmux-tui").symlink_to("cmux")
+            first = app_file
         ensure = swapper.cli(first, "server", "ensure")
         if ensure.returncode != 0:
             raise RuntimeError(f"server ensure: {(ensure.stderr or ensure.stdout).strip()}")
         wait_until("daemon", time.monotonic() + 30, lambda: request(sock, {"cmd": "identify"}))
+        if args.app:
+            app = MeasureApp(first, swapper)
         terms = []
         for i in range(args.terminals):
             created = request(sock, {"cmd": "run", "argv": ["/bin/sh"], "new_workspace": True})
@@ -1225,7 +1372,7 @@ def command_measure(args) -> int:
             entry = swaps[seen] if len(swaps) > seen else {"outcome": "timed_out"}
             result = {"run": run_index, "outcome": entry.get("outcome"), **{k: entry.get(k) for k in (
                 "detect_secs", "sync_secs", "build_secs", "transfer_secs", "swap_secs", "save_to_swapped_secs", "swap",
-                "bytes", "errors", "error")}}
+                "bytes", "compiled", "errors", "error")}}
             if entry.get("outcome") == "swapped":
                 ident = request(sock, {"cmd": "identify"})
                 answered_at = time.time()
@@ -1258,10 +1405,15 @@ def command_measure(args) -> int:
     except Exception as error:  # noqa: BLE001 - the report says what failed
         report["error"] = str(error)
     finally:
+        for proc in load:  # only the load this measurement started
+            proc.kill()
+            proc.wait()
         loop.stop_event.set()
         loop.builder.cancel()
         if watcher is not None:
             watcher.join(timeout=60)  # never restore the file or remove state under a live watcher
+        if app is not None:
+            app.close()
         edit_path.write_text(original)
         try:
             ident = request(sock, {"cmd": "identify"})
@@ -1270,7 +1422,20 @@ def command_measure(args) -> int:
         except (OSError, RuntimeError, ValueError):
             pass
         started_hosts.update(host_pids(work))
-        time.sleep(0.5)
+
+        def host_alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+
+        # Until the daemon's shutdown (end_terminals) ended its hosts; whichever is still alive after 5 s is killed.
+        host_deadline = time.monotonic() + 5
+        while any(host_alive(pid) for pid in started_hosts.values()) and time.monotonic() < host_deadline:
+            time.sleep(0.05)
         for pid in started_hosts.values():  # only the hosts this measurement started
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -1287,6 +1452,14 @@ def command_measure(args) -> int:
                 report[key.replace("_secs", "")] = {
                     "p50": round(statistics.median(values), 3), "p95": round(percentile(values, 0.95), 3),
                     "min": round(min(values), 3), "max": round(max(values), 3)}
+        # The app handoff's phases (Swapper.handoff_trace), p50/p95 over the runs that have each.
+        phases: dict[str, list[float]] = {}
+        for r in good:
+            for k, v in ((r.get("swap") or {}).get("trace") or {}).items():
+                phases.setdefault(k, []).append(v)
+        if phases:
+            report["handoff_phases"] = {k: {"p50": round(statistics.median(v), 4), "p95": round(percentile(v, 0.95), 4),
+                                            "n": len(v)} for k, v in phases.items()}
     report["passed"] = bool(report["runs"]) and "error" not in report and len(good) == args.runs and all(
         r.get("terminals_survived") for r in good)
     (out / "result.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -1320,6 +1493,9 @@ def main() -> int:
             p.add_argument("--terminals", type=int, default=3)
             p.add_argument("--timeout", type=float, default=300)
             p.add_argument("--keep", action="store_true")
+            p.add_argument("--app", action="store_true",
+                           help="run the daemon from an app bundle's bin/cmux, so each swap is the app handoff")
+            p.add_argument("--load", type=int, default=0, help="busy processes to run beside it (duress)")
     sub.add_parser("stop")
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")

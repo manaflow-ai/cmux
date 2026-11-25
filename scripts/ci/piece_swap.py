@@ -17,7 +17,7 @@ crate, a Swift module; any other file alone), and taking a piece out is the comm
                           web or daemon piece swaps out live; `cmux app try undo` swaps it back in)
 
 The post-merge batch (scripts/ci/post_merge_batch.py, .github/workflows/cmux-next-post-merge.yml) calls this when its
-bisect names one first-red commit. When every piece is in a class .github/piece-swap.json lists (only `drill` ships):
+bisect names one first-red commit. When every piece is in a class .github/piece-swap.json lists (`drill`, `web-ui`, `rust-core`):
   1. suspects: only pieces the red suite's own paths read (the batch calls a suite only for those paths);
   2. drill down: one probe run of the red job per step at the commit with half the suspects swapped out; green means
      the bad piece is in the half that is out. log2(pieces) runs name the one piece;
@@ -285,7 +285,22 @@ def swap_out_commit(onto: str, culprit: str, files: list[str], message: str, cwd
         tree = git("write-tree", cwd=cwd, env=env).strip()
     if tree == git("rev-parse", f"{onto}^{{tree}}", cwd=cwd).strip():
         return None
-    return git("commit-tree", tree, "-p", onto, "-m", message, cwd=cwd).strip()
+    return git("commit-tree", tree, "-p", onto, "-m", message, cwd=cwd, env=identity_env(cwd)).strip()
+
+
+SWAP_IDENT = ("cmux piece swap", "41898282+github-actions[bot]@users.noreply.github.com")
+
+
+def identity_env(cwd: Path | None = None) -> dict:
+    """The environment for a commit: the caller's own identity when git has one (the revert job sets it), else
+    SWAP_IDENT. The judge job rebuilds a probe's commit only to compare trees, on a runner with no user.name,
+    and a commit that needs a configured name there is a swap-out that never happens (run 45046212800)."""
+    env = dict(os.environ)
+    for role in ("AUTHOR", "COMMITTER"):
+        probe = subprocess.run(["git", "var", f"GIT_{role}_IDENT"], cwd=cwd or ROOT, capture_output=True, text=True, env=env)
+        if probe.returncode:
+            env[f"GIT_{role}_NAME"], env[f"GIT_{role}_EMAIL"] = SWAP_IDENT
+    return env
 
 
 def live_verdicts(culprit: str, pieces: list[Piece], cwd: Path | None = None) -> dict[str, str]:

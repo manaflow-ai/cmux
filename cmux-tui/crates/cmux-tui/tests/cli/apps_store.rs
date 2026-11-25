@@ -19,8 +19,8 @@ const KEY_HEX: &str = "8f0e1d2c3b4a59687766554433221100ffeeddccbbaa9988776655443
 const INSTALL_ID: &str = "inst_apps_store";
 
 /// One daemon with its own state, app directories and scripted app host.
-struct Apps {
-    dir: PathBuf,
+pub(crate) struct Apps {
+    pub(crate) dir: PathBuf,
     socket: PathBuf,
     session: String,
     /// The daemon's `XDG_RUNTIME_DIR`; `None` runs it with none.
@@ -30,7 +30,7 @@ struct Apps {
 }
 
 impl Apps {
-    fn new(name: &str) -> Self {
+    pub(crate) fn new(name: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-as-{name}-{}-{stamp}", std::process::id()));
@@ -85,7 +85,7 @@ impl Apps {
 
     /// Starts the daemon with the app's install key, so a connection can
     /// prove itself the verified cmux app.
-    fn start(&self) {
+    pub(crate) fn start(&self) {
         let mut child = self
             .command("ensure")
             .arg("--install-key-stdin")
@@ -107,7 +107,7 @@ impl Apps {
     }
 
     /// A connection with no hello: the daemon derives origin agent.
-    fn agent(&self) -> Client {
+    pub(crate) fn agent(&self) -> Client {
         let stream = UnixStream::connect(&self.socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(12))).unwrap();
         Client { reader: BufReader::new(stream), next: 100 }
@@ -150,7 +150,7 @@ impl Drop for Apps {
     }
 }
 
-struct Client {
+pub(crate) struct Client {
     reader: BufReader<UnixStream>,
     next: u64,
 }
@@ -158,7 +158,7 @@ struct Client {
 impl Client {
     /// Sends `request` with a fresh id and returns the reply with that id
     /// (apps events may arrive in between).
-    fn rpc(&mut self, mut request: Value) -> Value {
+    pub(crate) fn rpc(&mut self, mut request: Value) -> Value {
         self.next += 1;
         request["id"] = json!(self.next);
         writeln!(self.reader.get_mut(), "{request}").unwrap();
@@ -186,13 +186,13 @@ impl Client {
     }
 
     /// An App Store op; `origin` is the claimed origin.
-    fn store(&mut self, op: &str, args: Value, origin: &str) -> Value {
+    pub(crate) fn store(&mut self, op: &str, args: Value, origin: &str) -> Value {
         self.rpc(json!({ "cmd": "apps-store", "op": op, "args": args, "origin": origin }))
     }
 
     /// A `cmux.protocol/2` request as a page host sends it (selectors
     /// current, a string id); `extra` adds envelope members.
-    fn v2(&mut self, operation: &str, params: Value, extra: Value) -> Value {
+    pub(crate) fn v2(&mut self, operation: &str, params: Value, extra: Value) -> Value {
         self.next += 1;
         let id = format!("v2-{}", self.next);
         let mut params = params;
@@ -217,7 +217,7 @@ impl Client {
     }
 }
 
-fn v2_ok(reply: &Value) -> &Value {
+pub(crate) fn v2_ok(reply: &Value) -> &Value {
     assert_eq!(reply["ok"], true, "{reply}");
     &reply["result"]
 }
@@ -232,7 +232,7 @@ fn error_code(reply: &Value) -> &str {
     reply["error_code"].as_str().unwrap_or_else(|| panic!("expected a refusal: {reply}"))
 }
 
-fn ok(reply: &Value) -> &Value {
+pub(crate) fn ok(reply: &Value) -> &Value {
     assert_eq!(reply["ok"], true, "{reply}");
     &reply["data"]
 }
@@ -244,7 +244,7 @@ fn write_script(path: &Path, body: &str) {
 
 /// Writes app `<publisher>/<dir>` into `root` with `extra` merged into its
 /// manifest v2.
-fn write_app(root: &Path, publisher: &str, dir: &str, extra: Value) {
+pub(crate) fn write_app(root: &Path, publisher: &str, dir: &str, extra: Value) {
     let app = root.join(dir);
     std::fs::create_dir_all(&app).unwrap();
     // A store app's repository owner is its publisher; cmux's is manaflow-ai.

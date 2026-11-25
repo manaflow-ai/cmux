@@ -14,6 +14,7 @@ use url::Url;
 use crate::entry::{HistoryEntry, HistoryKind};
 use crate::error::HistoryError;
 use crate::fold::{fold, tokens};
+use crate::search_syntax::SearchFilter;
 
 /// Visits older than 90 days are pruned.
 pub const RETENTION_MS: i64 = 90 * 86_400_000;
@@ -209,13 +210,35 @@ impl VisitStore {
         since_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<Visit>, HistoryError> {
+        let filter =
+            SearchFilter::<HistoryKind> { after_ms: since_ms, ..SearchFilter::words(tokens(text)) };
+        self.visits_matching(&filter, limit)
+    }
+
+    /// Visits newest first that `filter`'s words, exclusions and time window
+    /// pass, all in SQL so the limit applies after the filter. Its kinds are
+    /// the caller's to check.
+    pub fn visits_matching(
+        &self,
+        filter: &SearchFilter<HistoryKind>,
+        limit: usize,
+    ) -> Result<Vec<Visit>, HistoryError> {
         let mut sql = String::from(
             "SELECT id, url, title, visit_time_ms, tab FROM visits WHERE visit_time_ms >= ?",
         );
-        let mut bindings = vec![Sql::Integer(since_ms.unwrap_or(0))];
-        for token in tokens(text) {
+        let mut bindings = vec![Sql::Integer(filter.after_ms.unwrap_or(0))];
+        if let Some(before) = filter.before_ms {
+            sql.push_str(" AND visit_time_ms < ?");
+            bindings.push(Sql::Integer(before));
+        }
+        // The `search` column is folded, so the words are too.
+        for word in &filter.words {
             sql.push_str(" AND search LIKE ? ESCAPE '\\'");
-            bindings.push(Sql::Text(format!("%{}%", escape_like(&token))));
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&fold(word)))));
+        }
+        for word in &filter.excluded {
+            sql.push_str(" AND search NOT LIKE ? ESCAPE '\\'");
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&fold(word)))));
         }
         sql.push_str(" ORDER BY visit_time_ms DESC, id DESC LIMIT ?");
         bindings.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
@@ -232,15 +255,14 @@ impl VisitStore {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// [`VisitStore::visits`] as wire entries of `profile`.
+    /// [`VisitStore::visits_matching`] as wire entries of `profile`.
     pub fn entries(
         &self,
         profile: &str,
-        text: &str,
-        since_ms: Option<i64>,
+        filter: &SearchFilter<HistoryKind>,
         limit: usize,
     ) -> Result<Vec<HistoryEntry>, HistoryError> {
-        Ok(self.visits(text, since_ms, limit)?.iter().map(|visit| visit.entry(profile)).collect())
+        Ok(self.visits_matching(filter, limit)?.iter().map(|visit| visit.entry(profile)).collect())
     }
 
     /// One row per URL, most recent first.

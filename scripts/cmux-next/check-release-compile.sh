@@ -102,6 +102,10 @@ kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
   kept_path=1
+elif [[ -n "${CMUX_DERIVED_DATA_SLOT:-}" ]]; then
+  # The runner's per-stream DerivedData slot (glaeda disk registry): kept, never removed.
+  derived_data="$CMUX_DERIVED_DATA_SLOT"
+  kept_path=1
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-release-compile.XXXXXX")"
 fi
@@ -158,7 +162,7 @@ build() {
     log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
   fi
   "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-    xcodebuild -scheme CmuxNextApp -configuration Release \
+    xcodebuild -skipPackagePluginValidation -scheme CmuxNextApp -configuration Release \
     -destination 'generic/platform=macOS' \
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \

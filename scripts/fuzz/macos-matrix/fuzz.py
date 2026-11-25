@@ -316,11 +316,11 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
         return f"rc={r.returncode} {(r.stdout or r.stderr).strip()[:160]}"
     if k == "palette":
         vnc.chord("cmd+shift+p")
-        time.sleep(0.3)
+        opened = vnc.settle()  # the palette drew
         vnc.type_text(step["title"][:40])
-        time.sleep(0.3)
+        filtered = vnc.settle()  # its list filtered to the title
         vnc.chord("return")
-        return "palette"
+        return "palette" + ("" if opened and filtered else " (screen still changing after 5 s)")
     if k == "key":
         vnc.chord(step["chord"])
     elif k == "type":
@@ -335,7 +335,7 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
         if k == "click":
             vnc.click(px(step["fx"]), py(step["fy"]), step["right"], step["count"])
             if step["right"]:
-                time.sleep(0.3)
+                vnc.settle()  # the context menu drew
                 vnc.chord("esc")  # a context menu would swallow the next steps
         elif k == "drag":
             vnc.drag(px(step["fx0"]), py(step["fy0"]), px(step["fx1"]), py(step["fy1"]))
@@ -345,6 +345,7 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
         vnc.chord("esc")
     elif k == "wait":
         # A saved repro's pause for the app to answer (a reply, a check): bounded, never a poll.
+        # sleep-ok: the repro step's own recorded length; replaying it is the point
         time.sleep(min(max(float(step.get("seconds", 1)), 0), 120))
     return "ok"
 
@@ -423,8 +424,12 @@ def minimize(steps: list[dict], g: Guest, vnc: RFB, out: str) -> list[dict]:
             except (ConnectionError, OSError):
                 pass
             time.sleep(0.15)
-        time.sleep(5)
+        # Alive 5 s after the last step: watch for the app's exit over that window, done at once when it ends.
+        watch_until = time.monotonic() + 5
         dead = g.pid() is None
+        while not dead and time.monotonic() < watch_until:
+            time.sleep(0.25)
+            dead = g.pid() is None
         trials.write(json.dumps({"n": len(prefix), "dies": dead}) + "\n")
         trials.flush()
         print(f"trial {len(prefix)} steps: {'DIES' if dead else 'lives'}", flush=True)

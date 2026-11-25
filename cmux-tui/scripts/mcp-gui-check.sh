@@ -13,7 +13,7 @@
 #      `cmux mcp serve`, the scratch settings file); the Claude chat's MCP config
 #      names it; that server, started as the chat starts it, answers tools/list
 #      and a cmux tool call (cmux_docs);
-#   2. agents.cmuxMcp off or unanswered: neither chat gets `cmux`;
+#   2. agents.cmuxMcp off: neither chat gets `cmux` (no value or `ask` is on);
 #   3. a Codex chat over the person's own global `cmux` entry with
 #      `enabled = false` still runs this build's server, never theirs;
 #   4. a Codex chat over the person's own HTTP `cmux` entry gets no `cmux`
@@ -96,7 +96,7 @@ answer() { echo "{\"agents\": {\"cmuxMcp\": \"$1\"}}" > "$CMUX_NEXT_CONFIG_FILE"
 answer on
 "$CMUX" setup trust "$D/work" >/dev/null 2>&1
 # Started as from a terminal Claude's shell, which carries that Claude's answer to cmux's tools
-# (the `claude` shim): a stale `on` the daemon must not pass on. The off and ask checks below then
+# (the `claude` shim): a stale `on` the daemon must not pass on. The off checks below then
 # show that the live setting decides.
 CMUX_AGENT_TOOLS_ANSWER=on acp daemon run > "$D/daemon.log" 2>&1 &
 daemon=$!
@@ -422,8 +422,8 @@ keys=$(tr '\n' ' ' < "$D/peer.env")
 grep -q "^CMUX_AGENT_SESSION=." "$D/peer.env" && [ "$got" = on ]
 rc=$?; check "agent chat [codex] started on a peer whose own answer is off: the person's stdio entry there gets this Mac's answer ($keys) and cmux's tools ($got; $(head -c 160 "$D/peer.new" | tr '\n' ' '); machines: $(head -c 160 "$D/machines.txt" | tr '\n' ' '))" $rc
 
-# 2. Off and unanswered
-for value in off ask; do
+# 2. Off (no value or `ask` is on, the default)
+for value in off; do
   answer "$value"
   for harness in claude codex; do
     start_chat "gui-$harness-$value" "$harness"

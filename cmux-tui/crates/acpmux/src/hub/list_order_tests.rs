@@ -106,7 +106,7 @@ async fn a_first_page_reads_its_window_not_every_chat() {
     let (own, all) = hub.own_rows_from(None, 20 + super::super::page_first::WINDOW_ROOM);
     assert!(!all, "a window of the order, not all of it");
     assert_eq!(own.len(), 20 + super::super::page_first::WINDOW_ROOM);
-    assert_eq!(own.first().map(|(s, _)| s.id.as_str()), Some("c007"));
+    assert_eq!(own.first().map(|(s, _)| s.id()), Some("c007"));
     let (rows, next) = hub.session_page_rows(&json!({"limit": 20}), false).unwrap();
     assert_eq!(rows.len(), 20);
     assert!(next.is_some_and(|next| next.is_string()));

@@ -149,4 +149,7 @@ nonisolated public enum WebUpdateRefusal: Error, Equatable, Sendable {
     /// The download or the unpacked tree does not match the pointer.
     case integrity(String)
     case transfer(String)
+    /// The channel's switch file of web pieces refuses this update (`cmux app web-pieces
+    /// refused`): it is never made active.
+    case refusedBySwitchFile
 }

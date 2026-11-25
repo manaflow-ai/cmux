@@ -117,3 +117,42 @@ test("a list current to a batch's last row holds it: no read is asked", async ()
   await out;
   expect(client.owedReads).toBe(0);
 });
+
+// The idle bench's busiest renderer went from 0.017 % to 0.36-0.56 % of a core at #254 (this change), and the
+// bundle's acpmux daemon from 0.2 to 11.6-13.4 context switches a second (cmux20-bench, #251 against #254 and
+// #277): the agent page read the list again and again at idle. A batch's positions are its daemon run's
+// (`listEpoch`). After that daemon restarts, every list is current to positions of the new run, lower than the
+// batch's, so no read ever reaches its last row, and each settled list asked for one more read (`done`).
+test("a batch from an earlier daemon run is owed nothing once a list of the new run is read", async () => {
+  const { calls, pager, client } = scripted(
+    { sessions: [{ sessionId: "a", updatedAt: 1 }], listSeq: 500, listEpoch: "e1" },
+    // The daemon restarted: the cursor of e1 is not followed, the list is read anew at e2's positions.
+    { follow: false, sessions: [{ sessionId: "a", updatedAt: 1 }], listSeq: 7, listEpoch: "e2" },
+    follow(7),
+    follow(7),
+    follow(7),
+  );
+  await read(pager, client);
+  pager.peerRowsChanged(500, 900);
+  expect(client.owedReads).toBe(1);
+  await read(pager, client);
+  // The new run's list holds every row there is: nothing of e1 is owed, so no read follows it.
+  expect(client.owedReads).toBe(1);
+  await read(pager, client);
+  await read(pager, client);
+  expect(client.owedReads).toBe(1);
+  expect(calls.length).toBe(4);
+});
+
+test("a follow that reaches past a batch's last row owes nothing more, whatever reads come after", async () => {
+  const { pager, client } = scripted(
+    { sessions: [], listSeq: 5, listEpoch: "e1" },
+    follow(405),
+    follow(405),
+    follow(405),
+  );
+  await read(pager, client);
+  pager.peerRowsChanged(5, 405);
+  for (let index = 0; index < 3; index++) await read(pager, client);
+  expect(client.owedReads).toBe(1);
+});

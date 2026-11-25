@@ -98,7 +98,7 @@ impl FrameGate {
         }
     }
 
-    /// Changes the frame rate cap (quality ladder).
+    /// Changes the frame rate cap (resolution ladder).
     pub fn set_max_fps(&mut self, max_fps: u32) {
         self.min_interval_us = 1_000_000 / u64::from(max_fps.max(1));
     }

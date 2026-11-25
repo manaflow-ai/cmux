@@ -85,7 +85,13 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             if name == "cmux.widget/1" {
                 widget_rules(&at, imp, &mut out);
             }
-            for (list, key) in [("commands", "name"), ("items", "id"), ("buttons", "action")] {
+            for (list, key) in [
+                ("commands", "name"),
+                ("items", "id"),
+                ("buttons", "action"),
+                ("actions", "id"),
+                ("chips", "id"),
+            ] {
                 let mut seen = std::collections::HashSet::new();
                 let entries = imp.pointer(&format!("/options/{list}")).and_then(Value::as_array);
                 for (i, entry) in entries.into_iter().flatten().enumerate() {

@@ -18,7 +18,7 @@ export const chromiumGlassUnderlay = defineExperiment({
     medium: {
       label: "Medium",
       description:
-        "The design scale's underlay, 40% under the tint: a menu covers 88% of the text under it, a faint trace (design/glass-system.md).",
+        "The design scale's underlay, 40% under the tint (57% in dark): a menu covers 88% of the text under it in both, a faint trace (design/glass-system.md).",
     },
     heavy: {
       label: "Heavy",
