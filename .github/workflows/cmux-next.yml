@@ -3797,7 +3797,7 @@ jobs:
 
       # Why: 2026-11-24-fast-tier-cargo-6.md, note-210
       - name: Cache cargo build
-        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' && steps.warm.outputs.keep != 'true' }}
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -3866,12 +3866,6 @@ jobs:
           python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script \
             ${PATHS_FILE:+--changed-files "$PATHS_FILE"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
-      # Why: 2026-11-24-fast-tier-cargo-8.md
-      - name: Record this runner's warm cargo target
-        if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked == 'true' }}
-        continue-on-error: true
-        run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo /home/runner/cmux-next-fast-tier-cargo-warm
-
       # Why: 2026-11-24-fast-tier-cargo-9.md
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
@@ -3917,6 +3911,12 @@ jobs:
           backend: r2
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+
+      # Why: 2026-11-24-fast-tier-cargo-8.md
+      - name: Record this runner's warm cargo target
+        if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (steps.warm.outputs.linked == 'true' || steps.warm.outputs.keep == 'true') }}
+        continue-on-error: true
+        run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo /home/runner/cmux-next-fast-tier-cargo-warm
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}

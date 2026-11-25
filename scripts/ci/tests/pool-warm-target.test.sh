@@ -5,6 +5,9 @@
 # - unchanged bytes with new mtimes: nothing recompiles;
 # - a changed core: core and its dependent app recompile, side stays fresh, and app prints the change;
 # - a job that never recorded (cancelled): its manifest is gone, so every workspace crate rebuilds;
+# - the pool: the tree is cargo's own ws/target, renamed into a slot keyed by HOME and the workspace,
+#   so a runner with another name on the same VM finds it; a miss writes no linked (the R2 restore
+#   runs) but keep, and record keeps that tree; the old per-runner-name layout is moved out;
 # - not a pool runner: no CARGO_TARGET_DIR at all;
 # - a Blacksmith runner with the job's sticky disk mounted: the same, on the disk.
 set -euo pipefail
@@ -34,28 +37,39 @@ git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t
 pool() {
   : > "$TMP/env"
   env -u CARGO_TARGET_DIR RUNNER_NAME="${RUNNER:-cmux-runner-pool-test-1}" HOME="$TMP/home" GITHUB_ENV="$TMP/env" \
-    GITHUB_OUTPUT="$TMP/out" CMUX_POOL_WARM_TARGET_MIN_FREE_GIB=0 ${TARGET:+CARGO_TARGET_DIR="$TARGET"} \
+    GITHUB_OUTPUT="$TMP/out" CMUX_POOL_WARM_TARGET_MIN_FREE_GIB=0 CMUX_POOL_WARM_TARGET_WORKSPACE=ws ${TARGET:+CARGO_TARGET_DIR="$TARGET"} \
     ${DISK:+CMUX_POOL_WARM_TARGET_TEST_MOUNTED="${MOUNTED-$DISK}"} \
     bash "$repo/scripts/ci/pool-warm-target.sh" "$@" fast-tier-cargo ${DISK:+"$DISK"}
 }
-restore() { pool restore > "$TMP/restore.log"; TARGET=$(sed -n 's/^CARGO_TARGET_DIR=//p' "$TMP/env"); }
+restore() { : > "$TMP/out"; pool restore > "$TMP/restore.log"; TARGET=$(sed -n 's/^CARGO_TARGET_DIR=//p' "$TMP/env"); }
 build() {
-  (cd "$repo/ws" && CARGO_TARGET_DIR="$TARGET" CARGO_INCREMENTAL=0 cargo build --offline -v 2>&1) > "$TMP/build.log"
+  (cd "$repo/ws" && env -u CARGO_TARGET_DIR ${TARGET:+CARGO_TARGET_DIR="$TARGET"} CARGO_INCREMENTAL=0 cargo build --offline -v 2>&1) > "$TMP/build.log"
   compiled=$(grep -cE '^ +Compiling ' "$TMP/build.log" || true)
   fresh=$(grep -cE '^ +Fresh ' "$TMP/build.log" || true)
 }
 # A fresh checkout: the same path, every file and directory dated now.
 checkout_again() { sleep 1.1; find "$repo/ws" -path "$repo/ws/target" -prune -o -exec touch {} +; }
 
+# The old layout: a tree per runner name, which no other runner found.
+old="$TMP/home/.cache/cmux-next-ci/pool-cargo/fast-tier-cargo/0123456789abcdef/rust-0123456789abcdef"
+mkdir -p "$old/debug"
 restore
-[[ "$TARGET" == "$TMP/home/.cache/cmux-next-ci/pool-cargo/fast-tier-cargo/"*/rust-* ]] || fail "the tree is under HOME, got $TARGET"
-grep -q "miss (no recorded build" "$TMP/restore.log" || fail "an empty tree is a miss"
-grep -qx "linked=true" "$TMP/out" || fail "restore says it linked"
+[[ -z "$TARGET" ]] || fail "the pool sets no CARGO_TARGET_DIR, got $TARGET"
+[[ ! -e "$old" ]] && compgen -G "$TMP/home/.cmux-job-trash/pool-warm-*" > /dev/null || fail "the old layout goes to the trash"
+grep -q "miss (nothing kept" "$TMP/restore.log" || fail "an empty slot is a miss"
+! grep -q "linked=true" "$TMP/out" || fail "a miss links nothing, so the R2 restore runs"
+grep -qx "keep=true" "$TMP/out" || fail "a miss still keeps this job's tree"
 build; [[ $compiled == 3 ]] || fail "cold: 3 crates compile, got $compiled"
-pool record > /dev/null
+pool record | grep -q "kept" || fail "record keeps the tree"
+[[ ! -e "$repo/ws/target" ]] || fail "record moves the tree out of the work directory"
+slot=$(compgen -G "$TMP/home/.cache/cmux-next-ci/pool-cargo/fast-tier-cargo/*/tree-*")
+[[ -f "$slot/.cmux-testbox-source-mtimes.tsv" ]] || fail "the kept tree has its manifest"
 
-checkout_again; restore
-grep -q "hit" "$TMP/restore.log" || fail "a recorded tree is a hit"
+# Another runner name on the same VM (the pool re-registers runners): the same tree.
+checkout_again; RUNNER=cmux-runner-pool-test-7 restore
+grep -q "hit" "$TMP/restore.log" || fail "a recorded tree is a hit for any runner name, got $(cat "$TMP/restore.log")"
+grep -qx "linked=true" "$TMP/out" || fail "a hit links"
+[[ -d "$repo/ws/target" && ! -e "$slot" ]] || fail "a hit moves the tree into the workspace"
 build; [[ $compiled == 0 && $fresh == 3 ]] || fail "unchanged bytes with new mtimes: 0 compiled, 3 fresh; got $compiled/$fresh"
 pool record > /dev/null
 
@@ -65,17 +79,24 @@ grep -qE '^ +Compiling core ' "$TMP/build.log" || fail "the changed crate recomp
 grep -qE '^ +Compiling app ' "$TMP/build.log" || fail "its dependent recompiles"
 grep -qE '^ +Fresh side ' "$TMP/build.log" || fail "an unrelated crate stays fresh"
 [[ $compiled == 2 ]] || fail "a changed core: 2 compiled, got $compiled"
-[[ "$("$TARGET/debug/app")" == 2 ]] || fail "the rebuilt app prints the change"
+[[ "$("$repo/ws/target/debug/app")" == 2 ]] || fail "the rebuilt app prints the change"
 pool record > /dev/null
 
-# A job that restored and changed the tree but never recorded (cancelled): the next one trusts nothing.
+# A job that restored and changed the tree but never recorded (cancelled): its tree goes with the
+# work directory (the job-done hook), and the next job builds without it.
 checkout_again; restore
 echo 'pub fn value() -> u32 { 3 }' > "$repo/ws/core/src/lib.rs"; build
+rm -rf "$repo/ws/target"
 echo 'pub fn value() -> u32 { 2 }' > "$repo/ws/core/src/lib.rs"
 checkout_again; restore
-grep -q "miss (no recorded build" "$TMP/restore.log" || fail "an unrecorded job leaves no manifest"
+grep -q "miss (nothing kept" "$TMP/restore.log" || fail "an unrecorded job leaves nothing kept"
 build; [[ $compiled == 3 ]] || fail "after an unrecorded job every workspace crate rebuilds, got $compiled"
-[[ "$("$TARGET/debug/app")" == 2 ]] || fail "and the app is the checked-out one"
+[[ "$("$repo/ws/target/debug/app")" == 2 ]] || fail "and the app is the checked-out one"
+pool record > /dev/null
+# A kept tree without its manifest is never trusted.
+rm -f "$slot/.cmux-testbox-source-mtimes.tsv"; checkout_again; restore
+grep -q "has no recorded build" "$TMP/restore.log" && [[ ! -e "$slot" ]] || fail "a tree without a manifest is moved out"
+rm -rf "$repo/ws/target"
 
 # Anywhere else: nothing linked, nothing recorded.
 : > "$TMP/out"
