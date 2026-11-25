@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5324584ea032c93f9cf509fe27b99053987affca7fe899931d72e34d9cba3bf7.
+// cmux-tui mux protocol 12, IR b6dbf6ea09edda7f3076d8f789dc543a35a867a1621e5aea5ffa52eb302d8bad.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1695,6 +1695,9 @@ pub struct CreateWorkspaceRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
+    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name_source: Optional<T::NameSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
 }
