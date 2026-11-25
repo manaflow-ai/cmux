@@ -128,7 +128,11 @@ impl Hub {
             env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
-            codex_prompt_suggestions: false,
+            // Pooled entries are drafted for the person's next chat. Keep that chat's
+            // saved switch, while direct agent starts use the agent-safe default.
+            codex_prompt_suggestions: crate::claude_stdio::prompt_suggestions::chat_pick(
+                current_option(draft, crate::claude_stdio::prompt_suggestions::OPTION),
+            ),
             translator,
             socket: agent_host::socket_path(&dir, &session_id),
             hosts_dir: dir,
