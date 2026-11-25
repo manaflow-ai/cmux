@@ -96,7 +96,9 @@ async fn a_cold_archived_idle_chat_past_the_bound_is_deleted() {
     let session = hub.resolve("cold").unwrap();
     hub.cold_archive_request(session.clone(), true).await.unwrap();
     assert!(hub.store.is_cold("cold"));
-    assert_eq!(hub.history_delete_pass_after(std::time::Duration::from_millis(30 * DAY)).await, 1);
+    let req = HistoryDeleteRequest { older_than_days: Some(30), ..Default::default() };
+    let report = hub.history_delete_now(req).await.unwrap();
+    assert_eq!(report["deleted"], 1, "{report}");
     assert!(hub.resolve("cold").is_err());
     hub.shutdown_all().await;
 }
