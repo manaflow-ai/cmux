@@ -872,12 +872,30 @@ class PipelineTest(unittest.TestCase):
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
         self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
-        # Adding ready-to-land or full-ci to a draft runs it on the same head.
+        # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
+        repo = {"full_name": "manaflow-ai/cmux"}
+        web = ["web/app/lib/indexnow.ts"]
+
+        def ready(action, labels, added=""):
+            event = {"action": action, "pull_request": {
+                "draft": False, "labels": [{"name": n} for n in labels],
+                "base": {"ref": "feat-cmux-next", "repo": repo}, "head": {"repo": repo}}}
+            if added:
+                event["label"] = {"name": added}
+            # The land rule on, as pr-router.yml's CI_LAND_TIER defaults it.
+            return pr_router.route(event, callees, web,
+                                   decided=pr_router.head_tier.tier("pull_request", event, land_switch="1"))
+
+        start, why = ready("synchronize", [])
+        self.assertEqual(start, [])
+        self.assertIn("cheap tier", why["pr-pipeline.yml"])
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
-                event = {"action": "labeled", "label": {"name": label},
-                         "pull_request": {"draft": True, "labels": [{"name": label}]}}
-                self.assertEqual(pr_router.route(event, callees, ["web/app/lib/indexnow.ts"])[0], ["pr-pipeline.yml"])
+                self.assertEqual(ready("labeled", [label], label)[0], ["pr-pipeline.yml"])
+                self.assertEqual(ready("synchronize", [label])[0], ["pr-pipeline.yml"])
+        draft_full_ci = {"action": "labeled", "label": {"name": "full-ci"},
+                         "pull_request": {"draft": True, "labels": [{"name": "full-ci"}]}}
+        self.assertEqual(pr_router.route(draft_full_ci, callees, web)[0], ["pr-pipeline.yml"])
         self.assertEqual(started(["ci/steps.toml"])[0], ["pr-pipeline.yml"])
         # A table the router cannot read starts the pipeline: it routes more, never less.
         self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], ROOT / "no-such.toml"))
