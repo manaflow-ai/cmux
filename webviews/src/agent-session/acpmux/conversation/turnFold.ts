@@ -17,6 +17,7 @@ import { FOLD_SETTLE_MS } from "./foldAnchor";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import type { LayoutGeometry } from "../conversationGeometry";
+import { declareMove } from "../../../layout/motionContract";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
 export const TURN_FOLD_ATTR = "data-turn-fold";
@@ -83,6 +84,12 @@ export type TurnFold = {
   animations: Set<Animation>;
   /// Stops the watcher (watchTurnFold) and tells the transcript the fold is over; once, at its end.
   stop?: () => void;
+  /// The boxes this fold moves on purpose: the toggled row and every row and copy it slides below it,
+  /// added as they join. Declared to the layout-motion contract as the toggle's expand while the fold
+  /// plays (`declared`), so a person's click and a script's click are judged alike, and the rows a
+  /// close slides up count as the fold's, not a shift.
+  moved: HTMLElement[];
+  declared?: () => void;
 };
 
 /// The fold each thread plays now: a fold's own timer ends only that fold, not a later one.
@@ -248,6 +255,8 @@ export function startTurnFold(
     const top = topAt(placed, row.index) - topAt(placed, at);
     moving.set(row.node, { id: row.id, top, delta: 0, reveal: false, animations: [] });
   }
+  const line = mountedRows(thread).find((row) => row.id === id)?.node;
+  const moved = [...(line ? [line] : []), ...moving.keys()];
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
   const lead = opening ? 0 : exitLeadMs(ms, 1, thread);
   const fold: TurnFold = {
@@ -264,6 +273,8 @@ export function startTurnFold(
     moving,
     copies: new Map(),
     animations: new Set(),
+    moved,
+    declared: declareMove({ event: "expand", scope: "targets", targets: moved, by: "turn fold" }),
   };
   playing.set(thread, fold);
   // The state goes when the fold is over even if nothing renders the transcript again by then.
@@ -278,6 +289,9 @@ export function endTurnFold(thread: HTMLElement | null, fold: TurnFold | undefin
   const stop = fold.stop;
   fold.stop = undefined;
   stop?.();
+  fold.declared?.();
+  fold.declared = undefined;
+  fold.moved.length = 0;
   fold.until = 0;
   fold.moving.clear();
   fold.animations.clear();
@@ -367,6 +381,7 @@ export function playTurnFold(
     const animations: Animation[] = [];
     if (Math.abs(delta) >= 0.5) animations.push(play(row.node, [{ translate: `0 ${delta}px` }, { translate: "0 0" }]));
     if (reveal) animations.push(play(row.node, [{ opacity: 0 }, { opacity: 1 }]));
+    if (!last) fold.moved.push(row.node);
     fold.moving.set(row.node, { id: row.id, top, delta, reveal, animations });
   }
   // Row elements that left the mounted rows. Only while a fold plays (its time, about a fifth of a
@@ -412,6 +427,7 @@ export function playTurnFold(
     const ghost = ghostOf(node);
     thread.insertBefore(ghost, below);
     ghosts.add(ghost);
+    fold.moved.push(ghost);
     fold.copies.set(row.id, ghost);
     const drop = () => {
       ghosts.delete(ghost);

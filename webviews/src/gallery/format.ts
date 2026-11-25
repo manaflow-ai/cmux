@@ -296,6 +296,10 @@ export type AgentPaneVariant = VariantBase & {
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
+  /** The app's `editedFiles` push (`agentPane.editedFiles.*`, turnChanges/settings.ts), set before the
+   *  pane mounts, as the app sends it at start: `{ show: "never" }` draws an edit's plain tool row with
+   *  no edited-files card. Absent: the default (the card shows). */
+  editedFiles?: Record<string, unknown>;
   /** Claude workflows (on by default; false as the app's `workflowLabs` push would send it turns
    *  them off): a Claude workflow's transcript card and its Session Info panel. */
   workflowLabs?: boolean;

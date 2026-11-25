@@ -11,6 +11,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
+import { declareMove } from "../../../layout/motionContract";
 import { exitLeadMs, exitThenClose } from "./exitLead";
 
 /// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
@@ -118,6 +119,16 @@ export function markHeightFold(node: Element, ms: number): void {
   const until = performance.now() + ms + HEIGHT_FOLD_SETTLE_MS;
   heightFolds.set(row, until);
   heightFoldsUntil = Math.max(heightFoldsUntil, until);
+}
+
+/// Declares the fold of `node` to the layout-motion contract (schemas/layout-motion/contract.json) for
+/// its `ms` and settle: an expand of the row that holds it, so the row, what it holds and the rows it
+/// pushes down move as the fold's, whatever started it (a person's click, a key, a script's click).
+function declareFold(node: Element, ms: number): void {
+  declareMove(
+    { event: "expand", scope: "targets", targets: [node.closest(".acpmux-row") ?? node], by: "fold" },
+    { ms: ms + HEIGHT_FOLD_SETTLE_MS },
+  );
 }
 
 const always = () => true;
@@ -425,6 +436,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     const lead = open ? 0 : exitLeadMs(move, fromOpacity, node);
     const ms = lead + move;
     markHeightFold(node, ms);
+    declareFold(node, ms);
     clipFold(node, true);
     // The box holds its start height under the motion: a new animation is pending until a frame
     // starts it, and a frame that painted before it applied drew the body at its full height for one

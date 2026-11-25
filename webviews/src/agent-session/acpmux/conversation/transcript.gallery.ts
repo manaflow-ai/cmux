@@ -329,11 +329,12 @@ const editedRows = (id: string, path: string, text: string) => [
   summary(2.6, { id: `${id}-summary`, status: "completed", toolCount: 1 }),
 ];
 
+/// The edit states exercise the edit tool's own diff (the summary card opens the native changes pane
+/// instead), so the card is off from the start, as the app's `editedFiles` push sets it before the
+/// chat draws: turned off in the play, the card that drew went and every row moved with it.
+const EDIT_TOOL_ROW = { show: "never" };
+
 const openEditedDiff = async (ctx: PlayContext) => {
-  // Exercise the edit tool's diff; the summary card opens the native changes pane instead.
-  (ctx.document.defaultView as unknown as { cmuxAcpmuxEditedFiles(value: unknown): void }).cmuxAcpmuxEditedFiles({
-    show: "never",
-  });
   await openEndedStretch(ctx);
   const toggle = "button.cv-tool.is-toggle[data-tool-id], button.cv-tool.is-toggle[data-tool-group]";
   await ctx.waitFor(() => ctx.document.querySelector(toggle));
@@ -3829,18 +3830,21 @@ export default agentPaneEntry({
     "edit-long-line-code": {
       note: "An edit tool's inline diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
+      editedFiles: EDIT_TOOL_ROW,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
       note: "An edit tool's inline diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
       checks: shellDisclosureChecks,
+      editedFiles: EDIT_TOOL_ROW,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
     },
     "edit-preview-scrolled": {
       note: "The long diff scrolled to its end in its box: its last line shows whole, the bottom edge hard.",
       checks: shellDisclosureChecks,
+      editedFiles: EDIT_TOOL_ROW,
       snapshot: chat(editedRows("gallery-edit-scrolled", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: async (ctx) => {
         await openEditedDiff(ctx);
@@ -3885,6 +3889,7 @@ export default agentPaneEntry({
     "edit-long-line-code-cut": {
       note: "An edit tool's inline diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
+      editedFiles: EDIT_TOOL_ROW,
       snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
       play: openEditedDiff,
     },
