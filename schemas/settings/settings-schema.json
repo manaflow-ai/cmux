@@ -456,6 +456,7 @@
         ],
         "id" : "appearance",
         "lead" : [
+          "looksGallery",
           "themeStudio",
           "backdrops",
           "density"
