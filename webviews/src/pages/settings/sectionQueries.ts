@@ -8,13 +8,13 @@ import { resolveSettingsLink } from "./settingsLinks";
 import type {
   AgentsState,
   ChannelsState,
+  DoctorReport,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
   LooksGallery,
   LookPreview,
-  DoctorReport,
   Checklist,
   ArchivedState,
 } from "./ops";
@@ -110,6 +110,19 @@ export function libraryQuery(store: SettingsStore) {
   return queryOptions<LibraryRead>({
     queryKey: LIBRARY_KEY,
     queryFn: () => store.customizeLibrary({ verb: "list" }),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+export const STANDUP_KEY = [...settingsKeys.all, "customize-standup"] as const;
+
+/** Settings > Customize's PRs in My Build and Standup: one line per library entry, worded by the
+ * CLI (null: the host cannot run it). Each library change answers it again. */
+export function standupQuery(store: SettingsStore) {
+  return queryOptions({
+    queryKey: STANDUP_KEY,
+    queryFn: () => store.customizeStandup(),
     staleTime: SECTION_READ_FRESH_MS,
     structuralSharing: true,
   });
