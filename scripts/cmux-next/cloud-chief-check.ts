@@ -209,9 +209,23 @@ async function main(): Promise<number> {
       const read = `${ACPMUX} --version 2>&1 | head -n 3; echo ---; (cmux host update status --json || /opt/cmux/current/bin/cmux host update status --json) 2>&1 | head -c 4000`;
       const deadline = Date.now() + 300_000;
       let seen = "";
+      const w12 = want.slice(0, 12);
+      // Only a flip to the channel's build, or a first check that found the image already on it, counts: the
+      // status always echoes the channel's commit, so a bare substring match would pass a machine that never moved.
+      const onChannel = (out: string): boolean => {
+        const [version, status = ""] = out.split("\n---");
+        if (version.includes(w12)) return true;
+        let st: any;
+        try { st = JSON.parse(status.slice(status.indexOf("{"))); } catch { return false; }
+        if (st?.off) throw new Error(`the machine's updater is off: ${JSON.stringify(st.off)}`);
+        const look = st?.state?.look, first = st?.state?.first_ready;
+        return (look?.settled?.commit === w12 && look.settled.outcome === "updated")
+          || look?.swapped?.commit === w12
+          || (first?.outcome === "current" && String(first.channel_commit ?? "").startsWith(w12));
+      };
       for (;;) {
         seen = (await exec(asRoot(read), 60_000)).stdout.trim();
-        if (seen.includes(want.slice(0, 12))) break;
+        if (onChannel(seen)) break;
         if (Date.now() > deadline) throw new Error(`after 5 min the machine still does not run channel commit ${want}: ${seen.slice(0, 1500)}`);
         await sleep(15_000);
       }
