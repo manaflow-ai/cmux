@@ -54,6 +54,21 @@ pub(super) fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcErro
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
+/// The hub's code for a message to a machine whose credential it revoked with no newer one
+/// since: the machine was deleted (or removed from the team) and will never answer as that
+/// machine again. Not `machine.revoked`, which is the hub refusing this daemon's own credential.
+pub const RECIPIENT_REVOKED: &str = "mesh.recipient_revoked";
+
+/// Whether `hub_control`'s error is the hub refusing the message because its target machine is
+/// gone for good, not merely offline (an offline or paused machine is `mesh.unknown_recipient`).
+pub(super) fn target_deleted(e: &RpcError) -> bool {
+    e.data
+        .as_ref()
+        .and_then(|d| d.get("code"))
+        .and_then(Value::as_str)
+        .is_some_and(|code| code == RECIPIENT_REVOKED)
+}
+
 /// One connection to a move's source: `read` and `renew` of `_acpmux/transfer_*`, answered.
 pub trait PageSource: Send {
     fn call<'a>(
@@ -148,7 +163,8 @@ impl Hub {
             return None;
         }
         let mut landed = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Its `transferred_in` records, from the kind index, not a parse of the whole log.
+        let _ = self.store.scan_kinds(&session.id, &["transferred_in"], &mut |e: EventRecord| {
             landed |= e.kind == "transferred_in" && *field(&e.msg, "transferId") == transfer_id;
             !landed
         });
@@ -239,9 +255,15 @@ impl Hub {
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
         let dial_ms = dialing.elapsed().as_millis() as u64;
         let paging = std::time::Instant::now();
+        // Op `move` comes only from this person's own daemons (`sameUser`,
+        // `mesh_relay_config.rs`), so the chat keeps the origin it had there: their own chat
+        // stays theirs, and its local prompts here are owner prompts.
         let received = self
-            .transfer_receive(&json!({"manifest": manifest, "guard": guard_value,
-                                      "stageId": body.get("stageId")}))
+            .receive_guarded(
+                &json!({"manifest": manifest, "guard": guard_value,
+                        "stageId": body.get("stageId")}),
+                true,
+            )
             .await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);
         let (page_count, page_bytes) =
@@ -395,21 +417,25 @@ impl Hub {
     }
 
     /// The source's watch asks the hub target `daemon` to give the move up: whether the chat
-    /// landed there; None when it cannot say.
+    /// landed there, or that the hub knows the machine is gone (its credential revoked, so it
+    /// can never answer); `Unknown` when it cannot say.
     pub(super) async fn ask_hub_forget(
         &self,
         daemon: &str,
         session_id: &str,
         transfer_id: &str,
-    ) -> Option<bool> {
+    ) -> super::transfer_watch::TargetSays {
+        use super::transfer_watch::TargetSays;
         let body = json!({"version": 1, "transferId": transfer_id, "sessionId": session_id});
         let key = format!("forget-{transfer_id}");
         let op = crate::mesh_relay_config::MOVE_FORGET_OP;
         match self.hub_control(daemon, op, body, key, FORGET_WAIT).await {
-            Ok(Ok(Some(result))) => {
-                serde_json::from_str::<Value>(&result).ok()?.get("landed")?.as_bool()
-            }
-            _ => None,
+            Ok(Ok(Some(result))) => serde_json::from_str::<Value>(&result)
+                .ok()
+                .and_then(|v| v.get("landed").and_then(Value::as_bool))
+                .map_or(TargetSays::Unknown, TargetSays::landed),
+            Err(e) if target_deleted(&e) => TargetSays::Deleted,
+            _ => TargetSays::Unknown,
         }
     }
 

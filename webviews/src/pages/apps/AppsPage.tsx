@@ -128,7 +128,7 @@ export function AppsPage({
           placeholder={t("store.search")}
           aria-label={t("store.search")}
           value={onCommunity ? communitySnap!.query : snap.query}
-          disabled={snap.connection === "disconnected"}
+          // The search filters the list on screen: it stays live while the link comes back (Leo, 2026-11-24 11:57Z).
           onChange={(event) =>
             onCommunity ? community!.setQuery(event.target.value) : store.setQuery(event.target.value)
           }
