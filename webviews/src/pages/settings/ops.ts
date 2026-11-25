@@ -813,7 +813,13 @@ export type ModelsState = {
 
 /** Where Connect Claude's run is: opening the sign-in page, waiting on the person, saving the token. */
 export type ClaudeTokenPhase = "starting" | "signing_in" | "saving";
-export type ClaudeTokenState = { attempt: string | null; phase: ClaudeTokenPhase | null; error: string | null };
+/** `saved`: the last run ended with its token saved (a Cancel ends with neither it nor an error); older hosts omit it. */
+export type ClaudeTokenState = {
+  attempt: string | null;
+  phase: ClaudeTokenPhase | null;
+  error: string | null;
+  saved?: boolean;
+};
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
