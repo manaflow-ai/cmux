@@ -125,7 +125,14 @@ fn repo(pushed: usize, bytes: usize) -> Repo {
     std::fs::write(mac.join(".git/cmux-carry.base"), format!("{base}\n")).unwrap();
     let mut pack = Command::new("git");
     pack.current_dir(&mac)
-        .args(["pack-objects", "--revs", "--stdout", "-q", "--delta-base-offset"])
+        .args([
+            "pack-objects",
+            "--filter=blob:none",
+            "--revs",
+            "--stdout",
+            "-q",
+            "--delta-base-offset",
+        ])
         .stdin(Stdio::piped())
         .stdout(std::fs::File::create(mac.join(".git/cmux-carry.pack")).unwrap())
         .stderr(Stdio::piped());

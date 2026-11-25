@@ -1088,7 +1088,7 @@ fn projection_carry(folder: &Path) -> Option<CarryFiles> {
         return None;
     }
     let pack_path = folder_out.join("carry.pack");
-    if carry::pack(folder, &base, &pack_path).is_err() {
+    if carry::pack_projection(folder, &base, &pack_path).is_err() {
         let _ = std::fs::remove_dir_all(&folder_out);
         return None;
     }
