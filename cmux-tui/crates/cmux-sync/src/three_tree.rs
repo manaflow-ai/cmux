@@ -228,7 +228,7 @@ mod tests {
                     assert!(l != r && l != s && r != s, "{s:?} {l:?} {r:?}");
                     match resolve(s.as_ref(), &c, false) {
                         Resolution::ConflictFile { keep, aside } => {
-                            assert_eq!((Some(aside), Some(keep)), (l, r))
+                            assert_eq!((Some(aside), Some(keep)), (l, r));
                         }
                         Resolution::KeepEdit(h) => assert!(Some(h) == l || Some(h) == r),
                         Resolution::ThreeWay { .. } => panic!("binary never merges"),
