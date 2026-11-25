@@ -198,7 +198,8 @@ final class NotificationRowView: NSView {
 }
 
 /// The panel's text: its labels and the colors they draw in.
-package enum NotificationsPanelStyle {
+package struct NotificationsPanelStyle {
+    package init() {}
     /// The text colors the panel uses.
     package enum Tone {
         case primary, secondary, tertiary
