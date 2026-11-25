@@ -276,13 +276,16 @@ fn pool_dir() -> PathBuf {
     agent_host::pool_dir(&agent_host::hosts_dir())
 }
 
+pub(super) fn uses_prompt_suggestions(spawn: &HarnessProfile) -> bool {
+    spawn.kind == crate::config::HarnessKind::ClaudeStdio
+        || crate::codex_app_server::is_profile_launch(&spawn.argv)
+}
+
 /// The `agents.promptSuggestions` switch a pooled agent of `spawn` reads once as its host starts
 /// (Claude Code's `initialize`, the Codex app-server translator), as `enabled` reads it now;
 /// `None` for a harness that reads none, so a change there never discards it.
 fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) -> Option<bool> {
-    let reads = spawn.kind == crate::config::HarnessKind::ClaudeStdio
-        || crate::codex_app_server::is_profile_launch(&spawn.argv);
-    reads.then(enabled)
+    uses_prompt_suggestions(spawn).then(enabled)
 }
 
 /// The names of the agent tool servers `tools` gives a session whose spawn env is `env`
