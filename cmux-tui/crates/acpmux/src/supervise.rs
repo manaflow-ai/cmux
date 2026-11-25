@@ -102,10 +102,10 @@ where
     })
 }
 
-/// Debug builds only: a panic at `point` once it is armed, where `text` holds the armed text:
+/// Debug builds and unit tests: a panic at `point` once it is armed, where `text` holds the armed text:
 /// by a unit test ([`arm_panic`]) or by `ACPMUX_TEST_PANIC_AT=POINT[:TEXT]` for the daemon's
 /// integration tests. Each arming fires once, and counts every pass of its point after
-/// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release builds have no
+/// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release binaries have no
 /// seam.
 #[cfg(any(test, debug_assertions))]
 pub(crate) fn panic_point(point: &str, text: &str) {
