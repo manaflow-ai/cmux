@@ -1000,6 +1000,46 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // The person's own GitHub login on one Cloud machine (Leo, 2026-11-25: "Convienient beats all. Just make good ui
+    // for it so people flow."): a Cloud start carries it by itself (`cloud.useMyGitHubLogin`, on by default); these
+    // carry it again or take it off one machine (git-host-tokens-v1, sealed to the machine's daemon).
+    Action {
+        id: "cloudUseGitHubLogin",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudUseGitHubLogin", "Use My GitHub Login on This Machine"),
+        description: Some("Carries this Mac's own gh login (github.com) to the Cloud machine (--target machine:<id>), sealed to its daemon and written to ~/.config/cmux/git-hosts/github.com (0600), never its environment or logs. git and gh there use it first, then the cmux GitHub App. Returns machine_id, status (carried or no_gh_login) and login."),
+        keywords: &["vm", "cloud", "github", "gh", "login", "git", "push", "clone", "token", "account"],
+        category: "cloud",
+        symbol: "person.badge.key",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 20).folder("tools")], ..SurfacePlan::DEFAULT },
+        requires: &["cloudWorkspace"],
+        targets: &["machine"],
+        palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
+        cli_name: "cloud github-login-use",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudForgetGitHubLogin",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudForgetGitHubLogin", "Forget My GitHub Login on This Machine"),
+        description: Some("Removes your carried GitHub login from the Cloud machine (--target machine:<id>): git and gh there use only the cmux GitHub App's one-repo tokens after it. A Cloud start carries it again while Use My GitHub Login on Cloud Machines (cloud.useMyGitHubLogin) is on. Returns machine_id and status forgotten."),
+        keywords: &["vm", "cloud", "github", "gh", "login", "forget", "remove", "revoke", "token"],
+        category: "cloud",
+        symbol: "person.badge.minus",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 21).folder("tools")], ..SurfacePlan::DEFAULT },
+        requires: &["cloudWorkspace"],
+        targets: &["machine"],
+        palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
+        cli_name: "cloud github-login-forget",
+        waits_for_result: true,
+        is_destructive: true,
+        ..Action::DEFAULT
+    },
     // Remove Cloud Secret: deletes one stored value from this Mac's Keychain and its entry in
     // ~/.config/cmux/cloud-secrets.json, as `cmux cloud secret rm` (the CLI's own verb). Picked
     // from the index, which lists names and never values; no value is typed or shown.

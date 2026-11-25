@@ -23,6 +23,12 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// Whether a Cloud start carries this Mac's own gh login to the person's machine (`cloud.useMyGitHubLogin`;
+    /// Leo, 2026-11-25: "Convienient beats all."); a missing or non-boolean value is on.
+    public func useMyGitHubLogin(in root: JSONValue) -> Bool {
+        root.value(at: Self.useMyGitHubLoginPath)?.boolValue ?? Self.useMyGitHubLoginDefault
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault

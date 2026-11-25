@@ -702,8 +702,10 @@ fn behind_the_edge_no_github_token_reaches_the_machine() {
 fn the_edge_path_is_offered_on_github_only_and_before_the_cmux_helper() {
     let step = Repo::new("o", "r").step();
     let edge = step.find(r#"if [ "$github" = 1 ] && getent hosts platform.cmux.internal"#).unwrap();
-    let helper = step.find(r#"creds="$creds cmux-github""#).unwrap();
+    let own = step.find(r#"if [ "$github" = 1 ] && [ -f "$own" ]"#).unwrap();
+    let helper = step.find(r#"[ -S /run/cmux-vm-agent/agent.sock ]"#).unwrap();
     assert!(edge < helper, "the edge is tried before a helper that mints in the machine");
+    assert!(own < edge, "the person's carried GitHub login is tried before the edge");
     assert!(step.contains(r#"if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi"#));
 }
 
