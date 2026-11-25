@@ -233,6 +233,11 @@ pub struct Interner {
 }
 
 impl Interner {
+    /// About how many bytes the table holds.
+    pub fn footprint(&self) -> usize {
+        self.items.iter().map(|i| 2 * (i.len() + size_of::<Box<str>>()) + size_of::<u32>()).sum()
+    }
+
     pub fn id(&mut self, item: &str) -> u32 {
         if self.items.is_empty() {
             self.items.push("".into());

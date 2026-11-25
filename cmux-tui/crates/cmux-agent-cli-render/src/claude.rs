@@ -50,6 +50,10 @@ pub struct Chrome {
     pub draft: String,
     /// Minutes east of UTC, for the time a turn ended.
     pub utc_offset_minutes: i32,
+    /// The finished turn's verb ("Churned", "Brewed"): Claude Code picks it at random and
+    /// stores it nowhere, so only the host's screen has it (a fact it sends beside the
+    /// records). None draws "Worked".
+    pub done_verb: Option<String>,
 }
 
 /// One tool call, as its `tool_call` and `tool_call_update` records say.
@@ -183,6 +187,9 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
         l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN).push("Working…", Style::fg(CLAUDE));
         lines.push(l);
     }
+    if fullscreen(chrome) {
+        return fullscreen_grid(lines, chrome, running, cols, rows);
+    }
     input_box(&mut lines, chrome, running, width);
     let skip = lines.len().saturating_sub(usize::from(rows));
     let mut grid = Grid::blank(cols, rows);
@@ -190,6 +197,115 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
         *slot = line.into_row(width);
     }
     grid
+}
+
+/// Claude Code from 2.1.320 draws full-screen (the alternate screen): a blank first row, the
+/// transcript from the top, the input box pinned to the last rows, 24-bit colors and `⏺`
+/// dots. Measured against real 2.1.332 screens at iPhone grids (`tests/parity.rs`,
+/// `tests/fixtures/phone`).
+fn fullscreen(chrome: &Chrome) -> bool {
+    let Some(version) = chrome.version.as_deref() else { return false };
+    let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
+    parts.as_slice() >= [2, 1, 320].as_slice()
+}
+
+fn fullscreen_grid(
+    content: Vec<Line>,
+    chrome: &Chrome,
+    running: bool,
+    cols: u16,
+    rows: u16,
+) -> Grid {
+    let width = usize::from(cols);
+    let mut top = vec![Line::new()];
+    top.extend(content);
+    let bottom = fullscreen_box(chrome, running, width);
+    let avail = usize::from(rows).saturating_sub(bottom.len());
+    let skip = top.len().saturating_sub(avail);
+    let mut grid = Grid::blank(cols, rows);
+    for (slot, line) in grid.cells.iter_mut().zip(top.into_iter().skip(skip)) {
+        *slot = line.into_row(width);
+    }
+    let first = usize::from(rows).saturating_sub(bottom.len());
+    for (slot, line) in grid.cells.iter_mut().skip(first).zip(bottom) {
+        *slot = line.into_row(width);
+    }
+    for row in &mut grid.cells {
+        for cell in row.iter_mut() {
+            if cell.text == "●" {
+                cell.text = "⏺".to_owned();
+            }
+            cell.style.fg = truecolor(cell.style.fg);
+            cell.style.bg = truecolor(cell.style.bg);
+        }
+    }
+    grid
+}
+
+/// The 24-bit color 2.1.332's dark theme draws for each 256-color index the 2.1.310 look uses.
+fn truecolor(color: crate::Color) -> crate::Color {
+    use crate::Color::{Palette, Rgb};
+    match color {
+        Palette(CLAUDE) => Rgb(215, 119, 87),
+        Palette(GRAY) => Rgb(153, 153, 153),
+        Palette(RULE) => Rgb(136, 136, 136),
+        Palette(TEXT) => Rgb(255, 255, 255),
+        Palette(OK) => Rgb(78, 186, 101),
+        Palette(PROMPT_BG) => Rgb(55, 55, 55),
+        Palette(16) => Rgb(0, 0, 0),
+        Palette(CODE) => Rgb(177, 185, 249),
+        Palette(DEL_FG) => Rgb(220, 90, 90),
+        Palette(DEL_BG) => Rgb(61, 1, 0),
+        Palette(ADD_FG) => Rgb(80, 200, 80),
+        Palette(ADD_BG) => Rgb(2, 40, 0),
+        other => other,
+    }
+}
+
+/// The full-screen input box: the effort at the right, a rule, the prompt and draft, a rule,
+/// and the mode line.
+fn fullscreen_box(chrome: &Chrome, running: bool, width: usize) -> Vec<Line> {
+    let mut out = Vec::new();
+    let mut e = Line::new();
+    if let Some(effort) = chrome.effort.as_deref() {
+        let right = format!("◐ {effort} · /effort");
+        e.pad_to(width.saturating_sub(2 + crate::str_width(&right)), Style::PLAIN);
+        e.push(&right, Style::fg(GRAY));
+    }
+    out.push(e);
+    let mut rule = Line::new();
+    rule.push(&"─".repeat(width), Style::fg(RULE));
+    out.push(rule.clone());
+    let draft = wrap(&chrome.draft, width.saturating_sub(2));
+    for (i, row) in draft.iter().enumerate() {
+        let mut d = Line::new();
+        d.push(if i == 0 { "❯\u{a0}" } else { "  " }, Style::PLAIN);
+        d.push(row, Style::PLAIN);
+        out.push(d);
+    }
+    if draft.is_empty() {
+        let mut d = Line::new();
+        d.push("❯\u{a0}", Style::PLAIN);
+        out.push(d);
+    }
+    out.push(rule);
+    let mut f = Line::new();
+    f.push("  ", Style::PLAIN);
+    let amber = Style { fg: crate::Color::Rgb(255, 193, 7), ..Style::PLAIN };
+    f.push(&format!("⏵⏵ {}", chrome.mode), amber);
+    let hint =
+        if running { " · esc to interrupt" } else { " (shift+tab to cycle) · ← for agents" };
+    let room = width.saturating_sub(2 + crate::str_width(&format!("⏵⏵ {}", chrome.mode)) + 2);
+    let hint: String = if crate::str_width(hint) > room {
+        let mut cut: String = hint.chars().take(room.saturating_sub(1)).collect();
+        cut.push('…');
+        cut
+    } else {
+        hint.to_owned()
+    };
+    f.push(&hint, Style::fg(GRAY));
+    out.push(f);
+    out
 }
 
 fn banner(lines: &mut Vec<Line>, version: &str, chrome: &Chrome) {
@@ -294,6 +410,16 @@ fn result_prefix(l: &mut Line) {
 }
 
 fn tool_lines(lines: &mut Vec<Line>, tool: &Tool, chrome: &Chrome, width: usize) {
+    // Full-screen Claude Code folds a finished shell command into one quiet line.
+    if fullscreen(chrome)
+        && tool.name == "Bash"
+        && matches!(&tool.settled, Some(Settled { failed: false, .. }))
+    {
+        let mut l = Line::new();
+        l.push("  ", Style::PLAIN).push("Ran 1 shell command", Style::fg(GRAY));
+        lines.push(l);
+        return;
+    }
     let input = &tool.input;
     let cwd = chrome.cwd.as_deref();
     let path = text_at(input, "/file_path").map(|p| relative(p, cwd)).unwrap_or_default();
@@ -508,7 +634,7 @@ fn common_ends(a: &str, b: &str) -> (usize, usize) {
 }
 
 fn done(lines: &mut Vec<Line>, started: Option<u64>, ended: Option<u64>, chrome: &Chrome) {
-    let mut text = String::from("Worked");
+    let mut text = chrome.done_verb.clone().unwrap_or_else(|| "Worked".to_owned());
     if let (Some(s), Some(e)) = (started, ended) {
         text.push_str(&format!(" for {}s", e.saturating_sub(s) / 1000));
     }

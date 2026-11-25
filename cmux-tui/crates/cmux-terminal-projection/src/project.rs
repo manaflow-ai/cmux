@@ -388,6 +388,71 @@ pub fn locate(
     Some(Located { from_bottom, column })
 }
 
+/// The host cell under a phone cell: the inverse of [`locate`], for a tap or
+/// a mouse click on the primary screen of an app that asked for the mouse
+/// (Aziz, cmux#42219: "I found no mapping from phone positions back to host
+/// cells"). `phone_from_bottom` counts the re-wrapped rows (1: the last),
+/// `phone_column` the phone's cells. The answer is host rows from the bottom
+/// (1: the screen's last row) and a host column. A phone cell past a row's
+/// last glyph, or on padding the compact layout shrank, gives the host cell
+/// of the nearest glyph before it on that row. None: the model holds fewer
+/// rows than that.
+pub fn host_cell(
+    term: &Terminal,
+    cols: usize,
+    compact: bool,
+    phone_from_bottom: usize,
+    phone_column: usize,
+) -> Option<(usize, usize)> {
+    let rows: Vec<&Row> = term.history.iter().chain(term.primary_rows().iter()).collect();
+    if phone_from_bottom == 0 || rows.is_empty() {
+        return None;
+    }
+    // Logical lines from the bottom, counting the phone rows each takes.
+    let mut below = 0;
+    let mut end = rows.len();
+    while end > 0 {
+        let mut first = end - 1;
+        while first > 0 && rows.get(first - 1).is_some_and(|r| r.wrapped) {
+            first -= 1;
+        }
+        let line = rows.get(first..end)?;
+        let wrapped = wrap_line(term, line, term.cols, cols, None, compact);
+        let taken = wrapped.rows.len().max(1);
+        if phone_from_bottom <= below + taken {
+            let target_row = taken - (phone_from_bottom - below);
+            // The last host cell of the line that lands at or before the
+            // tapped cell on the tapped row.
+            let mut best: Option<(usize, usize, usize)> = None;
+            let mut first_on_row: Option<(usize, usize)> = None;
+            for (k, row) in line.iter().enumerate() {
+                for x in 0..row.cells.len() {
+                    let cell = row.cells[x];
+                    if cell.kind == WIDE_TAIL || cell.kind == SPACER_HEAD || cell.ch == 0 {
+                        continue;
+                    }
+                    let at = wrap_line(term, line, term.cols, cols, Some((k, x)), compact).cursor;
+                    let Some((r, c)) = at else { continue };
+                    if r != target_row {
+                        continue;
+                    }
+                    if first_on_row.is_none() {
+                        first_on_row = Some((k, x));
+                    }
+                    if c <= phone_column && best.is_none_or(|(_, _, bc)| c >= bc) {
+                        best = Some((k, x, c));
+                    }
+                }
+            }
+            let (k, x) = best.map(|(k, x, _)| (k, x)).or(first_on_row).unwrap_or((0, 0));
+            return Some((rows.len() - (first + k), x));
+        }
+        below += taken;
+        end = first;
+    }
+    None
+}
+
 /// The start (an index in `term.history`) of the logical line holding
 /// history row `index` (`history.len()`: the screen's first line).
 pub fn line_start(term: &Terminal, index: usize) -> usize {
