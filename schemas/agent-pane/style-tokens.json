@@ -15,7 +15,13 @@
       "name": "--cv-text-muted",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "Secondary transcript text: tool rows, Worked for, meta lines."
+      "about": "Secondary transcript text: meta lines, the live run's words. Tool rows and Worked for draw --cv-activity-text."
+    },
+    {
+      "name": "--cv-activity-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Background activity: tool rows and Worked for (58% of the text by default). A look on a light paper of its own sets it, often to its --cv-text-muted, to hold 4.5:1."
     },
     {
       "name": "--cv-text-dim",
@@ -34,7 +40,7 @@
       "name": "--agent-link",
       "kind": "color",
       "owner": "webviews/src/agent-session/shared/styles.css",
-      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css"],
+      "alsoScopedIn": ["webviews/src/pages/changelog/styles.css", "webviews/src/ui/glass/glass.css"],
       "about": "Links in the rest of the pane (chips, cards, the composer)."
     },
     {
@@ -62,6 +68,12 @@
       "about": "The prompt bubble's hairline edge. Unset: none (transparent)."
     },
     {
+      "name": "--cv-user-bubble-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The prompt bubble's text, for a filled bubble (white on a blue pill). Its quiet lines (a quote, Show more) take it at 88%, a skill's /name and inline code follow it, and with --cv-user-bubble-tint set it keeps that tint under Reduce Transparency. Unset: the transcript's text (--cv-text)."
+    },
+    {
       "name": "--cv-user-bubble-radius",
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
@@ -72,6 +84,12 @@
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
       "about": "How far a code block's long line fades at the card's right edge while more of it lies past. Unset: no fade, a hard edge. Paint only: the line's box does not change."
+    },
+    {
+      "name": "--cv-composer-icon-radius",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/composerLook.css",
+      "about": "The corner of the round composer's + button (Studio's paperclip) and its hover highlight; 50% draws a circle. Read only by the in-box composer looks (Studio, Codex), never by Claude's one-line look. Unset: the app's button corner, --ds-radius-control. A corner never changes the button's box."
     }
   ]
 }

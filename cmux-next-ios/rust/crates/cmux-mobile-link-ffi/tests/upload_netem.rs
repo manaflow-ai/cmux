@@ -65,6 +65,7 @@ async fn netem_host_child() {
         agent_tab_host: None,
         uploads_dir: root.parent().unwrap().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac = SignalingClient::connect(&url, "user:alice", "team", &mac_id).await.unwrap();
     let services = Arc::new(services);
@@ -341,6 +342,9 @@ fn request(base_url: &str, mac_id: &str, transport: Transport) -> ConnectRequest
         video_lane: false,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::Off,
+        proxy_only: false,
+        drop_wireguard: false,
+        force_relay: false,
     }
 }
 

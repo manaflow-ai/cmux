@@ -48,6 +48,7 @@ async fn silent_mac_host_child() {
         agent_tab_host: None,
         uploads_dir: root.parent().unwrap().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac =
         SignalingClient::connect(&env("SILENT_MAC_SIGNALING"), "user:alice", "team", &env("SILENT_MAC_ID"))
@@ -150,6 +151,9 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
+            proxy_only: false,
+            drop_wireguard: false,
+            force_relay: false,
         },
         None,
     )

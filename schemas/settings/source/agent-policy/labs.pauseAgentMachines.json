@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change."
+}

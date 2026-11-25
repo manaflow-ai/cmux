@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.previousGlass.help" : {
+      "comment" : "Settings row help for Previous Glass Look.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يرسم القوائم والنوافذ المنبثقة ومربع الكتابة والبطاقات بالزجاج الذي كان قبل نوفمبر 2026."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crta menije, iskačuće prozore, polje za pisanje i kartice sa staklom od prije novembra 2026."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tegner menuer, popovers, skrivefeltet og kort med glasset fra før november 2026."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeichnet Menüs, Popover, das Eingabefeld und Karten mit dem Glas von vor November 2026."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dibuja los menús, las ventanas emergentes, el redactor y las tarjetas con el cristal de antes de noviembre de 2026."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche les menus, les fenêtres contextuelles, la zone de saisie et les cartes avec le verre d’avant novembre 2026."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disegna menu, popover, il compositore e le schede con il vetro di prima di novembre 2026."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メニュー、ポップオーバー、入力欄、カードを 2026 年 11 月より前のガラスで表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គូរម៉ឺនុយ ផ្ទាំងលេចឡើង ប្រអប់សរសេរ និងកាត ជាមួយកញ្ចក់ពីមុនខែវិច្ឆិកា ឆ្នាំ 2026។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "메뉴, 팝오버, 입력창, 카드를 2026년 11월 이전의 유리로 그립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tegner menyer, popovere, skrivefeltet og kort med glasset fra før november 2026."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rysuje menu, okna podręczne, pole tworzenia wiadomości i karty ze szkłem sprzed listopada 2026."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desenha menus, popovers, o compositor e os cartões com o vidro de antes de novembro de 2026."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рисует меню, всплывающие окна, поле ввода и карточки со стеклом, как до ноября 2026 года."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงเมนู ป๊อปโอเวอร์ ช่องเขียนข้อความ และการ์ด ด้วยกระจกแบบก่อนเดือนพฤศจิกายน 2026"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menüleri, açılır pencereleri, yazma alanını ve kartları Kasım 2026 öncesindeki camla çizer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Малює меню, спливні вікна, поле введення й картки зі склом, як до листопада 2026 року."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vẽ menu, cửa sổ bật lên, ô soạn thảo và thẻ bằng kính trước tháng 11 năm 2026."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用 2026 年 11 月之前的玻璃绘制菜单、弹出框、输入框和卡片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用 2026 年 11 月之前的玻璃繪製選單、彈出式視窗、輸入框和卡片。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
