@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Mac job that falls from its fleet job partner says why (docs/ci/cmux-next-workflow-notes.md#note-fleet-fallback)."""
+"""A Mac job that falls from its fleet job partner says why (docs/ci/cmux-next-workflow-notes/2026-11-25-fleet-fallback.md)."""
 from __future__ import annotations
 
 import contextlib

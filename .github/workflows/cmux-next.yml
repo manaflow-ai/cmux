@@ -2902,7 +2902,7 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
-      # Why: note-fleet-fallback
+      # Why: 2026-11-25-fleet-fallback.md
       - name: Say why this runs on a Mac (fleet fallback)
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) }}
         continue-on-error: true
@@ -4700,7 +4700,7 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # Why: note-daemon-reuse
+      # Why: 2026-11-25-daemon-reuse.md
       - name: Fingerprint this job's inputs
         id: reuse-key
         if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -5085,7 +5085,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      # Why: note-daemon-reuse
+      # Why: 2026-11-25-daemon-reuse.md
       - name: Record this pass for the same inputs
         if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
@@ -5876,7 +5876,7 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
-      # Why: note-fleet-fallback
+      # Why: 2026-11-25-fleet-fallback.md
       - name: Say why this runs on a Mac (fleet fallback)
         continue-on-error: true
         env:
@@ -6289,7 +6289,7 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
-      # Why: note-fleet-fallback
+      # Why: 2026-11-25-fleet-fallback.md
       - name: Say why this runs on a Mac (fleet fallback)
         if: ${{ inputs.dev_daily != true && env.CMUX_SCHEME_FLEET_JOB == '' }}
         continue-on-error: true
