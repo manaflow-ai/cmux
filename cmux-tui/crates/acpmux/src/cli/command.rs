@@ -16,6 +16,26 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session rebalance`: one pass of the lane rebalancer on this host (`crate::rebalance`).
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct RebalanceArgs {
+    /// Say what would move and where, and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Move even while the registry's lane_overflow.rebalance.enabled is off.
+    #[arg(long, conflicts_with = "dry_run")]
+    pub force: bool,
+    /// The most sessions this pass moves (the registry's max_moves, else 4).
+    #[arg(long, value_name = "N")]
+    pub max_moves: Option<usize>,
+    /// The longest each move waits for a turn that started meanwhile to end, in seconds.
+    #[arg(long, value_name = "SECS", default_value_t = 60)]
+    pub timeout: u64,
+    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
+    pub undo: Option<String>,
+}
+
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct MoveSessionsArgs {
@@ -78,12 +98,23 @@ pub struct MoveSessionsArgs {
     /// frozen, and this says why.
     #[arg(long, conflicts_with_all = ["all_idle", "dry_run", "slow_ok"])]
     pub abort: bool,
+    /// With --abort: give the chat back here even though its move's target cannot say whether
+    /// it took it, once the chat was offered back (`session info` shows `move undecided`, about
+    /// ten minutes after the move's client went away). If the target did take it and comes back,
+    /// it holds a second copy.
+    #[arg(long, requires = "abort")]
+    pub take_back: bool,
     /// Start the chats on the machine from this machine's copy of them, for a machine that does
     /// not answer: their transcript (the newest records kept here) and name, in a new chat
     /// there. Name each as MACHINE/CHAT, or pass --from MACHINE. The chat on the dead machine is
     /// left as it is.
     #[arg(long, conflicts_with_all = ["all_idle", "interrupt", "after_turn", "carry_changes", "leave_dirty"])]
     pub from_snapshot: bool,
+    /// Land the chats on the machine's harness HARNESS instead of the one named like theirs
+    /// here: one that runs the same agent (a `claude-sr2` chat onto a machine that has only
+    /// `claude`). The machine refuses a harness for another agent, or one it does not have.
+    #[arg(long = "as", value_name = "HARNESS", conflicts_with = "from_snapshot")]
+    pub as_harness: Option<String>,
 }
 
 #[derive(Parser)]
@@ -174,6 +205,14 @@ pub enum Command {
     /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
     #[command(name = "pr-wait")]
     PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// Run another person's agent's accepted forum `run` ask: one command at a repo's pushed ref,
+    /// here when light, through the scheduler (cmux-ci) when heavy; prints the result as JSON,
+    /// `{exit, tail, artifacts}`. A refused ask exits 7 with its reason (`run_ask.rs`).
+    #[command(name = "run-ask")]
+    RunAsk {
+        /// The ask's JSON as the forum serves it, from a file, or - for stdin.
+        file: String,
+    },
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -330,6 +369,10 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(aliases = aliases::SKILL)]
     Skill,
+    /// A sub-agent's job on a fork of this machine: the job JSON on stdin, its frames on
+    /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
+    #[command(name = "sub-fork-job", hide = true)]
+    SubForkJob,
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -967,6 +1010,9 @@ pub enum Command {
     /// struct, so the two spellings cannot drift apart again.
     #[command(hide = true)]
     MoveSessions(MoveSessionsArgs),
+    /// `session rebalance`'s flat form.
+    #[command(hide = true)]
+    Rebalance(RebalanceArgs),
     #[command(hide = true)]
     Transfer {
         session: String,
@@ -1502,6 +1548,11 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
+    /// only chats between turns with no work running below them, at most a few a pass, to the
+    /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
+    /// unless the fleet registry's lane_overflow.rebalance.enabled is true (then it only plans).
+    Rebalance(RebalanceArgs),
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1527,7 +1578,8 @@ pub enum SessionCmd {
         last: u64,
         #[arg(long, short)]
         follow: bool,
-        /// Start after this cursor (`<sessionId>:<seq>` or a seq). A cursor past the log is an error.
+        /// Start after a cursor (`<sessionId>:<seq>` or a seq), or use `seen` for the reader's cutover.
+        /// A chat the reader has never focused has no recap.
         #[arg(long)]
         since: Option<String>,
     },
@@ -2008,6 +2060,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
             SessionCmd::Move(args) => Command::MoveSessions(args),
+            SessionCmd::Rebalance(args) => Command::Rebalance(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }

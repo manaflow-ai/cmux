@@ -54,6 +54,9 @@ pub struct RpcError {
 /// `data.reason` of [`RpcError::no_peer`].
 pub const NO_PEER: &str = "no_peer";
 
+/// A temporary refusal. The reason in `data` identifies the resource.
+pub(crate) const BUSY_CODE: i64 = -32031;
+
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self { code, message: message.into(), data: None }
@@ -430,6 +433,11 @@ pub mod method {
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";
+    /// Which of this connection's requests the daemon still runs, and which it answered lately
+    /// (`server/in_flight.rs` `states`): `{}` -> `{running: [id], answered: [id]}`. A client's
+    /// proof, per request, that a slow answer is still being worked on (webviews `direct.ts`
+    /// `checkRequests`). Answered in order with the connection's requests, never queued for a slot.
+    pub const MUX_REQUEST_STATE: &str = "_acpmux/request_state";
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
@@ -577,6 +585,8 @@ pub mod method {
     pub const MUX_RETRY: &str = "_acpmux/retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
+    pub const MUX_CONTROLS: &str = "_acpmux/controls";
+    pub const MUX_CONTROL: &str = "_acpmux/control";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// The safe machine/workspace capability snapshot for the calling agent.
     pub const MUX_MACHINE_INFO: &str = "_acpmux/machine_info";
@@ -982,6 +992,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
+    /// on the masked copy, with no model call.
+    pub const MUX_SURGERY: &str = "_acpmux/surgery";
     /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
     /// agent or its Chief when the harness writes no plan of its own, and read back.
     pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
