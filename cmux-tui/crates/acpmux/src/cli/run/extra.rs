@@ -578,11 +578,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if let Some(m) = model {
                 acpmux.insert("model".into(), json!(m));
             }
+            // One id for this fork, sent again on the retry after a daemon restart: the daemon
+            // answers the fork the first request made instead of a second one (cmux#50084).
+            acpmux.insert("requestId".into(), json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": acpmux}});
             if let Some(c) = cwd {
                 p["cwd"] = json!(c);
             }
-            let v = client.request(method::SESSION_FORK, p).await?;
+            let v = match client.request(method::SESSION_FORK, p.clone()).await {
+                Err(e) if crate::cli::output::daemon_closed_error(&e) => {
+                    let client = crate::cli::output::reconnect_after_update().await?;
+                    client.request(method::SESSION_FORK, p).await?
+                }
+                answer => answer?,
+            };
             super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
@@ -729,6 +738,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Rebalance(crate::cli::command::RebalanceArgs {
+            dry_run,
+            force,
+            max_moves,
+            timeout,
+            undo,
+        }) => {
+            super::rebalance::run(
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                json_out,
+            )
+            .await
+        }
         Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
@@ -743,10 +765,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             from,
             slow_ok,
             abort,
+            take_back,
             from_snapshot,
+            as_harness,
         }) => {
             if abort {
-                return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
+                return super::session_move::end_stale(
+                    &sessions,
+                    from.as_deref(),
+                    take_back,
+                    json_out,
+                )
+                .await;
             }
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -763,6 +793,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 from,
                 slow_ok,
                 from_snapshot,
+                as_harness,
             };
             super::session_move::run(args, json_out).await
         }
@@ -910,6 +941,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    if let Some(line) = crate::session_budget::budget_line(&v["sessionBudgets"]) {
+                        println!("budget:   {line}");
+                    }
                     let login = match &v["loginSession"] {
                         Value::Bool(here) => Some(Some(*here)),
                         Value::String(s) if s == "unknown" => Some(None),
@@ -961,6 +995,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
+        Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
         Command::DaemonStats { by, since, top } => {
             crate::cli::daemon_stats::run(by, &since, top, json_out).await
         }
@@ -1097,6 +1132,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // This machine's own key file or ssh agent; no daemon.
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
+        // Its own socket, a fresh daemon connection per client: none held here.
+        #[cfg(unix)]
+        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
+            crate::cli::host_broker_forward::run(owner, socket).await
+        }
+        #[cfg(not(unix))]
+        Command::Host(PeerCmd::BrokerForward { .. }) => {
+            Err(anyhow!("machine broker-forward needs unix sockets"))
+        }
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -1215,6 +1259,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::command_host::VaultCmd::Drop { name } => {
                 crate::cli::host_vault::drop_cmd(name, json_out).await
             }
+            crate::cli::command_host::VaultCmd::Audit => {
+                crate::cli::host_vault::audit_cmd(json_out)
+            }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
         Command::Host(PeerCmd::Consent { cmd }) => {
@@ -1307,7 +1354,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
-        Command::Host(PeerCmd::Load) => {
+        Command::Host(PeerCmd::Load { watch: true, lines }) => {
+            crate::host_load_watch::run(lines).await
+        }
+        Command::Host(PeerCmd::Load { .. }) => {
             let load = crate::host_load::sample().await;
             print_json(&serde_json::to_value(&load)?);
             Ok(())
@@ -1456,7 +1506,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Load | PeerCmd::DiskWalk | PeerCmd::Verdict | PeerCmd::Notice { .. } => {
+                PeerCmd::Load { .. }
+                | PeerCmd::DiskWalk
+                | PeerCmd::Verdict
+                | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
                         "machine load, disk-walk, verdict and notice are handled before connecting"
                     ));
@@ -1581,7 +1634,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
-                | PeerCmd::Key { .. } => {
+                | PeerCmd::Key { .. }
+                | PeerCmd::BrokerForward { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
@@ -1599,7 +1653,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
@@ -1615,6 +1669,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))
                         .unwrap_or_default(),
+                    crate::fleet_elastic::suffix(&p),
                     // A user or port: another account's or another daemon on that machine.
                     p.get("canonicalEndpoint")
                         .and_then(Value::as_str)

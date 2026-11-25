@@ -200,7 +200,7 @@ async fn cmux_next_inventory_watch_requires_explicit_subscription_and_stops_when
 }
 
 #[tokio::test]
-async fn cmux_next_inventory_watch_refuses_nonlocal_origins_and_control_parameters() {
+async fn cmux_next_inventory_watch_refuses_nonlocal_origins_and_ignores_extra_fields() {
     let f = Fixture::new();
     for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
         let mut client = Client::open(&f, origin);
@@ -212,17 +212,17 @@ async fn cmux_next_inventory_watch_refuses_nonlocal_origins_and_control_paramete
         client.close().await;
     }
     let mut client = Client::open(&f, Origin::Local);
-    for params in [
-        json!({}),
-        json!({"enabled":"true"}),
-        json!({"enabled":true,"refresh":true}),
-        json!({"enabled":true,"command":"bad"}),
-        json!({"enabled":true,"machine":"other"}),
-        json!({"enabled":true,"sessionId":"peer:session"}),
-        json!({"enabled":true,"session":"peer:session"}),
-    ] {
+    for params in [json!({}), json!({"enabled":"true"})] {
         assert_eq!(client.call(WATCH, params).await.unwrap_err()["code"], -32602);
     }
+    // A newer app's extra fields are ignored: the watch stays a local cached read.
+    let watched = client
+        .call(WATCH, json!({"enabled":true,"refresh":true,"machine":"other"}))
+        .await
+        .expect("extra fields ignored");
+    assert_eq!(watched["view"], "inventory", "{watched}");
+    assert_eq!(watched["cached"], true, "{watched}");
+    assert_eq!(client.call(WATCH, json!({"enabled":false})).await.unwrap(), json!({}));
     f.cache(json!([row("codex", "1.0.0")]));
     client.quiet().await;
     client.close().await;
