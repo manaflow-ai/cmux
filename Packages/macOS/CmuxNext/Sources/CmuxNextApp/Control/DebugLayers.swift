@@ -140,7 +140,7 @@ enum DebugLayers {
         // page views so a check reads one list of page views in the window whatever the mode.
         let presentedViews: [JSONValue] = (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
             guard case .browser(let entry)? = pane.currentContent, entry.tab.contentView.window === window else { return nil }
-            return (entry.tab as? CEFTab)?.presentedPageViewFields(pane: pane.paneKey).flatMap(JSONValue.init(foundation:))
+            return (entry.tab as? CEFTab)?.presentedPageViewFields(pane: pane.paneKey).flatMap { JSONValue(foundation: $0) }
         }
         let above = layer.isOverlayAboveContent
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)

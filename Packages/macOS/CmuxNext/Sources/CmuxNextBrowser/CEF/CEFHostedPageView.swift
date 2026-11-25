@@ -47,7 +47,7 @@ final class CEFHostedPageView: NSView {
         }
     }
     /// Whether a window is key (AppKit's answer; tests pass their own).
-    var windowIsKey: (NSWindow) -> Bool = { $0.isKeyWindow }
+    var windowIsKey: @MainActor (NSWindow) -> Bool = { $0.isKeyWindow }
     /// The page focus last given (``syncPageFocus(firstResponder:)``): this view is its key window's first responder.
     var givesPageFocus = false
     /// This view's window's key changes, while it presents a page.

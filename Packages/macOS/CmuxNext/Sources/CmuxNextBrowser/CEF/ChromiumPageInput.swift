@@ -12,8 +12,8 @@ nonisolated enum ChromiumPageInput: Equatable, Sendable {
     case edit(Edit)
 
     /// A press, release, move or exit of the pointer.
-    struct Mouse: Equatable, Sendable {
-        enum Phase: Int32, Sendable { case move = 0, down = 1, up = 2, exit = 3 }
+    nonisolated struct Mouse: Equatable, Sendable {
+        nonisolated enum Phase: Int32, Sendable { case move = 0, down = 1, up = 2, exit = 3 }
         var x: Int32
         var y: Int32
         var phase: Phase
@@ -30,7 +30,7 @@ nonisolated enum ChromiumPageInput: Equatable, Sendable {
     }
 
     /// A scroll with its phases (fork API 30 `cmux_browser_send_wheel`, the `CMUX_RP_PHASE_*` values).
-    struct Wheel: Equatable, Sendable {
+    nonisolated struct Wheel: Equatable, Sendable {
         var x: Double
         var y: Double
         /// Pixels, positive to scroll up and left (`scrollingDeltaX`/`Y`; a line wheel's lines turned into pixels).
@@ -45,8 +45,8 @@ nonisolated enum ChromiumPageInput: Equatable, Sendable {
     }
 
     /// A key down, up or modifier change.
-    struct Key: Equatable, Sendable {
-        enum Phase: Int32, Sendable { case down = 0, up = 1, flagsChanged = 2 }
+    nonisolated struct Key: Equatable, Sendable {
+        nonisolated enum Phase: Int32, Sendable { case down = 0, up = 1, flagsChanged = 2 }
         var phase: Phase
         var keyCode: Int32
         /// The first UTF-16 unit of `characters` and of `charactersIgnoringModifiers` (0 for none or a modifier change).
@@ -58,7 +58,7 @@ nonisolated enum ChromiumPageInput: Equatable, Sendable {
     }
 
     /// An Edit menu command on the page's focused frame (the shim's and the wire's numbers).
-    enum Edit: Int32, Sendable {
+    nonisolated enum Edit: Int32, Sendable {
         case copy = 0, cut, paste, selectAll, undo, redo, delete, pasteAndMatchStyle
     }
 

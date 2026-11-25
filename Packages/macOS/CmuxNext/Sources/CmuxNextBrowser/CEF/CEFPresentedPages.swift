@@ -161,7 +161,7 @@ extension CEFHostView {
 }
 
 /// What `debug.layers` reports of a presented page (``CEFTab/presentedPageCensus``).
-public struct PresentedPageCensus: Sendable, Equatable {
+public nonisolated struct PresentedPageCensus: Sendable, Equatable {
     /// The page view's frame in its window (zero when in none).
     public var frameInWindow: CGRect
     /// The hosted context (0: none yet).
