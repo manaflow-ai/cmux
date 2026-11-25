@@ -325,3 +325,28 @@ test("Codex release additions stay disabled until the running provider reports t
   expect(picker({ id: model })).toMatchObject({ id: model });
   expect(picker({ id: model })?.unavailable).toBeUndefined();
 });
+
+// Issue 57125: Antigravity is agy's own list (no catalog row adds or hides one) under the Gemini mark.
+test("the Antigravity picker shows agy's reported models with the Gemini mark", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const { agentBrand } = await import("../shared/agentBrand");
+  expect(BUNDLED_MODEL_CATALOG.harnesses.some(({ id }) => id === "antigravity")).toBe(false);
+  // agy 1.5.16's `session/new` model option, in its order.
+  const reported = [
+    { id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen" },
+    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)" },
+    { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
+    { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)" },
+  ];
+  const acpmux = mergeModelCatalog(
+    { harnesses: [{ id: "antigravity", name: "Antigravity", icon: "gemini" }] },
+    { harnesses: [{ harness: "antigravity", models: reported }] },
+  );
+  const agy = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux }).harnesses.find(
+    ({ id }) => id === "antigravity",
+  )!;
+  expect(agy.brand).toBe("gemini");
+  expect(agy.models.map(({ id }) => id)).toEqual(reported.map(({ id }) => id));
+  for (const id of ["antigravity", "agy", "antigravity-acp"]) expect(agentBrand(id)).toBe("gemini");
+});

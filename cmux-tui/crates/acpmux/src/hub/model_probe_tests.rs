@@ -277,3 +277,64 @@ async fn a_dropped_probe_ends_its_agent() {
     }
     assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the dropped probe's agent still runs");
 }
+
+/// Issue 57125: Antigravity's picker lists exactly what `agy acp` reports, nothing cmux
+/// hardcodes. The reply below is agy 1.5.16's own `session/new` (trimmed to the model fields):
+/// two Gemini releases (its High/XHigh/Medium/Low variants are the `thought_level` option, the
+/// effort picker) plus the Claude and GPT-OSS models agy runs itself. Every one answered a prompt
+/// through `agy acp` on 2026-11-25, so none is hidden. The harness draws the Gemini mark.
+#[tokio::test]
+async fn antigravity_lists_agys_own_models_under_the_gemini_mark() {
+    let profile: toml::Value =
+        toml::from_str(include_str!("../../harnesses/antigravity.toml")).unwrap();
+    assert_eq!(profile["icon"].as_str(), Some("gemini"));
+    assert!(profile.get("models").is_none(), "Antigravity's models come from agy, not the profile");
+
+    let reported = json!({
+        "configOptions": [{"id": "model", "category": "model", "type": "select",
+            "currentValue": "gemini-4-hydrogen", "options": [
+            {"value": "gemini-4-hydrogen", "name": "Gemini 4 Hydrogen"},
+            {"value": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+            {"value": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)"},
+            {"value": "claude-opus-4-6-thinking", "name": "Claude Opus 4.6 (Thinking)"},
+            {"value": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)"}]},
+            {"id": "thought_level", "category": "thought_level", "type": "select",
+            "currentValue": "high", "options": [
+            {"value": "low", "name": "Low"}, {"value": "medium", "name": "Medium"},
+            {"value": "high", "name": "High"}, {"value": "xhigh", "name": "Extra"}]}],
+        "models": {"availableModels": [
+            {"modelId": "gemini-4-hydrogen-high", "name": "Gemini 4 Hydrogen (High)"},
+            {"modelId": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash (High)"}]}
+    });
+    let mut cfg: Config =
+        serde_json::from_value(json!({"harnesses": {"antigravity": {"argv": ["agy", "acp"]}}}))
+            .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    assert!(hub.remember_models_from(
+        "antigravity",
+        reported.get("configOptions"),
+        reported.get("models"),
+    ));
+    let catalog = hub.models_catalog().await;
+    let row = catalog["harnesses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|h| h["harness"] == "antigravity")
+        .cloned()
+        .unwrap();
+    let ids: Vec<&str> =
+        row["models"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "gemini-4-hydrogen",
+            "gemini-3.8-flash",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6-thinking",
+            "gpt-oss-120b-medium"
+        ]
+    );
+}
