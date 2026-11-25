@@ -4,6 +4,7 @@ use crate::row::Kind;
 fn row(id: &str) -> Row {
     Row {
         tab_id: id.to_owned(),
+        tab_key: format!("key-{id}"),
         title: format!("Title {id}"),
         kind: Kind::Browser,
         favicon_hash: Some(BlobHash::of(b"fav")),
