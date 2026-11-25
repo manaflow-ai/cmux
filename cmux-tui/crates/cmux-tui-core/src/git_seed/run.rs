@@ -1263,7 +1263,7 @@ mod carry;
 
 /// A warm mirror's objects through alternates, and the promisor sources.
 #[path = "borrow.rs"]
-mod borrow;
+pub(super) mod borrow;
 
 /// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
 /// checkout and the barrier there.
