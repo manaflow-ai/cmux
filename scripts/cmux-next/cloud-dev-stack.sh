@@ -73,6 +73,9 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/scripts/cmux-next/cloud-dev-stack/vm_stack.py"
 router="$root/scripts/cmux-next/cloud-dev-stack/router.mjs"
+# The generation of cloud-dev-stack/vm_stack.py and router.mjs, together. Raise it with any change to either: an up
+# from a checkout with a lower one leaves the VM's newer copies alone (ensure_helper).
+HELPER_GENERATION=2
 HOST="${CMUX_DEV_STACK_HOST:-cmux-dev-backend-1}"
 VM_USER="${CMUX_DEV_STACK_USER:-ubuntu}"
 BASE="${CMUX_DEV_STACK_BASE:-/srv/cmux-dev/wrangler}"
@@ -123,10 +126,17 @@ ps() { pscale "$@" --org "$PS_ORG" --format json; }
 
 ensure_helper() {
   "${SSH[@]}" true 2>/dev/null || die "cannot reach $VM_USER@$HOST over SSH (tailnet). hq: scripts/dev-backend.sh vm-status wakes a stopped VM."
-  local want have
+  local want have theirs
   want="$(cat "$helper" "$router" | shasum -a 256 | cut -d' ' -f1)"
   have="$("${SSH[@]}" "cat $BASE/bin/vm_stack.py $BASE/bin/router.mjs 2>/dev/null | sha256sum | cut -d' ' -f1" || true)"
-  if [ "$want" != "$have" ]; then
+  # The VM's helper generation (bin/.generation, written by the install below). A checkout whose generation is
+  # older leaves the VM's newer helper and router as they are: installing its own put an old router back and
+  # restarted it, dropping every stack's WebSockets (an older worktree's up undid #55854's router fix).
+  theirs="$("${SSH[@]}" "cat $BASE/bin/.generation 2>/dev/null" || true)"
+  [[ "$theirs" =~ ^[0-9]+$ ]] || theirs=0
+  if [ "$want" != "$have" ] && (( HELPER_GENERATION < theirs )); then
+    echo "note: the dev VM runs a newer stack helper and router (generation $theirs; this checkout's is $HELPER_GENERATION): left as they are; rebase to change them" >&2
+  elif [ "$want" != "$have" ]; then
     "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
     # Per-caller names: two ups at once both see an old copy and both install it. The router moves first:
     # the new helper's install restarts it.
@@ -135,6 +145,7 @@ ensure_helper() {
     scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.$tmp"
     "${SSH[@]}" "mv -f $BASE/bin/router.mjs.$tmp $BASE/bin/router.mjs && mv -f $BASE/bin/vm_stack.py.$tmp $BASE/bin/vm_stack.py"
     vm install >/dev/null
+    "${SSH[@]}" "echo $HELPER_GENERATION > $BASE/bin/.generation"
   fi
 }
 
