@@ -3,7 +3,8 @@ package import AppKit
 /// A file panel for a terminal's file commands (TextBox's Add Files, Insert Path): files and
 /// folders, several at once, as a sheet on the terminal's window, and the text that types the
 /// chosen paths as a drop of those files does.
-package enum TerminalFilePicker {
+package struct TerminalFilePicker {
+    package init() {}
     /// The paths the person chose in `panel`, configured here; empty on Cancel. A window that
     /// already shows a sheet gets the panel as its own window.
     package static func choose(_ panel: NSOpenPanel, title: String? = nil, prompt: String, in window: NSWindow?) async -> [String] {
