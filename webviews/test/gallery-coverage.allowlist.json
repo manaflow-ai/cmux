@@ -158,7 +158,6 @@
     "pages/home-channels/DaemonGate.tsx#DaemonGate",
     "pages/home-channels/HomeToolGroup.tsx#HomeToolGroup",
     "pages/home-channels/RunMessage.tsx#RunMessage",
-    "pages/home-channels/RunSteps.tsx#RunSteps",
     "pages/home-channels/RunTranscript.tsx#RunTranscript",
     "pages/home-channels/presentation.tsx#DetailToggle",
     "pages/markdown/MarkdownFindBar.tsx#MarkdownFindBar",

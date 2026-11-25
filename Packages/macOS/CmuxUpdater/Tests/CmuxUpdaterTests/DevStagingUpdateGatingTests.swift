@@ -1,6 +1,7 @@
 import Foundation
 import Sparkle
 import Testing
+@testable import CmuxUpdaterTestSupport
 @testable import CmuxUpdater
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/6292: tagged DEV and
@@ -41,25 +42,6 @@ import Testing
 
         #expect(model.detectedUpdateVersion == "0.64.99")
         #expect(model.showsPill)
-    }
-
-    @Test func classifiesDebugAndStagingBundlesAsDevLike() {
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug.my-tag"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging.my-tag"))
-    }
-
-    @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.nightly"))
-        // RC is on the public release train: it must keep auto-update on.
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc.candidate1"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier(nil))
-        // A look-alike that is neither the exact base id nor a dotted suffix must not match.
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.stagingx"))
     }
 
     /// A manual "Check for Updates" on a DEV/staging build must not query the public appcast or

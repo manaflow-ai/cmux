@@ -226,8 +226,8 @@ test("Other devices follows Cloud with the count of the person's machines a chat
     translate("composer.otherDevices"),
   ]);
   const row = document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')!;
-  // studio and gpu-box are ready; laptop is still connecting and vm-1 is a Cloud machine.
-  expect(row.querySelector(".acpmux-env-count")?.textContent).toBe("2");
+  // studio and gpu-box are ready and laptop is still dialing (a pick too); vm-1 is a Cloud machine.
+  expect(row.querySelector(".acpmux-env-count")?.textContent).toBe("3");
   expect(row.querySelector(".acpmux-env-more-chevron")).not.toBeNull();
 });
 
@@ -253,16 +253,15 @@ test("Other devices opens the person's own machines, ready first, with how each 
   const ready = optionRows()[0]!;
   expect(ready.querySelector(".acpmux-menu-description")?.textContent).toBe(translate("composer.envSSH"));
   expect(ready.querySelector('.acpmux-env-status[data-connected="true"]')).not.toBeNull();
-  // A machine still connecting is listed greyed with its state, and is no pick: the list stays open.
+  // A machine still connecting is never greyed and says no state (Leo, 2026-11-24: "all the
+  // connecting... indicators and the graying out of workspaces, nah let's not do that"): it is a pick,
+  // and the chat starts once its link is up.
   const laptop = optionRows()[2]!;
-  expect(laptop.querySelector('[data-ready="false"]')).not.toBeNull();
+  expect(laptop.querySelector('[data-ready="false"]')).toBeNull();
+  expect(laptop.textContent).not.toContain(translate("machineLink.connecting"));
   await act(async () => laptop.click());
   await settle();
-  expect(picks).toEqual([]);
-  expect(document.querySelector(".acpmux-env-popover.acpmux-env-devices")).not.toBeNull();
-  // A ready one is the pick, and the list closes.
-  await choose('[data-kind="ssh"]');
-  expect(picks).toEqual(["gpu-box"]);
+  expect(picks).toEqual(["laptop"]);
   expect(document.querySelector(".acpmux-env-popover")).toBeNull();
 });
 
@@ -318,12 +317,13 @@ function autoChat(picked: boolean, log: string[], mode: RunMode = "persistent") 
   };
 }
 
-test("Auto heads a new chat's list only when the page offers it", async () => {
+// cmux#51731: This Mac, Auto, Cloud, Other devices, so Auto reads as the step between the two.
+test("Auto sits between This Mac and Cloud in a new chat's list only when the page offers it", async () => {
   const offered = await renderDevices(DEVICES, autoChat(false, []));
   await open(offered.container);
   expect(optionRows().map(rowLabel)).toEqual([
-    translate("composer.auto"),
     translate("composer.thisMac"),
+    translate("composer.auto"),
     translate("composer.cloud"),
     translate("composer.otherDevices"),
   ]);
@@ -398,7 +398,7 @@ test("AutoCloud: Auto's row is a chevron that opens Auto, Cloud only and Machine
   await open(container);
   const row = document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')!;
   expect(row.querySelector(".acpmux-env-more-chevron")).not.toBeNull();
-  expect(optionRows().map(rowLabel)[0]).toBe(translate("composer.auto"));
+  expect(optionRows().map(rowLabel)[1]).toBe(translate("composer.auto"));
   await choose('[data-action="autoPlaces"]');
   expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
   expect(optionRows().map(rowLabel)).toEqual([
@@ -492,6 +492,35 @@ test("Other devices heads with a way back to the main list", async () => {
   await choose('[data-action="back"]');
   expect(document.querySelector(".acpmux-env-devices")).toBeNull();
   expect(document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')).not.toBeNull();
+});
+
+test("Machines… heads with a way back to the main list", async () => {
+  const { container } = await render("persistent");
+  await openMachines(container);
+  expect(document.querySelector('.acpmux-env-popover [data-kind="ssh"]')).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector('.acpmux-env-popover [data-action="back"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-kind="ssh"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-mode="cloud"]')).not.toBeNull();
+});
+
+test("Move to… heads with a way back to the main list", async () => {
+  const { container } = await renderDevices(DEVICES.slice(0, 1), {
+    otherDevices: false,
+    onOffload: () => undefined,
+    offload: "move",
+    moveTargets: [
+      { id: "vm-dev", label: "dev-box", kind: "cloud" },
+      { id: "vm-gpu", label: "gpu-box", kind: "cloud" },
+    ],
+    onMoveTo: () => undefined,
+  });
+  await open(container);
+  await choose('[data-action="moveTo"]');
+  expect(document.querySelector(".acpmux-env-moves")).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-moves")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="moveTo"]')).not.toBeNull();
 });
 
 test("AutoCloud gated off: Auto stays the one plain row, with no chevron", async () => {
