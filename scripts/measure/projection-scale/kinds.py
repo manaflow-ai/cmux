@@ -96,6 +96,9 @@ def summarize(out: Path) -> list[dict]:
             "source_untouched": meta.get("source_untouched"), "skipped": meta.get("skipped", ""),
         }
         summary.append(cell)
+    order = {name: i for i, name in enumerate(DEFAULT_PROFILES)}
+    summary.sort(key=lambda c: (int(str(c["kind"]).split(" ")[0]) if str(c["kind"])[:1].isdigit() else 99,
+                                order.get(c["profile"], 9)))
     return summary
 
 
