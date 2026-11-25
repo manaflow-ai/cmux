@@ -63,7 +63,29 @@ from app_launch_env import launch_env  # noqa: E402
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
+              "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names",
+              "public-remote", "heavy", "case-rename", "large-binaries", "media")
+# RFD 0007's folder kinds (Leo, 2026-11-25: "how is projectionfs? for bare non-gited folders, ones with git, etc";
+# "there's various other situations you guys need to be testing esp with projectionfs and intended read
+# behaviour") and the cell that measures each: `--only kinds` runs just these.
+KIND_CELLS = {
+    "1 bare non-git folder": "big-plain", "2 git, public remote": "public-remote",
+    "3 git, private remote": "private-remote", "4 local-only repo": "small-repo", "5 huge monorepo": "monorepo",
+    "6 node_modules / build output": "heavy", "7 symlinks, case-only renames": "case-rename",
+    "8 empty folder": "empty", "9 large binaries": "large-binaries", "10 media (MP4)": "media",
+}
+# The cells whose largest file the machine reads (first byte, then whole), timed, before the tree's hash
+# reads everything: a projected folder's read is a lazy fault, so this is its intended read behaviour.
+READ_PROBE_CELLS = ("big-plain", "public-remote", "private-remote", "small-repo", "monorepo", "heavy",
+                    "case-rename", "empty", "large-binaries", "media")
+# large-binaries: a few files past 100 MB (random, so no link compresses them away).
+LARGE_BINARY_MB = (128, 160, 200)
+# media: MP4-shaped files (an ftyp box, then random payload), 2-48 MB, as a phone's export folder holds.
+MEDIA_MB = (2, 8, 24, 48)
+# The production projection matrix is deliberately a small, stable set.  Keep this separate from the
+# historical workspace list above so adding a fixture here never changes the nightly proof's coverage.
+PROJECTION_KINDS = ("bare-folder", "public-remote", "private-remote", "local-only-repo", "huge-monorepo",
+                    "build-output", "symlinks")
 # The cells past the copy's limits: the chat starts from a first pass, never a refusal; no tree or git compare
 # (a first pass sends no history), and the big file must stay on the Mac (left_on_mac >= 1).
 FIRST_PASS_CELLS = ("huge-plain", "huge-repo", "huge-parent-repos")
@@ -116,6 +138,8 @@ def parse_args(argv=None):
                              "cached Claude login for this run (claude_login_cache.py); removed when the run ends")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
+    parser.add_argument("--projection-kinds", action="store_true",
+                        help="run the seven projected-folder fixtures used by RFD 0007")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
                         help="a person's own folder as a cell, read only")
     parser.add_argument("--monorepo", default="https://github.com/manaflow-ai/cmux.git",
@@ -123,6 +147,10 @@ def parse_args(argv=None):
     parser.add_argument("--monorepo-ref", default="", help="the branch to clone (a mirror's HEAD may name none)")
     parser.add_argument("--submodule-url", default="https://github.com/octocat/Hello-World.git")
     parser.add_argument("--big-files", type=int, default=20000, help="files in the big non-Git folder")
+    parser.add_argument("--projection-big-files", type=int, default=100000,
+                        help="files in the huge-monorepo projection fixture")
+    parser.add_argument("--projection-sparse-bytes", type=int, default=3 * 1024 ** 3,
+                        help="logical bytes in the huge-monorepo sparse build output")
     parser.add_argument("--parallel", type=int, default=3, help="most machines at once")
     parser.add_argument("--timeout", type=int, default=900, help="seconds one start-chat may wait")
     parser.add_argument("--out", required=True, help="folder for matrix.json and matrix.md")
@@ -186,10 +214,64 @@ def small_repo(path: Path) -> None:
     git(path, "commit", "-qm", "first")
 
 
+def projection_repo(path: Path, remote: str | None = None) -> None:
+    """The tiny repository used by the projection kinds, with explicit round-trip targets."""
+    small_repo(path)
+    write(path / "projection-edit.txt", "before\n")
+    write(path / "projection-delete.txt", "remove me\n")
+    write(path / "projection-rename-old.txt", "rename me\n")
+    git(path, "add", "-A")
+    git(path, "commit", "-qm", "projection actions")
+    if remote:
+        git(path, "remote", "add", "origin", remote)
+
+
 def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None, str]:
     """The cell's folder, made under ROOT, and a note (a skip reason when it cannot be made here)."""
     path = root / kind
-    if kind == "empty":
+    if kind == "bare-folder":
+        path.mkdir(parents=True)
+        write(path / "projection-edit.txt", "before\n")
+        write(path / "projection-delete.txt", "remove me\n")
+        write(path / "projection-rename-old.txt", "rename me\n")
+    elif kind == "public-remote":
+        projection_repo(path, "https://github.com/manaflow-ai/cmux.git")
+    elif kind == "local-only-repo":
+        projection_repo(path)
+    elif kind == "huge-monorepo":
+        # The sparse image gives the fixture multi-GB logical size without consuming the runner disk.
+        projection_repo(path, "https://github.com/manaflow-ai/cmux.git")
+        for index in range(max(1, args.projection_big_files)):
+            write(path / "tree" / f"d{index % 1000:04d}" / f"f{index:06d}.txt", f"{index}\n")
+        with open(path / "build-image.bin", "wb") as sparse:
+            sparse.truncate(max(1, args.projection_sparse_bytes))
+    elif kind == "build-output":
+        path.mkdir(parents=True)
+        write(path / "package.json", '{"name":"projection-fixture"}\n')
+        write(path / "src/index.js", "export default 1;\n")
+        for index in range(100):
+            write(path / "node_modules/pkg" / f"module-{index:03d}.js", "module.exports = 1;\n")
+        write(path / "Cargo.toml", "[package]\nname = \"projection-fixture\"\nversion = \"0.0.0\"\n")
+        write(path / "target/debug/app", "debug\n")
+        write(path / "dist/bundle.js", "bundle\n")
+        write(path / "projection-edit.txt", "before\n")
+        write(path / "projection-delete.txt", "remove me\n")
+        write(path / "projection-rename-old.txt", "rename me\n")
+    elif kind == "symlinks":
+        path.mkdir(parents=True)
+        write(path / "projection-edit.txt", "before\n")
+        write(path / "projection-delete.txt", "remove me\n")
+        write(path / "projection-rename-old.txt", "rename me\n")
+        write(path / "inside/target.txt", "inside\n")
+        outside = root / "projection-outside.txt"
+        write(outside, "outside\n")
+        os.symlink("inside/target.txt", path / "relative-link")
+        os.symlink(str(outside), path / "absolute-link")
+        os.symlink("../../projection-outside.txt", path / "escaping-link")
+        os.symlink("missing-target", path / "dangling-link")
+        write(path / "CaseOnly.txt", "case\n")
+        write(path / "case-only-source.txt", "case rename\n")
+    elif kind == "empty":
         path.mkdir(parents=True)
     elif kind == "small-repo":
         small_repo(path)
@@ -202,8 +284,11 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         if not any(entry.name != ".git" for entry in path.iterdir()):
             raise RuntimeError(f"the clone of {args.monorepo} checked out nothing (give --monorepo-ref)")
     elif kind == "private-remote":
-        small_repo(path)
-        git(path, "remote", "add", "origin", "https://github.com/manaflow-ai/cmuxterm-hq.git")
+        if args.projection_kinds:
+            projection_repo(path, "https://github.com/manaflow-ai/cmuxterm-hq.git")
+        else:
+            small_repo(path)
+            git(path, "remote", "add", "origin", "https://github.com/manaflow-ai/cmuxterm-hq.git")
     elif kind == "submodules":
         # A public GitHub submodule, as a real project has: the machine fetches it itself (a file://
         # submodule only this Mac can reach is not a workspace anyone moves to Cloud).
@@ -258,6 +343,48 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         if kind == "huge-parent-repos":
             with open(path / "disk.img", "wb") as sparse:
                 sparse.truncate(HUGE_PLAIN_BYTES)
+    elif kind == "public-remote":
+        small_repo(path)
+        git(path, "remote", "add", "origin", "https://github.com/octocat/Hello-World.git")
+    elif kind == "heavy":
+        # A JS project as it sits after `npm install` and a build: node_modules and build/ stay on the Mac.
+        small_repo(path)
+        write(path / "package.json", '{"name": "heavy", "scripts": {"build": "true"}}\n')
+        for index in range(3000):
+            write(path / "node_modules" / f"pkg{index % 300:03d}" / f"f{index:04d}.js", "module.exports = 1;\n" * 40)
+        for index in range(200):
+            write(path / "build" / f"chunk{index:03d}.js", "x" * 20000)
+        write(path / "dist/bundle.js", os.urandom(4 * 1024 * 1024))
+        write(path / ".gitignore", "*.log\nnode_modules/\nbuild/\ndist/\n")
+        git(path, "add", "-A")
+        git(path, "commit", "-qm", "ignore the build")
+    elif kind == "case-rename":
+        # Symlinks, and a file renamed by case only (a case-insensitive Mac keeps one name; Linux sees the new one).
+        small_repo(path)
+        write(path / "Docs/Readme.md", "case\n")
+        git(path, "add", "-A")
+        git(path, "commit", "-qm", "Readme")
+        git(path, "mv", "Docs/Readme.md", "Docs/tmp.md")
+        git(path, "mv", "Docs/tmp.md", "Docs/README.md")
+        git(path, "commit", "-qm", "rename by case only")
+        os.symlink("src/main.py", path / "link-inside")
+        os.symlink("/etc/hosts", path / "link-outside")
+        os.symlink("nowhere", path / "link-broken")
+        os.symlink("Docs", path / "docs-link")
+    elif kind == "large-binaries":
+        path.mkdir(parents=True)
+        write(path / "README.txt", "model weights\n")
+        for index, size in enumerate(LARGE_BINARY_MB):
+            with open(path / f"weights{index}.bin", "wb") as out:
+                for _ in range(size):
+                    out.write(os.urandom(1024 * 1024))
+    elif kind == "media":
+        path.mkdir(parents=True)
+        for index, size in enumerate(MEDIA_MB):
+            with open(path / f"clip{index}.mp4", "wb") as out:
+                out.write(b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
+                for _ in range(size):
+                    out.write(os.urandom(1024 * 1024))
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -724,6 +851,8 @@ class Matrix:
         started = time.monotonic()
         # A first-pass cell's tree is not compared (the rest stays on the Mac), and hashing its 21 GiB
         # sparse file would read 21 GiB of zeros.
+        projection = bool(self.args.projection_kinds)
+        cell["projection"] = projection
         expected = {"files": None, "bytes": None, "left_out": {}, "sha256": None, "tops": {}, "lines": []} \
             if name in FIRST_PASS_CELLS else local_manifest(folder, canary)
         cell["local"] = {key: expected[key] for key in ("files", "bytes", "left_out")}
@@ -735,9 +864,18 @@ class Matrix:
         # the machine is found with `cloud exec`, not from the reply.
         ask_word = "" if read_only or name == "empty" else (
             f" Read the file {WORD_FILE} in your working folder with your file-reading tool; it holds one word.")
-        form = "MATRIX_OK" + ("" if not ask_word else " word=<the word>")
-        prompt = (f"This is an automated check of the folder this chat started in. Do not run any shell command."
-                  f"{ask_word} Reply on one line in exactly this form and nothing else: {form}")
+        if projection and not read_only:
+            prompt = ("This is an automated projected-folder check. Use only your file tools, never a shell command. "
+                      "Read cmux-matrix-word.txt, edit projection-edit.txt to exactly 'after\\n', delete "
+                      "projection-delete.txt, rename projection-rename-old.txt to projection-rename-new.txt, "
+                      "and create projection-created.txt containing exactly 'created\\n'. "
+                      "Also rename CaseOnly.txt to caseonly.txt without changing its contents. "
+                      "Reply on one line in exactly this form and nothing else: PROJECTION_OK word=<the word>")
+            form = "PROJECTION_OK"
+        else:
+            form = "MATRIX_OK" + ("" if not ask_word else " word=<the word>")
+            prompt = (f"This is an automated check of the folder this chat started in. Do not run any shell command."
+                      f"{ask_word} Reply on one line in exactly this form and nothing else: {form}")
         chat_started = time.monotonic()
         deadline = chat_started + self.args.timeout
         while True:
@@ -783,7 +921,19 @@ class Matrix:
         if isinstance(answer.get("estimate"), dict):
             cell["estimate"] = {key: answer["estimate"].get(key) for key in
                                 ("mode", "copy_mode", "files", "bytes", "seconds", "left_bytes", "why", "complete")}
-        for key in ("stages_ms", "stages_detail_ms", "ready_ms", "copy", "seed", "mode", "skipped_counts"):
+        first_ms = first_text_ms(answer.get("stages_ms"))
+        if first_ms is None:
+            first_ms = first_text_ms(answer.get("stages_detail_ms"))
+        if first_ms is None:
+            first_ms = first_text_ms(answer)
+        if first_ms is not None:
+            cell["first_text_ms"] = first_ms
+            cell["first_text_s"] = round(first_ms / 1000, 3)
+        moved, moved_source = copy_bytes(answer)
+        if moved is not None:
+            cell["bytes_moved"] = moved
+            cell["bytes_moved_source"] = moved_source
+        for key in ("stages_ms", "stages_detail_ms", "ready_ms", "copy", "seed", "mode", "skipped_counts", "projected"):
             if isinstance(answer.get(key), (dict, list, int, str)):
                 cell.setdefault("answer_timing", {})[key] = json.loads(clean(json.dumps(answer[key]), 4000)) \
                     if not EVIDENCE_SCAN.search(json.dumps(answer[key])) else "[left out]"
@@ -797,12 +947,39 @@ class Matrix:
             remote = self.find_copy(machine, folder, word if ask_word else "")
         cell["reply"] = {
             "observed": bool(reply),
-            "form_ok": bool(match),
+            "form_ok": bool(re.search(r"PROJECTION_OK" if projection else r"MATRIX_OK", reply)),
             "word_ok": (not ask_word) or (f"word={word}" in reply),
             "canary_in_reply": bool(canary) and canary in reply,
             "text": clean(reply.replace(canary, "[canary]") if canary else reply, 300),
         }
         cell["remote_folder"] = clean(remote, 300)
+        # What the start moved before anything read the tree, then the intended read on the machine.
+        cell["projection_log"] = projection_log(folder)
+        if machine and remote and name in READ_PROBE_CELLS:
+            probe = base64.b64encode(READ_PROBE_PY.encode()).decode()
+            got, problem = self.exec_json(machine, f"echo {probe} | base64 -d > /tmp/cwm-read.py && "
+                                                   f"python3 /tmp/cwm-read.py {shlex_quote(remote)}", timeout=900)
+            cell["read_probe"] = got or {"error": problem}
+            after = projection_log(folder)
+            if isinstance(after.get("sent"), dict):
+                cell["projection_log"]["sent_after_read"] = after["sent"]
+        if projection and remote and machine and not read_only:
+            # The agent actions are checked on the machine before cleanup.  Bring Back's full
+            # three-way correctness is covered by the companion Rust matrix, which runs the same
+            # projection-v1 daemon and is recorded beside this production row.
+            action_probe = (
+                "import json,os; r=%(r)s; "
+                "read=lambda p: open(os.path.join(r,p), encoding='utf-8').read() if os.path.isfile(os.path.join(r,p)) else None; "
+                "print(json.dumps({'edit':read('projection-edit.txt')=='after\\n',"
+                "'created':read('projection-created.txt')=='created\\n',"
+                "'deleted':not os.path.lexists(os.path.join(r,'projection-delete.txt')),"
+                "'renamed':read('projection-rename-new.txt')=='rename me\\n' and not os.path.lexists(os.path.join(r,'projection-rename-old.txt')),"
+                "'case_only_renamed':read('caseonly.txt')=='case\\n' and not os.path.lexists(os.path.join(r,'CaseOnly.txt'))}))" %
+                {"r": json.dumps(remote)})
+            actions, problem = self.exec_json(machine, f"python3 -c {shlex_quote(action_probe)}", timeout=120)
+            cell["agent_actions"] = actions or {"error": problem}
+            cell["agent_actions_ok"] = all(actions.get(key) is True for key in
+                                            ("edit", "created", "deleted", "renamed", "case_only_renamed"))
         if machine and remote:
             script = base64.b64encode(MANIFEST_PY.encode()).decode()
             started = time.monotonic()
@@ -856,8 +1033,111 @@ def _left_on_mac(self, answer: dict, machine: str, remote: str) -> int:
 Matrix.left_on_mac = _left_on_mac
 
 
+# Run on the machine: time a listing of the folder, then the first byte and the whole of its largest file.
+READ_PROBE_PY = r"""
+import json, os, sys, time
+root = sys.argv[1]
+t = time.monotonic(); entries = 0; largest = (0, "")
+for top, dirs, files in os.walk(root):
+    dirs[:] = [d for d in dirs if d != ".git"]
+    for name in files:
+        entries += 1
+        p = os.path.join(top, name)
+        try:
+            st = os.lstat(p)
+        except OSError:
+            continue
+        if not os.path.islink(p) and st.st_size > largest[0]:
+            largest = (st.st_size, p)
+out = {"entries": entries, "list_ms": round((time.monotonic() - t) * 1000)}
+if largest[1]:
+    out["largest_bytes"] = largest[0]
+    out["largest"] = os.path.relpath(largest[1], root)
+    t = time.monotonic()
+    with open(largest[1], "rb") as f:
+        f.read(1)
+        out["first_byte_ms"] = round((time.monotonic() - t) * 1000)
+        while f.read(1 << 20):
+            pass
+    out["whole_ms"] = round((time.monotonic() - t) * 1000)
+out["mounted"] = any(line.split()[1] == root or root.startswith(line.split()[1] + "/")
+                     for line in open("/proc/mounts") if "fuse" in line.split()[2])
+print(json.dumps(out))
+"""
+
+
+def projection_log(folder: Path) -> dict:
+    """The Mac-side projection server's own record of FOLDER's start (link/sync_cli/project.rs): its `ready`
+    timing (entries, listed_ms, manifest_bytes, ready_ms, mount_ms) and its last `sent` line (file reads and bytes
+    answered). {} when no server serves the folder: the start was a copy or seed, not a projection."""
+    roots = [Path(os.environ[key]) for key in ("CMUX_TUI_STATE_DIR",) if os.environ.get(key)]
+    roots.append(Path.home() / "Library/Application Support/cmux-tui/sessions")
+    roots.append(Path.home() / ".local/state/cmux-tui/sessions")
+    want = str(folder.resolve())
+    for root in roots:
+        for served in (root / "link-sync" / "projections").glob("*.served"):
+            try:
+                local = served.read_bytes().split(b"\0", 2)[-1].decode()
+                if local != want:
+                    continue
+                found: dict = {"server": served.stem}
+                for line in served.with_suffix(".log").read_text(errors="replace").splitlines():
+                    for key in ("ready", "sent"):
+                        prefix = f"cmux link project: {key} "
+                        if line.startswith(prefix):
+                            try:
+                                found[key] = json.loads(line[len(prefix):])
+                            except json.JSONDecodeError:
+                                pass
+                return found
+            except OSError:
+                continue
+    return {}
+
+
 def shlex_quote(text: str) -> str:
     return "'" + text.replace("'", "'\"'\"'") + "'"
+
+
+def first_text_ms(value) -> float | None:
+    """Return the start trace's create-to-first-text mark, wherever the CLI nested it."""
+    if isinstance(value, dict):
+        for key in ("create_to_first_text_ms", "first_text_ms"):
+            number = value.get(key)
+            if isinstance(number, (int, float)):
+                return number
+        if value.get("step") == "first_text" and isinstance(value.get("ms"), (int, float)):
+            return value["ms"]
+        for child in value.values():
+            found = first_text_ms(child)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = first_text_ms(child)
+            if found is not None:
+                return found
+    return None
+
+
+def copy_bytes(answer: dict) -> tuple[int | None, str | None]:
+    """Find bytes actually sent by the copy/seed response, with an explicit source label."""
+    for key in ("copy_bytes", "bundle_bytes"):
+        value = answer.get(key)
+        if isinstance(value, int):
+            return value, key
+    for section_name in ("copy", "seed"):
+        section = answer.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for key in ("copy_bytes", "bundle_bytes", "bytes"):
+            value = section.get(key)
+            if isinstance(value, int):
+                return value, f"{section_name}.{key}"
+    estimate = answer.get("estimate")
+    if isinstance(estimate, dict) and isinstance(estimate.get("bytes"), int):
+        return estimate["bytes"], "estimate.bytes"
+    return None, None
 
 
 def verdict(cell: dict, canary: str) -> str:
@@ -883,32 +1163,53 @@ def verdict(cell: dict, canary: str) -> str:
         if cell.get("workspace") in FIRST_PASS_CELLS and copy_mode != "first_pass":
             problems.append(f"estimate said {copy_mode}")
     first_pass = cell.get("workspace") in FIRST_PASS_CELLS or copy_mode == "first_pass"
-    if cell.get("hash_match") is False and not first_pass:
+    projection = bool(cell.get("projection"))
+    if cell.get("hash_match") is False and not first_pass and not projection:
         problems.append("tree differs")
     if first_pass and (cell.get("create_to_reply_s") or 0) > FIRST_PASS_REPLY_WITHIN_S:
         problems.append(f"first reply after {cell.get('create_to_reply_s')} s")
     if first_pass and (cell.get("left_on_mac") or 0) < 1:
         problems.append("nothing left on the Mac")
-    if cell.get("hash_match") is None:
+    if cell.get("hash_match") is None and not projection:
         problems.append("tree not checked")
-    if cell.get("git_match") is False:
+    if cell.get("git_match") is False and not projection:
         problems.append("git state differs")
+    if projection and cell.get("agent_actions_ok") is not True:
+        problems.append("projection actions")
     if cell.get("machine_killed") is False:
         problems.append("machine not killed")
     return "pass" if not problems else "fail: " + ", ".join(problems)
 
 
 def grid(cells: list[dict]) -> str:
-    rows = ["| Workspace | Agent | Result | Create to reply | Files (here / there) | Hash | Git | Secrets | Reply |",
-            "|---|---|---|---|---|---|---|---|---|"]
+    rows = ["| Workspace | Agent | Result | First token | Bytes moved | Round trip | Create to reply | Mode | Ready ms | Manifest B | Sent at start | List ms | "
+            "Largest: first byte / whole ms | Sent after read | Files (here / there) | Hash | Git | Secrets | Reply |",
+            "|---|---|---|---:|---:|---|---:|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for cell in cells:
         local, remote = cell.get("local") or {}, cell.get("remote") or {}
         hash_text = {True: "match", False: "differs", None: "-"}[cell.get("hash_match")]
         git_text = {True: "match", False: "differs", None: "-"}[cell.get("git_match")]
         leak = "LEAK" if (cell.get("canary_on_machine") or (cell.get("reply") or {}).get("canary_in_reply")) else (
             "none leaked" if cell["workspace"] == "secrets" else "-")
-        rows.append(f"| {cell['workspace']} | {cell['agent']} | {cell['result']} | "
-                    f"{cell.get('create_to_reply_s', '-')} s | {local.get('files', '-')} / {remote.get('files', '-')} | "
+        projection = cell.get("projection_log") or {}
+        ready = projection.get("ready") or {}
+        probe = cell.get("read_probe") or {}
+        mode = (cell.get("answer_timing") or {}).get("mode") or ("projected" if ready else "-")
+        sent = (projection.get("sent") or {}).get("bytes", "-")
+        sent_after = (projection.get("sent_after_read") or {}).get("bytes", "-")
+        largest = (f"{probe.get('largest_bytes', '-')} B: {probe.get('first_byte_ms', '-')} / {probe.get('whole_ms', '-')}"
+                   if probe.get("largest_bytes") else "-")
+        first = cell.get("first_text_s")
+        first_text = f"{first:.3f} s" if isinstance(first, (int, float)) else "-"
+        moved = cell.get("bytes_moved")
+        moved_text = str(moved) if isinstance(moved, int) else "-"
+        actions = cell.get("agent_actions") or {}
+        round_trip = "pass" if cell.get("agent_actions_ok") else ("-" if not cell.get("projection") else "fail")
+        if cell.get("projection"):
+            round_trip += "; conflict/no-loss: Rust"
+        rows.append(f"| {cell['workspace']} | {cell['agent']} | {cell['result']} | {first_text} | {moved_text} | {round_trip} | "
+                    f"{cell.get('create_to_reply_s', '-')} s | {mode} | {ready.get('ready_ms', '-')} | "
+                    f"{ready.get('manifest_bytes', '-')} | {sent} | {probe.get('list_ms', '-')} | {largest} | {sent_after} | {local.get('files', '-')} / {remote.get('files', '-')} | "
                     f"{hash_text} | {git_text} | {leak} | {(cell.get('reply') or {}).get('text', '-')[:80]} |")
     return "\n".join(rows) + "\n"
 
@@ -919,7 +1220,10 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     agents = [agent for agent in args.agents.split(",") if agent]
     only = {name for name in args.only.split(",") if name}
-    kinds = [kind for kind in WORKSPACES if not only or kind in only]
+    if "kinds" in only:  # RFD 0007's folder kinds
+        only = (only - {"kinds"}) | set(KIND_CELLS.values())
+    selected = PROJECTION_KINDS if args.projection_kinds else WORKSPACES
+    kinds = [kind for kind in selected if not only or kind in only]
     root = Path(tempfile.mkdtemp(prefix="cmux-matrix-"))
     canary = f"cmxcanary{random.token_hex(10)}"
     matrix = Matrix(args)
