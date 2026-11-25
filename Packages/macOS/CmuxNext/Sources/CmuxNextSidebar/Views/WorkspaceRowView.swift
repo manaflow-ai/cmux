@@ -363,7 +363,10 @@ final class WorkspaceRowView: SidebarRowView {
     private static func withoutProgress(_ content: Content) -> Content {
         var content = content
         content.ws.progress = content.ws.progress.map { SidebarProgress(value: nil, isError: $0.isError) }
-        content.row?.progress = content.row?.progress.map { SidebarProgress(value: nil, isError: $0.isError) }
+        if var row = content.row {
+            row.progress = row.progress.map { SidebarProgress(value: nil, isError: $0.isError) }
+            content.row = row
+        }
         return content
     }
 
