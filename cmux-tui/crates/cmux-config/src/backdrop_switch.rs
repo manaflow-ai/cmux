@@ -230,8 +230,8 @@ impl Solar {
     fn at(t: f64) -> Solar {
         let century = (t / 86_400.0 + 2_440_587.5 - 2_451_545.0) / 36_525.0;
         let mean_longitude =
-            ((280.46646 + century * (36_000.76983 + century * 0.0003032)) % 360.0).to_radians();
-        let anomaly = (357.52911 + century * (35_999.05029 - 0.0001537 * century)).to_radians();
+            ((280.46646 + century * (36_000.769_83 + century * 0.0003032)) % 360.0).to_radians();
+        let anomaly = (357.52911 + century * (35_999.050_29 - 0.0001537 * century)).to_radians();
         let eccentricity = 0.016708634 - century * (0.000042037 + 0.0000001267 * century);
         let center = anomaly.sin() * (1.914602 - century * (0.004817 + 0.000014 * century))
             + (2.0 * anomaly).sin() * (0.019993 - 0.000101 * century)
