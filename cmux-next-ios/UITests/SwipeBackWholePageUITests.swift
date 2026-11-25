@@ -20,7 +20,7 @@ final class SwipeBackWholePageUITests: XCTestCase {
     }
 
     override func tearDown() {
-        XCUIDevice.shared.appearance = .dark
+        MainActor.assumeIsolated { XCUIDevice.shared.appearance = .dark }
     }
 
     struct Page {
@@ -152,13 +152,13 @@ final class SwipeBackWholePageUITests: XCTestCase {
         }
 
         // 3. The back button.
-        if row != nil, let back = page.back {
-            let button = app.buttons.matching(identifier: back).firstMatch
-            let found = button.waitForExistence(timeout: 5) ? button : app.buttons[back]
+        if row != nil, let backLabel = page.back {
+            let button = app.buttons.matching(identifier: backLabel).firstMatch
+            let found = button.waitForExistence(timeout: 5) ? button : app.buttons[backLabel]
             if found.exists, found.isHittable {
                 found.tap()
             } else {
-                XCTFail("\(label): no back button \(back)")
+                XCTFail("\(label): no back button \(backLabel)")
                 edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.45)),
                            withVelocity: .fast, thenHoldForDuration: 0)
             }
