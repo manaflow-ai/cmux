@@ -17,7 +17,7 @@ import { FailedCount } from "./FailedCount";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
+import { Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
@@ -38,6 +38,7 @@ import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
 import { firstStepCount, stepProbe } from "./toolGroupRowModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -372,6 +373,8 @@ export function ToolGroupRow({
   findTitle,
   inherits,
   closedBy,
+  foldId,
+  onLoadFold,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
@@ -382,6 +385,8 @@ export function ToolGroupRow({
   inherits?: readonly string[];
   /// The key of the run line this group's line takes the place of: closed by the reader, it closes this.
   closedBy?: readonly string[];
+  foldId?: number;
+  onLoadFold?: (fold: number) => Promise<void>;
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -443,7 +448,10 @@ export function ToolGroupRow({
         onClick={(event) => {
           // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
           const opening = !open;
-          if (fold.toggle(event) && opening) setByClick(true);
+          if (fold.toggle(event) && opening) {
+            setByClick(true);
+            if (foldId !== undefined) void onLoadFold?.(foldId);
+          }
         }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>
@@ -486,7 +494,7 @@ export function ToolGroupRow({
             <InlineFailureCause failure={failure} />
           </span>
         )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />

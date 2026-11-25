@@ -8,6 +8,12 @@
 //! - completed, failed: `_acpmux/info` shows the session, then
 //!   `session/prompt` with the reply id as its `promptId` (acpmux runs each
 //!   once);
+//! - send (store and forward): the same `session/prompt`, keyed by the
+//!   composer's client message id, so a copy that also came over the link runs
+//!   once; it steers unless the phone said not to;
+//! - compose: `_acpmux/info` shows the session, then `_acpmux/queue_edit`
+//!   (`_acpmux/queue_remove` for `remove`); a queued prompt that is gone is
+//!   `not_pending`;
 //! - chief: `conversation-list` through `ChiefPolicy` shows the conversation
 //!   in the phone's scope, then `conversation-op` `message.send`;
 //! - terminal: the notification is still in the ledger on that surface
@@ -72,7 +78,8 @@ impl Applier for LiveApplier {
         Box::pin(async move {
             match reply.kind.as_str() {
                 "question" | "permission" => self.respond(reply).await,
-                "completed" | "failed" => self.prompt(reply).await,
+                "completed" | "failed" | "send" => self.prompt(reply).await,
+                "compose" => self.compose(reply).await,
                 "chief" => self.chief(reply).await,
                 "terminal" => self.terminal(reply).await,
                 _ => Err(Rejection::Refused("unknown kind".into())),
@@ -156,12 +163,45 @@ pub fn permission_params(reply: &Reply, pending: &Value) -> Result<Value, Reject
 /// link's reply (`PushReplyPlan.promptMeta`) and Send in the chat do (Leo, 2026-11-05: "WHY THE
 /// F*** ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING"); an idle chat, or an agent that
 /// cannot steer, runs it as its next turn.
+///
+/// A `send` (store and forward) is the chat's own Send: its id is the composer's client message
+/// id, the `promptId` its link copy carries too, so acpmux runs it once whichever came first
+/// (`resend: true`); it steers unless the phone said `steer: false`.
 pub fn prompt_params(reply: &Reply) -> Value {
     json!({
         "sessionId": reply.target.session_id,
         "prompt": [{"type": "text", "text": reply.text}],
-        "_meta": {"acpmux": {"promptId": reply.id, "steer": true, "resend": true}},
+        "_meta": {"acpmux": {"promptId": reply.id, "steer": reply.steer, "resend": true}},
     })
+}
+
+/// The acpmux method and params of a `compose` item: `_acpmux/queue_remove`
+/// for `remove`, else `_acpmux/queue_edit {sessionId, promptId, op, text?, index?}`.
+pub fn compose_request(reply: &Reply) -> Result<(&'static str, Value), Rejection> {
+    let queue = reply.queue.as_ref().ok_or_else(|| refused("no queue action"))?;
+    let mut params = json!({"sessionId": reply.target.session_id, "promptId": queue.prompt_id});
+    if queue.op == "remove" {
+        return Ok(("_acpmux/queue_remove", params));
+    }
+    params["op"] = json!(queue.op);
+    if let Some(text) = &queue.text {
+        params["text"] = json!(text);
+    }
+    if let Some(index) = queue.index {
+        params["index"] = json!(index);
+    }
+    Ok(("_acpmux/queue_edit", params))
+}
+
+/// A queue answer: `queue_edit`'s `ok` or `queue_remove`'s `removed` false means
+/// the prompt no longer waits.
+pub fn compose_outcome(method: &str, answer: &Value) -> Result<(), Rejection> {
+    let key = if method == "_acpmux/queue_remove" { "removed" } else { "ok" };
+    match answer.get(key).and_then(Value::as_bool) {
+        Some(true) => Ok(()),
+        Some(false) => Err(Rejection::NotPending),
+        None => Err(refused("acpmux did not say whether the queue changed")),
+    }
 }
 
 /// The Chief `conversation-op` line for a text reply.
@@ -516,6 +556,21 @@ impl LiveApplier {
         acpmux.prompt(params).await
     }
 
+    async fn compose(&self, reply: &Reply) -> Result<(), Rejection> {
+        let (method, mut params) = compose_request(reply)?;
+        let mut acpmux = Acpmux::connect(&self.acpmux).await?;
+        let info = acpmux
+            .call("_acpmux/info", json!({"sessionId": reply.target.session_id}))
+            .await
+            .map_err(|_| Rejection::NotPending)?;
+        let session = resolved_session(&info)?;
+        params["sessionId"] = Value::String(session.clone());
+        // Last before the change, as for a prompt: a revocation meanwhile wins.
+        self.exposure_allows(Some(&session))?;
+        let answer = acpmux.call(method, params).await?;
+        compose_outcome(method, &answer)
+    }
+
     async fn chief(&self, reply: &Reply) -> Result<(), Rejection> {
         let path = self.chief_socket.as_ref().ok_or_else(|| refused("Chief is not set up on this Mac"))?;
         let policy = ChiefPolicy::new();
@@ -754,6 +809,8 @@ mod tests {
                 json!({"acpmux": {"decisionNonce": "n", "approverDecision": {"approver": "phone-1",
                                   "expiresAt": 1, "signature": "ab"}}}),
             ),
+            steer: true,
+            queue: None,
             nonce: "n".repeat(16),
             expires_at: 1,
         }
@@ -838,6 +895,74 @@ mod tests {
         // It steers a running turn, as the link's reply and Send in the chat do.
         let params = prompt_params(&reply("completed", ActionKind::Text));
         assert_eq!(params["_meta"]["acpmux"], json!({"promptId": "r1", "steer": true, "resend": true}));
+    }
+
+    #[test]
+    fn a_send_is_the_chats_own_send_keyed_by_its_client_message_id() {
+        // The link copy of the chat's Send (`session/prompt` with the composer's client message
+        // id as `promptId`) and its mailbox copy name one prompt: acpmux runs it once.
+        let mut send = reply("send", ActionKind::Text);
+        send.id = "msg-7f3a".into();
+        let mailbox_copy = prompt_params(&send);
+        let link_copy = json!({"sessionId": "s1", "prompt": [{"type": "text", "text": "ship it"}],
+                               "_meta": {"acpmux": {"promptId": "msg-7f3a", "steer": true}}});
+        assert_eq!(mailbox_copy["_meta"]["acpmux"]["promptId"], link_copy["_meta"]["acpmux"]["promptId"]);
+        assert_eq!(mailbox_copy["_meta"]["acpmux"]["resend"], true);
+        assert_eq!(mailbox_copy["prompt"], link_copy["prompt"]);
+        // `steer: false` from the phone queues it as the next turn.
+        send.steer = false;
+        assert_eq!(prompt_params(&send)["_meta"]["acpmux"]["steer"], false);
+        let request =
+            json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": prompt_params(&send)});
+        assert!(crate::acpmux_policy::refusal(&request.to_string()).is_none());
+    }
+
+    #[test]
+    fn a_compose_is_a_queue_edit_or_remove_and_a_gone_prompt_is_not_pending() {
+        let compose = |op: &str, text: Option<&str>, index: Option<u64>| {
+            let mut r = reply("compose", ActionKind::Queue);
+            r.queue = Some(crate::mailbox::QueueAction {
+                op: op.into(),
+                prompt_id: "q1".into(),
+                text: text.map(str::to_owned),
+                index,
+            });
+            compose_request(&r).unwrap()
+        };
+        assert_eq!(
+            compose("update", Some("new words"), None),
+            (
+                "_acpmux/queue_edit",
+                json!({"sessionId": "s1", "promptId": "q1", "op": "update", "text": "new words"})
+            )
+        );
+        assert_eq!(
+            compose("move", None, Some(0)),
+            ("_acpmux/queue_edit", json!({"sessionId": "s1", "promptId": "q1", "op": "move", "index": 0}))
+        );
+        assert_eq!(
+            compose("send_now", None, None),
+            ("_acpmux/queue_edit", json!({"sessionId": "s1", "promptId": "q1", "op": "send_now"}))
+        );
+        assert_eq!(
+            compose("remove", None, None),
+            ("_acpmux/queue_remove", json!({"sessionId": "s1", "promptId": "q1"}))
+        );
+        assert!(compose_request(&reply("compose", ActionKind::Queue)).is_err());
+        // Both pass the phone's acpmux narrowing.
+        for (method, params) in [compose("update", Some("x"), None), compose("remove", None, None)] {
+            let request = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+            assert!(crate::acpmux_policy::refusal(&request.to_string()).is_none(), "{method}");
+        }
+        // acpmux's answers: changed, or the prompt no longer waits.
+        assert_eq!(compose_outcome("_acpmux/queue_edit", &json!({"ok": true, "op": "update"})), Ok(()));
+        assert_eq!(compose_outcome("_acpmux/queue_edit", &json!({"ok": false})), Err(Rejection::NotPending));
+        assert_eq!(compose_outcome("_acpmux/queue_remove", &json!({"removed": true})), Ok(()));
+        assert_eq!(
+            compose_outcome("_acpmux/queue_remove", &json!({"removed": false})),
+            Err(Rejection::NotPending)
+        );
+        assert!(matches!(compose_outcome("_acpmux/queue_edit", &json!({})), Err(Rejection::Refused(_))));
     }
 
     #[test]

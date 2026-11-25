@@ -113,6 +113,74 @@ jobs:
           else
             echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
           fi
+      # The ssh_host case: a throwaway sshd on 127.0.0.1 (unprivileged, a fresh ed25519 host and client key in
+      # $RUNNER_TEMP) whose sessions get their own HOME, the "remote" one: a public checkout and two dotfiles.
+      # The migrating HOME gets an ~/.ssh/config alias for it. OpenSSH reads ~/.ssh/config from the passwd home,
+      # never $HOME, so the same entry also goes into the runner user's own ~/.ssh/config.
+      - name: Start a throwaway SSH host for the ssh_host case
+        env:
+          MIGRATE_SSH_REPO: https://github.com/microsoft/vscode-remote-try-go
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/migrate-ssh-host"
+          remote_home="$base/remote-home"
+          mig_home="$RUNNER_TEMP/migrate-journey/home-ssh-host"
+          port=42722
+          sshd="$(command -v sshd || true)"
+          [ -n "$sshd" ] || sshd=/usr/sbin/sshd
+          if [ ! -x "$sshd" ]; then
+            sudo apt-get install -y openssh-server
+          fi
+          mkdir -p "$base" "$remote_home" "$mig_home/.ssh"
+          chmod 700 "$base" "$mig_home/.ssh"
+          ssh-keygen -q -t ed25519 -N '' -C migrate-journey-host -f "$base/host_ed25519"
+          ssh-keygen -q -t ed25519 -N '' -C migrate-journey-client -f "$base/client_ed25519"
+          cp "$base/client_ed25519.pub" "$base/authorized_keys"
+          chmod 600 "$base/authorized_keys"
+          git clone --depth 1 --quiet "$MIGRATE_SSH_REPO" "$remote_home/$(basename "$MIGRATE_SSH_REPO")"
+          printf '[user]\n\tname = Migrate Journey\n\temail = migrate-journey@example.invalid\n' > "$remote_home/.gitconfig"
+          printf 'export EDITOR=vi\n' > "$remote_home/.bashrc"
+          cat > "$base/sshd_config" <<CFG
+          ListenAddress 127.0.0.1
+          Port $port
+          HostKey $base/host_ed25519
+          PidFile $base/sshd.pid
+          AuthorizedKeysFile $base/authorized_keys
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          UsePAM no
+          StrictModes no
+          AllowTcpForwarding no
+          X11Forwarding no
+          PermitTTY no
+          ForceCommand cd "$remote_home" && HOME="$remote_home" exec /bin/sh -c "\$SSH_ORIGINAL_COMMAND"
+          CFG
+          "$sshd" -t -f "$base/sshd_config"
+          "$sshd" -f "$base/sshd_config" -E "$base/sshd.log"
+          entry="Host migrate-journey-host
+            HostName 127.0.0.1
+            Port $port
+            User $(id -un)
+            IdentityFile $base/client_ed25519
+            IdentitiesOnly yes
+            UserKnownHostsFile $base/known_hosts
+            StrictHostKeyChecking accept-new
+          "
+          printf '%s\n' "$entry" > "$mig_home/.ssh/config"
+          chmod 600 "$mig_home/.ssh/config"
+          passwd_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+          mkdir -p "$passwd_home/.ssh"
+          chmod 700 "$passwd_home/.ssh"
+          printf '\n%s\n' "$entry" >> "$passwd_home/.ssh/config"
+          chmod 600 "$passwd_home/.ssh/config"
+          # Up before the script: one bounded login, the same options `cmux migrate` passes.
+          HOME="$mig_home" timeout 30 ssh -o BatchMode=yes -o ConnectTimeout=15 migrate-journey-host true
+          {
+            echo "MIGRATE_SSH_HOST=migrate-journey-host"
+            echo "MIGRATE_SSH_HOME=$mig_home"
+            echo "MIGRATE_SSH_REPO=$MIGRATE_SSH_REPO"
+          } >> "$GITHUB_ENV"
       - name: cmux migrate on real public repos (staging, this pull request's CLI)
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -130,6 +198,7 @@ jobs:
             ${{ runner.temp }}/migrate-journey/*.json
             ${{ runner.temp }}/migrate-journey/*.jsonl
             ${{ runner.temp }}/migrate-journey/*.log
+            ${{ runner.temp }}/migrate-ssh-host/sshd.log
             ${{ runner.temp }}/migrate-journey/home-*/.cmux/migrate/**
           if-no-files-found: warn
           retention-days: 7

@@ -680,6 +680,8 @@ mod tests {
         assert_eq!(relay.by, "glaeda-land");
         assert_eq!(relay.machine, crate::pairing::mesh_host());
         assert_eq!(relay.session, None);
+        // The hub's schema took `session: null` as a 400 (2026-11-24): no session is no key.
+        assert!(from.relay.as_ref().unwrap().get("session").is_none(), "{:?}", from.relay);
         let broker = json!({"by": "lane-gh", "machine": "m", "session": "lane-7"});
         let from = sender(&hub, None, Some("glaeda-land".into()), None, Some(broker.clone()));
         assert_eq!(from.relay, Some(broker.clone()));
