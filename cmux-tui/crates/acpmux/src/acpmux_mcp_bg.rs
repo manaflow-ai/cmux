@@ -356,11 +356,11 @@ fn trim_echo(name: &str, structured: &mut Value) {
     if o.contains_key("text") && o.remove("data").is_some() {
         o.insert("dataOmitted".into(), json!("the bytes are in text; no base64 copy"));
     }
-    if let Some(command) = o.get("command").and_then(Value::as_str) {
-        if command.chars().count() > CMD_KEPT {
-            o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
-            o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
-        }
+    if let Some(command) = o.get("command").and_then(Value::as_str)
+        && command.chars().count() > CMD_KEPT
+    {
+        o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
+        o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
     }
 }
 
