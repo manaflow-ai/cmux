@@ -12,28 +12,8 @@ import {
 
 const path = "/docs/main-thread";
 
-const readMoreLinks = [
-  {
-    key: "readThreading",
-    href: "https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks.md",
-  },
-  {
-    key: "readFaq",
-    href: "https://chromium.googlesource.com/chromium/src/+/main/docs/threading_and_tasks_faq.md",
-  },
-  {
-    key: "readScopedBlocking",
-    href: "https://chromium.googlesource.com/chromium/src/+/main/base/threading/scoped_blocking_call.h",
-  },
-  {
-    key: "readHangWatcher",
-    href: "https://chromium.googlesource.com/chromium/src/+/main/base/threading/hang_watcher.h",
-  },
-  {
-    key: "readRepoDoc",
-    href: "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/cmux-next/main-thread.md",
-  },
-] as const;
+const repoDocHref =
+  "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/cmux-next/main-thread.md";
 
 function assertSupportedLocale(locale: string) {
   if (!mainThreadDocsLocales.includes(locale as (typeof mainThreadDocsLocales)[number])) {
@@ -76,59 +56,35 @@ export default async function MainThreadPage({
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <DocsHeading level={2} id="chrome">{t("chromeTitle")}</DocsHeading>
-      <ul>
-        <li>{t("chromeUiThread")}</li>
-        <li>{t("chromeTasks")}</li>
-        <li>{t("chromeEnforced")}</li>
-        <li>{t("chromeProcesses")}</li>
-      </ul>
+      <DocsHeading level={2} id="top-fixes">{t("fixesTitle")}</DocsHeading>
+      <ol>
+        <li>{t("fixStdin")}</li>
+        <li>{t("fixHibernation")}</li>
+        <li>{t("fixSpawn")}</li>
+        <li>{t("fixWrites")}</li>
+      </ol>
 
       <DocsHeading level={2} id="rule">{t("ruleTitle")}</DocsHeading>
       <p>{t("ruleIntro")}</p>
-      <ul>
-        <li>{t("ruleInput")}</li>
-        <li>{t("ruleState")}</li>
-        <li>{t("ruleCommit")}</li>
-      </ul>
-      <p>{t("ruleOffMain")}</p>
       <CodeBlock lang="swift">{`let text = try await work.run(.userVisible, mayBlock: .files) {
   try String(blockingContentsOf: url)
 }
 model.apply(text)`}</CodeBlock>
       <p>{t("ruleCodeNote")}</p>
 
-      <DocsHeading level={2} id="enforced">{t("enforceTitle")}</DocsHeading>
-      <ul>
-        <li>{t("enforceSeams")}</li>
-        <li>{t("enforceWatchdog")}</li>
-        <li>{t("enforceLint")}</li>
-        <li>{t("enforceNightly")}</li>
-      </ul>
-
-      <DocsHeading level={2} id="lessons">{t("lessonsTitle")}</DocsHeading>
-      <p>{t("lessonsIntro")}</p>
-      <ul>
-        <li>{t("lessonStdin")}</li>
-        <li>{t("lessonHibernation")}</li>
-        <li>{t("lessonSpawn")}</li>
-        <li>{t("lessonMeasure")}</li>
-      </ul>
+      <DocsHeading level={2} id="enforced">{t("keepTitle")}</DocsHeading>
+      <p>{t("keepDesc")}</p>
 
       <DocsHeading level={2} id="report-a-hang">{t("debugTitle")}</DocsHeading>
       <p>{t("debugDesc")}</p>
       <CodeBlock lang="bash">{`log stream --predicate 'category == "blocking"'`}</CodeBlock>
 
       <DocsHeading level={2} id="further-reading">{t("readMoreTitle")}</DocsHeading>
-      <ul>
-        {readMoreLinks.map((link) => (
-          <li key={link.key}>
-            <a href={link.href} target="_blank" rel="noopener noreferrer">
-              {t(link.key)}
-            </a>
-          </li>
-        ))}
-      </ul>
+      <p>
+        <a href={repoDocHref} target="_blank" rel="noopener noreferrer">
+          {t("readRepoDoc")}
+        </a>
+      </p>
     </>
   );
 }
