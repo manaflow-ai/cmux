@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45625813906",
+  "recorded_at": "2026-11-25T13:50:34Z",
+  "reason": "image inputs changed in 3fc7098642466c2877a9198b23da8b6c48256fbf..b30e65d6a36f73a6e62e840681e32d4e59049711",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "b30e65d6a36f73a6e62e840681e32d4e59049711",
+      "mergedAt": "2026-11-25T13:39:09Z",
+      "subject": "cleanup.ts: read string literals in one pass, not one prefix scan each (#55373)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-25T13:50:34Z",
+    "snapshot_id": "sh-d1536421d5924794b4e096e8d891a52c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45625813906): 32 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "cloud-native-auto-67d01201-45625813906-1",
+    "revision": "ci-45625813906-1",
+    "at": null
+  },
+  "rolled_back": false
+}
