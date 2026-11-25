@@ -12,9 +12,8 @@
 //! - both changed differently: a text file is merged by line against the
 //!   last sync's version ([`merge`]); edits on the same lines, and any
 //!   other file, are a conflict;
-//! - one side deleted what the other edited: the edit wins on both sides,
-//!   never the delete (this Mac's edit stays for the next push; the
-//!   machine's comes back here).
+//! - one side deleted what the other edited: a conflict, in both
+//!   directions; neither the delete nor the edit is applied.
 //!
 //! The decision is the three-tree rule, [`cmux_sync::three_tree::decide`]
 //! (RFD 0140), over the base this Mac kept, this Mac's file and the machine's.
@@ -65,7 +64,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
-use cmux_sync::three_tree::{self, Conflict, Decision};
+use cmux_sync::three_tree::{self, Decision};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -729,15 +728,14 @@ fn plan_scope(
                 Side::Link(text) => Step::SettleLink(text.clone()),
                 _ => Step::Settle(staged.map(|staged| staged.pushed())),
             },
-            // Only this Mac changed it, or the machine deleted what this Mac edited: this Mac's
-            // stays, and the next push sends it. A delete never beats an edit.
-            Decision::Push(_) | Decision::Conflict(Conflict::RemoteDeleted { .. }) => {
+            // Only this Mac changed it: this Mac's stays, and the next push sends it.
+            Decision::Push(_) => {
                 unchanged += 1;
                 continue;
             }
-            Decision::Conflict(Conflict::Content { .. }) => {
-                // Both changed a text file: merged by line when the edits do
-                // not overlap.
+            // Both changed it, or one side deleted what the other edited: a conflict, named and
+            // never decided here. Two text edits are merged by line when they do not overlap.
+            Decision::Conflict(_) => {
                 let merged = match (&pushed_side, &here, &machine, &staged) {
                     (
                         Side::File { sha256: base_sha, permissions: base_mode },
@@ -783,24 +781,21 @@ fn plan_scope(
                     }
                 }
             }
-            // Only the machine changed it, or this Mac deleted what the machine edited: the
-            // machine's comes back (the edit is restored here, never lost to the delete).
-            Decision::Apply(_) | Decision::Conflict(Conflict::LocalDeleted { .. }) => {
-                match (machine, staged) {
-                    (Side::File { .. }, Some(staged)) => Step::Write {
-                        permissions: staged.permissions,
-                        revision: staged.revision,
-                        sha256: staged.sha256,
-                        staged: staged.name,
-                    },
-                    (Side::Missing, _) => Step::Delete,
-                    (Side::Link(text), _) => Step::Link(text),
-                    _ => {
-                        conflicts.push(relative.clone());
-                        continue;
-                    }
+            // Only the machine changed it: the machine's comes back.
+            Decision::Apply(_) => match (machine, staged) {
+                (Side::File { .. }, Some(staged)) => Step::Write {
+                    permissions: staged.permissions,
+                    revision: staged.revision,
+                    sha256: staged.sha256,
+                    staged: staged.name,
+                },
+                (Side::Missing, _) => Step::Delete,
+                (Side::Link(text), _) => Step::Link(text),
+                _ => {
+                    conflicts.push(relative.clone());
+                    continue;
                 }
-            }
+            },
         };
         planned.push(Planned { relative: relative.clone(), local: here, step });
     }

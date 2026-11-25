@@ -39,7 +39,6 @@ trap stop EXIT
 
 mkdir -p "$LOCAL"
 printf 'line 1\nline 2\nline 3\nline 4\nline 5\n' >"$LOCAL/notes.txt"
-printf 'keep me\n' >"$LOCAL/gone.txt"
 
 echo "## 1. start the machine's daemon"
 server ensure >/dev/null || { echo "daemon did not start"; exit 1; }
@@ -47,19 +46,15 @@ echo "## 2. first push, Mac -> machine"
 mac push || FAILED=1
 echo
 echo "## 3. edits on both sides"
-echo "Mac:     line 1 -> 'line 1 edited on the Mac'; rm gone.txt"
-echo "machine: line 5 -> 'line 5 edited on the machine'; append a line to gone.txt"
+echo "Mac:     line 1 -> 'line 1 edited on the Mac'"
+echo "machine: line 5 -> 'line 5 edited on the machine'"
 sed -i 's/^line 1$/line 1 edited on the Mac/' "$LOCAL/notes.txt"
 sed -i 's/^line 5$/line 5 edited on the machine/' "$REMOTE/notes.txt"
-rm "$LOCAL/gone.txt"
-printf 'keep me\nedited on the machine\n' >"$REMOTE/gone.txt"
 echo
 echo "## 4. pull, machine -> Mac (three-way against the kept revision)"
 mac pull || FAILED=1
 show "$LOCAL" Mac notes.txt
-show "$LOCAL" Mac gone.txt
 check "Mac has both edits" "grep -qx 'line 1 edited on the Mac' '$LOCAL/notes.txt' && grep -qx 'line 5 edited on the machine' '$LOCAL/notes.txt'"
-check "the machine's edit beat the Mac's delete" "grep -qx 'edited on the machine' '$LOCAL/gone.txt'"
 echo
 echo "## 5. push the merge back, Mac -> machine"
 mac push || FAILED=1

@@ -789,27 +789,21 @@ fn kept_revision(state: &Path) -> (PathBuf, PathBuf) {
 }
 
 #[test]
-fn a_delete_never_beats_an_edit_in_a_pull() {
+fn a_delete_against_an_edit_is_a_conflict_both_ways() {
     let (_root, _sockets, repo, remote, socket) = pushed_repo();
     // This Mac deletes old.txt, the machine edits it; the machine deletes other.txt, this Mac
-    // edits it.
+    // edits it. The three-tree rule names both, and decides neither.
     std::fs::remove_file(repo.join("old.txt")).unwrap();
     std::fs::write(remote.join("old.txt"), "old\nedited there\n").unwrap();
     std::fs::remove_file(remote.join("other.txt")).unwrap();
     std::fs::write(repo.join("other.txt"), "other\nedited here\n").unwrap();
 
     let (ok, answer) = pull(&socket, &repo, &remote);
-    assert!(ok, "{answer}");
-    assert_eq!(std::fs::read_to_string(repo.join("old.txt")).unwrap(), "old\nedited there\n");
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], json!(["old.txt", "other.txt"]), "{answer}");
+    assert!(!repo.join("old.txt").exists(), "the pull brought the machine's file back");
     assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\nedited here\n");
-
-    // The next push sends this Mac's edit back to the machine: both sides hold both edits.
-    push(&socket, &repo, &remote);
-    assert_eq!(std::fs::read_to_string(remote.join("other.txt")).unwrap(), "other\nedited here\n");
-    assert_eq!(std::fs::read_to_string(remote.join("old.txt")).unwrap(), "old\nedited there\n");
-    let (ok, again) = pull(&socket, &repo, &remote);
-    assert!(ok, "{again}");
-    assert_eq!((again["written"].clone(), again["deleted"].clone()), (json!(0), json!(0)));
 }
 
 #[test]
