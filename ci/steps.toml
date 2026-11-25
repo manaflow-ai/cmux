@@ -749,11 +749,13 @@ exit "$status"
 # $CI_PATHS_FILE), so a web/e2e-only change skips in a second. A failed shard keeps its report in
 # $RUNNER_TEMP/web-test-junit/shardN, which pr-pipeline.yml uploads under the name the old job used
 # (web-test-junit-shardN-attemptA, read by scripts/ci/web_test_failure_census.py); a passing shard drops it, as the
-# old job uploaded only failed shards. Four shards at once on 8 CPUs, beside nothing else: 114 to 222 s each (shard 3
-# the slowest); one shard alone, 121 s.
+# old job uploaded only failed shards. Each shard is `alone`, as its old job had a runner to itself: four at once beside
+# the other linux steps on the pipeline's runner took 345 s a shard and timed out 16 tests (#54820's first runs).
+# One shard alone, 121 s on 8 CPUs.
 [step.web-tests-1]
 job = "linux"
 timeout = 360
+alone = true
 title = "Web tests (1/4)"
 about = "the first of web's four bun test shards (web/scripts/run-tests.sh --shard 1/4)"
 needs = ["bun"]
@@ -783,6 +785,7 @@ exit "$status"
 [step.web-tests-2]
 job = "linux"
 timeout = 360
+alone = true
 title = "Web tests (2/4)"
 about = "the second of web's four bun test shards (web/scripts/run-tests.sh --shard 2/4)"
 needs = ["bun"]
@@ -812,6 +815,7 @@ exit "$status"
 [step.web-tests-3]
 job = "linux"
 timeout = 360
+alone = true
 title = "Web tests (3/4)"
 about = "the third of web's four bun test shards (web/scripts/run-tests.sh --shard 3/4)"
 needs = ["bun"]
@@ -841,6 +845,7 @@ exit "$status"
 [step.web-tests-4]
 job = "linux"
 timeout = 360
+alone = true
 title = "Web tests (4/4)"
 about = "the fourth of web's four bun test shards (web/scripts/run-tests.sh --shard 4/4)"
 needs = ["bun"]

@@ -739,7 +739,7 @@ class PipelineTest(unittest.TestCase):
             with self.subTest(step=step.name):
                 self.assertEqual(step.job, "linux")
                 self.assertEqual(step.timeout, 360)
-                self.assertFalse(step.alone)
+                self.assertTrue(step.alone)
                 self.assertEqual(step.needs, ("bun",))
                 self.assertEqual(step.title, f"Web tests ({shard}/4)")
                 self.assertTrue(step.run.lstrip().startswith(
