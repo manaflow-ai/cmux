@@ -168,6 +168,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
+mod mcp_servers;
+#[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
 mod repo_hold;
@@ -1067,6 +1069,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| inference_gateway_admin::run_route_if_requested(args))
         .or_else(|| cloud_preflight::run_if_requested(args))
         .or_else(|| hub::run_if_requested(args))
+        .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -1279,7 +1282,7 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit") => true,
+        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
         _ => false,
     }
 }
@@ -1849,6 +1852,7 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),

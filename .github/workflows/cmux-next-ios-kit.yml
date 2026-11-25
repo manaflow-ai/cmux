@@ -27,6 +27,7 @@ name: cmux-next-ios kit tests
 # (#43476).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
@@ -149,6 +150,7 @@ jobs:
   # on retries. Keeping this picker ahead of the test job lets the rescue
   # sweeper re-admit a job that stalls on a dead owned label.
   runner:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
@@ -203,6 +205,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -290,14 +294,35 @@ jobs:
           python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
             --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
 
+  # Run the source-only lint on Linux when the Mac kit needs a fresh verdict.
+  # Keep its exit status on the public kit check and let the advisory benches run after a failure.
+  connection-notices:
+    needs: runner
+    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    timeout-minutes: 10
+    outputs:
+      lint_result: ${{ steps.scan.outcome }}
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Connection notices
+        id: scan
+        # The kit check below publishes the lint failure after its advisory benches run.
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
+
   kit-tests:
-    needs: [runner]
+    needs: [runner, connection-notices]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
     # Runs on every pull request this workflow's paths match (cmux-next-ios/**, the packages CmuxMobileKit links), with
     # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
     # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    if: ${{ !cancelled() && needs.runner.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
@@ -307,11 +332,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # A phone connection state waits QuietStatusGate's 10 s or carries an action (cmux-next.yml's checks job runs
-      # the same check with its shrink-only --base ratchet; that workflow does not run on a phone-only change).
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-366
       - name: Connection notices
-        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
+        env:
+          LINT_RESULT: ${{ needs.connection-notices.outputs.lint_result }}
+        run: test "$LINT_RESULT" = success
 
       # These four steps are what the Instant list bench below builds with, so they run after a red
       # step too, as the bench does: a red Connection notices skipped them, and the bench then printed
