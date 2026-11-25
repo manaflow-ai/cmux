@@ -115824,7 +115824,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "inline",
+      "default" : "strip",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
