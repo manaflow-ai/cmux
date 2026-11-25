@@ -27,7 +27,8 @@ import {
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
-import { followActionsWidth } from "./composerScrollLane";
+import { flashThumbOnLength, followActionsWidth } from "./composerScrollLane";
+import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
@@ -1745,12 +1746,20 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
   // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
   useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
+  // The thumb also shows for a moment when the draft's length changes while it overflows (Leo
+  // 2026-11-23: "it should only appear briefly when the length changes, or when you scroll").
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? flashThumbOnLength(wrapper.current) : undefined),
+    [],
+  );
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
+  // In the composer's box, its words' ink stands on the controls' centre line (composerTextCenter.ts).
+  useEffect(() => (wrapper.current ? followTextCenter(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,

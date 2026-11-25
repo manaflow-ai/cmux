@@ -131,7 +131,9 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     /// else (no `CMUX_NEXT_*`, no `DYLD_*`, no credentials) reaches it.
     /// `CMUX_BUILD_SPACE` is the build's cloud space: the link's hub pairing and heartbeats go to this build's
     /// cloud data, never nightly's (cmux-tui `cmux-build-space`).
-    static let inheritedKeys = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", DaemonLauncher.buildSpaceKey]
+    /// `CMUX_EGRESS` is the build's egress mode (`LaunchIdentity` sets it): the link enforces what the app does.
+    static let inheritedKeys = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", DaemonLauncher.buildSpaceKey,
+                                DaemonLauncher.egressModeKey]
 
     /// The link's environment: the allow-listed variables of `base`, the
     /// state root and the fixed runtime base.

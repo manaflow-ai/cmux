@@ -54,6 +54,16 @@ final class TerminalScrollBenchUITests: XCTestCase {
             let value = try XCTUnwrap(p95[name], demo)
             XCTAssertLessThanOrEqual(value, max(bare, frame) + frame * 0.5, "\(name): p95 \(value) ms against the bare shell's \(bare) ms")
         }
+        // Leo, 2026-11-24: "we can just treat the scroll like any pedestrian
+        // scroll" over "a cached-on-phone view of ... the existing terminal
+        // data". The app's history the phone kept scrolls as a plain scroll
+        // view: it drew frames at the bare shell's pace, sent the app no
+        // wheel, and closed at the bottom (the live screen shows again).
+        let reader = try XCTUnwrap(p95["claude-reader"], "the reader case ran: \(demo)")
+        XCTAssertLessThanOrEqual(reader, max(bare, frame) + frame * 0.5, "claude-reader: p95 \(reader) ms against the bare shell's \(bare) ms")
+        XCTAssertGreaterThan(Self.values(demo, "kept")["claude-reader"] ?? 0, 0, "the phone kept rows the app scrolled away (\(demo))")
+        XCTAssertGreaterThan(Self.values(demo, "readerframes")["claude-reader"] ?? 0, 0, "the reader scrolled (\(demo))")
+        XCTAssertTrue(demo.contains("reader=closed"), "the reader closed back at the live screen (\(demo))")
         // The full-screen flings reached the app as wheel reports.
         XCTAssertGreaterThan(Self.values(demo, "wheel")["claude-full"] ?? 0, 0, "claude-full: the flings scrolled the app (\(demo))")
     }

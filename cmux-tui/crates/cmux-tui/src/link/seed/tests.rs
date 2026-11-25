@@ -737,3 +737,158 @@ fn big_untracked_files_share_one_budget_and_the_rest_are_named() {
     assert_eq!(big_left_here(10_000_000, &mut sent), None);
     assert_eq!(sent, BIG_UNTRACKED_TOTAL_CAP);
 }
+
+// RFD 0066 piece 13: LFS pointers in the work commit.
+mod lfs_files {
+    use super::{Fixture, git, write};
+    use crate::link::seed::lfs::{
+        LfsFile, object_path, parse_pointer, scan, skipped, stage_objects,
+    };
+    use sha2::{Digest as _, Sha256};
+    use std::path::Path;
+
+    fn sha(bytes: &[u8]) -> String {
+        Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    fn pointer_text(bytes: &[u8]) -> String {
+        format!(
+            "version https://git-lfs.github.com/spec/v1\noid sha256:{}\nsize {}\n",
+            sha(bytes),
+            bytes.len()
+        )
+    }
+
+    #[test]
+    fn pointer_parsing() {
+        let text = pointer_text(b"hello");
+        let pointer = parse_pointer(text.as_bytes()).unwrap();
+        assert_eq!((pointer.oid.as_str(), pointer.size), (sha(b"hello").as_str(), 5));
+        // Extra keys are fine; a real file, a bad oid, a repeated key or a big file are not pointers.
+        assert!(parse_pointer(format!("{text}x-extra a\n").as_bytes()).is_some());
+        assert!(parse_pointer(b"just text\n").is_none());
+        assert!(parse_pointer(text.replace("sha256:", "sha256:Z").as_bytes()).is_none());
+        assert!(parse_pointer(format!("{text}size 3\n").as_bytes()).is_none());
+        assert!(parse_pointer(&[b'a'; 2000]).is_none());
+        assert!(parse_pointer(b"version https://git-lfs.github.com/spec/v1\nsize 3\n").is_none());
+    }
+
+    fn commit_pointers(f: &Fixture, files: &[(&str, &[u8], bool)]) -> String {
+        // `(path, content, fetched)`: the pointer is committed either way.
+        write(&f.work.join(".gitattributes"), "*.bin filter=lfs diff=lfs merge=lfs -text\n");
+        write(&f.work.join("plain.txt"), "not lfs\n");
+        for (path, bytes, fetched) in files {
+            write(&f.work.join(path), pointer_text(bytes));
+            if *fetched {
+                let oid = sha(bytes);
+                write(&object_path(&f.work.join(".git/lfs"), &oid), bytes);
+            }
+        }
+        git(&f.work, &["add", "-A"]);
+        git(&f.work, &["commit", "-q", "-m", "lfs"]);
+        git(&f.work, &["rev-parse", "HEAD"])
+    }
+
+    #[test]
+    fn present_and_unfetched_objects_are_told_apart() {
+        let f = Fixture::new();
+        let commit = commit_pointers(
+            &f,
+            &[("a/have.bin", b"have me", true), ("b/gone.bin", b"never fetched", false)],
+        );
+        let files = scan(&f.work, &f.work.join(".git/lfs"), &commit);
+        assert_eq!(
+            files,
+            [
+                LfsFile { path: "a/have.bin".into(), oid: sha(b"have me"), size: 7, present: true },
+                LfsFile {
+                    path: "b/gone.bin".into(),
+                    oid: sha(b"never fetched"),
+                    size: 13,
+                    present: false
+                },
+            ]
+        );
+        let left = skipped(&files);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].path, "b/gone.bin");
+        assert!(left[0].why.contains("not fetched"));
+    }
+
+    #[test]
+    fn a_truncated_object_is_not_present() {
+        let f = Fixture::new();
+        let commit = commit_pointers(&f, &[("t.bin", b"whole content", true)]);
+        write(&object_path(&f.work.join(".git/lfs"), &sha(b"whole content")), b"whole");
+        let files = scan(&f.work, &f.work.join(".git/lfs"), &commit);
+        assert!(!files[0].present);
+    }
+
+    #[test]
+    fn staging_copies_verified_objects_once() {
+        let f = Fixture::new();
+        let commit = commit_pointers(
+            &f,
+            &[("one.bin", b"same", true), ("two.bin", b"same", true), ("no.bin", b"zzz", false)],
+        );
+        let lfs = f.work.join(".git/lfs");
+        let files = scan(&f.work, &lfs, &commit);
+        assert_eq!(files.len(), 3);
+        let dest = f.dir.path().join("stage");
+        assert_eq!(stage_objects(&files, &lfs, &dest).unwrap(), 4);
+        assert_eq!(std::fs::read(object_path(&dest, &sha(b"same"))).unwrap(), b"same");
+        assert!(!object_path(&dest, &sha(b"zzz")).exists());
+        // A same-size object with other bytes is refused, not sent.
+        write(&object_path(&lfs, &sha(b"same")), b"evil");
+        let error = stage_objects(&files, &lfs, &f.dir.path().join("stage2")).unwrap_err();
+        assert!(error.contains("does not match"), "{error}");
+    }
+
+    /// With the real `git lfs`: the clean filter writes the pointer and the object, and a clone
+    /// without the objects shows pointers that are not present. Skipped when git-lfs is absent
+    /// (the tests above cover pointer parsing and scanning without it).
+    #[test]
+    fn real_git_lfs_clean_filter() {
+        let have = std::process::Command::new("git")
+            .args(["lfs", "version"])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !have {
+            eprintln!("git-lfs not installed: skipping the real-filter test");
+            return;
+        }
+        let f = Fixture::new();
+        let home = f.dir.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let lfs = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.invalid"])
+                .args(args)
+                .env("HOME", &home)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        lfs(&f.work, &["lfs", "install", "--local"]);
+        lfs(&f.work, &["lfs", "track", "*.dat"]);
+        write(&f.work.join("blob.dat"), vec![7u8; 4096]);
+        lfs(&f.work, &["add", "-A"]);
+        lfs(&f.work, &["commit", "-q", "-m", "dat"]);
+        let head = git(&f.work, &["rev-parse", "HEAD"]);
+        let files = scan(&f.work, &f.work.join(".git/lfs"), &head);
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert_eq!(
+            (files[0].path.as_str(), files[0].size, files[0].present),
+            ("blob.dat", 4096, true)
+        );
+        assert_eq!(files[0].oid, sha(&vec![7u8; 4096]));
+        // The same commit seen from a store without the objects.
+        let empty = f.dir.path().join("empty-lfs");
+        let files = scan(&f.work, &empty, &head);
+        assert!(!files[0].present);
+    }
+}

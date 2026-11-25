@@ -200,6 +200,24 @@ public final class TerminalModel {
         coldFrame = image
         restoredFrame = image
         if snapshot == nil { snapshot = image }
+        measureColdFrame(image)
+    }
+
+    /// Where the cached frame's rows end (``TerminalFrameRows``), measured when the frame is
+    /// restored; nil for no frame or a blank one.
+    public private(set) var coldFrameRows: TerminalFrameRows?
+    /// The cached frame has been measured (its rows may still be nil: a blank still).
+    public private(set) var coldFrameMeasured = false
+
+    /// Measured at once, in the call that restores the frame: the page's first frame already
+    /// draws the still in its place (Leo, 2026-11-24: "the loading has layout shifts and
+    /// placeholder states that likely dont need to be so placeholder and better diffed"). A
+    /// measure off the main thread left a frame or two with nothing, then the still popped in.
+    /// The scan reads a 256 px wide copy (a few ms), once per restored still; the same still
+    /// handed to the next host (a reconnect, the warm set) is not measured again.
+    private func measureColdFrame(_ image: UIImage) {
+        coldFrameRows = TerminalFrameRowsMemo.rows(for: image)
+        coldFrameMeasured = true
     }
 
     /// The page as last seen, as rows (`TerminalSeed`): fed into this host's fresh surface
@@ -262,6 +280,8 @@ public final class TerminalModel {
         self.programName = session.programName
         self.connectionState = session.connectionState
         quietStatus.update(down: !session.connectionState.isAttached)
+        // Listening from the first terminal on: a cached frame is laid out at the keyboard's height.
+        _ = TerminalKeyboardHeight.shared
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -519,7 +539,7 @@ public final class TerminalModel {
                 // Nothing changed on the Mac (an inline program's input reaches into the
                 // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                CmuxMobileTheme.standard.haptics.notify(.error)
             }
         }
     }
@@ -624,20 +644,40 @@ public final class TerminalModel {
     /// moved against the keyboard (down while it shows, up while it hides):
     /// the terminal bouncing.
     public internal(set) var keyboardBounces = 0
+    /// Pinches and double taps that zoomed the alternate screen's grid.
+    public internal(set) var zoomGestures = 0
+    /// The alternate screen's zoom over the Mac's grid (1: readable).
+    public internal(set) var zoomScale: Double = 1
+    /// The settle probe (``TerminalViewController/startSettleProbe``):
+    /// milliseconds from its start to the first display frame that shows the
+    /// full-screen app right; -1 while it runs, -2 when none came in 5 s.
+    public internal(set) var settleMs = -1
+    /// Display frames of a full-screen app drawn at a grid that is not its
+    /// final one (a size change still on its way: "uncompact then squish").
+    public internal(set) var unsettledTUIFrames = 0
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: every terminal surface's presented frames added up (the keyboard pin trace's `tp=`).
+    public internal(set) static var debugPresentsTotal = 0
     /// DEBUG: posted when the terminal surface takes a key from the system keyboard
     /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
+    /// PTY), nil while a size change is on its way (the settle probe).
+    @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
     #endif
 
     /// Refreshes `snapshot` from the live page, rendered here on the main
     /// thread: for callers that need the picture now (the background save).
+    /// A capture of a surface that drew none of the Mac's rows (only the page background: a
+    /// solid black card) never replaces the card's picture: the card keeps its last-known
+    /// page, or shows the Mac's screen text, or nothing (`TerminalCardContent`). Once the page
+    /// drew live output, a blank capture is the real screen (a cleared terminal) and is kept.
     public func captureSnapshot() {
-        if let image = controller?.snapshot() {
+        if let image = controller?.snapshot(), drewLiveOutput || !TerminalFrameKeep.isBlank(image) {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
@@ -946,14 +986,14 @@ public final class TerminalModel {
 
     /// `count` characters of prose, sentences and paragraph breaks, for
     /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
-    public static func demoProse(_ count: Int) -> String {
+    public static func demoProse(_ count: Int, oneParagraph: Bool = false) -> String {
         let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
         var text = ""
         var index = 0
-        while text.count < count {
+        while text.utf8.count < count {
             text += sentence
             index += 1
-            if index % 4 == 0 { text += "\n\n" }
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
         return String(text.prefix(count))
     }
