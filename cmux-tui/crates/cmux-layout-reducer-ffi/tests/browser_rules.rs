@@ -55,3 +55,23 @@ fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn browser_rules_history_score_ranks_a_host_prefix_through_the_c_abi() {
+    let request = json!({
+        "entry": {"url": "https://www.github.com/", "title": "GitHub", "visitCount": 8,
+                  "typedCount": 0, "lastVisit": 1000.0},
+        "text": "git", "now": 1000.0, "home": "/Users/me",
+    });
+    let (code, body) = call("browser_rules_history_score", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    // 600 host prefix + log2(8) * 40 + 120 (age 0) + (40 - 10 / 4).
+    assert_eq!(body, json!(600.0 + 120.0 + 120.0 + 37.5));
+
+    let (code, body) = call(
+        "browser_rules_history_dedupe_key",
+        &serde_json::to_vec(&json!({"url": "http://www.Example.com/"})).unwrap(),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!("example.com"));
+}
