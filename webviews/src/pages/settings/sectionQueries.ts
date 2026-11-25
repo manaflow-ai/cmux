@@ -7,12 +7,13 @@ import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
 import type {
   AgentsState,
+  ArchivedState,
   ChannelsState,
-  DoctorReport,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
+  DoctorReport,
 } from "./ops";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
@@ -79,6 +80,18 @@ export function sharesQuery(store: SettingsStore) {
   return queryOptions<SharesState | null>({
     queryKey: SHARES_KEY,
     queryFn: () => store.shares(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+export const ARCHIVED_KEY = [...settingsKeys.all, "archived"] as const;
+
+/** Settings > Sidebar > Archived Workspaces: the archived rows (null: the host has none). */
+export function archivedQuery(store: SettingsStore) {
+  return queryOptions<ArchivedState | null>({
+    queryKey: ARCHIVED_KEY,
+    queryFn: () => store.archived(),
     staleTime: SECTION_READ_FRESH_MS,
     structuralSharing: true,
   });
@@ -156,6 +169,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
   // Customization Problems draws above the library, in its slot.
