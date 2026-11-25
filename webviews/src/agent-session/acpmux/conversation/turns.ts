@@ -2122,9 +2122,7 @@ function shapeTurn(
     ? new Set([...allSteerDialogue].filter((id) => body.some((row) => row.id === id && row.kind !== "user")))
     : undefined;
   const keptOut: ReadonlySet<string> = steerReplies
-    ? new Set(
-        [...keptByArm].filter((id) => !steerReplies.has(id) || id === cutOff?.reply.id || id === lastWords?.id),
-      )
+    ? new Set([...keptByArm].filter((id) => !steerReplies.has(id) || id === cutOff?.reply.id || id === lastWords?.id))
     : keptByArm;
   const steerDialogue: ReadonlySet<string> =
     steerLayout === "inline"
