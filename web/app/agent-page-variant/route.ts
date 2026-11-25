@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
   buildLlmsText,
+  isEnglishOnlyAgentPage,
   resolveAgentPageVariant,
 } from "../lib/agent-page-paths";
 import {
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
   const canonicalFetchHeaders = headersForCanonicalFetch({
     requestHeaders: request.headers,
     searchParams: request.nextUrl.searchParams,
+    englishOnly: isEnglishOnlyAgentPage(variant.canonicalPath),
   });
 
   const htmlResponse = await fetchCanonicalHtml(htmlUrl, canonicalFetchHeaders);

@@ -2,6 +2,31 @@
 
 > **Fleet route for Manaflow team members:** start at the hq [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md), then return here for CI runner selection, Xcode pins, repository variables, and the Blacksmith overflow switch. External contributors can use this file directly for the public CI policy and runner-selection contract.
 
+## Submit a test from your checkout
+
+From a Mac or Linux checkout, submit a Linux test against the commit at `HEAD`:
+
+```bash
+./scripts/submit-fleet-test -- true
+```
+
+Install GitHub CLI 2.87+ and run `gh auth login` with an account that has **Write**
+access to `manaflow-ai/cmux`. A repository administrator can grant that access.
+Python 3 and Git run locally. The command connects to GitHub with your own login.
+
+A fresh clone can submit immediately after sign-in. For your own changes, commit and
+push them to the repository first. The run uses the printed SHA and omits local edits.
+Commands and logs are visible on the public repository. Open the returned **run URL**
+for the log and test exit status. The local command
+exits when GitHub accepts the run.
+
+For example, from `webviews/`, run `../scripts/submit-fleet-test -- bun test`.
+The checkout command passes your working directory and arguments to Fast checks.
+It selects the Rust setup for `cargo` and the webviews setup for `bun` or `bunx`.
+Use `--setup playwright` before `--` for browser tests. Fleet runners reuse
+downloaded Rust and Bun dependencies across successful runs with matching lockfiles.
+The workflow selects a fleet runner and can use its configured overflow when busy.
+
 ## Rules that must never be broken
 
 - Nightlies never use Blacksmith (user decision 2026-10-19). Every
@@ -1009,12 +1034,13 @@ nobody serves.
 | `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
 
 A pool may declare `min_vcpu`, the smallest size its jobs fit in (Blacksmith
-gives 4 GB per vCPU). When every member is dead the release valve offers only
-smaller sizes at or above it; with none live, the pool waits on its first
-member. `linux_16` and `linux_32` declare 8, and a pool led by 16 vCPU or more
+gives 4 GB per vCPU); no member may be below it. When every member is dead the
+pool waits on its first member: RUNNER_POOLS never names a label outside a
+pool's declared members (`runner_pools.allowed()`). `linux_16` and `linux_32` declare 8, and a pool led by 16 vCPU or more
 must declare one (`runner_pools.spec_problems()`). The tree build's raw
 variables `LINUX_BUILD_RUNNER` and `LINUX_RUNNER_DARWIN_CROSS` have the same
-floor (`RAW_LABEL_MIN_VCPU`). On 2026-11-18 the valve without a floor sent the
+floor (`RAW_LABEL_MIN_VCPU`) and move only to members of a pool that declares
+their label. On 2026-11-18 a release valve (since removed) sent the
 fat-LTO cmux-tui build to 4 and 2 vCPU, where rustc was killed out of memory,
 and no NEXT nightly could publish.
 
