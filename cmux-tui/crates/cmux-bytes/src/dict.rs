@@ -64,7 +64,7 @@ impl Trained {
             }
             let group = grouped.entry(kind).or_default();
             if group.len() < 4000 {
-                group.push(&bytes[..bytes.len().min(16 * 1024)]);
+                group.push(bytes.get(..bytes.len().min(16 * 1024)).unwrap_or_default());
             }
         }
         let mut out = Self::default();

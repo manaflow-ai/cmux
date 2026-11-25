@@ -108,9 +108,9 @@ fn parse(args: &[String]) -> Res<Opts> {
         steps: 1,
     };
     let mut i = 0;
-    while i < args.len() {
+    while let Some(arg) = args.get(i) {
         let v = args.get(i + 1).cloned().unwrap_or_default();
-        match args[i].as_str() {
+        match arg.as_str() {
             "--folder" => {
                 let (n, p) = v.split_once('=').ctx("--folder NAME=PATH")?;
                 o.folders.push((n.into(), p.into()));
@@ -127,20 +127,20 @@ fn parse(args: &[String]) -> Res<Opts> {
             "--every" => {}
             "--profile" if v != "all" => {
                 o.profiles =
-                    v.split(',').map(|n| harness::profile(n).ctx("profile")).collect::<Res<_>>()?
+                    v.split(',').map(|n| harness::profile(n).ctx("profile")).collect::<Res<_>>()?;
             }
             "--profile" => {}
             "--strategy" => {
                 o.strategies = v
                     .split(',')
                     .map(|s| if s == "today" { Strategy::Today } else { Strategy::New })
-                    .collect()
+                    .collect();
             }
             "--scenario" => {
                 o.scenarios = v
                     .split(',')
                     .map(|s| if s == "edit" { Scenario::Edit } else { Scenario::Cold })
-                    .collect()
+                    .collect();
             }
             "--runs" => o.runs = v.parse().ctx("--runs N")?,
             "--cap-bytes" => o.cap = v.parse().ctx("--cap-bytes N")?,
@@ -231,6 +231,7 @@ fn measure(o: &Opts, params: &Params, quiet: bool) -> Vec<Row> {
                         .collect();
                     let ft: Vec<f64> = rs.iter().map(|r| r.first_turn_s).collect();
                     let sy: Vec<f64> = rs.iter().map(|r| r.synced_s).collect();
+                    let Some(first_run) = rs.first() else { continue };
                     let mut reasons: Vec<_> = enc.reasons.iter().map(|(k, v)| (*k, *v)).collect();
                     reasons.sort();
                     let row = Row {
@@ -240,10 +241,10 @@ fn measure(o: &Opts, params: &Params, quiet: bool) -> Vec<Row> {
                         strategy: st,
                         files: enc.files,
                         raw: enc.raw_bytes,
-                        wire: rs[0].wire_bytes,
+                        wire: first_run.wire_bytes,
                         ttft: (harness::pct(&ft, 50.0), harness::pct(&ft, 95.0)),
                         synced: (harness::pct(&sy, 50.0), harness::pct(&sy, 95.0)),
-                        cpu: (rs[0].cpu_send_s, rs[0].cpu_recv_s),
+                        cpu: (first_run.cpu_send_s, first_run.cpu_recv_s),
                         grown: enc.grown_bytes,
                         worst_growth: enc.worst_growth,
                         fails: enc.verify_failures,
@@ -293,9 +294,9 @@ fn json_of(o: &Opts, params: &Params, rows: &[Row], climb: Option<(u64, u64, &st
             last.trim().replace('\\', "\\\\").replace('"', "\\\"")
         )
     });
-    let _ = write!(
+    let _ = writeln!(
         out,
-        "{{\"schema\":\"now-bytes/v1\",\"at\":\"{}\",\"host\":\"{}\",\"params\":{{{}}},\"cores\":{},\"runs\":{},\"climb\":{climb},\"rows\":[\n",
+        "{{\"schema\":\"now-bytes/v1\",\"at\":\"{}\",\"host\":\"{}\",\"params\":{{{}}},\"cores\":{},\"runs\":{},\"climb\":{climb},\"rows\":[",
         now_utc(),
         host.trim(),
         pairs.join(","),
@@ -508,7 +509,11 @@ fn climb(args: &[String]) -> Res<bool> {
     let mut base = measure(&o, &best, true);
     for _ in 0..o.steps {
         let ns = neighbors(&best);
-        let (key, value) = ns[(step as usize) % ns.len()].clone();
+        let Some((key, value)) =
+            (step as usize).checked_rem(ns.len()).and_then(|k| ns.get(k)).cloned()
+        else {
+            break;
+        };
         step += 1;
         let mut cand = best.clone();
         if cand.set(key, &value).is_err() || cand == best {
@@ -625,9 +630,9 @@ fn install_timer(args: &[String]) -> Res<bool> {
     let mut folders = None;
     let mut every = "2h".to_string();
     let mut i = 0;
-    while i < args.len() {
+    while let Some(arg) = args.get(i) {
         let v = args.get(i + 1).cloned().unwrap_or_default();
-        match args[i].as_str() {
+        match arg.as_str() {
             "--folders-file" => folders = Some(v),
             "--every" => every = v,
             other => return Err(format!("unknown flag {other}")),

@@ -46,28 +46,37 @@ impl<T> Scheduler<T> {
         Self { queues: Default::default(), fill_every: fill_every.max(1), since_fill: 0 }
     }
 
+    fn queue(&mut self, lane: Lane) -> &mut VecDeque<T> {
+        let [manifest, fault, hot, fill] = &mut self.queues;
+        match lane {
+            Lane::Manifest => manifest,
+            Lane::Fault => fault,
+            Lane::Hot => hot,
+            Lane::Fill => fill,
+        }
+    }
+
     pub fn push(&mut self, lane: Lane, item: T) {
-        self.queues[lane as usize].push_back(item);
+        self.queue(lane).push_back(item);
     }
 
     /// Moves a queued item to the fault lane (an agent read a file the fill had not sent yet).
     pub fn promote(&mut self, from: Lane, pick: impl Fn(&T) -> bool) -> bool {
-        let q = &mut self.queues[from as usize];
+        let q = self.queue(from);
         if let Some(item) = q.iter().position(pick).and_then(|i| q.remove(i)) {
-            self.queues[Lane::Fault as usize].push_back(item);
+            self.queue(Lane::Fault).push_back(item);
             return true;
         }
         false
     }
 
     pub fn pop(&mut self) -> Option<(Lane, T)> {
-        let fill = Lane::Fill as usize;
-        if self.since_fill + 1 >= self.fill_every && !self.queues[fill].is_empty() {
+        if self.since_fill + 1 >= self.fill_every && !self.queue(Lane::Fill).is_empty() {
             self.since_fill = 0;
-            return self.queues[fill].pop_front().map(|t| (Lane::Fill, t));
+            return self.queue(Lane::Fill).pop_front().map(|t| (Lane::Fill, t));
         }
         for lane in LANES {
-            if let Some(t) = self.queues[lane as usize].pop_front() {
+            if let Some(t) = self.queue(lane).pop_front() {
                 self.since_fill = if lane == Lane::Fill { 0 } else { self.since_fill + 1 };
                 return Some((lane, t));
             }
