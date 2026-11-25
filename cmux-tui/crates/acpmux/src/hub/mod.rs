@@ -3,297 +3,528 @@
 //! fork), `permissions` (agent requests and policy), `turns` (prompt, cancel, config), `transfer`
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
-
-// A reply's checkable claims against the turn's runs (`claim_checks`).
-mod claim_check;
-#[cfg(unix)]
-mod closed_tmp;
-mod control_asks;
-mod verify;
-// Files a prompt names, read into it as the turn starts (harness magic).
-mod prefetch;
+//!
+//! The `mod` declarations stay together, sorted by name, each with its own comment and attributes
+//! directly above it, so two branches that each add a module rarely touch the same lines
+//! (`scripts/merge-insertions.py` merges a branch from before the sort into this order).
 
 mod account_usage;
 mod activity;
-mod app_exit;
-// Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
-mod usage_share;
-// A foreground shell still running after five minutes goes to the background (Claude Code).
-mod auto_background;
-pub use auto_background::AUTO_BACKGROUND_ENV;
-// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
-mod auto_hold;
-pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
-// The per-lane fan-out cap (`lane_fanout.rs`).
-pub(crate) mod lane_fanout;
 // A create with no room here starts on the peer placement picks.
 pub(crate) mod admission_redirect;
+#[cfg(test)]
+mod admission_restore_tests;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
+mod adopt_retry;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
+#[cfg(test)]
+mod agent_messaging_tests;
 mod agent_pairs;
 pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
-mod away_recap;
-mod memory_inbox;
-pub(crate) mod pool_pressure;
-mod prompt_coach;
-// The person's prompts to a held chat wait to go in together (`person_hold.rs`).
-mod person_hold;
-pub use person_hold::PromptTriager;
-pub(crate) mod restricted;
-pub(crate) mod stop_condition;
-mod surge_triage;
-pub use prompt_coach::CoachRewriter;
-mod message_events;
-pub use agent_pairs::PairGuard;
+mod app_exit;
+pub mod approvers;
 mod aside;
 pub(crate) mod ask_choices;
 mod asks_below;
 mod atomic_json;
-pub use crate::build_info::{build, install_build, version_line};
+mod audit_entries;
+pub(crate) mod audit_log;
+// A foreground shell still running after five minutes goes to the background (Claude Code).
+mod auto_background;
+// Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
+pub(crate) mod auto_evacuate;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
 pub(crate) mod auto_resume;
+mod away_recap;
+mod background_cause;
+pub mod background_turn;
+#[cfg(test)]
+mod background_turn_end_tests;
 mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
+pub(crate) mod book_tee;
+mod bookmarks;
+mod bounded;
+mod bridge;
+mod btw;
+mod caller_registry;
+pub(crate) mod cancel;
+mod capacity_retry;
 /// A chat waiting for capacity: the one calm state every client draws.
 pub(crate) mod capacity_wait;
-#[cfg(test)]
-mod wait_reason_tests;
-#[cfg(test)]
-mod worker_lock_tests;
-pub use bg_tasks::{BgScope, bg_owner_words};
-mod bounded;
-mod btw;
-mod workflow_activity;
-pub(crate) mod workflow_ci;
-mod workflow_runs;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
-pub(crate) mod clone_boot;
-mod exit_reason;
-mod fallback_start;
-pub(crate) mod session_auth;
-pub(crate) mod session_budget_watch;
-pub(crate) mod settled_view;
-mod subagent_expiry;
-pub(crate) mod subagent_resume;
-pub(crate) mod subagent_retry;
-pub(crate) use crate::turn_errors;
-pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
-pub(crate) use policy_mode::SetRequest;
-pub(crate) use route_switch::is_chief;
-mod audit_entries;
-pub(crate) mod audit_log;
-mod bookmarks;
-pub(crate) mod cancel;
 mod catalog_reload;
-mod complete;
-pub mod composers;
-mod cursor_ext;
-mod digest;
-pub(crate) mod dispatch;
-pub(crate) mod file_uploads;
-/// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
-pub use file_uploads::window as file_put_window;
-mod gemini_plan;
-pub(crate) mod queue_origin;
-pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
-#[cfg(test)]
-mod agent_messaging_tests;
-mod ephemeral;
-#[cfg(test)]
-mod first_work_tests;
-mod fork;
-mod forward_wait;
-#[cfg(test)]
-mod title_log_tests;
-pub use fork::Retarget;
-#[cfg(test)]
-mod admission_restore_tests;
-#[cfg(test)]
-mod forum_held_turn_tests;
-#[cfg(test)]
-mod host_notice_tests;
-#[cfg(test)]
-mod ledger_hub_tests;
-#[cfg(test)]
-mod long_chat_tests;
-#[cfg(test)]
-mod owned_scope_bench_tests;
-#[cfg(test)]
-mod peer_notice_cost_tests;
-#[cfg(test)]
-mod phone_floor_tests;
-#[cfg(test)]
-mod prompt_accept_tests;
-#[cfg(test)]
-mod remote_table_bench;
-#[cfg(test)]
-mod review_queue_tests;
-#[cfg(test)]
-mod sender_claim_tests;
-#[cfg(test)]
-mod shared_row_tests;
-#[cfg(test)]
-mod shutdown_scan_tests;
-#[cfg(test)]
-mod shutdown_tests;
-#[cfg(test)]
-mod startup_wait_tests;
-#[cfg(test)]
-mod steer_on_start_tests;
-#[cfg(test)]
-mod time_breakdown_restore_tests;
-#[cfg(test)]
-mod transcript_seq_tests;
-pub(crate) use fork::offers_fork;
-pub mod created_by;
-pub(crate) mod evict;
-mod fork_at;
-pub(crate) mod fork_before;
-pub(crate) mod fork_cancel;
-mod fork_replay;
-mod fork_request;
-mod fork_start;
-pub mod fork_subagent;
-mod fork_transcript_auth;
-pub mod forum;
-pub mod forum_hosted;
-pub(crate) mod full_access_bound;
-pub(crate) mod full_access_children;
-mod handoff;
-mod harness_magic;
-mod harness_view;
-mod harness_watch;
-mod health_view;
-mod held_asks;
-mod host_level;
-pub(super) mod idle;
-mod idle_census;
-mod idle_governor;
-mod paused_fs;
-mod person_prompt_at;
-mod turn_rules;
-pub(crate) mod unattended_presets;
-pub(crate) use idle::SessionAtWork;
-mod tool_start;
-pub(crate) use idle_census::LaunchServers;
-pub use idle_census::{Sidecar, StoredLaunch};
-pub use tool_start::{ToolStart, tool_start};
-pub(crate) mod book_tee;
 pub mod chat_activity;
 mod chat_index;
+// A reply's checkable claims against the turn's runs (`claim_checks`).
+mod claim_check;
+pub(crate) mod clone_boot;
 mod closed_rows;
-mod launch_roots;
-mod launchers;
-pub mod lineage;
-pub(crate) mod list_guard;
-pub(crate) mod list_tee;
-pub(crate) mod op_once;
-mod rows_source;
-// Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
-// chat registry in the daemon's v2 handle) is its first caller in the daemon.
-pub(crate) mod hub_health;
-mod live_ages;
-#[cfg(test)]
-mod live_ages_tests;
-mod live_models;
-mod locate;
-pub(crate) mod lock_bridge;
-pub mod media_handles;
-pub mod media_read;
-mod mesh_book;
-mod mesh_rows;
-mod peer_row;
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) mod v1_source;
-pub use peer_row::PeerRow;
-pub(crate) mod native_history;
-mod native_history_chain;
-pub(crate) mod page_replies;
-pub(crate) mod row_log;
-pub(crate) mod subagent_list;
-pub(crate) mod subagent_transcript;
-mod team_information;
-mod team_sent;
-mod usage_answer;
-pub(crate) mod workflow_index;
-pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
-pub use list_guard::{RequestHold, RequestStage};
-pub use media_read::FEATURE as MEDIA_READ_FEATURE;
-pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
-pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
-mod adopt_retry;
-mod hosts;
-pub mod journal_restore;
-#[cfg(test)]
-mod journal_restore_tests;
-mod lifecycle;
-mod log_deferral;
-mod log_load;
-mod restore_writer;
-#[cfg(debug_assertions)]
-pub(crate) use log_load::test_hold;
-#[cfg(test)]
-pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+#[cfg(unix)]
+mod closed_tmp;
+pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
-pub(crate) mod history_delete;
-pub(crate) mod inactive_archive;
-pub(crate) use cold_archive::COLD_CHANGED;
-mod machine_info;
-mod repo_sync;
-mod retention;
-mod store_pressure;
-pub use retention::RetentionRequest;
-pub(crate) mod model_availability;
-pub(crate) use log_load::AdoptionReady;
-mod model_options;
-mod new_request;
-pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
-    web_url_for_session,
-};
+// A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cold_wake;
+mod complete;
+pub mod composers;
+mod control_asks;
+pub(crate) mod create_key;
+pub mod created_by;
+mod credentials;
+mod cursor_ext;
+pub(crate) mod dead_letters;
+pub(crate) mod desktop_bridge;
+mod digest;
+pub(crate) mod dispatch;
+mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
+mod elevation;
+mod ephemeral;
+pub(crate) mod evict;
+mod exit_reason;
+mod fallback_start;
+pub(crate) mod file_uploads;
+#[cfg(test)]
+mod first_work_tests;
+mod fork;
+mod fork_at;
+pub(crate) mod fork_before;
+pub(crate) mod fork_cancel;
+mod fork_replay;
+mod fork_request;
+#[cfg(test)]
+mod fork_retarget_tests;
+mod fork_start;
+pub mod fork_subagent;
+mod fork_transcript_auth;
+mod former_names;
+pub mod forum;
+#[cfg(test)]
+mod forum_held_turn_tests;
+pub mod forum_hosted;
+mod forward_wait;
+pub(crate) mod full_access_bound;
+pub(crate) mod full_access_children;
+mod gemini_plan;
+mod git_watch;
+mod github_owner;
+mod goal_tools;
+mod handoff;
+mod harness_key;
+mod harness_magic;
+mod harness_sandbox;
+mod harness_view;
+mod harness_watch;
+mod health_view;
+// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
+#[cfg(test)]
+#[path = "held_append_bench.rs"]
+mod held_append_bench;
+mod held_asks;
+mod held_lock;
+pub mod here;
+pub(crate) mod history_delete;
+pub(crate) mod history_search;
+mod history_timing;
+mod host_level;
+#[cfg(test)]
+mod host_notice_tests;
+mod hosts;
+// Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
+// chat registry in the daemon's v2 handle) is its first caller in the daemon.
+pub(crate) mod hub_health;
+mod hunk_summary;
 mod hybrid_hold;
+pub(super) mod idle;
+mod idle_census;
+mod idle_governor;
+pub(crate) mod image_size;
+pub(crate) mod inactive_archive;
+pub(crate) mod inbox;
+pub(crate) mod inbox_subscription;
+pub mod journal_restore;
+#[cfg(test)]
+mod journal_restore_tests;
+pub(crate) mod key_route;
+mod key_store;
+// The per-lane fan-out cap (`lane_fanout.rs`).
+pub(crate) mod lane_fanout;
+mod lane_report_reads;
+mod lane_report_subagents;
+mod lane_report_text;
+mod lane_reports;
 mod launch_backoff;
+mod launch_roots;
+mod launchers;
 pub mod ledger;
+#[cfg(test)]
+mod ledger_hub_tests;
+mod lifecycle;
+pub mod lineage;
+pub(crate) mod list_guard;
 mod list_order;
+pub(crate) mod list_tee;
+mod live_ages;
+#[cfg(test)]
+mod live_ages_tests;
+mod live_models;
+mod live_name;
+mod locate;
+pub(crate) mod lock_bridge;
+mod log_deferral;
+mod log_load;
+#[cfg(test)]
+mod long_chat_tests;
+mod loop_detector;
+mod loop_goal;
+#[cfg(test)]
+mod loop_goal_tests;
+pub mod mac_approvers;
+mod machine_info;
+mod mcp_connect;
+pub(crate) mod mcp_probe;
+pub mod media_handles;
+pub mod media_read;
+mod memory_inbox;
+mod mesh_book;
+mod mesh_rows;
+mod message_events;
+mod meta_save;
 mod model_alias;
+pub(crate) mod model_availability;
 mod model_hint;
+mod model_options;
 mod model_probe;
 mod models_view;
+mod moved_forward;
+mod moved_prompt_fence;
+pub(crate) mod native_history;
+mod native_history_chain;
 pub(crate) mod native_messaging;
+mod new_request;
+pub mod no_session;
+mod offer_results;
+mod offers;
+pub(crate) mod op_once;
+pub(crate) mod open_delivery;
+mod outage;
+pub(crate) mod outbox;
+#[cfg(test)]
+mod outbox_open_tests;
+#[cfg(test)]
+pub(crate) mod outbox_oracle;
+pub(crate) mod outbox_stats;
+mod own_host;
+#[cfg(test)]
+mod owned_scope_bench_tests;
 mod page_first;
+pub(crate) mod page_replies;
 mod paging;
+pub(crate) mod pause;
+/// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
+pub(crate) mod pause_state;
+mod paused_fs;
+mod peer_cache;
+pub(crate) mod peer_cache_disk;
+#[cfg(test)]
+mod peer_cache_disk_tests;
+mod peer_closed_bound;
+#[cfg(all(test, target_os = "linux"))]
+mod peer_flap_soak;
+mod peer_grace;
+#[cfg(test)]
+mod peer_grace_tests;
+mod peer_lease;
+#[cfg(test)]
+mod peer_notice_cost_tests;
+mod peer_row;
+pub(crate) mod peer_snapshot;
+mod peer_table;
+mod peers;
+mod permission_groups;
 pub(crate) mod permission_modes;
+mod permissions;
+pub mod person;
+// The person's prompts to a held chat wait to go in together (`person_hold.rs`).
+mod person_hold;
+mod person_prompt_at;
 mod personal_stats;
+#[cfg(test)]
+mod phone_floor_tests;
+pub mod plan_build;
 mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
-mod tool_output_cut;
-pub(crate) use pool::SESSION_NEW_BUDGET;
+pub(crate) mod pool_pressure;
+// Files a prompt names, read into it as the turn starts (harness magic).
+mod prefetch;
+pub mod presence;
+mod processes;
+mod profile_respawn;
 #[cfg(test)]
-mod fork_retarget_tests;
-pub(crate) mod image_size;
+mod prompt_accept_tests;
+// The account's rate limit holds every turn of a chat until its reset.
+pub(crate) mod prompt_admission;
 mod prompt_attribution;
+mod prompt_coach;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+mod prompt_sender;
+mod protected_hold;
+pub(crate) mod pull_requests;
+pub(crate) mod purge_tombstones;
+mod question_replies;
+mod queue;
+mod queue_admission;
+mod queue_edit;
+pub(crate) mod queue_origin;
+pub mod races;
+pub(crate) mod rate_hold;
+mod rediscover;
+#[cfg(test)]
+mod refused_append_tests;
+pub(crate) mod register;
+pub(crate) mod release_to_watch;
+mod remote_cwd;
+mod remote_floor;
+mod remote_rows;
+pub(crate) mod remote_sandbox;
+mod remote_table;
+#[cfg(test)]
+mod remote_table_bench;
+pub(crate) mod reply_fit;
+#[cfg(test)]
+mod reply_segment_tests;
+mod repo_sync;
+pub(crate) mod require_asking;
+mod resolve;
+mod restore_point;
+mod restore_writer;
+pub(crate) mod restricted;
+mod resume;
+mod retention;
+mod review_brief;
+pub(crate) mod review_queue;
+#[cfg(test)]
+mod review_queue_tests;
+mod route_switch;
+pub(crate) mod row_log;
+mod rows_source;
+pub mod rules;
+mod secrets;
+mod seen;
+#[cfg(test)]
+mod sender_claim_tests;
+mod session;
+pub(crate) mod session_auth;
+pub(crate) mod session_budget_watch;
+pub(crate) mod session_hold;
+pub(crate) mod session_pages;
+mod settings_watch;
+pub(crate) mod settled_view;
+#[cfg(test)]
+mod shared_row_tests;
+mod shutdown;
+#[cfg(test)]
+mod shutdown_scan_tests;
+#[cfg(test)]
+mod shutdown_tests;
+mod silent_listing;
+mod silent_turn;
+#[cfg(feature = "sim")]
+mod sim_startup;
+mod spawn;
+mod spoken_handles;
+mod stale_host_respawn;
+mod stalled_turn;
+mod start_defaults;
+mod start_gate;
+pub(crate) mod start_mode;
+mod start_mode_state;
+mod start_retry;
+mod start_watch;
+mod startup;
+#[cfg(test)]
+mod startup_wait_tests;
+mod steer_end;
+#[cfg(test)]
+mod steer_on_start_tests;
+pub(crate) mod stop_condition;
+pub(crate) mod stop_if_idle;
+#[cfg(test)]
+mod stop_settles_tests;
+mod store_load;
+mod store_pressure;
+mod stream;
+mod subagent_expiry;
+pub(crate) mod subagent_list;
+pub(crate) mod subagent_resume;
+pub(crate) mod subagent_retry;
+pub(crate) mod subagent_transcript;
+mod subsession_answer;
+mod subsession_guard;
+mod subsession_results;
+mod subsession_resume;
+mod subsession_runs;
+mod subsession_send;
+pub mod subsessions;
+mod successors;
+mod surge_triage;
+// Mask old tool output instead of summarizing it (harness magic).
+pub(crate) mod surgery;
+pub mod synced;
+mod tags;
+mod tailnet_controller;
+mod tap;
+pub(crate) mod task_list;
+mod task_names;
+pub(crate) mod tasks;
+mod team_information;
+mod team_sent;
+mod terminal_input;
+#[cfg(test)]
+mod time_breakdown_restore_tests;
+mod title_log;
+#[cfg(test)]
+mod title_log_tests;
+mod titles;
+mod tool_installs;
+mod tool_output_cut;
+mod tool_paths;
+mod tool_read_images;
+mod tool_shell;
+mod tool_start;
+mod tools;
+mod touched;
+mod transcript;
+#[cfg(test)]
+mod transcript_seq_tests;
+mod transfer;
+mod transfer_agent_files;
+mod transfer_authority;
+mod transfer_guard;
+mod transfer_hub_precopy;
+mod transfer_in;
+mod transfer_out;
+pub mod transfer_park;
+pub mod transfer_pull;
+mod transfer_watch;
+#[cfg(test)]
+mod translator_queue_tests;
+#[cfg(all(test, unix))]
+mod trigger_quiet_tests;
+mod trust_wait;
+mod turn_attestation;
+pub(crate) mod turn_cap;
+mod turn_cost;
+pub(crate) mod turn_frames;
+mod turn_git;
+mod turn_retry;
+mod turn_rules;
+pub(crate) mod turn_shots;
+mod turn_usage;
+mod turns;
+#[cfg(test)]
+mod turns_copy_stop_tests;
+pub(crate) mod unattended_presets;
+mod unread_steer;
+// What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;
+mod update_repeats;
+mod usage_answer;
+// Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod usage_share;
+mod usage_view;
+pub(crate) mod usage_warnings;
+#[cfg(test)]
+mod usage_warnings_tests;
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod v1_source;
+mod verify;
+pub(crate) mod views;
+pub mod vm_boundary;
+pub mod vm_host;
+#[cfg(test)]
+mod wait_reason_tests;
+mod warm;
+mod watch;
+mod watch_events;
+pub(crate) mod watches;
+mod web_control;
+mod web_token;
+mod wip_ref;
+mod work_below;
+#[cfg(test)]
+mod worker_lock_tests;
+mod workflow_activity;
+pub(crate) mod workflow_ci;
+pub(crate) mod workflow_index;
+mod workflow_runs;
+pub(crate) mod worktree_care;
+mod wrap_up_offer;
+mod xai;
+
+pub use crate::build_info::{build, install_build, version_line};
+pub(crate) use crate::turn_errors;
+pub use agent_pairs::PairGuard;
+pub use auto_background::AUTO_BACKGROUND_ENV;
+pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
+pub use bg_tasks::{BgScope, bg_owner_words};
+pub(crate) use cold_archive::COLD_CHANGED;
+pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
+/// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
+pub use file_uploads::window as file_put_window;
+pub use fork::Retarget;
+pub(crate) use fork::offers_fork;
+pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub(crate) use idle::SessionAtWork;
+pub(crate) use idle_census::LaunchServers;
+pub use idle_census::{Sidecar, StoredLaunch};
+pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
+pub use list_guard::{RequestHold, RequestStage};
+pub(crate) use log_load::AdoptionReady;
+#[cfg(debug_assertions)]
+pub(crate) use log_load::test_hold;
+#[cfg(test)]
+pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use model_options::{
+    current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
+    web_url_for_session,
+};
+pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
+pub use peer_row::PeerRow;
+pub use person_hold::PromptTriager;
+pub(crate) use policy_mode::SetRequest;
+pub(crate) use pool::SESSION_NEW_BUDGET;
+pub use prompt_coach::CoachRewriter;
+pub use retention::RetentionRequest;
+pub(crate) use route_switch::is_chief;
+pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
+pub use tool_start::{ToolStart, tool_start};
 /// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
 pub fn prompt_attribution_lead(block: &Value) -> bool {
     prompt_attribution::is_lead(block)
@@ -308,75 +539,19 @@ pub(crate) fn prompt_attribution_mark(
 ) {
     prompt_attribution::mark(params, sender, provenance);
 }
-mod prompt_sender;
-// A wake onto a cold, large chat: one batch on an interval, compacted first.
-pub(crate) mod cold_wake;
-mod protected_hold;
-// The account's rate limit holds every turn of a chat until its reset.
-pub(crate) mod prompt_admission;
-mod queue;
-mod queue_admission;
-mod queue_edit;
-pub(crate) mod rate_hold;
-pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
-pub(crate) use queue::approved_prompts_error;
-pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
-pub(crate) mod create_key;
-pub(crate) use transfer_out::TOOL_IN_FLIGHT;
-mod credentials;
-mod live_name;
-mod profile_respawn;
-mod rediscover;
-pub(crate) mod require_asking;
-mod resolve;
-mod route_switch;
-mod stale_host_respawn;
+pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 pub use pool::{
     PrewarmRequest, PrewarmShape, RssProbe, parse_home_shapes, person_spare_shapes, tree_rss_bytes,
 };
+pub(crate) use queue::approved_prompts_error;
+pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
-pub(crate) use turn_errors::is_limit_error;
-mod elevation;
-mod git_watch;
-mod github_owner;
-mod harness_sandbox;
-mod key_store;
-mod lane_report_reads;
-mod lane_report_subagents;
-mod lane_report_text;
-mod lane_reports;
-mod loop_detector;
-mod loop_goal;
-#[cfg(test)]
-mod loop_goal_tests;
-mod mcp_connect;
-pub(crate) mod mcp_probe;
-mod meta_save;
-mod offer_results;
-mod offers;
-mod question_replies;
-mod resume;
-pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
-mod secrets;
-mod seen;
-// Mask old tool output instead of summarizing it (harness magic).
-pub(crate) mod surgery;
 pub(crate) use seen::{Look, reader_of};
-mod session;
-pub(crate) mod session_pages;
-mod settings_watch;
-mod silent_listing;
-mod silent_turn;
-mod stalled_turn;
-// Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
-pub(crate) mod auto_evacuate;
-mod start_retry;
-mod start_watch;
-pub(crate) mod task_list;
-pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+pub(crate) use transfer_out::TOOL_IN_FLIGHT;
+pub(crate) use turn_errors::is_limit_error;
 /// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
 /// characters (`task_list.rs`'s steps).
 pub(crate) fn masked_step(s: &str, max: usize) -> String {
@@ -387,46 +562,7 @@ pub(crate) fn masked_step(s: &str, max: usize) -> String {
 type WithdrawsInFlight =
     HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
 pub(crate) use crate::shell_readonly;
-pub(super) use session::{newest_first, prompt_text, short_text};
-mod shutdown;
-pub use shutdown::SHUTTING_DOWN;
-mod bridge;
-pub(crate) mod desktop_bridge;
-pub(crate) mod register;
-mod terminal_input;
-pub(crate) use shutdown::{
-    AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
-};
-mod caller_registry;
-mod history_timing;
-pub(crate) mod inbox;
-pub(crate) mod inbox_subscription;
-mod spawn;
-mod start_defaults;
-pub(crate) mod start_mode;
-mod start_mode_state;
-mod startup;
-mod steer_end;
-mod store_load;
-mod stream;
-mod tags;
-mod tailnet_controller;
-mod tap;
 pub(crate) use crate::time_breakdown;
-mod capacity_retry;
-mod outage;
-mod title_log;
-mod titles;
-mod tool_installs;
-mod tool_paths;
-mod tool_read_images;
-mod tool_shell;
-mod tools;
-pub(crate) mod turn_cap;
-mod turn_retry;
-mod unread_steer;
-mod update_repeats;
-mod watch;
 pub use new_request::{
     NewRequest, SUFFIX_TAKEN_NAME, declared_model_json, profile_takes_model_at_spawn,
     suffixed_name, terminal_harness_refusal,
@@ -434,31 +570,13 @@ pub use new_request::{
 pub use paging::{
     DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
 };
-pub use spawn::expand_env_value;
-pub mod approvers;
-pub(crate) mod dead_letters;
-mod former_names;
-mod harness_key;
-pub(crate) mod key_route;
-pub mod mac_approvers;
-pub mod no_session;
-mod own_host;
-mod peer_cache;
-pub(crate) mod peer_cache_disk;
-#[cfg(test)]
-mod peer_cache_disk_tests;
-mod peer_closed_bound;
-#[cfg(all(test, target_os = "linux"))]
-mod peer_flap_soak;
-mod peer_grace;
-#[cfg(test)]
-mod peer_grace_tests;
-mod peer_lease;
-pub(crate) mod peer_snapshot;
-mod spoken_handles;
-mod successors;
-mod task_names;
 pub use peer_lease::PeerLease;
+pub(super) use session::{newest_first, prompt_text, short_text};
+pub use shutdown::SHUTTING_DOWN;
+pub(crate) use shutdown::{
+    AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
+};
+pub use spawn::expand_env_value;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
 /// out or dead store would (`peer_snapshot/restore.rs`).
 #[cfg(debug_assertions)]
@@ -474,113 +592,16 @@ pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
 pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
-mod moved_forward;
-mod moved_prompt_fence;
+pub(crate) use crate::questions;
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
-mod peers;
-mod remote_rows;
-mod remote_table;
 pub(crate) use peers::{
     PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
 };
-mod permission_groups;
-mod permissions;
-pub(crate) use permissions::drop_display_lines;
-pub mod cmux_tools_answer;
-pub mod here;
-mod hunk_summary;
-pub mod person;
-pub mod presence;
-mod processes;
-pub(crate) mod pull_requests;
-pub(crate) mod purge_tombstones;
-pub mod synced;
-pub(crate) use crate::questions;
-mod remote_cwd;
-mod remote_floor;
-pub(crate) mod remote_sandbox;
-mod review_brief;
-pub(crate) mod review_queue;
-mod touched;
-pub mod vm_boundary;
-pub use vm_boundary::vm_boundary_peer_approves;
-mod start_gate;
-pub mod vm_host;
-pub(crate) use start_gate::host_label;
-pub mod races;
-mod subsession_answer;
-mod subsession_guard;
-mod subsession_results;
-mod subsession_resume;
-mod subsession_runs;
-mod subsession_send;
-pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+pub(crate) use permissions::drop_display_lines;
+pub(crate) use start_gate::host_label;
 pub use subsession_send::Delivery;
-mod background_cause;
-pub mod background_turn;
-#[cfg(test)]
-mod background_turn_end_tests;
-mod drafts;
-mod goal_tools;
-pub(crate) mod history_search;
-pub(crate) mod open_delivery;
-pub(crate) mod outbox;
-#[cfg(test)]
-mod outbox_open_tests;
-#[cfg(test)]
-pub(crate) mod outbox_oracle;
-pub(crate) mod outbox_stats;
-pub(crate) mod pause;
-/// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
-pub(crate) mod pause_state;
-pub mod plan_build;
-#[cfg(test)]
-mod refused_append_tests;
-pub(crate) mod release_to_watch;
-#[cfg(test)]
-mod reply_segment_tests;
-mod restore_point;
-pub mod rules;
-pub(crate) mod session_hold;
-#[cfg(feature = "sim")]
-mod sim_startup;
-pub(crate) mod stop_if_idle;
-#[cfg(test)]
-mod stop_settles_tests;
-mod transcript;
-mod transfer;
-mod transfer_agent_files;
-mod transfer_authority;
-mod transfer_guard;
-mod transfer_hub_precopy;
-mod transfer_in;
-mod transfer_out;
-pub mod transfer_pull;
-mod transfer_watch;
-#[cfg(test)]
-mod translator_queue_tests;
-#[cfg(all(test, unix))]
-mod trigger_quiet_tests;
-mod trust_wait;
-mod turn_attestation;
-mod turn_cost;
-pub(crate) mod turn_frames;
-mod turn_git;
-pub(crate) mod turn_shots;
-mod turn_usage;
-mod turns;
-#[cfg(test)]
-mod turns_copy_stop_tests;
-mod usage_view;
-pub(crate) mod usage_warnings;
-#[cfg(test)]
-mod usage_warnings_tests;
-pub(crate) mod views;
-mod warm;
-mod watch_events;
-pub(crate) mod watches;
-mod wip_ref;
+pub use vm_boundary::vm_boundary_peer_approves;
 
 /// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
 /// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
@@ -621,12 +642,6 @@ impl Hub {
         watches::Watches::start(self);
     }
 }
-mod web_control;
-mod web_token;
-mod work_below;
-pub(crate) mod worktree_care;
-mod wrap_up_offer;
-mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
 pub use web_token::WebToken;
@@ -1158,7 +1173,8 @@ pub struct Hub {
     /// (`crate::supervise`).
     pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
-    pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
+    /// The peer registry, published as a snapshot (`peer_table.rs`): a lookup takes no lock.
+    pub(super) peers: peer_table::PeerTable,
     /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
     /// lock and never holds up a writer; writers (peer notices, purges) take turns.
     pub(super) remote_sessions: remote_table::RemoteTable,
@@ -1506,6 +1522,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
     pub chatgpt: Arc<crate::chatgpt::Service>,
+    /// One-click Claude Code tokens (`claude setup-token` in the daemon's own pty).
+    pub claude_token: Arc<crate::claude_token::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
@@ -1525,6 +1543,8 @@ pub struct Hub {
     /// How a hub move reaches its source for the pages (`transfer_pull.rs`): the hub carrier's
     /// `TransferSource` circuit once it starts, or a test's in-process stand-in.
     pub(super) transfer_dial: StdMutex<Option<Arc<dyn transfer_pull::TransferDial>>>,
+    /// The circuits a pre-copy's target parked for its move's control (`transfer_park.rs`).
+    pub(super) parked_moves: StdMutex<transfer_park::Parked>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// How long a foreground shell runs before it goes to the background, None: never
@@ -1767,7 +1787,7 @@ impl Hub {
             restart_requested: std::sync::atomic::AtomicBool::new(false),
             fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
-            peers: StdMutex::new(HashMap::new()),
+            peers: Default::default(),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
             hub_health: Default::default(),
@@ -1937,6 +1957,7 @@ impl Hub {
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
+            claude_token: Arc::new(crate::claude_token::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
@@ -1949,6 +1970,7 @@ impl Hub {
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             transfer_dial: StdMutex::new(None),
+            parked_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
@@ -2575,6 +2597,9 @@ impl Hub {
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             kept_messages: StdMutex::new(std::collections::VecDeque::new()),
+            accepted_prompts: StdMutex::new(std::collections::VecDeque::new()),
+            pending_acceptances: StdMutex::new(std::collections::HashMap::new()),
+            accepted_seq: tokio::sync::watch::channel(0).0,
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
@@ -3817,13 +3842,3 @@ impl Drop for LogsReady<'_> {
         self.0.send_replace(true);
     }
 }
-
-// What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
-#[cfg(test)]
-#[path = "update_cost_bench.rs"]
-mod update_cost_bench;
-
-// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
-#[cfg(test)]
-#[path = "held_append_bench.rs"]
-mod held_append_bench;
