@@ -93,6 +93,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `host-line-shift-duress.sh` | The agent pane's chat rows and composer moving when the link drops and comes back, during a long streaming chat, optionally on a loaded machine, at commits. | - | 2026-11-23 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
+| `update-migration.sh` | Real Sparkle update from one commit's build to another's with terminals that have no tab (each kept by an attach stream, more than 16 at once): the ones whose stream returns keep their processes, the abandoned ones end; `control=1` shows what the old build loses. | cmux#54839 | 2026-11-25 | active |
 | `go-back-duress.sh` | Go back to the previous build (updates.rollback) right after an update, with live agent turns and terminals, on a quiet and a loaded Mac: click to the kept build's first window. | #41013, ask-c013f6fec6 | 2026-11-23 | active |
 | `update-idle-e2e.sh` | Update When Idle end to end: a staged update installs by itself only after the running turn ended, the draft was cleared and the idle time passed; agent host counts and pids before and after; base as the control (`update-harness/idle_e2e.py`). | update-when-idle | 2026-11-19 | active |
 | `update-e2e.sh` | End to end auto-update of a real nightly (correctness, not a timing). | R114 | 2026-10-04 | stale |
