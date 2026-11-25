@@ -21,7 +21,7 @@ pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
 
 /// [`Hub::import_into`]'s `(live, guarded, replace_durable, defer_finalize, staged)`.
 pub(super) type ImportOptions<'a> = (
-    bool,
+    Live,
     Option<super::transfer_guard::GuardedImport<'a>>,
     bool,
     bool,
@@ -198,7 +198,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -385,8 +385,10 @@ impl Hub {
                 crate::qos::off_worker(|| crate::native::restore_replacing(bundle, &meta))
                     .unwrap_or_default()
             }
-            None if live => crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
-                .unwrap_or_default(),
+            None if matches!(live, Live::Moved(_)) => {
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
+            }
             None => {
                 crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
             }
