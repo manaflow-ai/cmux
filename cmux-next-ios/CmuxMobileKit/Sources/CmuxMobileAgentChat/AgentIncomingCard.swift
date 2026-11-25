@@ -124,8 +124,7 @@ struct AgentIncomingCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color.cmuxMobileBubble.opacity(0.55), in: .rect(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 16, style: .continuous))
         .frame(maxWidth: .infinity, alignment: .leading)
         .selectionMenu { _ in messageActions }
         .accessibilityElement(children: .contain)
@@ -285,7 +284,7 @@ struct AgentIncomingChip: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(.quaternary, in: .capsule)
+            .cmuxMobileContentSurface(.inset, in: Capsule())
     }
 }
 #endif
