@@ -9,7 +9,7 @@ use anyhow::{Context as _, bail};
 
 use super::{
     GitDirs, LocalSet, Rules, Skips, add_git_state, add_worktree, git_command, git_state_path,
-    holdable, place, skips, walk_plain_in,
+    holdable, place, plain_ignores, skips, walk_plain_in,
 };
 
 fn harness(path: &str) -> bool {
@@ -54,6 +54,7 @@ pub(in super::super) fn listed_projection(
             folder,
             folder,
             &place::Dir::open(folder)?,
+            &plain_ignores(folder, folder),
         )?;
     }
     Ok((set, dirs))
