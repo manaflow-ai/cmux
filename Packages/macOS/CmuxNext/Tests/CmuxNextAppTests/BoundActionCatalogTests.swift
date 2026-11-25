@@ -17,20 +17,20 @@ struct BoundActionCatalogTests {
     /// ignored, so the re-pin bot's pull request stays green. Add to it only for that case, never
     /// for a typo.
     static let awaitingRepin: Set<ActionID> = [
-        // View Screen on a sidebar machine header's menu lands with its handler; the pinned app FFI gains its row on re-pin.
-        "machine.viewScreen",
-        // The release action lands with the Swift handler; the pinned app FFI gains its catalog row on re-pin.
-        "home.showSetup",
         // #44169 (Screen Sharing viewer palette rows, step B) merged before its step A, #44164,
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
-        // Debug > Tooltip Gallery: the Rust catalog has its row (cmux-action-catalog, settings.rs); the pinned app FFI
-        // gains it on re-pin. Until then the Toast Playground's button opens the gallery.
-        "debug.tooltipGallery",
-        // Meet Chief in the palette (c4736440) landed with its Rust row; the pinned app FFI ca616a68 predates it and
-        // re-pin #48906 (cmux-app-ffi-1f8c4f28) carries it.
-        "home.meetChief",
+        // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (ChiefRegistryPaletteTests) land with their
+        // Rust rows; the pinned app FFI gains them on re-pin.
+        "home.editChief", "home.setChiefModel", "home.setChiefEffort", "home.adoptChief",
+        // #46896 (the Priority view's Archived fold) adds this row to the Rust catalog
+        // (cmux-action-catalog sidebar_priority.rs) and binds it in the same pull request: until the
+        // re-pin carries it, Restore on an archived row does nothing.
+        "sidebar.priority.restore",
+        // Set My Picture…, Make This Agent a Chief and Show Last Line in Sidebar (step B) bind before
+        // the re-pin carries their step A rows (#50757): until then they do nothing.
+        "home.setMyAvatar", "agentPane.adoptAsChief", "terminal.pinTail",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

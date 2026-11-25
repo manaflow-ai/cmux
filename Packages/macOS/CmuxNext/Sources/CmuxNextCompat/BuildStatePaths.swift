@@ -30,12 +30,16 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public let applicationSupport: URL
     /// `~/Library/Caches`.
     public let caches: URL
+    /// The launch's state root (``NextSupport/stateRootKey``), nil without one. Under a state root every build keeps
+    /// its own settings, configuration and state (``ownsState``) in the root, as a DEV build does in its folder.
+    public let stateRoot: URL?
 
-    public init(build: BuildIdentity, userHome: URL, applicationSupport: URL, caches: URL) {
+    public init(build: BuildIdentity, userHome: URL, applicationSupport: URL, caches: URL, stateRoot: URL? = nil) {
         self.build = build
         self.userHome = userHome
         self.applicationSupport = applicationSupport
         self.caches = caches
+        self.stateRoot = stateRoot
     }
 
     /// This process's paths, resolved once from the main bundle's identity.
@@ -43,8 +47,8 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
         build: BuildIdentity(bundle: .main),
         userHome: FileManager.default.homeDirectoryForCurrentUser,
         applicationSupport: NextSupport.applicationSupportDirectory(),
-        caches: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches", isDirectory: true)
+        caches: NextSupport.cachesDirectory(),
+        stateRoot: NextSupport.currentStateRoot
     )
 
     /// Whether this build keeps its own settings, configuration and state: every DEV build
@@ -52,9 +56,14 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// staging build (``BuildIdentity/needsBuildSpace``), the builds that have a cloud build space.
     public var isolatesSharedState: Bool { build.isolatesSharedState }
 
-    /// `~/Library/Application Support/cmux-next/builds/<key>` for a DEV build; nil for every other.
+    /// Whether this launch keeps its own settings, configuration and state: a DEV build
+    /// (``isolatesSharedState``), and any build under a state root.
+    public var ownsState: Bool { isolatesSharedState || stateRoot != nil }
+
+    /// `~/Library/Application Support/cmux-next/builds/<key>` for a DEV build or a launch under a state root (whose
+    /// Application Support is the root's); nil for every other.
     public var ownRoot: URL? {
-        isolatesSharedState ? build.appSupport(NextSupport(applicationSupport: applicationSupport).folder) : nil
+        ownsState ? build.appSupport(NextSupport(applicationSupport: applicationSupport).folder) : nil
     }
 
     /// The folder of the settings file and what lives beside it (`themes/`, `keybindings.json`,
@@ -79,10 +88,14 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public var customizeDirectory: URL { configDirectory.appendingPathComponent("customize", isDirectory: true) }
     /// The person's own agent skills (acpmux `user_skills_dir`).
     public var agentSkillsDirectory: URL { configDirectory.appendingPathComponent("skills", isDirectory: true) }
+    /// The person's own saved prompts, cmux's custom slash commands (cmux-agent-customize `cmux_commands_dir`).
+    public var agentCommandsDirectory: URL { configDirectory.appendingPathComponent("commands", isDirectory: true) }
     /// The Keychain service of the Cloud secrets `cmux cloud secret set` stores (`CloudMachineSecrets`): a DEV
     /// build's values never overwrite or read nightly's.
+    /// Under a state root it also ends in the root's ``NextSupport/runSegment(stateRoot:)``.
     public var cloudSecretsService: String {
-        isolatesSharedState ? "\(Self.sharedCloudSecretsService).\(build.key)" : Self.sharedCloudSecretsService
+        let service = isolatesSharedState ? "\(Self.sharedCloudSecretsService).\(build.key)" : Self.sharedCloudSecretsService
+        return stateRoot.map { "\(service).\(NextSupport.runSegment(stateRoot: $0))" } ?? service
     }
     /// The Cloud secrets service every shared build uses.
     public static let sharedCloudSecretsService = "cmux-cloud-secret"
@@ -111,7 +124,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
 
     /// `~/Library/Caches/cmux-next/builds/<key>` for a DEV build; nil for every other.
     var ownCaches: URL? {
-        isolatesSharedState ? build.appSupport(caches.appendingPathComponent("cmux-next", isDirectory: true)) : nil
+        ownsState ? build.appSupport(caches.appendingPathComponent("cmux-next", isDirectory: true)) : nil
     }
 
     /// The root of Home's caches (`AppEnvironment.homeCachesDirectory`: `cmux-home/<owner>`, `cmux-home-blobs`):
@@ -126,6 +139,13 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
 
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
     public var shellCompletionCache: URL { ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true) }
+
+    /// Browser tabs' thumbnails and favicons for the phones' tab overview (`PhoneTabPictures`), which hostd reads:
+    /// `<Caches>/<bundle id>/phone-tab-pictures`, in a DEV build's own caches folder in a DEV build.
+    public var phoneTabPicturesCache: URL {
+        (ownCaches ?? caches.appendingPathComponent(build.bundleID ?? "cmux-next", isDirectory: true))
+            .appendingPathComponent("phone-tab-pictures", isDirectory: true)
+    }
 
     /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux/vm.json` (cmux-vm
     /// `CMUX_VM_DEFAULT_CONFIG`): `<config>/vm.json`; nil for every other build (cmux-vm's own default).
@@ -149,7 +169,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
 
     /// Whether this build imports classic cmux's preferences from the other channels' defaults
     /// (`ClassicPreferenceImport`): a DEV build never derives its settings from another build's.
-    public var importsOtherBuildsPreferences: Bool { !isolatesSharedState }
+    public var importsOtherBuildsPreferences: Bool { !ownsState }
 
     // MARK: - Children
 
@@ -167,6 +187,8 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public static let customizeDirectoryKey = "CMUX_CUSTOMIZE_DIR"
     /// The agent skills folder (acpmux `USER_SKILLS_DIR_ENV`).
     public static let agentSkillsDirectoryKey = "CMUX_AGENT_SKILLS_DIR"
+    /// The saved prompts folder (cmux-agent-customize `paths::cmux_commands_dir`).
+    public static let agentCommandsDirectoryKey = "CMUX_COMMANDS_DIR"
     /// The Cloud secrets Keychain service (cmux-tui `cli/cloud_secret.rs`).
     public static let cloudSecretsServiceKey = "CMUX_NEXT_CLOUD_SECRETS_SERVICE"
     /// The `cmux vm` config (cmux-vm `config::default_config_path`).
@@ -184,20 +206,21 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// Every variable ``environment`` may set: the daemon's and acpmux's allow-listed environments pass these on.
     public static let environmentKeys = [settingsFileKey, cloudSecretsFileKey, cloudSecretsServiceKey, keysAuditFileKey,
                                          hostBudgetFileKey, automationsDirectoryKey, customizeDirectoryKey, agentSkillsDirectoryKey,
-                                         vmConfigFileKey, mcpUpstreamsCacheKey, muxPluginsDirectoryKey, classicImportDirectoryKey]
+                                         agentCommandsDirectoryKey, vmConfigFileKey, mcpUpstreamsCacheKey, muxPluginsDirectoryKey, classicImportDirectoryKey]
 
-    /// What an allow-listed child (the daemon, acpmux) gets from the app's environment: ``environmentKeys`` and the
-    /// build's settings defaults.
-    public static let childEnvironmentKeys = environmentKeys + [settingsBuildDefaultsKey]
+    /// What an allow-listed child (the daemon, acpmux) gets from the app's environment: ``environmentKeys``, the
+    /// build's settings defaults and the launch's state root (the daemon's Cloud selection and sign-in are the run's).
+    public static let childEnvironmentKeys = environmentKeys + [settingsBuildDefaultsKey, NextSupport.stateRootKey]
 
     /// What this build's children read its files from: every ``environmentKeys`` entry for a DEV
-    /// build, nothing for every other (they keep reading the shared defaults).
+    /// build or a launch under a state root, nothing for every other (they keep reading the shared defaults).
     public var environment: [String: String] {
-        guard isolatesSharedState else { return [:] }
+        guard ownsState else { return [:] }
         var environment = [Self.settingsFileKey: settingsFile.path, Self.cloudSecretsFileKey: cloudSecretsIndex.path,
                            Self.cloudSecretsServiceKey: cloudSecretsService, Self.keysAuditFileKey: keysAuditFile.path,
                            Self.hostBudgetFileKey: hostBudgetFile.path, Self.automationsDirectoryKey: automationsDirectory.path,
-                           Self.customizeDirectoryKey: customizeDirectory.path, Self.agentSkillsDirectoryKey: agentSkillsDirectory.path]
+                           Self.customizeDirectoryKey: customizeDirectory.path, Self.agentSkillsDirectoryKey: agentSkillsDirectory.path,
+                           Self.agentCommandsDirectoryKey: agentCommandsDirectory.path]
         environment[Self.vmConfigFileKey] = vmConfigFile?.path
         environment[Self.mcpUpstreamsCacheKey] = mcpUpstreamsCache?.path
         environment[Self.muxPluginsDirectoryKey] = muxPluginsDirectory?.path
@@ -240,7 +263,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public var all: [(name: String, url: URL)] {
         [("configDirectory", configDirectory), ("settingsFile", settingsFile), ("cloudSecretsIndex", cloudSecretsIndex),
          ("hostBudgetFile", hostBudgetFile), ("keysAuditFile", keysAuditFile), ("automationsDirectory", automationsDirectory),
-         ("customizeDirectory", customizeDirectory), ("agentSkillsDirectory", agentSkillsDirectory), ("githubWorktrees", githubWorktrees), ("recoveryDrafts", recoveryDrafts),
+         ("customizeDirectory", customizeDirectory), ("agentSkillsDirectory", agentSkillsDirectory), ("agentCommandsDirectory", agentCommandsDirectory), ("githubWorktrees", githubWorktrees), ("recoveryDrafts", recoveryDrafts),
          ("agentHome", agentHome), ("chatUploads", chatUploads), ("projectAvatarsCache", projectAvatarsCache),
          ("shellCompletionCache", shellCompletionCache), ("homeCachesRoot", homeCachesRoot)]
     }

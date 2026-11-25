@@ -23,7 +23,7 @@ use std::time::Duration;
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::shell_history::FinishedCommand;
-use crate::workspace_registry::{WorkspaceRegistry, meta_value};
+use crate::workspace_registry::{WorkspaceRegistry, meta_value, truncate_wal_after_delete};
 
 /// Days a command record is kept when no client set a retention.
 pub(crate) const DEFAULT_COMMAND_RETENTION_DAYS: u32 = 30;
@@ -308,20 +308,7 @@ impl WorkspaceRegistry {
         if self.session_journal_database_path().is_none() {
             return Ok(true);
         }
-        let db = self.connection.get();
-        db.busy_timeout(Duration::ZERO)?;
-        let result =
-            db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get::<_, i64>(0));
-        db.busy_timeout(REGISTRY_BUSY_TIMEOUT)?;
-        match result {
-            Ok(busy) => Ok(busy == 0),
-            Err(rusqlite::Error::SqliteFailure(error, _))
-                if error.code == rusqlite::ErrorCode::DatabaseBusy =>
-            {
-                Ok(false)
-            }
-            Err(error) => Err(error.into()),
-        }
+        truncate_wal_after_delete(&self.connection.get(), REGISTRY_BUSY_TIMEOUT)
     }
 }
 

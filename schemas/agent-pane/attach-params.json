@@ -1,5 +1,5 @@
 {
-  "$comment": "Every _acpmux/attach the agent page sends (webviews direct.ts sendAttach: attachParams.ts plainAttach, rows/holdKinds.ts holdAttach). webviews/test/agent-pane-attach-params-contract.test.ts holds the page to this file; AcpmuxPaneAttachParamsContractTests runs each frame through the app relay's params rule (AcpmuxPaneMethods+Params.swift knownParams), which refuses an unknown key as transport.intent_invalid (#42185 settled, #42460 hold).",
+  "$comment": "Every _acpmux/attach the agent page sends (webviews direct.ts sendAttach: attachParams.ts plainAttach, rows/holdKinds.ts holdAttach). webviews/test/agent-pane-attach-params-contract.test.ts holds the page to this file; AcpmuxPaneAttachParamsContractTests runs each frame through the app relay's params rule (AcpmuxPaneMethods+Params.swift knownParams), which refuses an unknown key as transport.intent_invalid (#42185 settled, #42460 hold, afterSeq: a reconnect's forward attach, #47119, refused until Leo 2026-11-22).",
   "attach": [
     {
       "name": "plain, local",
@@ -26,7 +26,38 @@
           "preset_approval_decision"
         ],
         "eventStream": true,
-        "visible": true
+        "visible": true,
+        "attending": true
+      }
+    },
+    {
+      "name": "forward, local",
+      "params": {
+        "sessionId": "s",
+        "waitLogs": false,
+        "afterSeq": 120,
+        "limit": 400,
+        "maxBytes": 131072,
+        "kinds": [
+          "transcript",
+          "available_commands_update",
+          "usage_update",
+          "config_option_update",
+          "bookmarks",
+          "secret_request",
+          "secret_decision",
+          "subsession",
+          "queue_order",
+          "queue_updated",
+          "prompt_refused",
+          "elevation_request",
+          "elevation_decision",
+          "preset_approval_request",
+          "preset_approval_decision"
+        ],
+        "eventStream": true,
+        "visible": true,
+        "attending": true
       }
     },
     {
@@ -47,7 +78,8 @@
           "subsession"
         ],
         "eventStream": true,
-        "visible": false
+        "visible": false,
+        "attending": true
       }
     },
     {
@@ -76,7 +108,8 @@
           "preset_approval_decision"
         ],
         "eventStream": true,
-        "visible": true
+        "visible": true,
+        "attending": true
       }
     },
     {
@@ -94,9 +127,11 @@
           "session_info_update",
           "status",
           "subsession",
+          "usage_limits",
           "usage_update"
         ],
-        "visible": true
+        "visible": true,
+        "attending": true
       }
     }
   ]

@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.chief.live.copyDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Detail"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Detail kopieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier le détail"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ التفاصيل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar detalle"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "複製詳細內容"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制详细内容"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "세부 내용 복사"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "詳細をコピー"}}
+      }
+    },
     "mobile.chief.preview.table": {
       "extractionState": "manual",
       "localizations": {
@@ -449,46 +463,46 @@
         "ja": {"stringUnit": {"state": "translated", "value": "Chief はこの返信を完了できませんでした。"}}
       }
     },
-    "mobile.chief.macRetrying": {
+    "mobile.chief.engineMacUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Mac unavailable · Retrying…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Mac nicht verfügbar · Wird erneut versucht…"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Mac indisponible · Nouvelle tentative…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Mac غير متاح · جارٍ إعادة المحاولة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Mac no disponible · Reintentando…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 無法使用 · 正在重試…"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 不可用 · 正在重试…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 사용할 수 없음 · 다시 시도 중…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Mac を利用できません · 再試行中…"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Mac unavailable"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mac nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mac indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Mac غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mac no disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 사용할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac を利用できません"}}
       }
     },
-    "mobile.chief.busyRetrying": {
+    "mobile.chief.engineBusy": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chief busy · Retrying…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Chief ausgelastet · Wird erneut versucht…"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Chief occupé · Nouvelle tentative…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "Chief مشغول · جارٍ إعادة المحاولة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Chief ocupado · Reintentando…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 忙碌中 · 正在重試…"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 正忙 · 正在重试…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Chief 사용 중 · 다시 시도 중…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Chief はビジー状態 · 再試行中…"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Chief busy"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief ausgelastet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief occupé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Chief مشغول"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief ocupado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 忙碌中"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 正忙"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief 사용 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はビジー状態"}}
       }
     },
-    "mobile.chief.modelsRetrying": {
+    "mobile.chief.engineModelsUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Models unavailable · Retrying…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Modelle nicht verfügbar · Wird erneut versucht…"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Modèles indisponibles · Nouvelle tentative…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "النماذج غير متاحة · جارٍ إعادة المحاولة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Modelos no disponibles · Reintentando…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "模型無法使用 · 正在重試…"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "模型不可用 · 正在重试…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "모델을 사용할 수 없음 · 다시 시도 중…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "モデルを利用できません · 再試行中…"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Models unavailable"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Modelle nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Modèles indisponibles"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "النماذج غير متاحة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Modelos no disponibles"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "模型無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "模型不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "모델을 사용할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "モデルを利用できません"}}
       }
     },
     "mobile.chief.settingsFailed": {

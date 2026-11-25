@@ -33,7 +33,12 @@ const steer = (text: string, minutes: number) => user(text, minutes, { steer: "l
 const rows = [
   user("Where is the release page?", 32),
   assistant(REPLY, 31.5),
-  user("", 30.5, { incoming: { kind: "notice", text: "Fixed the stale release cache · took 32s" }, untyped: true }),
+  // Into the running turn, so a steer, as acpmux records it (`steer: true`); not a turn of its own.
+  user("", 30.5, {
+    incoming: { kind: "notice", text: "Fixed the stale release cache · took 32s" },
+    untyped: true,
+    steer: "landed",
+  }),
   steer("are you there?", 20),
   activity([send("cache-fix", "Pick up the stale release cache where you left off.")], 19.9),
   assistant(BACK, 19.8),

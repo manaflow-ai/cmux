@@ -252,6 +252,15 @@ public enum HomeListNote: Equatable, Sendable {
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
     }
+
+    /// `make`'s `macsMayExist`: a Mac's list can still come with no Mac chosen. Only while Macs
+    /// are tracked live (`live`; the mock and a demo without a Mac link never answer), and the
+    /// account's Macs are not known yet or one of them is online. Before, a mock Home, or an
+    /// account whose every Mac is offline, said "Loading conversations…" forever (iOS release
+    /// bar read-back, 2026-11-22, shot 04).
+    public static func macsMayAnswer(live: Bool, macsKnown: Bool, anyOnline: Bool) -> Bool {
+        live && (!macsKnown || anyOnline)
+    }
 }
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words
@@ -282,8 +291,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
     public let kind: Kind
     /// A retry runs: Retry shows its spinner and the toast says it reconnects.
     public let isRetrying: Bool
-    /// The status in words after the Mac's name (Workspaces' words), for VoiceOver.
-    public let detail: String
     /// What Home shows when no rows show (nil for ``Kind/connecting``: Workspaces' spinner).
     public let empty: Empty?
 
@@ -305,13 +312,6 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         } else {
             return nil
         }
-        let detail: String = if retrying {
-            String(localized: "Updating…")
-        } else if kind == .failed {
-            String(localized: "Couldn't refresh · last known")
-        } else {
-            String(localized: "Offline · last known")
-        }
         let empty: Empty? = switch kind {
         case .macOffline:
             Empty(symbol: "moon.zzz", title: String(localized: "\(macAtStart) is offline"),
@@ -325,12 +325,7 @@ public struct HomeConnectionStatus: Equatable, Sendable {
         case .connecting:
             nil
         }
-        return HomeConnectionStatus(kind: kind, isRetrying: retrying, detail: detail, empty: empty)
-    }
-
-    /// The connecting line when no rows show and no empty state applies.
-    public static func connectingTitle(macName: String?) -> String {
-        String(localized: "Connecting to \(macName ?? String(localized: "your Mac"))…")
+        return HomeConnectionStatus(kind: kind, isRetrying: retrying, empty: empty)
     }
 }
 
@@ -480,6 +475,36 @@ public final class MacHomeFeed {
         }, complete: true)
         self.macID = macID
         macChiefID = chiefRow
+    }
+    #endif
+
+    #if DEBUG
+    /// App Store screenshots (`-cmux-mobile-demo home-showcase`): a Mac's Home as a person
+    /// who runs a few agents sees it, with no link: its Chief's conversation (`chiefConversationID`,
+    /// listed as the Mac Chief) newest, two pinned. Fictional work, no real names.
+    public func seedShowcaseRows(macID: String, chiefConversationID: String) {
+        let stamp = ISO8601DateFormatter()
+        let conversations: [(kind: String, name: String, minutes: Double, unread: Int, pinned: Bool, preview: String)] = [
+            ("chief", "Chief", 1, 1, false,
+             "Heads up: Claude in cmux is asking to run cargo test -p cmux-mobile-link. Want me to allow it?"),
+            ("direct", "Pricing page", 4, 0, true, "Codex: The new pricing table is up on staging. 18 tests pass."),
+            ("group", "Release 1.2", 18, 0, true, "Claude: The release notes are drafted. Want me to tag the build?"),
+            ("direct", "Dialer retries", 9, 1, false,
+             "Claude: The dialer now retries with backoff, capped at 30 s. 24 tests pass."),
+            ("channel", "Design review", 36, 0, false, "Codex: I left three comments on the new Settings layout."),
+            ("direct", "Onboarding copy", 75, 0, false, "Claude: Here are two shorter versions of the welcome screen text."),
+            ("group", "Build runners", 140, 0, false, "Codex: All eight runners are green again after the cache fix."),
+            ("direct", "Docs search", 320, 0, false, "Claude: Search now loads its index once and keeps it between pages."),
+        ]
+        setRows(conversations.enumerated().compactMap { index, row in
+            MacHomeRow(wire: [
+                "id": row.kind == "chief" ? chiefConversationID : "showcase-\(index)", "kind": row.kind, "name": row.name,
+                "unread": row.unread, "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60)),
+                "preview": row.preview, "pinned": row.pinned, "pin_position": index,
+            ])
+        }, complete: true)
+        macChiefID = chiefConversationID
+        self.macID = macID
     }
     #endif
 

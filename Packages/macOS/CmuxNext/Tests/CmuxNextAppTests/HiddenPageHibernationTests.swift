@@ -4,6 +4,8 @@ import CmuxNextHibernation
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextMobileHost
+import Observation
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -180,21 +182,27 @@ import CmuxNextTestSupport
     }
 
     /// #32013: Chromium refuses a thumbnail of a hidden page (dogfood P0 #1), so a hibernating Chromium page falls
-    /// back to its leave picture, but only one of the page as it is now (its picture version): a page that navigated
-    /// while hidden must not wake behind a picture of its earlier URL.
-    @Test(arguments: [true, false])
-    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(current: Bool) async throws {
+    /// back to its leave picture, but only one of the URL it has now: a page that navigated while hidden must not wake
+    /// behind a picture of its earlier URL, and one whose title or load state moved while hidden keeps its picture
+    /// (a mail tab counting unread kept none, so every such page woke blank). A page that sleeps with no picture is
+    /// counted by why (`snapshot_missing`): the infinite-tabs bench's 137 of 500 blank sleeps could not tell an
+    /// earlier URL from a dropped leave picture (`evicted`: the 16 MB leave-picture budget dropped it).
+    @Test(arguments: ["current", "retitled", "stale", "evicted"])
+    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(state: String) async throws {
+        let current = state == "current" || state == "retitled"
         let rig = try Rig()
         defer { rig.close() }
         rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
         rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the leave picture is set below
-        let page = try await rig.page(current ? "current" : "stale", body: "<p>leave picture</p>")
+        let page = try await rig.page(state, body: "<p>leave picture</p>")
         let key = try await rig.hide(page)
         let cache = rig.services.cache
         try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
         let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
         cache.pageThumbnails.insert(leave, for: key)
-        cache.pageThumbnailVersions[key] = current ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        cache.pageThumbnailVersions[key] = state == "current" ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        cache.pageThumbnailURLs[key] = state == "stale" ? "https://earlier.example/" : page.state.url?.absoluteString
+        if state == "evicted" { cache.pageThumbnails.remove(key) }
         rig.hibernation.pressureDidChange(.critical)
         rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
         rig.hibernation.replan()
@@ -203,9 +211,65 @@ import CmuxNextTestSupport
         let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
         if current {
             #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
+            #expect(rig.hibernation.snapshots.missing.isEmpty, "a page that kept its picture was counted as missing one")
         } else {
-            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier version of itself")
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL or one no longer kept")
+            let reason = state == "stale" ? "url_moved" : "leave_picture_evicted"
+            #expect(Set(rig.hibernation.snapshots.missing.keys) == [reason], "a blank sleep was not counted by its cause")
         }
+    }
+
+    /// Leo, 2026-11-24: "there are too many empty previews in the safari grid thing we ought to be able to simply
+    /// capture them before they get hibernated maybe". A page's hibernation snapshot stayed on this Mac: the phones
+    /// got only leave pictures, so a page hibernated with no leave picture sent them (a page never shown, a picture
+    /// taken while no phone was paired) kept a blank card. Its snapshot now goes to the phones as it sleeps.
+    @Test func aHibernatedPageSendsItsSnapshotToThePhones() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let shot = try Self.picture(shade: 0.4, width: 800, height: 500)
+        rig.hibernation.capture = { _ in shot }
+        rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the phones are set below
+        let key = try await rig.hide(rig.page("phone", body: "<p>phone</p>"))
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        // A page never shown keeps no leave picture: its hibernation snapshot is the only one there is.
+        cache.pageThumbnails.remove(key)
+        cache.pageThumbnailVersions[key] = nil
+        let phoneFolder = rig.folder.appendingPathComponent("phone-pictures", isDirectory: true)
+        cache.phonePictures = PhoneTabPictures(iphone: rig.services.iphone, folder: phoneFolder, surface: { _ in 42 },
+                                               encode: { _, _, _ in (Data([0xFF, 0xD8, 0xFF, 1]), 8, 5) }, wanted: { true })
+        try await Task.sleep(for: .milliseconds(300))
+        let sent = { ((try? FileManager.default.contentsOfDirectory(atPath: phoneFolder.path)) ?? []).contains { $0.hasPrefix("42-thumb-") } }
+        try #require(!sent(), "the page had a picture before it hibernated")
+        rig.hibernation.pressureDidChange(.critical)
+        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        try await rig.until("the phones got its snapshot") { sent() }
+    }
+
+    /// The same ask: a leave picture taken while no phone was paired was never sent, so the phone that paired later
+    /// showed a blank card for that page until it was shown and left again. Every picture held now goes to it.
+    @Test func aPhoneThatPairsGetsThePicturesTakenBeforeIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        rig.hibernation.pressureDidChange(.normal) // the page stays live: its leave picture is the one held
+        let page = try await rig.page("early", body: "<p>early</p>")
+        let key = try await rig.hide(page)
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        cache.pageThumbnails.insert(try Self.picture(shade: 0.6, width: 640, height: 400), for: key)
+        cache.pageThumbnailVersions[key] = page.state.pictureVersion
+        let phone = PhonePairing()
+        let phoneFolder = rig.folder.appendingPathComponent("phone-pictures", isDirectory: true)
+        cache.phonePictures = PhoneTabPictures(iphone: rig.services.iphone, folder: phoneFolder, surface: { _ in 42 },
+                                               encode: { _, _, _ in (Data([0xFF, 0xD8, 0xFF, 2]), 8, 5) }, wanted: { phone.paired })
+        let sent = { ((try? FileManager.default.contentsOfDirectory(atPath: phoneFolder.path)) ?? []).contains { $0.hasPrefix("42-thumb-") } }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!sent(), "a picture went out while no phone was paired")
+        phone.paired = true
+        try await rig.until("the phone that paired got the picture") { sent() }
     }
 
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
@@ -284,6 +348,83 @@ import CmuxNextTestSupport
         #expect(store.image(for: "a") != nil && store.image(for: "c") != nil, "a recently used picture was dropped")
         #expect(store.image(for: "b") == nil, "the least recently used picture stayed past the budget")
         #expect(store.totalBytes <= store.capacityBytes)
+        #expect(store.evicted == 1, "a picture dropped for the budget was not counted (`snapshot_evicted`)")
+        await store.settled()
+        #expect(store.image(for: "a") != nil && store.image(for: "c") != nil, "a picture was lost when its file was written")
+        #expect(store.memoryBytes == 0 && store.totalBytes <= store.capacityBytes)
+    }
+
+    /// A kept picture moves to a file: no bytes stay in memory, and its image reads back from the file at its size.
+    @Test func aKeptPictureLivesOnDisk() async throws {
+        let store = HibernationSnapshots()
+        let picture = try #require(await HibernationSnapshots.compress(Self.noise(seed: 4, width: 320, height: 200)))
+        store.insert(picture, for: "a")
+        #expect(store.memoryBytes == picture.data.count, "a picture being written was not counted in memory")
+        #expect(store.image(for: "a") != nil, "a picture being written did not answer at once")
+        await store.settled()
+        #expect(store.memoryBytes == 0, "the picture's bytes stayed in memory after its file was written")
+        #expect(store.totalBytes == picture.data.count)
+        let url = try #require(store.fileURL(for: "a"), "the picture has no file")
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(url.deletingLastPathComponent().standardizedFileURL == store.directory.standardizedFileURL)
+        let image = try #require(store.image(for: "a"), "the picture did not read back from its file")
+        #expect(image.width == 320 && image.height == 200)
+    }
+
+    /// Removing a picture deletes its file.
+    @Test func removingAPictureDeletesItsFile() async throws {
+        let store = HibernationSnapshots()
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 5, width: 64, height: 64))), for: "a")
+        await store.settled()
+        let url = try #require(store.fileURL(for: "a"))
+        store.remove("a")
+        await store.settled()
+        #expect(!FileManager.default.fileExists(atPath: url.path), "a removed picture's file stayed on disk")
+        #expect(store.count == 0 && store.totalBytes == 0 && store.memoryBytes == 0)
+    }
+
+    /// An image handed out (a woken page's stand-in decodes it later) still draws after the store deleted its file.
+    @Test func aPictureHandedOutDrawsAfterItsFileIsDeleted() async throws {
+        let store = HibernationSnapshots()
+        store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 9, width: 64, height: 64))), for: "a")
+        await store.settled()
+        let url = try #require(store.fileURL(for: "a"))
+        let image = try #require(store.image(for: "a"))
+        store.remove("a")
+        await store.settled()
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        let context = try #require(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 64 * 4,
+                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let pixels = try #require(context.data?.bindMemory(to: UInt8.self, capacity: 64 * 64 * 4))
+        #expect((0..<(64 * 64)).contains { pixels[$0 * 4 + 3] != 0 }, "the picture drew nothing once its file was deleted")
+    }
+
+    /// A key replaced while its first file is still being written keeps the newer picture, in exactly one file.
+    @Test func replacingAPictureMidWriteLeavesOneFile() async throws {
+        let store = HibernationSnapshots()
+        let first = try #require(await HibernationSnapshots.compress(Self.noise(seed: 6, width: 100, height: 80)))
+        let second = try #require(await HibernationSnapshots.compress(Self.noise(seed: 7, width: 120, height: 90)))
+        store.insert(first, for: "a")
+        store.insert(second, for: "a")
+        await store.settled()
+        let files = try FileManager.default.contentsOfDirectory(at: store.directory, includingPropertiesForKeys: nil)
+        #expect(files.count == 1, "replacing a picture mid-write left \(files.count) files")
+        #expect(files.first?.lastPathComponent == store.fileURL(for: "a")?.lastPathComponent)
+        let image = try #require(store.image(for: "a"))
+        #expect(image.width == 120 && image.height == 90, "the older picture won the race")
+        #expect(store.count == 1 && store.totalBytes == second.data.count && store.memoryBytes == 0)
+    }
+
+    /// 500 hibernated pages all keep their picture under the default budget (in RAM, 137 of 500 were dropped).
+    @Test func fiveHundredPicturesAllStay() async throws {
+        let store = HibernationSnapshots()
+        let picture = try #require(await HibernationSnapshots.compress(Self.noise(seed: 8, width: 48, height: 32)))
+        for index in 0..<500 { store.insert(picture, for: "tab-\(index)") }
+        await store.settled()
+        #expect(store.count == 500 && store.evicted == 0 && store.memoryBytes == 0)
+        let unreadable = (0..<500).filter { store.image(for: "tab-\($0)") == nil }
+        #expect(unreadable.isEmpty, "\(unreadable.count) of 500 pictures did not read back")
     }
 
     /// Each wake is timed for `debug.surfaces` and the bench: shown with its snapshot, back, then loaded.
@@ -302,6 +443,36 @@ import CmuxNextTestSupport
         #expect(wake.snapshot, "the pane had no snapshot while the page came back")
         #expect((wake.mountedMs ?? .max) <= (wake.loadedMs ?? 0), "the page loaded before it was back: \(wake)")
         #expect(rig.hibernation.snapshots.count == 0, "the woken page's snapshot stayed in the store")
+    }
+
+    /// "Shows its last frame in under 100 ms" had no number: the log timed the page being back and
+    /// loaded, never the picture. A wake now carries when the pane got its last frame (`picture_ms`).
+    @Test func aWakeCarriesWhenItsLastFrameShowed() throws {
+        var log = HibernationWakes()
+        let start = ContinuousClock.now
+        log.start("a", engine: .cef, snapshot: true, at: start)
+        log.pictureShown("a", at: start.advanced(by: .milliseconds(18)))
+        log.mounted("a", visible: true, at: start.advanced(by: .milliseconds(60)))
+        #expect(log.records.last?.pictureMs == 18 && log.records.last?.mountedMs == 60)
+        // A picture already on screen when the wake starts counts as 0; a wake with none says none.
+        log.pictureShown("b", at: start)
+        log.start("b", engine: .cef, snapshot: true, at: start.advanced(by: .milliseconds(5)))
+        log.mounted("b", visible: true, at: start.advanced(by: .milliseconds(40)))
+        #expect(log.records.last?.pictureMs == 0)
+        log.start("c", engine: .webkit, snapshot: false, at: start)
+        log.mounted("c", visible: true, at: start.advanced(by: .milliseconds(9)))
+        #expect(log.records.last?.tab == "c" && log.records.last?.pictureMs == nil)
+        // A page closed asleep leaves no picture time for a later page of the same key.
+        log.pictureShown("d", at: start)
+        log.forget("d")
+        log.start("d", engine: .cef, snapshot: false, at: start)
+        log.mounted("d", visible: true, at: start.advanced(by: .milliseconds(3)))
+        #expect(log.records.last?.pictureMs == nil)
+        guard case .array(let rows) = log.json, case .object(let first)? = rows.first else {
+            Issue.record("the wake log's JSON is not a list of objects")
+            return
+        }
+        #expect(first["picture_ms"] == .number(18))
     }
 
     /// Leo (PR 23083): a hibernated page comes back where it was, with what its fields held.
@@ -492,5 +663,11 @@ import CmuxNextTestSupport
         /// The pane's one browser chrome (`BrowserPaneChrome`), bound to a tab as the pane shows it.
         let browserChrome = BrowserPaneChrome()
         func surfaceWasDisplaced(_ key: String) {}
+        func surfaceIsFree(_ key: String) {}
     }
+}
+
+/// Whether a phone is paired, as a test turns it.
+@MainActor @Observable private final class PhonePairing {
+    var paired = false
 }
