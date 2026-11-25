@@ -35,8 +35,10 @@ pub struct FileKey {
 pub fn file_keys() -> &'static [FileKey] {
     static TABLE: OnceLock<Vec<FileKey>> = OnceLock::new();
     TABLE.get_or_init(|| {
-        // crash-allow: compiled in, and the tests below parse it on every run.
-        let file: FileKeys = serde_json::from_str(EMBEDDED).expect("file-keys.json parses");
+        // Compiled in, and the tests below parse it on every run; a table that did not parse
+        // would only make the doctor name these keys again, so it reads as empty.
+        let file: FileKeys =
+            serde_json::from_str(EMBEDDED).unwrap_or(FileKeys { keys: Vec::new() });
         file.keys
             .into_iter()
             .map(|entry| FileKey {
@@ -67,6 +69,12 @@ mod tests {
         assert!(file_key(&path("chief.turnHooks")).is_some());
         assert!(file_key(&path("agents")).is_none(), "the section is not owned, only the key");
         assert!(file_key(&path("agents.desktopBridgeX")).is_none());
+    }
+
+    #[test]
+    fn the_table_parses_and_is_not_empty() {
+        assert!(serde_json::from_str::<FileKeys>(EMBEDDED).is_ok());
+        assert!(!file_keys().is_empty());
     }
 
     #[test]
