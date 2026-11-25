@@ -77,5 +77,13 @@ import Testing
         #expect(ConnectionChip.alreadyDownFor(ConnectionChip.justDropped, now: now.addingTimeInterval(30)) == .zero,
                 "the same instant on every render, so the wait is not restarted")
     }
+
+    /// Leo, 2026-11-24: "let's just keep optimistically connecting": a link still coming up never
+    /// draws a chip, however long it lasts; only a state the person can act on does.
+    @Test func stillTryingKindsNeverShow() {
+        #expect(ConnectionChip.Kind.allCases.filter(\.isStillTrying) == [.connecting, .reconnecting])
+        #expect(ConnectionChip.Kind.allCases.filter { !$0.isStillTrying } .allSatisfy { $0.symbol != nil })
+    }
 }
+
 #endif

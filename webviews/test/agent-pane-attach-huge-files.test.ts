@@ -35,6 +35,7 @@
 // may end with one open.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { attachmentWithoutCwd } from "./support/attachmentWithoutCwd";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
@@ -86,6 +87,7 @@ type Case = {
   droppedMs?: number;
   /// The host pushes the drop's paths with the drop (`cmux-files-dropped`, composer/dropPush.ts).
   push?: boolean;
+  noCwd?: boolean;
 };
 type Block = { type: string; name?: string; uri?: string; mimeType?: string; text?: number; data?: number };
 type Row = {
@@ -237,6 +239,15 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const TEXT_BYTES = 100 * MB;
   const CASES: Case[] = [
     { id: "baseline: nothing attached", way: "none", mode: "remote", heapBudget: 300 * MB },
+    {
+      id: "local disk path without a session cwd",
+      way: "drop",
+      mode: "local",
+      file: MOV,
+      heapBudget: 300 * MB,
+      finish: true,
+      noCwd: true,
+    },
     ...(["local", "remote"] as const).flatMap((mode) =>
       (["drop", "paste", "menu"] as const).map((way): Case => ({
         id: `0 .mov 300 MB ${way} ${mode}`,
@@ -419,6 +430,7 @@ os.replace(path + ".part", path)
     jpeg(JPEG);
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      plugins: [attachmentWithoutCwd],
       server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
       logLevel: "error",
     });
@@ -584,7 +596,13 @@ os.replace(path + ".part", path)
     });
     // The page replaces its actions map as its chat connects (App.tsx): count each chat.send in it.
     type Actions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
-    let actions: Actions | undefined = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+    let actions: Actions | undefined = {
+      ready: async () => ({
+        protocolVersion: 1,
+        transport: "mock",
+        ...(location.search.includes("noCwd") ? { sessionId: "mock-session" } : {}),
+      }),
+    };
     Object.defineProperty(window, "cmuxAcpmuxActions", {
       configurable: true,
       get: () => actions,
@@ -1198,7 +1216,7 @@ os.replace(path + ".part", path)
     try {
       await cdp.send("Performance.enable");
       const { port } = vite!.httpServer!.address() as { port: number };
-      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.goto(`http://127.0.0.1:${port}/${c.noCwd ? "?mock&noCwd" : ""}`);
       await page.locator(PROMPT).waitFor();
       // These cases measure the strip's tiles (loading, ×, the prompt's typed words): the strip view
       // (Settings), as inline placement became the default (#26545).
@@ -1454,6 +1472,12 @@ os.replace(path + ".part", path)
           blocks = went ? await promptBlocks(page, count) : [];
         }
         row.videoBlocks = blocks.filter((block) => names(block, name));
+        if (c.mode === "local") {
+          const uri = `file:///Users/dev/Desktop/${encodeURIComponent(name)}`;
+          if (!row.videoBlocks.some((block) => block.type === "resource_link" && block.uri === uri))
+            problem("the local prompt did not carry the original file URL");
+          if ((await probes(page)).begins > 0) problem("the local attachment opened an upload");
+        }
         if (!row.videoBlocks.length)
           problem(`the recording never reached the agent: the prompt carried ${JSON.stringify(blocks)}`);
       }

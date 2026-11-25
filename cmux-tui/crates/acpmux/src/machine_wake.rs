@@ -73,7 +73,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         path_segment(&lease)
     );
     let client =
-        reqwest::Client::builder().default_headers(cmux_build_space::headers()?).build()?;
+        crate::happy_dial::http_client().default_headers(cmux_build_space::headers()?).build()?;
     let mut request = client.post(url);
     if let Some(token) = &config.token {
         request = request.bearer_auth(token);

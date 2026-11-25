@@ -13,8 +13,9 @@ public import CmuxNextLayout
 ///   still unintuitive to me, with regards to splits and columns"). A strip column trades width with the next column
 ///   across its right edge, or the previous one across its left edge for the last column; the columns after them and
 ///   the strip's camera stay. The last column with nothing to trade (beside a full-width column) gets wider or narrower
-///   on its own and the camera keeps it at the window's edge. One column alone gets wider or narrower on its own; a
-///   dock moves its inner edge.
+///   on its own and the camera keeps it at the window's edge. One column alone beside a docked side dock moves the
+///   dock's inner edge in the arrow's direction, as a split's divider does (2026-11-23); with no docked dock it gets
+///   wider or narrower on its own. A dock moves its inner edge.
 /// Between 2026-11-08 and 2026-11-11 splits grew or shrank the focused pane too, so H on the right pane of a split moved
 /// the divider right. A press steps from the size the screen shows and stops at the size it can show (`shown`): one
 /// equal step, the part step that reaches a pane's minimum or the edge of the strip the window shows, or no change at
@@ -82,7 +83,16 @@ public nonisolated enum PaneResize {
             // A screen whose only column is a dock shows it full width whatever its width (`DockStripGeometry.docks`): no
             // press moves it.
             guard strip[index].dock == nil else { return nil }
-            // A lone column has no neighbor across its edge: it gets wider or narrower on its own.
+            // A lone column beside a docked side dock: the dock's inner edge is the column's one divider, and it follows
+            // the arrow, as a split's divider does (beside a left dock, as the dock focused does). The column keeps its
+            // far edge at the window's edge, so no press leaves an empty area beside it (Lawrence 2026-11-23, "gotta fix
+            // columns stuff": the browser narrowed across its far edge beside Chief's docked chat). A left dock is the
+            // one when both are docked.
+            if let dock = [parts.left, parts.right].compactMap({ $0 }).first(where: { $0.dock?.mode == .docked }) {
+                let delta = parts.left?.id == dock.id ? grow : -grow
+                return stepped(dock.width, by: delta, within: range, shown: shown?.dockWidth(of: dock)).map { .columnWidth(dock.id, $0) }
+            }
+            // A lone column with no docked dock has no neighbor across its edge: it gets wider or narrower on its own.
             return stepped(column.width, by: grow, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
         }
         // The divider moves right by `delta` in a trade: right for a column that grows across its right edge, left for the

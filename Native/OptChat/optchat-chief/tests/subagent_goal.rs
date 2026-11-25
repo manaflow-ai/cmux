@@ -119,7 +119,8 @@ fn subagent_goal_a_wait_on_the_users_decision_is_a_stop_and_a_repeat_is_too() {
     );
     assert!(condition.contains("OK of a look"), "{condition}");
     assert!(
-        condition.contains("repeats an earlier report") && condition.contains("never ask for it again"),
+        condition.contains("repeats an earlier report")
+            && condition.contains("never ask for it again"),
         "a repeated hold report ends the checks: {condition}"
     );
     // A build or CI wait is still not a stop.
