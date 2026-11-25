@@ -4589,7 +4589,8 @@ class OtherRepoRollups(unittest.TestCase):
         self.assertEqual(excuse._needs_steps(job, "w"), ["report", "result"])
 
     def test_a_summary_whose_steps_were_not_read_is_not_excused(self):
-        self.gh.jobs[3]["steps"] = []
+        # Steps that all passed leave its red unread (no steps at all is refused_at_setup's, before this line).
+        self.gh.jobs[3]["steps"] = [dict(step, conclusion="success") for step in self.gh.jobs[3]["steps"]]
         with self.assertRaisesRegex(excuse.Refused, f"'{SKILL_DOCS}': job 3 shows no failed step"):
             self.judge()
 
