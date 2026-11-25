@@ -906,7 +906,7 @@ fn agent_card_if_requested(args: &[String]) -> Option<i32> {
         _ => return None,
     };
     let json = json_flag || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     println!("{}", acpmux::agent_card::cli(what, json, &cwd));
     Some(0)
 }
