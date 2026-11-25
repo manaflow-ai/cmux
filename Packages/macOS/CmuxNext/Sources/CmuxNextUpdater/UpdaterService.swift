@@ -149,6 +149,10 @@ public final class UpdaterService {
     /// The pictures of the windows that stay on screen across a relaunch (set by the App:
     /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
     @ObservationIgnored public var afterimage: RelaunchAfterimage?
+    /// The save of the pages' pictures a relaunch ran while its windows were still on screen
+    /// (``UpdateWindowHandoff/savesBeforeLeaving``); the quit awaits it instead of saving from windows already gone.
+    /// nil: no relaunch took the windows off screen, the quit saves for itself.
+    @ObservationIgnored public var savedForRelaunch: Task<Void, Never>?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it
@@ -175,6 +179,10 @@ public final class UpdaterService {
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
     public internal(set) var automaticUpdates = true
+    /// The automatic updater is paused (``AutomaticUpdatePause``): no scheduled, launch, wake, push or fast
+    /// checks, no automatic downloads, no Update When Idle relaunch. Check for Updates, its Update click and
+    /// Restart to Update still work. Fixed at init (the app passes ``AutomaticUpdatePause/app``).
+    public let pausesAutomaticUpdates: Bool
     /// Writes a setting the updater's cards change (set by the App).
     @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
     /// A failed check after an update (``UpdateHealthCheck``) that offers Go Back on the notice card.
@@ -353,12 +361,14 @@ public final class UpdaterService {
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
+                pausesAutomaticUpdates: Bool = false,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock(),
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
         self.work = work
-        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
+        self.pausesAutomaticUpdates = pausesAutomaticUpdates
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault && !pausesAutomaticUpdates
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         relaunchTimer = DemandTimer(owner: "UpdaterService.relaunch", clock: clock)
@@ -408,6 +418,9 @@ public final class UpdaterService {
             // agents, commands and turns while the app relaunches.
             controller.installsUpdatesWhenIdle = false
             controller.downloadsUpdatesInBackground = false
+            // Paused: Sparkle reads `SUEnableAutomaticChecks` at start, before the settings apply, for its
+            // launch check and its schedule. ``configure`` writes the setting's own value back once unpaused.
+            if pausesAutomaticUpdates { defaults.set(false, forKey: UpdateSettings.automaticChecksKey) }
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS

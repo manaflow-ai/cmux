@@ -12,6 +12,7 @@ extension SidebarWorkspace {
         }
         if let weight = decoration.weight { row.titleWeight = weight }
         if let indicator = decoration.indicator { row.activityStyle = indicator }
+        if let glyph = decoration.glyph { row.activityGlyph = glyph }
         if let badge = decoration.badge { row.status = badge }
         return row
     }

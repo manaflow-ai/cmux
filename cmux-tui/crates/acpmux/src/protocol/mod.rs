@@ -11,6 +11,7 @@
 
 pub mod auth;
 pub mod events;
+pub mod here;
 pub mod inventory;
 pub mod mailbox;
 pub mod params;
@@ -196,10 +197,14 @@ pub fn registry() -> Vec<MethodDecl> {
         // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
         untyped(method::MUX_REMOTE_PIPE, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
+        untyped(method::MUX_TAILNET_JOIN, Request),
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
         untyped(method::MUX_TAILNET_START, Request),
         untyped(method::MUX_TAILNET_STATE, Request),
+        // Its params and answer are cmux_tailnet_front's versioned PlacementMessage and
+        // PlacementReply (their own lockstep tests).
+        untyped(method::MUX_TAILNET_PLACEMENT, Request),
         // Sessions.
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
@@ -228,11 +233,15 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
+        request::<here::HereParams, here::HereResult>(method::MUX_HERE),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
+        untyped(method::MUX_SUCCEED, Request),
+        untyped(method::MUX_ROLE, Request),
         untyped(method::MUX_REGISTER, Request),
         untyped(method::MUX_INBOX_RELAY, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
@@ -255,7 +264,10 @@ pub fn registry() -> Vec<MethodDecl> {
         // Forum announcements (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_POST, Request),
+        untyped(method::MUX_FORUM_REPLY, Request),
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
+        untyped(method::MUX_FORUM_SEARCH, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_PROJECT_NEW, Request),
@@ -332,6 +344,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
+        untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
+        untyped(method::MUX_AUTO_SESSION_WAKE, Request),
+        untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),
@@ -348,12 +364,14 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_CONTROLS, Request),
         untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
+        keyed::<params::CustomizeRunParams>(method::MUX_CUSTOMIZE_RUN, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
         request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
@@ -461,6 +479,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped(method::MUX_CHAT_TRANSCRIPT_PAGE, Request),
+        untyped(method::MUX_CHAT_TRANSCRIPT_FIND, Request),
         untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),
@@ -605,6 +625,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),
+        // Agent byte channels (`server/channels.rs`).
+        untyped(method::MUX_CHANNEL_LISTEN, Request),
+        untyped(method::MUX_CHANNEL_UNLISTEN, Request),
+        untyped(method::MUX_CHANNEL_OPEN, Request),
+        untyped(method::MUX_CHANNEL_SEND, ClientNotification),
+        untyped(method::MUX_CHANNEL_CLOSE, ClientNotification),
+        untyped(method::MUX_CHANNEL_CONNECT, ClientNotification),
+        untyped(method::MUX_CHANNEL_OPENED, Notification),
+        untyped(method::MUX_CHANNEL_DATA, Notification),
+        untyped(method::MUX_CHANNEL_CLOSED, Notification),
         untyped(method::MUX_PAIR_REDEEM, Request),
         untyped(method::MUX_VAULT_PULL, Request),
         untyped(method::MUX_VAULT_FORGET, Request),
@@ -630,6 +660,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
+        untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }

@@ -10,6 +10,10 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
+        /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default): typing
+        /// into Claude Code, Codex or vim's insert mode is predicted too, each key confirmed
+        /// in its cell. Read by the terminal (`TerminalSurfacePrediction`).
+        public static let predictiveEchoFullScreen = "cmuxMobile.settings.predictiveEchoFullScreen"
         /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
         /// the phone (as before); off, the phone re-wraps it at its own width.
         public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
@@ -22,6 +26,19 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default; Leo, 2026-11-24: "we can
+        /// just treat the scroll like any pedestrian scroll"): on, a drag toward older rows in a full-screen
+        /// app scrolls the rows the phone kept (`TerminalTUIReader`), not the app's wheel.
+        public static let terminalPlainScroll = "cmuxMobile.settings.terminalPlainScroll"
+        /// Settings → Terminal → Zoom Full-Screen Apps (off by default; Leo, 2026-11-17: "Surely we
+        /// can just calculate a f***ing terminal and resize whatever needs exceptions when it comes /
+        /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
+        /// typing into it resizes the Mac (`TerminalProjectingSession`, Rust `fit_policy`).
+        public static let terminalZoomFullScreenApps = "cmuxMobile.settings.terminalZoomFullScreenApps"
+        /// Settings → Terminal → Find in Whole History (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle"): on, Find
+        /// asks the Mac's daemon (`terminal-find`) for matches in the terminal's whole history.
+        public static let terminalHistoryFind = "cmuxMobile.settings.terminalHistoryFind"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
@@ -31,12 +48,21 @@ public enum CmuxMobilePreferences {
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Quiet Cloud Connections (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it): on, a Cloud
+        /// list or machine that answers within ``QuietStatusGate/threshold`` never shows its wait, and
+        /// a short outage behind cached Cloud rows shows no alert (Leo, 2026-11-14: "i also want all our
+        /// connectivity stuff to shut the fuck up and load faster/percievably load faster").
+        public static let quietCloudConnect = "cmuxMobile.settings.quietCloudConnect"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
+        /// Settings → Advanced → Site Monograms on Tab Cards (taste prototype, off by default): a
+        /// browser card with no picture yet shows its site's letter on the site's hue, not the globe.
+        public static let tabCardMonograms = "cmuxMobile.settings.tabCardMonograms"
         /// Settings → Needs You Look (the Mac's `notifications.attention.mark`, the same values):
         /// `badge` (default) or `glow`, a waiting workspace row that glows until it is opened.
         public static let attentionMark = "cmuxMobile.settings.attentionMark"
@@ -49,15 +75,22 @@ public enum CmuxMobilePreferences {
     /// The sizes Settings offers (and the terminal accepts).
     public static let terminalFontSizes = 9...24
     public static let defaultWrapCode = false
-    public static let defaultKeyClicks = true
+    public static let defaultKeyClicks = false
     public static let defaultPredictiveEcho = true
+    public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     /// Off: a shell line is not prose. On for talking to an agent CLI in
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
+    /// Off until Leo picks it up (UI merges default-off).
+    public static let defaultTerminalPlainScroll = false
+    public static let defaultQuietCloudConnect = false
+    public static let defaultTerminalZoomFullScreenApps = false
+    public static let defaultTerminalHistoryFind = false
     public static let defaultDismissKeyboardAfterSend = true
+    public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
     public static let defaultSwipeDownCollapsesComposer = false
@@ -97,10 +130,47 @@ public enum CmuxMobilePreferences {
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
     }
 
+    /// Whether a full-screen app's drag toward older rows scrolls the rows the phone kept (off by default).
+    public static func terminalPlainScroll(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalPlainScroll) == nil
+            ? defaultTerminalPlainScroll : defaults.bool(forKey: Key.terminalPlainScroll)
+    }
+
+    /// Whether Cloud waits and short Cloud outages stay quiet until they last (on), or show at once
+    /// (off, the default). Read each time a Cloud wait starts or a Cloud refresh fails.
+    public static func quietCloudConnect(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.quietCloudConnect) == nil
+            ? defaultQuietCloudConnect : defaults.bool(forKey: Key.quietCloudConnect)
+    }
+
+    /// Whether a full-screen app shows at the Mac's grid, zoomed, and fits the phone only once
+    /// typed into (on), or claims the phone's grid as soon as it shows (off, the default).
+    /// Read when a terminal page opens.
+    public static func terminalZoomFullScreenApps(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalZoomFullScreenApps) == nil
+            ? defaultTerminalZoomFullScreenApps : defaults.bool(forKey: Key.terminalZoomFullScreenApps)
+    }
+
+    /// Whether Find searches the Mac's whole history for a terminal (on) or only the rows the
+    /// phone holds (off, the default). Read at each search.
+    public static func terminalHistoryFind(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalHistoryFind) == nil
+            ? defaultTerminalHistoryFind : defaults.bool(forKey: Key.terminalHistoryFind)
+    }
+
     /// Typed characters show at once over a slow link, underlined until the
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.predictiveEcho) as? Bool ?? defaultPredictiveEcho
+    }
+
+    /// Predictive echo inside full-screen apps (an agent's TUI), off by default.
+    public static func predictiveEchoFullScreen(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.predictiveEchoFullScreen) == nil
+            ? defaultPredictiveEchoFullScreen : defaults.bool(forKey: Key.predictiveEchoFullScreen)
     }
 
     /// The Mac's terminal resizes to the phone (on), or keeps its size while
@@ -145,6 +215,12 @@ public enum CmuxMobilePreferences {
 
     /// `FollowUpBehavior.queue.rawValue`.
     public static let queueFollowUp = "queue"
+
+    /// Whether browser cards with no picture show the site monogram (off by default).
+    public static func tabCardMonograms(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.tabCardMonograms) == nil ? defaultTabCardMonograms : defaults.bool(forKey: Key.tabCardMonograms)
+    }
 
     public static func compactWorkspaceList(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: Key.compactWorkspaceList)
