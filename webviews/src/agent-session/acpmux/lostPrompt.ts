@@ -109,7 +109,13 @@ export type LostRowHolder = ResendWaiter & {
     draw?: { input: string; attachments: ComposerAttachment[] },
   ): Promise<boolean>;
   failLostPrompt(promptId: string, error: unknown): boolean;
+  /// Sends the lost prompt again on this connection under its own prompt id (acpmux runs an id at
+  /// most once), or false when it holds no such row.
+  retryLostPrompt?(promptId: string, error: unknown): Promise<"taken" | "lost" | "failed"> | false;
 };
+
+/// How many times `keepLostPrompt` sends a lost prompt again itself before its row fails with Retry.
+export const LOST_PROMPT_RETRIES = 3;
 
 /// Where a lost prompt ended up (`keepLostPrompt`): it showed as sent on a later connection; it
 /// stays there as a failed row with Retry; or no connection could hold it, so its sender keeps it.
@@ -121,6 +127,9 @@ export type LostOutcome = "shown" | "failed" | "none";
 /// until acpmux's record of it lands there, and only if that never comes does the row fail, with
 /// Retry under the same prompt id. Before, the prompt went back to the composer and a free line
 /// said "Not sent yet" under a bubble that, once the record came, already looked sent.
+/// When the record does not come on an open connection, the connection sends the prompt again
+/// itself, under the same id (`retryLostPrompt`; acpmux runs an id once), so the row stays on its
+/// way: Leo, 2026-11-25, saw "Not sent ... (native.timed_out)" on a message that had landed.
 export async function keepLostPrompt<Client extends LostRowHolder>(
   error: unknown,
   clients: { next(previous: Client, timeoutMs: number): Promise<Client | undefined> },
@@ -128,15 +137,26 @@ export async function keepLostPrompt<Client extends LostRowHolder>(
   draw: { input: string; attachments: ComposerAttachment[] },
   connectMs = LOST_PROMPT_CONNECT_MS,
   showMs = LOST_PROMPT_SHOW_MS,
+  retryLimit = LOST_PROMPT_RETRIES,
 ): Promise<LostOutcome> {
   const lost = lostPrompt(error);
   if (!lost || !from) return "none";
   let previous = from;
+  let retries = 0;
   for (;;) {
     const next = await clients.next(previous, connectMs);
     if (!next) return "none";
     if (await next.awaitResent(lost.sessionId, lost.promptId, showMs, draw)) return "shown";
-    if (!next.isClosed) return next.failLostPrompt(lost.promptId, error) ? "failed" : "none";
+    if (next.isClosed) {
+      previous = next;
+      continue;
+    }
+    const retry = retries < retryLimit ? next.retryLostPrompt?.(lost.promptId, error) : false;
+    if (!retry) return next.failLostPrompt(lost.promptId, error) ? "failed" : "none";
+    retries += 1;
+    const outcome = await retry;
+    if (outcome === "taken") return "shown";
+    if (outcome === "failed") return "failed";
     previous = next;
   }
 }
