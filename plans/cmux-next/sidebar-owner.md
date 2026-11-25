@@ -2928,12 +2928,3 @@ Commits logged without a trailer (the card above):
   favicon's size (`SidebarStyle.rowFaviconOptics`), rasterized at the favicon's box so it stays sharp: it is that
   page's favicon. The icon column, the row height and the title's x do not change (the favicon already fills that
   slot). The site globe placeholder keeps its tab's glyph size.
-
-## Agent-started workspaces are plain top-level rows again by default (2026-11-25)
-
-- Leo 2026-11-25, verbatim: "has this dumb feature been removed yet so we go back to normal sidebar workspaces"; "idk
-  who asked for those in teh sidebar. it's weird"; "what the hell is automatic!? PLS REMOVE". `sidebar.lineageNesting`
-  defaults to false, taking back #28103's default: with `sidebar.sessionTree` also off (its default) the feed writes no
-  `SidebarSessionTree.state`, so no row nests under its parent, draws a chevron fold or a roll-up chip. The toggle stays
-  as an opt-in Debug setting. The subagent strip under a row already draws only with `sidebar.sessionTree` on (#52996).
-  Tests: `SidebarLineageNestingTests.theToggleTurnsNestingOff`; `SidebarRestoreLineageTests` turns nesting on itself.
