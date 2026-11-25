@@ -22,6 +22,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextMacScreen
+import CmuxNextScreenshots
 import CmuxNextDaemonRecovery
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -224,6 +225,10 @@ final class AppServices {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
+    /// The spaces-switcher capture fixture stays alive for the driver's later light/dark stills.
+    var spacesSwitcherFixture: SpacesSwitcherCaptureState?
+    /// Serializes Spaces fixture setup and teardown across concurrent debug scene calls.
+    var spacesSwitcherLifecycleBusy = false
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
         let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
@@ -313,7 +318,7 @@ final class AppServices {
             guard let self, let tab = daemon.store.tab(terminalResource: ResourceID(rawValue: id)) ?? daemon.store.tab(terminal: TerminalID(rawValue: id)),
                   let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
             return (tab.id, host)
-        })
+        }, place: { [weak self] in self?.cmuxRemote.sendComputerUsePreview(session: $0, update: $1) }, controls: { [weak self] in self?.settings?.snapshot.previewFeatures == true })
         // A chat's page made after its agent started using an app gets the card then.
         agentTabs.onTabSession = { [weak router] in router?.replayChats() }
         return router
@@ -395,6 +400,9 @@ final class AppServices {
     let homeSwitchKeys = HomeSwitchKeysSource()
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
+    /// Sentry's bounded memory-pressure and high-footprint reporter.
+    var memoryPressureReporter: MemoryPressureReporter?  // set after the first frame (AppServices+AfterFirstFrame)
+    var memoryPressureReportingObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
@@ -678,7 +686,7 @@ final class AppServices {
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
         cache.pageFrames = BrowserPageFrames(beside: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        cache.pageFrames?.prefetch(on: work) // read off the main thread while windows restore
+        if let read = cache.pageFrames?.prefetch(on: work) { Task { [weak cache] in await read.value; cache?.phonePictures?.heldChanged() } } // read off the main thread while windows restore; then the phones get the cards of tabs not shown since the relaunch (task-owner: one read; ends on its own)
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
@@ -701,17 +709,9 @@ final class AppServices {
         }
         wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
-        cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
+        cache.profileBadge = { [weak self] key in self?.browserProfiles.toolbarBadge(forTab: key) }
         // Customize Menu… at the end of a right-click menu opens Settings > Menus on that menu.
         registry.customizeMenu = { [weak self] context in self?.settingsWindow.showMenus(context) }
-        cache.profileBadgeMenu = { [weak self] key in
-            guard let self, let tab = cache.tabModel(key) else { return nil }
-            let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            // The badge's tab names the place: New Tab with Browser Profile and Manage Extensions
-            // open in that tab's pane, not in whichever pane has the focus (on Home, the chat dock).
-            return self.registry.makeContextMenu(for: .browserProfile, target: target,
-                                                 arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: tab.id))])
-        }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }

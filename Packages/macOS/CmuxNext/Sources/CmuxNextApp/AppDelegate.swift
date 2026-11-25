@@ -160,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
-        self.services = services
+        self.services = services; services.launchReveal.pages.bind(firstFrame) { DebugTimings.markLaunch($0) } // no page view before the first frame (startup-tti)
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
@@ -304,19 +304,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A launch whose first window never draws (no window, a daemon that never answers) still
         // starts the work waiting for that frame.
         openedURLs.start { [weak self] in self?.routeReadyURL($0) }
-        // Work the launch window does not draw: each step in its own main turn after the first frame.
-        // Chromium's crash-loop border (observeBorders) and the glass look follow the first frame too.
-        firstFrame.afterOpen(stop: { [weak services] in services?.windows.isTerminating ?? true }, [
-            { [weak self, weak services] in self?.cloudContext = services?.startCloud() },
-            { [weak services] in services?.home.start() },
-            { [weak services] in services?.harnessIcons.start() },
-            { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
-            { [weak services] in services?.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) },
-            { [weak services] in services?.observeBorders(); services?.observeGlass() },
-            { [weak services] in if let services { services.updateFeedObservation = UpdateFeedPosting.follow(services) } },
-            { [weak self] in self?.ghosttyConfigLiveReload = GhosttyConfigLiveReload(); self?.ghosttyConfigLiveReload?.start() },
-            { [weak services] in if let services { NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen) } },
-            { [weak services] in services?.startLaterTabWarmups() },
+        // Work the launch window does not draw: one step per main turn after the first frame (Chromium's crash-loop border and
+        // the glass look too). Cloud and Home at once (the front may be Home's Chief); the rest after the front chat drew.
+        let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
+        firstFrame.afterOpen(stop: stop, mark: mark, ["cloud": { [weak self, weak services] in self?.cloudContext = services?.startCloud() }, "home": { [weak services] in services?.home.start() }])
+        FrontChatPaintGate.make(after: firstFrame).afterOpen(stop: stop, mark: mark, [
+            "harness_icons": { [weak services] in services?.harnessIcons.start() },
+            "bookmarks": { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
+            "history": { [weak services] in services?.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) },
+            "borders_glass": { [weak services] in services?.observeBorders(); services?.observeGlass() },
+            "update_feed": { [weak services] in if let services { services.updateFeedObservation = UpdateFeedPosting.follow(services) } },
+            "ghostty_reload": { [weak self] in self?.ghosttyConfigLiveReload = GhosttyConfigLiveReload(); self?.ghosttyConfigLiveReload?.start() },
+            "services_provider": { [weak services] in if let services { NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen) } },
+            "tab_warmups": { [weak services] in services?.startLaterTabWarmups() },
         ])
         firstFrame.armBackstop(after: .seconds(3))
     }
@@ -355,7 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next"
         settings.writeManagedStatus(
             to: ManagedStatusReport.defaultURL(bundleID: bundleID),
             context: ManagedStatusReport.Context(
