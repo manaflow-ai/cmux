@@ -120,9 +120,11 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
             for y in ys where y < cardFrame.maxY {
                 let point = CGPoint(x: x, y: y)
                 guard !avoid.contains(where: { $0.contains(point) }) else { continue }
+                let probeChange = XCTKVOExpectation(keyPath: "value", object: probe)
                 origin.withOffset(CGVector(dx: point.x, dy: point.y)).tap()
                 tapped += 1
                 if point.y >= cardFrame.minY && point.y <= cardFrame.minY + 10 { cardEdgeTaps += 1 }
+                _ = XCTWaiter.wait(for: [probeChange], timeout: 0.35)
                 let after = probe.value as? String ?? ""
                 if after != before {
                     bled.append("(\(Int(point.x)), \(Int(point.y))) under \(id): \(before) -> \(after)")
@@ -146,7 +148,9 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         XCTAssertTrue(control.waitForExistence(timeout: 2), "the Control positive-control key is missing")
         XCTAssertLessThanOrEqual(control.frame.maxX, width, "the Control positive-control key is off screen")
         let before = probe.value as? String ?? ""
+        let probeChange = XCTKVOExpectation(keyPath: "value", object: probe)
         origin.withOffset(CGVector(dx: control.frame.midX, dy: control.frame.midY)).tap()
+        _ = XCTWaiter.wait(for: [probeChange], timeout: 1)
         let after = probe.value as? String ?? ""
         XCTAssertTrue(after != before && after.contains("control"),
                       "a tap on Control \(control.frame) did not reach it: \(before) -> \(after)")
