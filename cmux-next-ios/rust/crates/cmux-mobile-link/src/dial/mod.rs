@@ -15,6 +15,7 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub mod diagnosis;
+pub mod portmap;
 pub mod relay;
 pub(crate) mod turn;
 /// Measurement support (cmux-mobile-path-probe).
@@ -37,7 +38,7 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -203,6 +204,16 @@ pub struct DialOptions {
     /// media session beside the link ([`WEBRTC_MEDIA_LANE`],
     /// [`crate::hybrid`]), which carries browser video while it works.
     pub webrtc_media: bool,
+    /// Offer (phone) or accept (Mac) the reliable link
+    /// ([`crate::RELIABLE_LANE`], PROTOCOL.md "Reliable link"): per-channel
+    /// seq/ack/replay, so a dropped carrier resumes ([`resume`]) with no
+    /// channel closed. Off by default; with either side off the link is
+    /// exactly today's.
+    pub reliable: bool,
+    /// Mac side, with `reliable`: where this paired phone's links wait for
+    /// its resume. Keep one per paired device. None: a resume is refused and
+    /// the phone dials a new link.
+    pub resume_registry: Option<std::sync::Arc<crate::ResumeRegistry>>,
     /// Test and measurement support (Mac side): drop this many of every
     /// 1000 outgoing video RTP packets after the NACK responder kept them.
     #[doc(hidden)]
@@ -233,6 +244,14 @@ pub struct DialOptions {
     /// dialed with [`crate::LinkConfig::aligned`] pings on every 10 s beat
     /// instead ([`crate::keepalive`]).
     pub aligned_keepalives: bool,
+    /// WireGuard: the idle air gap for the tunnel's routine path probes
+    /// (`cmux_wg::WgNet::set_idle_air_gap`), [`IDLE_AIR_GAP`] by default;
+    /// `None` probes on schedule.
+    pub idle_air_gap: Option<Duration>,
+    /// WireGuard, the dialing phone only: the longest its tunnel stays
+    /// silent (`cmux_wg::WgNet::set_air_floor`), [`PHONE_AIR_FLOOR`] by
+    /// default; `None` leaves only the persistent keepalive.
+    pub air_floor: Option<Duration>,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -269,6 +288,22 @@ impl UltraSetting {
     }
 }
 
+/// The phone's air floor: LTE and NR carriers put an idle radio to sleep
+/// after 5 to 12 s of nothing on the air (an LTE RRC inactivity timer; Huang
+/// et al., MobiSys 2012, measured 11.6 s), and the next key then waits for
+/// the radio's promotion (about 260 ms) and, for the echo, a paging slot (up
+/// to 1.28 s). Something goes on the air at least this often, below the
+/// shortest timer: at most 13 empty 32-byte keepalives a minute on an idle
+/// link, about 25 KB an hour. `typing_echo --radio lte --radio-tail-ms 5000`:
+/// 22 radio wakes in 5 min and a first-key p90 of 190 ms without it, 1 wake
+/// and 74 ms with it.
+pub const PHONE_AIR_FLOOR: Duration = Duration::from_millis(4500);
+
+/// The idle air gap for routine path probes: with the air floor holding the
+/// radio awake, a probe gap only saves bytes, and 20 s saved as much as 30 s
+/// (a third of an idle link's datagrams in `typing_echo`).
+pub const IDLE_AIR_GAP: Duration = Duration::from_secs(20);
+
 impl Default for DialOptions {
     fn default() -> Self {
         Self {
@@ -291,12 +326,16 @@ impl Default for DialOptions {
             input_lane: true,
             video_lane: false,
             webrtc_media: false,
+            reliable: false,
+            resume_registry: None,
             video_drop_permille: 0,
             video_cap_bps: 0,
             video_blackout: None,
             stock_ice_waits: false,
             ultra: UltraSetting::Auto,
             aligned_keepalives: false,
+            idle_air_gap: Some(IDLE_AIR_GAP),
+            air_floor: Some(PHONE_AIR_FLOOR),
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
@@ -393,6 +432,14 @@ pub struct TunnelKeys {
     pub answerer: String,
 }
 
+/// The WireGuard overlay a link rides, for its own datagram ports (viewport sync, 7424).
+#[derive(Clone)]
+pub struct Overlay {
+    pub net: std::sync::Arc<cmux_wg::WgNet>,
+    /// The other side's overlay address.
+    pub peer_ip: std::net::IpAddr,
+}
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -413,8 +460,15 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// Runs once the link exists (a WireGuard tunnel's lease learns how its
+    /// link closes, [`wireguard::dormant`]).
+    pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
+    /// Both sides listed [`crate::RELIABLE_LANE`].
+    pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The tunnel's overlay (WireGuard links only).
+    pub overlay: Option<Overlay>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -456,7 +510,31 @@ pub(crate) fn offered_lanes(options: &DialOptions, video: bool, webrtc_media: bo
     if video && webrtc_media {
         lanes.push(WEBRTC_MEDIA_LANE.to_owned());
     }
+    if options.reliable {
+        lanes.push(crate::RELIABLE_LANE.to_owned());
+    }
     lanes
+}
+
+/// Whether both sides speak the reliable link.
+pub(crate) fn reliable_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
+    options.reliable && peer_lanes.iter().any(|lane| lane == crate::RELIABLE_LANE)
+}
+
+/// `config` with the reliable link on when both sides agreed on it (a
+/// caller's own reliable settings win), and off otherwise: exactly today's.
+fn reliable_config(
+    mut config: LinkConfig,
+    agreed: bool,
+    registry: Option<&std::sync::Arc<crate::ResumeRegistry>>,
+) -> LinkConfig {
+    if !agreed {
+        config.reliable = None;
+    } else if config.reliable.is_none() {
+        config.reliable =
+            Some(crate::ReliableConfig { registry: registry.cloned(), ..crate::ReliableConfig::default() });
+    }
+    config
 }
 
 /// Whether the peer listed the WebRTC media session lane.
@@ -591,8 +669,14 @@ pub struct Connected {
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
+    /// Mac side: this carrier resumed a link already served (its channels
+    /// and services run on), so the caller does not serve `link` again.
+    /// Phone side: [`resume`] resumed `link`.
+    pub resumed: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The WireGuard overlay this link rides (`None` on WebRTC).
+    pub overlay: Option<Overlay>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -665,6 +749,98 @@ async fn connect_on(
     link_config: LinkConfig,
     early: Option<wireguard::EarlyTurn>,
 ) -> Result<Connected, DialError> {
+    let (dialed, session_id) = dial_transport(signaling, mac, kind, options, early).await?;
+    let link_config = reliable_config(link_config, dialed.reliable, None);
+    let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
+    follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
+    if let Some(media) = dialed.media {
+        link.attach_media(media.start(&link));
+    }
+    options.timeline.mark("link_ready");
+    Ok(Connected {
+        link,
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+        resumed: false,
+        tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
+    })
+}
+
+/// Phone side: a reliable `link` whose carrier dropped resumes over a new
+/// transport to `mac` (dial it before dialing a new link): its channels see
+/// no drop. An error (the Mac did not agree on the reliable link, or no
+/// longer has this one) closes `link`; dial a new one with [`connect`].
+pub async fn resume(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link: &Link,
+) -> Result<Connected, DialError> {
+    if link.reliable_stats().is_none() {
+        return Err(DialError::Unexpected("the link is not a reliable link".into()));
+    }
+    refuse_unreachable(kind, options)?;
+    let (dialed, session_id) = dial_transport(signaling, mac, kind, options, None).await?;
+    if !dialed.reliable {
+        let _ =
+            signaling.send_signal(mac, &session_id, SignalPayload::Bye { reason: "no reliable link".into() });
+        link.close("the Mac did not agree on the reliable link");
+        return Err(DialError::Unexpected("the Mac did not agree on the reliable link".into()));
+    }
+    // The input and media lanes stay as they were: a reliable link carries
+    // input on its main carrier. Its liveness datagrams ride the new tunnel.
+    drop(dialed.lane);
+    link.resume_carrier(dialed.stream, Some(dialed.guard))
+        .await
+        .map_err(|error| DialError::Transport(error.to_string()))?;
+    // The new tunnel's lease learns how this link closes.
+    if let Some(on_link) = dialed.on_link {
+        on_link(link);
+    }
+    if let Some(hold) = dialed.hold {
+        link.set_hold_hook(hold);
+    }
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
+    options.timeline.mark("link_resumed");
+    Ok(Connected {
+        link: link.clone(),
+        transport: kind,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id,
+        webrtc_media: dialed.webrtc_media,
+        resumed: true,
+        tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
+    })
+}
+
+/// Phone side: dial `mac` over `kind` (a WireGuard dial taking the TURN
+/// allocation `early` when a redial started one); the transport and its
+/// session id.
+async fn dial_transport(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    early: Option<wireguard::EarlyTurn>,
+) -> Result<(Dialed, String), DialError> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
@@ -692,27 +868,7 @@ async fn connect_on(
             return Err(options.diagnosis.timed_out(kind));
         }
     };
-    let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
-    if let Some(hold) = dialed.hold {
-        link.set_hold_hook(hold);
-    }
-    follow_lane(&link, dialed.lane);
-    if let Some(liveness) = dialed.liveness {
-        link.attach_liveness_datagrams(liveness);
-    }
-    if let Some(media) = dialed.media {
-        link.attach_media(media.start(&link));
-    }
-    options.timeline.mark("link_ready");
-    Ok(Connected {
-        link,
-        transport: kind,
-        path: dialed.path,
-        peer: dialed.peer,
-        session_id,
-        webrtc_media: dialed.webrtc_media,
-        tunnel_keys: dialed.tunnel_keys,
-    })
+    Ok((dialed, session_id))
 }
 
 /// Mac side: answer `first` and run a link on the result.
@@ -745,7 +901,50 @@ pub async fn answer(
             return Err(options.diagnosis.timed_out(kind));
         }
     };
-    let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
+    if dialed.reliable {
+        // The phone's first frame says whether it opens a new link or
+        // resumes one of this device's.
+        let link_config = reliable_config(link_config, true, options.resume_registry.as_ref());
+        drop(dialed.lane);
+        let accepted = crate::Link::accept_reliable(dialed.stream, link_config, Some(dialed.guard))
+            .await
+            .map_err(|error| DialError::Transport(error.to_string()))?;
+        let (link, resumed) = match accepted {
+            crate::Accepted::New(link) => (link, false),
+            crate::Accepted::Resumed(link) => (link, true),
+        };
+        if let Some(on_link) = dialed.on_link {
+            on_link(&link);
+        }
+        // A resumed link's new carrier is a new transport: its hook replaces
+        // the last carrier's.
+        if let Some(hold) = dialed.hold {
+            link.set_hold_hook(hold);
+        }
+        if let Some(liveness) = dialed.liveness {
+            link.attach_liveness_datagrams(liveness);
+        }
+        if !resumed && let Some(media) = dialed.media {
+            link.attach_media(media.start(&link));
+        }
+        options.timeline.mark(if resumed { "link_resumed" } else { "link_ready" });
+        return Ok(Connected {
+            link,
+            transport: kind,
+            path: dialed.path,
+            peer: dialed.peer,
+            session_id,
+            webrtc_media: dialed.webrtc_media,
+            resumed,
+            tunnel_keys: dialed.tunnel_keys,
+            overlay: dialed.overlay,
+        });
+    }
+    let link =
+        Link::new(dialed.stream, Role::Mac, reliable_config(link_config, false, None), Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -764,7 +963,9 @@ pub async fn answer(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -791,6 +992,124 @@ mod tests {
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    #[test]
+    fn the_reliable_link_is_off_unless_both_sides_offer_it() {
+        let off = DialOptions::default();
+        assert!(!off.reliable);
+        assert!(!offered_lanes(&off, true, true).iter().any(|lane| lane == crate::RELIABLE_LANE));
+        let on = DialOptions { reliable: true, ..DialOptions::default() };
+        let offered = offered_lanes(&on, false, false);
+        assert!(offered.iter().any(|lane| lane == crate::RELIABLE_LANE));
+        assert!(reliable_agreed(&on, &offered));
+        assert!(!reliable_agreed(&on, &offered_lanes(&off, true, true)), "the peer did not offer it");
+        assert!(!reliable_agreed(&off, &offered), "this side did not offer it");
+
+        let today = LinkConfig::default();
+        assert!(reliable_config(today.clone(), false, None).reliable.is_none());
+        let registry = std::sync::Arc::new(crate::ResumeRegistry::default());
+        let agreed = reliable_config(today, true, Some(&registry)).reliable.expect("on when agreed");
+        assert!(agreed.registry.is_some_and(|r| std::sync::Arc::ptr_eq(&r, &registry)));
+    }
+
+    /// Frames one way between a phone and a Mac, with each one's type
+    /// noted: what the other end's reader would see.
+    fn tap(
+        from: tokio::io::DuplexStream,
+        to: tokio::io::DuplexStream,
+        seen: std::sync::Arc<std::sync::Mutex<Vec<crate::frame::FrameType>>>,
+    ) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_util::codec::{FramedRead, FramedWrite};
+        let one_way = |read, write, seen: std::sync::Arc<std::sync::Mutex<Vec<_>>>| {
+            tokio::spawn(async move {
+                let mut source = FramedRead::new(read, crate::frame::FrameCodec);
+                let mut sink = FramedWrite::new(write, crate::frame::FrameCodec);
+                while let Some(Ok(frame)) = source.next().await {
+                    seen.lock().unwrap().push(frame.kind);
+                    if sink.send(frame).await.is_err() {
+                        return;
+                    }
+                }
+                // The end closed its side: the other end reads that too.
+                let _ = sink.close().await;
+            })
+        };
+        let (from_read, from_write) = tokio::io::split(from);
+        let (to_read, to_write) = tokio::io::split(to);
+        (one_way(from_read, to_write, seen.clone()), one_way(to_read, from_write, seen))
+    }
+
+    /// A mixed pair, both ways round: an end that never offers `reliable`
+    /// (and so knows no frame type above 5) links with one that does, by the
+    /// dial's own negotiation, and the link runs without the sequenced mode:
+    /// no seq, ack, hello or bye frame crosses the wire in either direction.
+    #[tokio::test]
+    async fn a_mixed_pair_links_without_the_reliable_frames_either_way() {
+        use crate::frame::FrameType;
+        use crate::link::ChannelEvent;
+        use bytes::Bytes;
+        for (phone_new, mac_new) in [(false, true), (true, false)] {
+            let label = if phone_new { "new phone, old Mac" } else { "old phone, new Mac" };
+            let phone_options = DialOptions { reliable: phone_new, ..DialOptions::default() };
+            let mac_options = DialOptions { reliable: mac_new, ..DialOptions::default() };
+            let phone_lanes = offered_lanes(&phone_options, false, false);
+            let mac_lanes = offered_lanes(&mac_options, false, false);
+            let phone_agreed = reliable_agreed(&phone_options, &mac_lanes);
+            let mac_agreed = reliable_agreed(&mac_options, &phone_lanes);
+            assert!(!phone_agreed && !mac_agreed, "{label}: only one side offered it");
+            let quick =
+                LinkConfig { keepalive: Some(std::time::Duration::from_millis(20)), ..LinkConfig::default() };
+            let registry = std::sync::Arc::new(crate::ResumeRegistry::default());
+            let phone_config = reliable_config(quick.clone(), phone_agreed, None);
+            let mac_config = reliable_config(quick, mac_agreed, Some(&registry));
+
+            let (phone_end, phone_tap) = tokio::io::duplex(64 * 1024);
+            let (mac_tap, mac_end) = tokio::io::duplex(64 * 1024);
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (up, down) = tap(phone_tap, mac_tap, seen.clone());
+            let phone = Link::new(phone_end, Role::Phone, phone_config, None);
+            // As `answer` builds it when the dial did not agree on it.
+            let mac = Link::new(mac_end, Role::Mac, mac_config, None);
+            assert!(phone.reliable_stats().is_none() && mac.reliable_stats().is_none(), "{label}");
+
+            let server = mac.clone();
+            let echo = tokio::spawn(async move {
+                let mut incoming = server.accept().await.expect("incoming");
+                while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                    incoming.channel.send(bytes).await.unwrap();
+                }
+            });
+            let mut channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+            for round in 0..3u8 {
+                channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
+                match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
+                    Ok(Some(ChannelEvent::Data(bytes))) => {
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                    }
+                    other => panic!("{label}: unexpected {other:?}"),
+                }
+            }
+            phone.ping().await.expect("a round trip");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            channel.close("done", "").await;
+            phone.close("done");
+            mac.closed().await;
+            let _ = echo.await;
+            up.abort();
+            down.abort();
+            let seen = seen.lock().unwrap().clone();
+            assert!(seen.contains(&FrameType::Ping) && seen.contains(&FrameType::Data), "{label}: {seen:?}");
+            let reliable_frames: Vec<_> = seen
+                .iter()
+                .filter(|kind| {
+                    matches!(kind, FrameType::Seq | FrameType::Ack | FrameType::Hello | FrameType::Bye)
+                })
+                .collect();
+            assert!(reliable_frames.is_empty(), "{label}: reliable frames on the wire {reliable_frames:?}");
+            assert!(seen.iter().all(|kind| (*kind as u8) <= 5), "{label}: {seen:?}");
+        }
     }
 
     #[test]

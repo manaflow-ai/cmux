@@ -500,13 +500,20 @@ pub const CANARY_PERIOD: Duration = Duration::from_millis(10);
 /// late by the block's length, and the next one is back at [`CANARY_PERIOD`].
 pub const CANARY_IDLE_PERIOD: Duration = Duration::from_secs(4);
 
+/// How late a wake may come with no work before the canary reads it as a block: macOS wakes a tokio
+/// sleep of 10-160 ms up to 6.7 ms late on an idle runtime (3.7 ms p50 at 10 ms; cmux-lawrence,
+/// 2026-11-24), where Linux is within a millisecond. With 2 ms here every macOS wake was a "block",
+/// the canary never backed off, and each acpmux daemon woke about 150 times a second at idle
+/// (cmux20-bench, step 7289b85b). `gauges.workerLag` still records every wake's real lateness.
+pub const CANARY_TIMER_SLACK: Duration = Duration::from_millis(10);
+
 /// How long the runtime stays quiet before the canary starts to back off.
 pub const CANARY_QUIET_BEFORE_BACKOFF: Duration = Duration::from_secs(1);
 
 /// The canary's next sleep after a wake that slept `slept` and came `late`, while the runtime's
 /// workers were busy for `busy` of it, and the runtime has been quiet for `quiet` before it. Work
-/// (workers busy over 1% of the time slept) or a late wake (over 2 ms plus 2% of the sleep, so a
-/// coalesced idle timer is not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
+/// (workers busy over 1% of the time slept) or a late wake (over [`CANARY_TIMER_SLACK`] plus 2% of
+/// the sleep, so the system's timer slack and a coalesced idle timer are not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
 /// quiet starts doubling it to [`CANARY_IDLE_PERIOD`]. Returns the sleep and the new quiet span.
 pub fn canary_next(
     slept: Duration,
@@ -515,7 +522,7 @@ pub fn canary_next(
     quiet: Duration,
 ) -> (Duration, Duration) {
     let worked = busy > slept / 100;
-    let held = late > Duration::from_millis(2) + slept / 50;
+    let held = late > CANARY_TIMER_SLACK + slept / 50;
     if worked || held {
         return (CANARY_PERIOD, Duration::ZERO);
     }
@@ -524,6 +531,35 @@ pub fn canary_next(
         return (CANARY_PERIOD, quiet);
     }
     ((slept.max(CANARY_PERIOD) * 2).min(CANARY_IDLE_PERIOD), quiet)
+}
+
+/// The lateness [`canary_next`] judges a wake by: none on an overloaded host, where every timer
+/// wakes late and the late wake is the host's, not this daemon's (a block of this daemon's own
+/// workers still shows in their busy time). `gauges.workerLag` records the real lateness.
+pub fn canary_late(late: Duration, host_overloaded: bool) -> Duration {
+    if host_overloaded { Duration::ZERO } else { late }
+}
+
+/// Whether a 1-minute load average of `load` is at or over `cores`: more runnable threads than
+/// cores, so timers wake late for everyone. An unreadable load is no overload.
+pub fn overloaded(load: Option<f64>, cores: usize) -> bool {
+    load.is_some_and(|load| load >= cores as f64)
+}
+
+/// This host now: its 1-minute load average against its cores (`getloadavg`, one sysctl).
+#[cfg(not(unix))]
+fn host_overloaded() -> bool {
+    false
+}
+
+/// This host now: its 1-minute load average against its cores (`getloadavg`, one sysctl).
+#[cfg(unix)]
+fn host_overloaded() -> bool {
+    let mut load = [0f64; 1];
+    // SAFETY: `load` holds the one sample asked for.
+    let got = unsafe { libc::getloadavg(load.as_mut_ptr(), 1) } == 1;
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    overloaded(got.then_some(load[0]), cores)
 }
 
 /// The span `gauges.workerLag` summarizes, in seconds.
@@ -642,7 +678,10 @@ pub async fn worker_lag_canary(ring: &'static WorkerLag) {
         ring.record(late);
         ring.period_ms
             .store(u64::try_from(period.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
-        (period, quiet) = canary_next(period, late, busy().saturating_sub(busy_before), quiet);
+        // The load is read only for a wake late enough to count (a sysctl, not every wake).
+        let judged =
+            if late > CANARY_TIMER_SLACK { canary_late(late, host_overloaded()) } else { late };
+        (period, quiet) = canary_next(period, judged, busy().saturating_sub(busy_before), quiet);
     }
 }
 
@@ -898,6 +937,73 @@ mod tests {
 
     fn runtime_spawn_blocker(block: Duration) {
         tokio::spawn(async move { std::thread::sleep(block) });
+    }
+
+    /// A busy Mac wakes every timer late (35-68 ms on a 10-160 ms sleep during a build on
+    /// cmux-lawrence, 2026-11-24): read as a block, that kept the canary at 100 wakes a second in
+    /// every daemon exactly when CPU was scarce. On an overloaded host a late wake with idle
+    /// workers is the host's, not this daemon's: it keeps the canary backed off. Busy workers
+    /// (a real block shows there) still snap it back, overloaded or not.
+    #[test]
+    fn a_late_wake_on_an_overloaded_host_keeps_the_canary_backed_off() {
+        let ms = Duration::from_millis;
+        let quiet = Duration::from_secs(60);
+        // Past the idle sleep's allowance (10 ms plus 2% of 4 s).
+        let late = |overloaded| canary_late(ms(150), overloaded);
+        assert_eq!(
+            canary_next(CANARY_IDLE_PERIOD, late(true), Duration::ZERO, quiet).0,
+            CANARY_IDLE_PERIOD
+        );
+        assert_eq!(
+            canary_next(CANARY_IDLE_PERIOD, late(false), Duration::ZERO, quiet),
+            (CANARY_PERIOD, Duration::ZERO),
+            "on a free host a late wake is still a block"
+        );
+        assert_eq!(
+            canary_next(CANARY_IDLE_PERIOD, late(true), ms(200), quiet),
+            (CANARY_PERIOD, Duration::ZERO),
+            "busy workers are a block on any host"
+        );
+        // Two quiet minutes on an overloaded host cost what they cost on a free one.
+        let (mut period, mut quiet, mut wakes) = (CANARY_PERIOD, Duration::ZERO, 0);
+        while quiet < Duration::from_secs(120) && wakes < 20_000 {
+            (period, quiet) = canary_next(period, canary_late(ms(68), true), Duration::ZERO, quiet);
+            wakes += 1;
+        }
+        assert!(wakes < 150, "{wakes} wakes in two quiet minutes on an overloaded host");
+    }
+
+    #[test]
+    fn host_overload_reads_the_load_average_against_the_cores() {
+        assert!(!overloaded(Some(3.9), 4));
+        assert!(overloaded(Some(4.0), 4));
+        assert!(!overloaded(None, 4), "an unreadable load is no overload");
+    }
+
+    /// macOS wakes a tokio sleep late with no work at all: on a 12-worker runtime, a 10 ms sleep came
+    /// back 3.7 ms late (p50) and sleeps of 10-160 ms up to 6.7 ms late (cmux-lawrence, 2026-11-24). Read
+    /// as a block, every 10 ms wake reset the quiet span, so the canary never backed off and each
+    /// acpmux daemon woke about 150 times a second at idle (cmux20-bench, step 7289b85b).
+    #[test]
+    fn the_canary_backs_off_through_macos_timer_slack() {
+        let ms = Duration::from_millis;
+        let (mut period, mut quiet, mut wakes) = (CANARY_PERIOD, Duration::ZERO, 0);
+        while quiet < Duration::from_secs(120) && wakes < 20_000 {
+            let late = if period <= ms(160) { ms(7) } else { ms(4) };
+            (period, quiet) = canary_next(period, late, Duration::ZERO, quiet);
+            wakes += 1;
+        }
+        assert_eq!(period, CANARY_IDLE_PERIOD, "never backed off: {wakes} wakes");
+        assert!(wakes < 150, "{wakes} wakes in two quiet minutes");
+        // A block well past the slack still snaps it back.
+        assert_eq!(
+            canary_next(CANARY_IDLE_PERIOD, ms(200), Duration::ZERO, quiet),
+            (CANARY_PERIOD, Duration::ZERO)
+        );
+        assert_eq!(
+            canary_next(CANARY_PERIOD, ms(15), Duration::ZERO, quiet),
+            (CANARY_PERIOD, Duration::ZERO)
+        );
     }
 
     #[test]
