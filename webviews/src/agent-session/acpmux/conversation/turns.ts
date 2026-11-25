@@ -2274,8 +2274,10 @@ function shapeTurn(
     // A stretch before a steer whose only work was compacting the conversation draws no "Worked
     // for" of its own: its note stays in place, and the turn's one fold is the work after the steer
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
-    // + thinking is weird. layout shifts and awkward looking animations").
-    const compactOnly = !final && said === undefined && onlyCompaction(work);
+    // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
+    // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
+    // held, never shut inside a "Worked for 1s" that hides what it did.
+    const compactOnly = said === undefined && onlyCompaction(work);
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
