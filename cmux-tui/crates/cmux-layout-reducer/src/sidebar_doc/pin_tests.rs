@@ -163,6 +163,53 @@ fn batch_unpin_uses_pinned_order_for_old_shared_places() {
 }
 
 #[test]
+fn batch_unpin_keeps_a_child_with_its_parent_for_either_pin_history() {
+    for parent_first in [false, true] {
+        for child_first in [false, true] {
+            let mut doc = fixture();
+            let child = item_id("w2");
+            let parent: ItemId = "g1".into();
+            let pins = if parent_first {
+                [parent.clone(), child.clone()]
+            } else {
+                [child.clone(), parent.clone()]
+            };
+            for id in pins {
+                run(&mut doc, vec![Op::Pin { items: vec![id] }]);
+            }
+            let unpins = if child_first { vec![child, parent] } else { vec![parent, child] };
+            run(&mut doc, vec![Op::Unpin { items: unpins }]);
+            assert_eq!(
+                list(&doc, &machine(), Some("g1")),
+                ["w1", "w2", "w3"],
+                "parent pinned first {parent_first}, child unpinned first {child_first}"
+            );
+            assert_eq!(doc.item("g1").unwrap().section, machine());
+        }
+    }
+}
+
+#[test]
+fn unpin_follows_its_saved_group_after_the_group_changes_section() {
+    for parent_first in [false, true] {
+        let mut doc = fixture();
+        if parent_first {
+            run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+        }
+        run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+        let parent_op = if parent_first {
+            Op::Unpin { items: vec!["g1".into()] }
+        } else {
+            Op::Pin { items: vec!["g1".into()] }
+        };
+        run(&mut doc, vec![parent_op]);
+        run(&mut doc, vec![Op::Unpin { items: vec![item_id("w2")] }]);
+        let section = if parent_first { machine() } else { PINNED_SECTION_ID.into() };
+        assert_eq!(list(&doc, &section, Some("g1")), ["w1", "w2", "w3"]);
+    }
+}
+
+#[test]
 fn unpin_puts_a_first_member_back_first_in_its_group() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w1")] }]);

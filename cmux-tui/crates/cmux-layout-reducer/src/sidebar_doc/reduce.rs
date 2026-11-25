@@ -1058,15 +1058,18 @@ fn pinned_members(doc: &Doc, section: &str, group: &str, except: &str) -> i64 {
 /// that same list. Nil: no place is remembered, or it is gone.
 fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     let remembered = item.extra.get(UNPIN_TO_KEY)?;
-    let section = remembered.get("section")?.as_str()?;
-    let parent = match remembered.get("parent").and_then(Value::as_str) {
-        None => None,
+    let saved_section = remembered.get("section")?.as_str()?;
+    let (section, parent) = match remembered.get("parent").and_then(Value::as_str) {
+        None => (saved_section, None),
         Some(group) => {
             let group = doc.item(group)?;
-            if !group.body.is_group() || group.section != section {
+            if !group.body.is_group() {
                 return None;
             }
-            Some(group.id.clone())
+            // The parent may have been pinned or unpinned since this item
+            // left it, including earlier in the same batch Unpin. Follow its
+            // identity; the shared validator still enforces machine and tree rules.
+            (group.section.as_str(), Some(group.id.clone()))
         }
     };
     if doc.section(section)?.kind.machine() != Some(machine)
