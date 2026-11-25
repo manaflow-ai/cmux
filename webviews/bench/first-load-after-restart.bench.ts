@@ -1421,9 +1421,6 @@ try {
       if (CPU > 1) await (await warmContext.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
       await page.setViewportSize(RELAUNCH_VIEWPORT);
       await prepare(page, null, 600_000);
-      // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
-      if (process.env.PARK)
-        await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
