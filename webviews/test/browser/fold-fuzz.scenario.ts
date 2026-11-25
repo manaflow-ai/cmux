@@ -126,8 +126,20 @@ export function linesOf(lines: number, seed: number): string {
 
 /** A sent prompt's images, as acpmux names them (hub/prompt_images.rs). */
 const IMAGES = [
-  { id: "img-fuzz-1", mimeType: "image/png", name: "screenshot.png", width: 1600, height: 1000 },
-  { id: "img-fuzz-2", mimeType: "image/png", name: "trace.png", width: 800, height: 1200 },
+  {
+    id: "img-fuzz-1",
+    mimeType: "image/png",
+    name: "screenshot.png",
+    width: 1600,
+    height: 1000,
+  },
+  {
+    id: "img-fuzz-2",
+    mimeType: "image/png",
+    name: "trace.png",
+    width: 800,
+    height: 1200,
+  },
 ];
 
 export type FuzzScenario = {
@@ -204,12 +216,20 @@ export function fuzzScenario(seed: number, override: Partial<FuzzSpec> = {}): Fu
   const b = sim(`fuzz-${seed}`, `Fold fuzz seed ${seed}.`, "claude");
   for (let turn = 0; turn < spec.history; turn += 1) {
     b.prompt(`Earlier question ${turn + 1}: where does the retry helper live?`);
-    if (r.chance(0.5)) b.tool(`Read src/net/retry-${turn}.ts`, { kind: "read", ms: r.int(50, 600) });
+    if (r.chance(0.5))
+      b.tool(`Read src/net/retry-${turn}.ts`, {
+        kind: "read",
+        ms: r.int(50, 600),
+      });
     b.say(`Earlier answer ${turn + 1}: ${text(r, r.int(1, 3))}`);
     b.turnEnd();
   }
   b.prompt("Run the lanes, fix what they find, and tell me where it all stands.");
-  if (r.chance(0.6)) b.think("Starting with the failing suites.", { chunks: r.int(1, 4), chunkMs: r.int(30, 200) });
+  if (r.chance(0.6))
+    b.think("Starting with the failing suites.", {
+      chunks: r.int(1, 4),
+      chunkMs: r.int(30, 200),
+    });
   // The late steers land in the last calls, so the recorder's window (the steps on their own clock) holds them.
   const late = Math.max(0, spec.calls - r.int(1, 6));
   const tools = spec.steers.filter((at) => at === "tool").length;
@@ -254,7 +274,10 @@ export function fuzzScenario(seed: number, override: Partial<FuzzSpec> = {}): Fu
       const id = b.nextCallId();
       b.tool(title, { ...options, open: true }, after);
       for (let n = 0; n < toolSteerCalls.get(call)!; n += 1)
-        b.steer(steer(), { readMs: r.int(100, 800), after: r.int(20, Math.max(21, options.ms - 20)) });
+        b.steer(steer(), {
+          readMs: r.int(100, 800),
+          after: r.int(20, Math.max(21, options.ms - 20)),
+        });
       b.toolEnd(id, { ...options, ms: r.int(20, 600) });
     } else if (r.chance(0.08) && call < spec.calls - 1 && !toolSteerCalls.has(call + 1)) {
       // Two calls in flight at once: the second starts before the first ends.
@@ -277,10 +300,19 @@ export function fuzzScenario(seed: number, override: Partial<FuzzSpec> = {}): Fu
   const r2 = rng(seed ^ 0x68e31da4);
   const images = axes.send?.attach ? { images: IMAGES.slice(0, r2.int(1, 2)) } : {};
   const sent = axes.send ? linesOf(axes.send.lines, seed) : "";
-  if (axes.background) b.background("bun run watch:fleet", { ms: r2.int(200, 2_500), after: r2.int(20, 300) });
+  if (axes.background)
+    b.background("bun run watch:fleet", {
+      ms: r2.int(200, 2_500),
+      after: r2.int(20, 300),
+    });
   /// The person's multi-line steer, while the answer streams (or on the note's heels).
   const sendSteer = () => {
-    if (axes.send?.at === "steer") b.steer(sent, { readMs: r2.int(50, 800), after: r2.int(10, 200), extra: images });
+    if (axes.send?.at === "steer")
+      b.steer(sent, {
+        readMs: r2.int(50, 800),
+        after: r2.int(10, 200),
+        extra: images,
+      });
   };
   /// The turn's end: calls after the answer, a compaction, then acpmux's turn end.
   const endTurn = (after: number) => {
@@ -318,9 +350,15 @@ export function fuzzScenario(seed: number, override: Partial<FuzzSpec> = {}): Fu
     const words = answer.split(/(?<=\s)/);
     const per = Math.max(1, Math.ceil(words.length / chunks));
     for (let index = 0, part = 0; index < words.length; index += per, part += 1) {
-      b.say(words.slice(index, index + per).join(""), { chunks: 1, after: part === 0 ? r.int(50, 600) : chunkMs });
+      b.say(words.slice(index, index + per).join(""), {
+        chunks: 1,
+        after: part === 0 ? r.int(50, 600) : chunkMs,
+      });
       for (let n = 0; n < (steerAt.get(part) ?? 0); n += 1)
-        b.steer(steer(), { readMs: r.int(100, 800), after: r.int(10, chunkMs) });
+        b.steer(steer(), {
+          readMs: r.int(100, 800),
+          after: r.int(10, chunkMs),
+        });
       if (part === Math.floor(Math.ceil(words.length / per) / 2)) sendSteer();
     }
     if (spec.ending === "stream") {
@@ -398,9 +436,9 @@ function lastIndex(steps: readonly SimStep[], match: (step: SimStep) => boolean)
 /// the fuzz seed's. Leo, 2026-11-22: "your chat folds or whatever, i scroll down, some bullshit ABOVE
 /// folds...? and plays an animation!? ... edge cases at teh top area of teh screeen and a long turn/tool
 /// call/sterring situation that has a wide-ass aggressive fold".
-export function strayScenario(seed: number): FuzzScenario & { sweepFrom: number } {
-  const up = seed % 2 === 1 || fuzzSpec(seed).viewport === "up";
-  const base = fuzzScenario(seed, up ? { viewport: "up" } : {});
+export function strayScenario(seed: number, override: Partial<FuzzSpec> = {}): FuzzScenario & { sweepFrom: number } {
+  const up = seed % 2 === 1 || { ...fuzzSpec(seed), ...override }.viewport === "up";
+  const base = fuzzScenario(seed, up ? { ...override, viewport: "up" } : override);
   const r = rng(seed ^ 0x51ed270b);
   const steps = [...base.scenario.steps];
   let at = steps.at(-1)!.at;
@@ -425,4 +463,30 @@ export function strayScenario(seed: number): FuzzScenario & { sweepFrom: number 
   for (let step = r.int(2, 6); step > 0; step -= 1) reader({ scrollBy: r.int(160, 520) }, r.int(30, 260));
   reader({ scroll: "bottom" }, r.int(200, 700));
   return { ...base, scenario: { ...base.scenario, steps }, sweepFrom };
+}
+
+/// Leo's case, pinned rather than drawn (test/transcript-fold-above-view-browser.test.ts): "a long
+/// turn/tool call/sterring situation that has a wide-ass aggressive fold", its end reached with the
+/// reader scrolled up so the fold lands at "teh top area of teh screeen", then "i scroll down": the
+/// stray chat's wheel sweep down, up through the top and down again. The seed varies only the timings,
+/// the chatter's words and the sweep's steps; the shape is his.
+export function leoFoldSpec(seed: number): Partial<FuzzSpec> {
+  return {
+    calls: 120,
+    chatter: 0.35,
+    subagents: 1,
+    steers: ["early", "tool", "stream", "fold"],
+    ending: "settled",
+    recap: 3,
+    answer: 6,
+    viewport: "up",
+    scrollBy: 420,
+    split: "wide",
+    history: 4,
+    axes: { ...fuzzAxes(seed), wide: true, load: 1 },
+  };
+}
+
+export function leoFoldScenario(seed: number): FuzzScenario & { sweepFrom: number } {
+  return strayScenario(seed, leoFoldSpec(seed));
 }

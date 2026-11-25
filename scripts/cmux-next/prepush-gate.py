@@ -301,7 +301,9 @@ SCANNERS = (
       "scripts/cmux-next/concentric-containers-baseline.txt")),
     # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
     ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
-    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
+    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"],
+     # Also its Classic ids check (goal next-zero-classic-footprint-all-surfaces): every macOS package and the scripts.
+     SCOPES + ("Packages/macOS/", "scripts/cmux-next/")),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     # Leo 2026-11-21: "i wonder if there's a script or some kinda tool we can build to simply get rid fo the prompt?"
@@ -542,6 +544,9 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "keychain-no-prompt-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
+    # check-state-roots.sh's Classic ids check: path, text, count. Left out, a push that removed a Classic site
+    # and deleted its row was refused (goal next-zero-classic-footprint-all-surfaces: 41 stale rows on base).
+    "classic-ids-baseline.tsv": ((0, 1), 2),
     "raw-spawn-baseline.tsv": ((0,), 1),
     "raw-flock-baseline.tsv": ((0,), 1),
     "spawn-owner-baseline.tsv": ((0,), 1),
@@ -763,7 +768,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
     files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
     sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
-    # Two batch reads, not a `git show` a file: each cost about 0.5 s on big-red's cmux mirror (2026-11-21: 11 s).
+    # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
     except git_batch.GitError as error:

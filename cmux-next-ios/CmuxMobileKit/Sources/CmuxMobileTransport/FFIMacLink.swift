@@ -64,6 +64,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        proxyOnly: endpoint.proxyOnly, dropWireguard: endpoint.dropWireGuard,
                                         forceRelay: endpoint.forceRelay,
                                         noVideoLane: endpoint.browserVideoOnChannel,
                                         ultra: Self.ultra()),
@@ -168,6 +169,10 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     func setForegroundProbe(_ on: Bool) {
         handle.setForegroundProbe(on: on)
+    }
+
+    func prewake() {
+        _ = handle.prewake()
     }
 
     func close() async {
