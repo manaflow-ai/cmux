@@ -41,7 +41,9 @@ export function missingFolder(error: unknown): string | undefined {
   if (typed.code !== "transport.path_invalid") return undefined;
   if (typed.reason === "path.missing" && typeof typed.detail === "string" && typed.detail) return typed.detail;
   const details = typed.details as { reason?: unknown; path?: unknown } | undefined;
-  return details?.reason === "path.missing" && typeof details.path === "string" && details.path ? details.path : undefined;
+  return details?.reason === "path.missing" && typeof details.path === "string" && details.path
+    ? details.path
+    : undefined;
 }
 
 /// Whether the pane's host or acpmux refused the request with a reason the user should see.

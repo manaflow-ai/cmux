@@ -150087,6 +150087,24 @@
       "comment": "Agent pane: the app refused a folder or file that is not there (or not a folder)",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد ذلك المجلد موجودًا. اختر مجلدًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj folder više ne postoji. Odaberi drugi folder."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den mappe findes ikke længere. Vælg en anden mappe."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "needs_review",
@@ -150123,10 +150141,28 @@
             "value": "そのフォルダーはもう存在しません。別のフォルダーを選んでください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតនោះលែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "해당 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den mappen finnes ikke lenger. Velg en annen mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten folder już nie istnieje. Wybierz inny folder."
           }
         },
         "pt-BR": {
@@ -150139,6 +150175,30 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Этой папки больше нет. Выберите другую папку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์นั้นไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O klasör artık yok. Başka bir klasör seç."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця папка більше не існує. Виберіть іншу папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục đó không còn tồn tại. Hãy chọn thư mục khác."
           }
         },
         "zh-Hans": {
@@ -150159,6 +150219,24 @@
       "comment": "Agent pane: the folder a chat was to start in no longer exists (a reboot wiped it, it was removed). {path} is its path.",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد المجلد {path} موجودًا. اختر مجلدًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Folder {path} više ne postoji. Odaberi drugi folder."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mappen {path} findes ikke længere. Vælg en anden mappe."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "needs_review",
@@ -150195,10 +150273,28 @@
             "value": "フォルダー {path} はもう存在しません。別のフォルダーを選んでください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថត {path} លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "{path} 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mappen {path} finnes ikke lenger. Velg en annen mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Folder {path} już nie istnieje. Wybierz inny folder."
           }
         },
         "pt-BR": {
@@ -150211,6 +150307,30 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Папки {path} больше нет. Выберите другую папку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์ {path} ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{path} klasörü artık yok. Başka bir klasör seç."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка {path} більше не існує. Виберіть іншу папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục {path} không còn tồn tại. Hãy chọn thư mục khác."
           }
         },
         "zh-Hans": {

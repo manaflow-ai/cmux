@@ -38,7 +38,7 @@ nonisolated enum AcpmuxPathPolicy {
         public var reason: String?
         /// The folder the person named that no longer exists (reason ``missingReason``): the page
         /// says "The folder X no longer exists. Pick another folder." with it.
-        public var missingPath: String? = nil
+        public var missingPath: String?
 
         public init(error: AgentPaneTransportError, requestID: String?, method: String?, outsidePath: String? = nil,
                     outsideIsHomeOrAbove: Bool = false, reason: String? = nil, missingPath: String? = nil) {
