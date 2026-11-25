@@ -1027,7 +1027,7 @@ class WorkflowTests(unittest.TestCase):
         jobs = doc["jobs"]
         self.assertIn("plan --app iphone", next(s for s in jobs["plan"]["steps"] if s.get("id") == "plan")["run"])
         self.assertEqual(jobs["record"]["needs"], "plan")
-        self.assertEqual(jobs["record"]["runs-on"], "${{ vars.CI_EVAL_STEP_GATEWAY }}")
+        self.assertEqual(jobs["record"]["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}")
         run = next(s for s in jobs["record"]["steps"] if s.get("id") == "record")["run"]
         self.assertTrue(run.startswith("set +e\n"))
         self.assertIn("--class simulator --script scripts/ci/cmux-next-ios-sim.sh", run)

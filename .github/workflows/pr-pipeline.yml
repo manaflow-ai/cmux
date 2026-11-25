@@ -278,7 +278,7 @@ jobs:
     name: ios ffi (build fleet)
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     # The literal fallback never schedules: the job's if: skips when the variable is unset.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
     permissions: {}
     steps:
