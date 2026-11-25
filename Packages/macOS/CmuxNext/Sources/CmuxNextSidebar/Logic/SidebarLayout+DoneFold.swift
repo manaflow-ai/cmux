@@ -42,7 +42,8 @@ nonisolated extension SidebarLayoutOptions {
     /// Whether `ws` draws behind its list's "Settled (N)" row: a settled chat (``settled``), not the active one, and
     /// not while a filter shows matches where they are or the session tree nests rows.
     func settles(_ ws: SidebarWorkspace) -> Bool {
-        !settled.isEmpty && settled.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil && sessionTree == nil
+        !settled.isEmpty && settled.contains(ws.id) && ws.id != activeWorkspaceID && filterMatches == nil
+            && (sessionTree == nil || sessionTree?.hidesStarted == true)
     }
 
     /// Clears every fold a drag or an external drop unfolds: Done, Archived and Settled. Archived rows stay
