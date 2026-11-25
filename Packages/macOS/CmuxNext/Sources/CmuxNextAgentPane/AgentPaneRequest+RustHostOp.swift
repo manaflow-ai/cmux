@@ -5,7 +5,8 @@ import os
 
 /// The page messages Rust decodes (cmux-tui cmux-window-rules `chat::host_op`, its tests the checks' tests): the
 /// Cloud environment editor, the Cloud reservation, the Cloud repository actions, the GitHub section and the pane's
-/// own messages (lifecycle, paint and pacing reports, composer switches, the shell box, the New Tab page). The host
+/// own messages (lifecycle, paint and pacing reports, composer switches, the shell box, the New Tab page) and the
+/// host's small asks (pickers, the quick chat window, dictation, the tab row's tools, toasts, chat links). The host
 /// hands Rust the page's message over the app FFI's JSON channel (`window_chat_agent_host_op`) and builds the
 /// request from the checked answer; it checks nothing itself. Every other method is still decoded in
 /// ``AgentPaneRequest/init(body:)`` until it moves (cmuxterm-hq docs/rfd/drafts/why-swift.md).
@@ -39,6 +40,40 @@ extension AgentPaneRequest {
         var auto: Bool?
         var github: GitHub?
         var pane: Pane?
+        var host: Host?
+    }
+
+    /// One of the host's own small asks (`host::HostCall`): `op` names it.
+    private nonisolated struct Host: Decodable {
+        var op: String
+        var wait: Bool?
+        var sessionId: String?
+        var expired: Bool?
+        var key: String?
+        var onTop: Bool?
+        var collapsed: Bool?
+        var mode: String?
+        var command: String?
+        var enabled: Bool?
+        var path: String?
+        var refresh: Bool?
+        var terminalSwitch: Bool?
+        var width: Double?
+        var need: Double?
+        var message: String?
+        var isError: Bool?
+        var group: String?
+        var text: String?
+        var x: Double?
+        var y: Double?
+        var id: String?
+        var menuItemId: String?
+        var question: String?
+        var splitRight: Bool?
+        var placement: String?
+        var tabId: String?
+        var sender: Bool?
+        var target: String?
     }
 
     /// One of the pane's own messages (`pane::PaneOp`): `op` names it.
@@ -107,6 +142,8 @@ extension AgentPaneRequest {
             return op.github.flatMap(gitHub).map(AgentPaneRequest.gitHub)
         case "pane":
             return op.pane.flatMap(pane)
+        case "host":
+            return op.host.flatMap(host)
         default:
             return nil
         }
@@ -177,6 +214,64 @@ extension AgentPaneRequest {
         case "newTabCloudPick": return .newTabCloudPick
         case "newTabWarm": return p.warm.map(AgentPaneRequest.newTabWarm)
         case "newTabTemplate": return p.template.map { .editNewTab(.template($0)) }
+        default: return nil
+        }
+    }
+
+    private nonisolated static func host(_ h: Host) -> AgentPaneRequest? {
+        switch h.op {
+        case "browseProject": return .browseProject
+        case "sandboxState": return .sandboxState(wait: h.wait ?? false)
+        case "cloudHandoffTurn": return h.sessionId.map { .cloudHandoffTurn(sessionId: $0) }
+        case "cloudSignInCancel": return .cloudSignInCancel(expired: h.expired ?? false)
+        case "cloudSignIn": return h.key.map { .cloudSignIn(key: $0) }
+        case "cloudSetupState": return .cloudSetupState
+        case "chooseFolder": return .chooseFolder
+        case "chooseChatFolder": return .chooseChatFolder
+        case "shareMachineWithMe": return .shareMachineWithMe
+        case "chooseAttachments": return .chooseAttachments
+        case "attachExternal": return .attachExternal
+        case "editorsList": return .editorsList
+        case "quickDismiss": return .quickDismiss
+        case "quickOpenInWindow": return .quickOpenInWindow(sessionId: h.sessionId)
+        case "quickSetOnTop": return h.onTop.map(AgentPaneRequest.quickSetOnTop)
+        case "quickSetCollapsed": return h.collapsed.map(AgentPaneRequest.quickSetCollapsed)
+        case "quickFloatingState": return .quickFloatingState
+        case "quickContext": return .quickContext
+        case "composerCapture": return .composerCapture(mode: h.mode)
+        case "transportOpen": return .transportOpen
+        case "transportGestureRelease": return .transportGestureRelease
+        case "dictation":
+            switch h.command {
+            case "toggle": return .dictation(.toggle)
+            case "start": return .dictation(.start)
+            case "stop": return .dictation(.stop)
+            case "cancel": return .dictation(.cancel)
+            default: return nil
+            }
+        case "dictationHandoff": return .dictationHandoff
+        case "dictationSources": return .dictationSources
+        case "dictationRecordAudio": return h.enabled.map { .dictation(.recordAudio($0)) }
+        case "dictationRecordingUpload": return h.path.map { .dictationRecordingUpload(path: $0) }
+        case "dictationRecordingCancel": return h.path.map { .dictationRecordingCancel(path: $0) }
+        case "tabState": return .tabState(refresh: h.refresh ?? false, terminalSwitch: h.terminalSwitch ?? false)
+        case "tabRowTools": return h.width.map { .tabRowTools(width: $0, need: h.need) }
+        case "toast": return h.message.map { .toast(message: $0, isError: h.isError ?? false, group: h.group) }
+        case "copyText": return h.text.map(AgentPaneRequest.copyText)
+        case "customizationsMenu":
+            guard let x = h.x, let y = h.y else { return nil }
+            return .customizationsMenu(x: x, y: y)
+        case "tabRowToolsOpenMenu": return h.id.map { .tabRowToolsOpenMenu(id: $0, menuItemID: h.menuItemId) }
+        case "btwInline":
+            guard let question = h.question, let session = h.sessionId else { return nil }
+            return .btwInline(question: question, sessionId: session)
+        case "sideChat": return h.sessionId.map { .sideChat($0, splitRight: h.splitRight ?? false) }
+        case "chatTab": return h.sessionId.map { .chatTab($0, AgentForkDestination(placement: h.placement)) }
+        case "attentionOpen": return h.tabId.map(AgentPaneRequest.attentionOpen)
+        case "offerOpen": return h.sessionId.map { .offerOpen($0, sender: h.sender ?? false) }
+        case "jump":
+            guard let target = h.target.flatMap(AgentPaneJumpTarget.init(rawValue:)), let id = h.id else { return nil }
+            return .jump(target, id: id)
         default: return nil
         }
     }
