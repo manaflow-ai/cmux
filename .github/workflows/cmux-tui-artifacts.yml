@@ -2325,7 +2325,7 @@ jobs:
           needs.darwin-fallback-plan.result != 'failure' && needs.darwin-fallback-plan.result != 'cancelled' &&
           needs.build-darwin-fallback.result != 'failure' && needs.build-darwin-fallback.result != 'cancelled' &&
           needs.cmux-next-daemon-tests.result != 'failure' && needs.cmux-next-daemon-tests.result != 'cancelled' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write
