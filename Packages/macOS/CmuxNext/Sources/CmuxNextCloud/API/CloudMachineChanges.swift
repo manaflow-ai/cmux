@@ -37,6 +37,8 @@ public final class CloudMachineChanges {
     private var record: @MainActor (CloudMachine) -> Void = { _ in }
     /// The watch requests, one after another in the order they were made.
     private var sending: Task<Void, Never>?
+    /// Bumped by ``stop()``: a watch queued before it is not sent after it.
+    private var watchEpoch: UInt64 = 0
     /// The last list's refresh: what a lost push falls back to.
     private var lastRefresh: (@MainActor () async -> Void)?
     /// The machines the pending settle read is for; nil when it is for no one machine (a create, a lost push).
@@ -49,11 +51,18 @@ public final class CloudMachineChanges {
         self.watch = watch
     }
 
-    private func send(_ machines: [CloudMachine]) {
+    /// Queues a watch behind the ones before it. `superseding` (a stop) drops every watch still queued, so none of
+    /// them opens sockets after the stop's empty list closed them; one already sending finishes first.
+    private func send(_ machines: [CloudMachine], superseding: Bool = false) {
         guard let watch else { return }
-        let previous = sending
+        if superseding { watchEpoch &+= 1 }
+        let previous = sending, epoch = watchEpoch
         // task-owner: kept in `sending`; each waits for the one before it
-        sending = Task { await previous?.value; await watch(machines) }
+        sending = Task { [weak self] in
+            await previous?.value
+            guard let self, self.watchEpoch == epoch else { return }
+            await watch(machines)
+        }
     }
 
     /// The daemon's connection is new (a restart): it holds no sockets of the last one, so the watched list goes again.
@@ -287,7 +296,7 @@ public final class CloudMachineChanges {
     public func stop() {
         watched = []
         live = []
-        send([])
+        send([], superseding: true)
         lastRefresh = nil
         pendingMachines = nil
         stopped = true

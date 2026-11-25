@@ -50,6 +50,9 @@ pub(crate) trait Host: Send + Sync + 'static {
     fn unauthenticated(&self, generation: u64);
     /// Passes a frame to the Cloud app server; whether one took it (`push::handed_off`).
     fn forward(&self, data: &Value) -> bool;
+    /// Whether lease `generation` is still the daemon's: a sign-out, another account or a renewal
+    /// replaces it, and a socket opened on an older one delivers nothing more.
+    fn current(&self, generation: u64) -> bool;
 }
 
 /// The waits; tests shorten them.
@@ -312,6 +315,12 @@ impl Host for MuxHost {
         let supervisor = mux.control_clients.apps.get_or_init(&mux);
         push::handed_off(supervisor.team_event("cloud.machine.state", data).ok().as_ref())
     }
+
+    fn current(&self, generation: u64) -> bool {
+        self.0.upgrade().is_some_and(|mux| {
+            mux.cloud_conversations().is_some_and(|cloud| cloud.lease_generation() == generation)
+        })
+    }
 }
 
 /// One machine's life: a socket, then a capped backoff, until its watch ends.
@@ -374,8 +383,19 @@ impl Shared {
 
     /// One frame: to the app server first (so an op waiting on the machine runs as the record
     /// shows), then its record, then whether the machine is live. All under the lock, so a frame
-    /// received before a stop or a replaced watch is never delivered after it. False ends the socket.
-    fn frame(&self, client: u64, machine: &str, watch: u64, socket: u64, text: &str) -> bool {
+    /// received before a stop or a replaced watch is never delivered after it. A frame on a socket
+    /// whose lease `generation` was replaced (a sign-out, an account switch) is dropped: the old
+    /// account's records never reach the new one, and the socket reopens on the current lease.
+    /// False ends the socket.
+    fn frame(
+        &self,
+        client: u64,
+        machine: &str,
+        watch: u64,
+        socket: u64,
+        generation: u64,
+        text: &str,
+    ) -> bool {
         let mut inner = self.lock();
         let Some(c) = inner.clients.get_mut(&client) else { return false };
         let host = c.host.clone();
@@ -386,6 +406,9 @@ impl Shared {
         else {
             return false;
         };
+        if !host.current(generation) {
+            return false;
+        }
         match push::frame(machine, text, entry.last.as_ref()) {
             Frame::Ignore => true,
             Frame::State { forward, record } => {
@@ -478,7 +501,7 @@ async fn connect(
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                 };
                 delivered = true;
-                if !shared.frame(client, machine, watch, id, &text) {
+                if !shared.frame(client, machine, watch, id, generation, &text) {
                     break;
                 }
             }
