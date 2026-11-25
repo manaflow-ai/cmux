@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots, sampleSurge } from "./mockData";
-import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
+import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, CloudUsage, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const surgeDone = sampleSurge(25);
@@ -172,6 +172,36 @@ const stagingPaused: CloudMachine = {
   paused_hourly_rate_usd: 0.001376,
   running_since: null,
   revision: "1",
+};
+
+// This month's usage (`cloud.usage.current`), priced as the billing owner prices it: $0.045 a vCPU-hour, $0.0145 a
+// GiB-hour of memory, $0.10 a GiB-month of disk held while paused. Fixed times, so the stage never moves.
+const USAGE_AS_OF = Date.UTC(2026, 10, 24, 8, 20);
+const emptyUsage: CloudUsage = {
+  period: "2026-11",
+  as_of: USAGE_AS_OF,
+  metered_since: null,
+  vcpu_seconds: 0,
+  memory_gib_seconds: 0,
+  stored_gib_seconds: 0,
+  usd: { vcpu: 0, memory: 0, stored: 0, total: 0 },
+  gaps: [],
+  payment_method: { attached: false },
+  stripe_mode: "test",
+};
+const monthUsage: CloudUsage = {
+  ...emptyUsage,
+  metered_since: Date.UTC(2026, 10, 1),
+  vcpu_seconds: 412.6 * 3600,
+  memory_gib_seconds: 1650.4 * 3600,
+  stored_gib_seconds: 12.5 * 730 * 3600,
+  usd: { vcpu: 18.57, memory: 23.93, stored: 1.25, total: 43.75 },
+  payment_method: { attached: true, brand: "visa", last4: "4242" },
+};
+const gapUsage: CloudUsage = {
+  ...monthUsage,
+  gaps: ["untracked_run"],
+  payment_method: { attached: false },
 };
 
 export default cloudPageEntry({
@@ -463,6 +493,42 @@ export default cloudPageEntry({
       note: "The billing read fails (cmux.com unreachable): no payment line, the plan shows as usual.",
       planId: "pro",
       paymentPastDue: "fail",
+      machines,
+      snapshots,
+    },
+    "usage-none": {
+      note: "This month with no usage yet and no card: $0.00 and Add payment method; Test mode while payments are in test mode.",
+      usage: emptyUsage,
+      machines,
+      snapshots,
+    },
+    "usage-card": {
+      note: "This month's usage with its cost per meter (the server's dollars) and the card on file with Change.",
+      usage: monthUsage,
+      machines,
+      snapshots,
+    },
+    "usage-gaps": {
+      note: "Part of the month is still being counted: the line says so; no card yet.",
+      usage: gapUsage,
+      machines,
+      snapshots,
+    },
+    "usage-live-mode": {
+      note: "Live payments: no Test mode label.",
+      usage: { ...monthUsage, stripe_mode: "live" },
+      machines,
+      snapshots,
+    },
+    "usage-loading": {
+      note: "The usage read has not answered yet.",
+      usage: "hold",
+      machines,
+      snapshots,
+    },
+    "usage-failed": {
+      note: "The usage read failed: one line with Retry; the rest of the panel shows as usual.",
+      usage: "fail",
       machines,
       snapshots,
     },

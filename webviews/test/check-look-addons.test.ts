@@ -46,6 +46,10 @@ test("a look's colors come from the theme's, so it reads in light and dark", () 
   expect(themeDerived(" color-mix(in oklch, var(--agent-accent) 9%, transparent)")).toBe(true);
   expect(themeDerived(" color-mix(in srgb, var(--agent-text) 72%, var(--agent-accent))")).toBe(true);
   expect(themeDerived(" transparent")).toBe(true);
+  // light-dark() over the theme's own follows the appearance; over literals it is two literals.
+  expect(themeDerived(" light-dark(var(--agent-page-bg), var(--agent-text))")).toBe(true);
+  expect(themeDerived(" light-dark(white, black)")).toBe(false);
+  expect(themeDerived(" light-dark(#fff, var(--agent-text))")).toBe(false);
   // A length is not a color: the corner keeps its px.
   expect(kinds(":root { --cv-user-bubble-radius: 18px; }")).toEqual([]);
 });

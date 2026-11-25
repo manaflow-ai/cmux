@@ -89,15 +89,11 @@ extension InputVerificationService {
                 guardian.appDidBecomeActive()
             }
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
-        })
+        for name in NoActivateKeyboardGuard.appNotifications {
+            keyboardGuardObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { guardian.observed(name) } // main-proof: observer on queue: .main
+            })
+        }
         let application = NSApp as? CmuxApplication
         let journalObserver = application?.inputObserver
         application?.inputObserver = { [weak self] event in

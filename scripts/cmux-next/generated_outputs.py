@@ -94,9 +94,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
     (SETTINGS_EXPORTS,
      SETTINGS_INPUTS, "scripts/cmux-next/regenerate-settings-exports.sh (a Mac; the autofix)"),
-    # Bot-only (RFD 0045). Nothing at a pull request head reads the defaults snapshot: the
-    # defaults guard (scripts/ci/defaults_guard.py check) computes both sides from the exports
-    # and sources, and CI never runs check-fresh. A copy a pull request carried went stale as
+    # Bot-only (RFD 0045). Nothing at a pull request head reads the defaults snapshot, and CI
+    # never runs check-fresh. A copy a pull request carried went stale as
     # soon as the base changed a default. The base autofix regenerates it after each merge.
     (("schemas/defaults/cmux-next.json",), BOT_ONLY,
      "python3 scripts/ci/defaults_guard.py snapshot; only the base autofix writes it"),
