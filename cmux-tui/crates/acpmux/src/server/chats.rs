@@ -66,6 +66,7 @@
 
 mod ledger;
 mod offers;
+mod scorecard;
 mod search;
 mod stats;
 mod team_audit;
@@ -115,6 +116,10 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // Agent byte channels: listen, unlisten, open (`channels.rs`).
+    if let Some(reply) = super::channels::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
@@ -184,6 +189,9 @@ pub(super) async fn route(
     if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::surgery::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
@@ -224,6 +232,10 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_SCORECARD {
+        return scorecard::handle(hub, conn.origin, &params).await;
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =

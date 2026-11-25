@@ -7,12 +7,13 @@ import { categoryById, homes, categoryOf } from "./categories";
 import { legacyPart } from "./legacyLinks";
 import type {
   AgentsState,
+  ArchivedState,
   ChannelsState,
-  DoctorReport,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
+  DoctorReport,
 } from "./ops";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
@@ -84,6 +85,18 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+export const ARCHIVED_KEY = [...settingsKeys.all, "archived"] as const;
+
+/** Settings > Sidebar > Archived Workspaces: the archived rows (null: the host has none). */
+export function archivedQuery(store: SettingsStore) {
+  return queryOptions<ArchivedState | null>({
+    queryKey: ARCHIVED_KEY,
+    queryFn: () => store.archived(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
 export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
 
@@ -149,12 +162,14 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
   if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
-  if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+  if (cards.has("accounts") || cards.has("integrationsHub"))
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("models") || cards.has("cloudModels"))
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
   // Customization Problems draws above the library, in its slot.

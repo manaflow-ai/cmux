@@ -26,6 +26,13 @@
 //! main stream behind another channel's flood (N Mbit/s, 0 for as fast as
 //! the link takes it). It prints the key-to-echo time and the flood's
 //! goodput (`echo_ms`, `flood_goodput_mbit_s`).
+//!
+//! Both workloads open the screen (`bench`, `echo`) with `Link::open_latest`
+//! and the keys on the input lane, so when both ends list the `classes`
+//! lane those messages also travel as datagrams (`cmux_mobile_link::classes`).
+//! `CMUX_LINK_CLASSES=off` measures today's streams only. `frame_delay_ms`
+//! is a frame's send-to-receive time (one clock serves both ends); a frame
+//! superseded by a newer one before it arrived is not counted.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -135,6 +142,9 @@ struct Record {
     frames_sent: u64,
     inputs_sent: u64,
     frames_received: u64,
+    /// The newest frame number received.
+    newest_frame: Option<u32>,
+    frame_delay_us: Vec<u64>,
     photon_us: Vec<u64>,
     last_frame_at_us: Option<u64>,
     longest_frame_gap_us: u64,
@@ -171,6 +181,10 @@ fn message(seq: u32, sent_us: u64, echo_us: u64, size: usize) -> Bytes {
     out[5..13].copy_from_slice(&sent_us.to_be_bytes());
     out[13..21].copy_from_slice(&echo_us.to_be_bytes());
     Bytes::from(out)
+}
+
+fn frame_seq(bytes: &[u8]) -> Option<u32> {
+    Some(u32::from_be_bytes(bytes.get(1..5)?.try_into().ok()?))
 }
 
 fn stamps(bytes: &[u8]) -> Option<(u64, u64)> {
@@ -247,19 +261,30 @@ async fn main() {
             let connected = dial::answer(&mac, session.first, events, &options, LinkConfig::default())
                 .await
                 .expect("answer");
-            let Some(incoming) = connected.link.accept().await else { return };
-            let (sender, mut receiver) = incoming.channel.split();
+            // `bench` carries the frames, `keys` the inputs.
             let pending = Arc::new(AtomicU64::new(0));
-            {
-                let pending = pending.clone();
-                tokio::spawn(async move {
-                    while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
-                        if let Some((sent, _)) = stamps(&bytes) {
-                            let _ = pending.compare_exchange(0, sent, Ordering::Relaxed, Ordering::Relaxed);
+            let mut frames = None;
+            let mut keys = None;
+            while frames.is_none() || keys.is_none() {
+                let Some(incoming) = connected.link.accept().await else { return };
+                let (sender, mut receiver) = incoming.channel.split();
+                if incoming.service == "keys" {
+                    let pending = pending.clone();
+                    tokio::spawn(async move {
+                        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+                            if let Some((sent, _)) = stamps(&bytes) {
+                                let _ =
+                                    pending.compare_exchange(0, sent, Ordering::Relaxed, Ordering::Relaxed);
+                            }
                         }
-                    }
-                });
+                    });
+                    keys = Some(sender);
+                } else {
+                    frames = Some((sender, receiver));
+                }
             }
+            let (sender, _receiver) = frames.expect("bench opened");
+            let _keys = keys;
             let end = loop {
                 if let Some(end) = *lock(&end_slot) {
                     break end;
@@ -290,8 +315,11 @@ async fn main() {
     let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
         .await
         .expect("dial");
-    let channel = connected.link.open("bench", serde_json::json!({})).await.expect("open");
-    let (sender, mut receiver) = channel.split();
+    let channel = connected.link.open_latest("bench", serde_json::json!({})).await.expect("open");
+    let (_frames_tx, mut receiver) = channel.split();
+    let keys = connected.link.open_on("keys", serde_json::json!({}), Lane::Input).await.expect("keys");
+    let (sender, _keys_rx) = keys.split();
+    LOSS_PPM.store((args.loss_pct * 10_000.0) as u64, Ordering::Relaxed);
     let start = Instant::now();
     let end = start + Duration::from_secs(args.seconds);
     *lock(&end_slot) = Some(end);
@@ -331,6 +359,10 @@ async fn main() {
                 }
                 record.last_frame_at_us = Some(now);
                 record.frames_received += 1;
+                record.newest_frame = frame_seq(&bytes).max(record.newest_frame);
+                if let Some((sent, _)) = stamps(&bytes) {
+                    record.frame_delay_us.push(now.saturating_sub(sent));
+                }
                 if let Some((_, echo)) = stamps(&bytes)
                     && echo != 0
                 {
@@ -348,7 +380,9 @@ async fn main() {
             loop {
                 {
                     let record = lock(&record);
-                    if Instant::now() >= end && record.frames_received >= record.frames_sent {
+                    // The newest frame arrived (older ones may be superseded).
+                    let newest = record.newest_frame.map_or(0, |seq| u64::from(seq) + 1);
+                    if Instant::now() >= end && record.frames_sent > 0 && newest >= record.frames_sent {
                         break;
                     }
                 }
@@ -367,10 +401,15 @@ async fn main() {
         record.longest_frame_gap_us = record.longest_frame_gap_us.max(now.saturating_sub(last));
     }
     let photon = percentiles(&mut record.photon_us);
+    let frame_delay = percentiles(&mut record.frame_delay_us);
     println!(
-        "{{\"row\":\"{}\",\"lan_rtt_ms\":{},\"relay_rtt_ms\":{},\"seconds\":{},\"cut_at\":{},\
+        "{{\"classes\":{},\"loss_pct\":{},\"frame_delay_ms\":{},\"datagram_wins\":{},\"row\":\"{}\",\"lan_rtt_ms\":{},\"relay_rtt_ms\":{},\"seconds\":{},\"cut_at\":{},\
          \"frames_sent\":{},\"frames_received\":{},\"inputs_sent\":{},\"input_to_photon_ms\":{},\
          \"longest_frame_gap_ms\":{:.1},\"complete\":{},\"final_path\":\"{:?}\"}}",
+        connected.link.class_datagrams(),
+        args.loss_pct,
+        frame_delay,
+        connected.link.datagram_wins(),
         args.row,
         args.lan_rtt_ms,
         args.relay_rtt_ms,
@@ -471,7 +510,8 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     let connected =
         dial::connect(&phone, &mac_id, kind, &options, LinkConfig::default()).await.expect("dial");
     let link = connected.link.clone();
-    let (_echo_tx, mut echo_rx) = link.open("echo", serde_json::json!({})).await.expect("echo").split();
+    let (_echo_tx, mut echo_rx) =
+        link.open_latest("echo", serde_json::json!({})).await.expect("echo").split();
     let (_flood_tx, mut flood_rx) = link.open("flood", serde_json::json!({})).await.expect("flood").split();
     let keys = link.open_on("keys", serde_json::json!({}), Lane::Input).await.expect("keys");
     let keys_on_lane = keys.lane() == Lane::Input;
@@ -493,13 +533,24 @@ async fn echo_flood(args: &Args, options: DialOptions) {
             }
         });
     }
+    // Key send times by number. An echo is the screen with every key up to
+    // its own on it: with latest-wins delivery a newer echo can arrive in
+    // place of an older one, and echoes the keys before it too.
+    let key_sent_us: Arc<Mutex<Vec<u64>>> = Arc::default();
     let echoes: Arc<Mutex<Vec<u64>>> = Arc::default();
     {
-        let (clock, echoes) = (clock.clone(), echoes.clone());
+        let (clock, echoes, key_sent_us) = (clock.clone(), echoes.clone(), key_sent_us.clone());
         tokio::spawn(async move {
+            let mut echoed = 0usize;
             while let Some(ChannelEvent::Data(bytes)) = echo_rx.recv().await {
-                if let Some((sent, _)) = stamps(&bytes) {
-                    lock(&echoes).push(clock.us().saturating_sub(sent));
+                let Some(seq) = frame_seq(&bytes) else { continue };
+                let now = clock.us();
+                let sent = lock(&key_sent_us).clone();
+                let upto = (seq as usize + 1).min(sent.len());
+                let mut echoes = lock(&echoes);
+                while echoed < upto {
+                    echoes.push(now.saturating_sub(sent[echoed]));
+                    echoed += 1;
                 }
             }
         });
@@ -509,7 +560,9 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     let mut next = Instant::now();
     let mut seq = 0u32;
     while next < end {
-        if keys_tx.send(message(seq, clock.us(), 0, HEADER)).await.is_err() {
+        let now = clock.us();
+        lock(&key_sent_us).push(now);
+        if keys_tx.send(message(seq, now, 0, HEADER)).await.is_err() {
             break;
         }
         keys_sent += 1;
@@ -528,9 +581,11 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     let missing = keys_sent.saturating_sub(echoes.len() as u64);
     let path = *connected.path.borrow();
     println!(
-        "{{\"workload\":\"echo-flood\",\"transport\":\"{}\",\"row\":\"{}\",\"lan_rtt_ms\":{},\"relay_rtt_ms\":{},\"seconds\":{},\
+        "{{\"classes\":{},\"datagram_wins\":{},\"workload\":\"echo-flood\",\"transport\":\"{}\",\"row\":\"{}\",\"lan_rtt_ms\":{},\"relay_rtt_ms\":{},\"seconds\":{},\
          \"flood_mbps\":{},\"loss_pct\":{},\"keys_on_input_lane\":{},\"keys_sent\":{},\"echo_missing\":{},\
          \"echo_ms\":{},\"flood_goodput_mbit_s\":{:.1},\"final_path\":\"{:?}\"}}",
+        link.class_datagrams(),
+        link.datagram_wins(),
         args.transport,
         args.row,
         args.lan_rtt_ms,
