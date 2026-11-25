@@ -58,14 +58,6 @@ name = "acpmux/plan#STATE_VERSION"
 policy = "unreviewed"
 
 [[format]]
-file = "crates/cmux-auto-session/src/consts.rs"
-const = "MANIFEST_VERSION"
-name = "auto-session-snapshot-manifest"
-about = "the chunk list a chat's Auto mode snapshot travels with, from the sending build to the receiving one"
-policy = "rebuild"
-why = "a snapshot of a live chat, taken again on each move; a receiver on another version refuses it (\"manifest version N is not read here\") and the chat stays where it is, so nothing is lost"
-
-[[format]]
 file = "crates/cmux-chat-index/src/index.rs"
 const = "CACHE_VERSION"
 name = "chat-index-cache"
