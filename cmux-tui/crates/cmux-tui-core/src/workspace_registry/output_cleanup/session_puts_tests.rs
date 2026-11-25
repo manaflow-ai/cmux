@@ -486,9 +486,21 @@ fn an_all_output_journal_swaps_to_an_empty_rebuilt_journal() {
 
     let db = Connection::open(&db_path).unwrap();
     assert_eq!(query_journal_head(&db).unwrap(), 1);
-    assert_eq!(db.query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
-    assert_eq!(db.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
-    assert_eq!(db.query_row("SELECT COUNT(*) FROM journal_pruned_ranges", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM journal_pruned_ranges", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
     let page = query_session_journal_after(&db, 0, 16).unwrap();
     assert_eq!(page.head_sequence, 1);
     assert!(page.records.is_empty());
