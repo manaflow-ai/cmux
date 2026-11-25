@@ -339,7 +339,11 @@ const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
 const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
 /** A pause retry must not wait on a provider status read that has stopped answering. */
 export const PAUSE_STATE_PROBE_TIMEOUT_MS = 5_000;
-/** A provider pause is an out-of-band lifecycle operation; bound its foreground wait. */
+/**
+ * Bounds provider pause and resume calls the crons make, which have no route
+ * deadline. A person's pause is bounded by the pause route's deadline instead
+ * (routeDeadline.ts): Freestyle pauses can take longer than this.
+ */
 export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
 /**
  * How long the status cron waits before pausing a machine it found running
@@ -2521,20 +2525,24 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
         if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
         yield* pause(vm.provider, providerVmId);
       });
-      const attempt = pauseOperation.pipe(
-        Effect.timeoutFail({
-          duration: PAUSE_OPERATION_TIMEOUT_MS,
-          onTimeout: () => new VmOperationDeadlineError({
-            operation: "pause",
-            mutating: true,
-            waitedMs: PAUSE_OPERATION_TIMEOUT_MS,
-          }),
-        }),
-      );
-      // The idle cron reads a failed pause back: a lost answer may hide a pause that went through.
+      // A person's pause is not capped here: the route answers in progress at
+      // the client's budget and its continuation finishes the pause by
+      // maxDuration (routeDeadline.ts). The idle cron has no route deadline,
+      // so it bounds the call and reads a failed pause back: a lost answer may
+      // hide a pause that went through.
       yield* expectIdleEpoch === undefined
-        ? attempt.pipe(clearPauseIntentOnFailure(repo, vm.id, intent))
-        : attempt.pipe(Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)));
+        ? pauseOperation.pipe(clearPauseIntentOnFailure(repo, vm.id, intent))
+        : pauseOperation.pipe(
+          Effect.timeoutFail({
+            duration: PAUSE_OPERATION_TIMEOUT_MS,
+            onTimeout: () => new VmOperationDeadlineError({
+              operation: "pause",
+              mutating: true,
+              waitedMs: PAUSE_OPERATION_TIMEOUT_MS,
+            }),
+          }),
+          Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)),
+        );
     }
     const recorded = yield* repo.markProviderObservedStatus({
       id: vm.id,

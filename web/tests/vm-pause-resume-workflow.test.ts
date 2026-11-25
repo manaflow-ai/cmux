@@ -8,7 +8,7 @@ import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { PAUSE_OPERATION_TIMEOUT_MS, PAUSE_STATE_PROBE_TIMEOUT_MS, pauseVm, resumeVm } from "../services/vms/workflows";
+import { PAUSE_STATE_PROBE_TIMEOUT_MS, pauseVm, resumeVm } from "../services/vms/workflows";
 import { VmProviderOperationError } from "../services/vms/errors";
 import { VM_ROUTE_DEADLINES, VM_ROUTE_ANSWER_MARGIN_MS, withVmRouteDeadline } from "../services/vms/routeDeadline";
 import { providerConflictKind } from "../services/vms/drivers/types";
@@ -292,30 +292,37 @@ describe("pauseVm", () => {
     expect(recorded.statuses).toEqual([]);
   });
 
-  test("a provider pause that never answers fails within its bound and leaves the row running", async () => {
-    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "not_paused", pauseHangs: true });
-    const exit = await Effect.runPromise(Effect.gen(function* () {
-      const fiber = yield* Effect.fork(pauseVm(caller).pipe(Effect.provide(layer), Effect.either));
-      yield* TestClock.adjust(PAUSE_OPERATION_TIMEOUT_MS);
-      return yield* Fiber.join(fiber);
+  /** Runs a pause under the pause route's deadline (no stated budget) until the continuation ends. */
+  async function underPauseRoute(layer: Layer.Layer<VmRepository | VmProviderGateway>) {
+    const background: Promise<unknown>[] = [];
+    const answer = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(withVmRouteDeadline(pauseVm(caller).pipe(Effect.provide(layer)), {
+        operation: "pause", elapsedMs: 0, continueInBackground: (work) => { background.push(work); },
+      }).pipe(Effect.either));
+      yield* TestClock.adjust(VM_ROUTE_DEADLINES.pause.clientTimeoutMs - VM_ROUTE_ANSWER_MARGIN_MS);
+      const answered = yield* Fiber.join(fiber);
+      yield* TestClock.adjust(VM_ROUTE_DEADLINES.pause.maxDurationMs);
+      yield* Effect.promise(() => Promise.all(background));
+      return answered;
     }).pipe(Effect.provide(TestContext.TestContext)));
-    expect(exit._tag).toBe("Left");
-    expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    return { answer, background };
+  }
+
+  test("a provider pause that never answers is in progress at the route deadline and leaves the row running", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "not_paused", pauseHangs: true });
+    const { answer, background } = await underPauseRoute(layer);
+    expect(answer._tag === "Left" ? answer.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(background).toHaveLength(1);
     expect(recorded.paused).toEqual(["fs-1"]);
     expect(recorded.statuses).toEqual([]);
   });
 
-  test("a Go runtime-budget update that never answers fails within the pause bound", async () => {
+  test("a Go runtime-budget update that never answers is in progress at the route deadline", async () => {
     const { recorded, layer } = fakes({
       row: machineRow({ billingPlanId: "go" }), pauseState: "not_paused", runtimeBudgetHangs: true,
     });
-    const exit = await Effect.runPromise(Effect.gen(function* () {
-      const fiber = yield* Effect.fork(pauseVm(caller).pipe(Effect.provide(layer), Effect.either));
-      yield* TestClock.adjust(PAUSE_OPERATION_TIMEOUT_MS);
-      return yield* Fiber.join(fiber);
-    }).pipe(Effect.provide(TestContext.TestContext)));
-    expect(exit._tag).toBe("Left");
-    expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    const { answer } = await underPauseRoute(layer);
+    expect(answer._tag === "Left" ? answer.left._tag : null).toBe("VmOperationDeadlineError");
     expect(recorded.runtimeBudgets).toEqual([{ id: "fs-1", seconds: 0 }]);
     expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
