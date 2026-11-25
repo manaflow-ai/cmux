@@ -151,6 +151,13 @@ await requireBrowserLane("agent-question-card-paging.browser.test.ts", async () 
 
     test("the pager's and the ×'s tooltips open above the bar, off the question", async () => {
       const page = await open(640);
+      // In the pane the asks stack scrolls, as tall as its card (bottomStack.css), so the room above
+      // the bar is outside it: the tooltip still opens there, not below over the question.
+      await page.evaluate(() => {
+        const stack = document.querySelector<HTMLElement>(".acpmux-asks-stack")!;
+        stack.style.overflowY = "auto";
+        stack.style.overscrollBehavior = "contain";
+      });
       const question = await page.locator(".acpmux-question-head").boundingBox();
       // Previous starts disabled on the first page; step on so every control takes a hover.
       await page.locator(".acpmux-question-nav-button:not([data-step])").click();

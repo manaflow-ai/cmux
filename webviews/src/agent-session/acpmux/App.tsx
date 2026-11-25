@@ -9876,7 +9876,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : undefined;
   const asks = bottomStack.shows ? (
-    <div className="acpmux-permission acpmux-asks-stack" data-leaving={bottomStack.leaving || undefined}>
+    <div
+      className="acpmux-permission acpmux-asks-stack"
+      data-leaving={bottomStack.leaving || undefined}
+      /* Its card's tooltips open above it, over the transcript, not over the question (#56534). */
+      data-tooltip-escape=""
+    >
       {pinnedAsks.length > 0 && (
         <PendingAsks
           asks={pinnedAsks}

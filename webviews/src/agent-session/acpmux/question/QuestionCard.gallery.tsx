@@ -69,7 +69,8 @@ function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }:
       style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16, ...font.style }}
     >
       <div className="acpmux-permission">
-        <div className="acpmux-asks-stack" ref={stack}>
+        {/* As App.tsx's: its card's tooltips may leave it (ui/titleTooltips.ts). */}
+        <div className="acpmux-asks-stack" ref={stack} data-tooltip-escape="">
           <QuestionCard {...props} />
         </div>
       </div>
