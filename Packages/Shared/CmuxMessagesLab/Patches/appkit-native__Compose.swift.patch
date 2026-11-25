@@ -378,12 +378,18 @@
  }
  
  /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -456,8 +667,10 @@
+@@ -455,9 +666,15 @@
+     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
      var text: String { view.string }
      private var scrolled: NSObjectProtocol?
-     init() {
+-    init() {
 -        // TextKit 2, as UITextView on Catalyst.
 -        view = FieldTextView(usingTextLayoutManager: true)
++    /// cmux: tells assistive apps (VoiceOver's cursor) that the field moved or changed size: AppKit posts
++    /// no notice for a view's frame, so VoiceOver kept the field's first frame. Tests pass a recorder.
++    private let announce: (NSView, NSAccessibility.Notification) -> Void
++    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = ComposeTextView.post) {
++        self.announce = announce
 +        // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
 +        // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
 +        view = FieldTextView(usingTextLayoutManager: false)
@@ -391,7 +397,37 @@
          view.wantsLayer = true
          clip.wantsLayer = true
          clip.layer?.masksToBounds = true
-@@ -545,7 +758,7 @@
+@@ -486,6 +703,13 @@
+         }
+     }
+     deinit { scrolled.map(NotificationCenter.default.removeObserver) }
++
++    /// Posts `notification` for `view`. A layout change goes on the view's window and names the view: VoiceOver then
++    /// reads the frames again, its cursor's too, whichever element of the field it is on.
++    static func post(_ view: NSView, _ notification: NSAccessibility.Notification) {
++        guard notification == .layoutChanged else { return NSAccessibility.post(element: view, notification: notification) }
++        NSAccessibility.post(element: view.window ?? view, notification: notification, userInfo: [.uiElements: [view]])
++    }
+ 
+     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
+     private(set) var widthWaiting: CGRect?
+@@ -518,7 +742,14 @@
+     /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
+     /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
+     func place(_ frame: CGRect) {
+-        guard clip.frame != frame else { return }
++        let old = clip.frame
++        guard old != frame else { return }
++        // VoiceOver's cursor follows the field only when it hears of each move and size change.
++        defer {
++            if clip.frame.size != old.size { announce(view, .resized) }
++            if clip.frame.origin != old.origin { announce(view, .moved) }
++            if clip.frame != old { announce(view, .layoutChanged) }
++        }
+         // A live resize that changes only the field's width while the draft is empty: no pixel of
+         // the empty field depends on its width (the caret stands at the left inset of an empty
+         // left-to-right line; the placeholder is the compose bar's own layer), so the clip keeps its
+@@ -545,7 +776,7 @@
          // after the drag, its caret line under the field).
          let width = size.width - 2 * view.textContainerInset.width
          if let c = view.textContainer, c.size.width != width { c.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude) }
@@ -400,7 +436,7 @@
          view.sizeToFit()
          view.keepCaretInView()
          // The caret view is the clip's sibling: a move of the clip alone (a window height change)
-@@ -598,9 +811,11 @@
+@@ -598,9 +829,11 @@
      private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
      private(set) var chips: [Attachment] = []
      private(set) var text = ""
@@ -415,7 +451,7 @@
      private var placeholder = Strings.placeholder
      var captureMode = false {
          didSet {
-@@ -632,11 +847,42 @@
+@@ -632,11 +865,42 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
      var onSendPulse: ((CFTimeInterval) -> Void)?
@@ -460,7 +496,7 @@
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
      static var writingToolsRaw: Int {
-@@ -658,16 +904,41 @@
+@@ -658,16 +922,41 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -507,7 +543,7 @@
      }
      /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
      /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
-@@ -677,28 +948,48 @@
+@@ -677,28 +966,48 @@
      static let maxHeight: CGFloat = 295.5
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
@@ -563,7 +599,7 @@
      }
      /// UITextView's text container inset above the first line (Catalyst value).
      static let textTopInset: CGFloat = ComposeView.firstBaseline - 13.26 - 0.25
-@@ -746,9 +1037,10 @@
+@@ -746,9 +1055,10 @@
          tv.drawsBackground = false
          tv.backgroundColor = .clear
          tv.font = ComposeView.font
@@ -575,7 +611,7 @@
          tv.textContainer?.lineFragmentPadding = 0
          // AppKit puts `textContainerInset.height` above and below the text when it sizes the
          // document; the container origin puts the text at the top inset.
-@@ -767,7 +1059,7 @@
+@@ -767,7 +1077,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -584,7 +620,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -790,6 +1082,7 @@
+@@ -790,6 +1100,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -592,7 +628,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -835,6 +1128,9 @@
+@@ -835,6 +1146,9 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -602,7 +638,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -842,14 +1138,15 @@
+@@ -842,14 +1156,15 @@
  
      var fieldRect: CGRect { rect(height: fieldHeight) }
      func rect(height h: CGFloat) -> CGRect {
@@ -620,7 +656,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -867,10 +1164,11 @@
+@@ -867,10 +1182,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -633,7 +669,7 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -932,6 +1230,15 @@
+@@ -932,6 +1248,15 @@
      /// The light or dark appearance changed (WindowView.setLightAppearance): the placeholder and the waveform
      /// are drawn again in its ink.
      func appearanceChanged() { renderPlaceholder() }
@@ -649,7 +685,7 @@
  
      private func renderPlaceholder() {
          placeholderScale = renderScale
-@@ -940,11 +1247,11 @@
+@@ -940,11 +1265,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -663,7 +699,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -958,7 +1265,57 @@
+@@ -958,7 +1283,57 @@
      }
  
      private func renderChips() {
@@ -722,7 +758,7 @@
      }
  
      /// The attachment whose remove control is at p (window coordinates).
-@@ -982,18 +1339,32 @@
+@@ -982,18 +1357,32 @@
      /// transaction (catalyst's `ComposeView.update`).
      func update(state: AppState, send: Bool, begin: CFTimeInterval) {
          let d = state.ui.draft
@@ -761,7 +797,7 @@
          if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
          // Messages changes the field's height at once for an attachment (no in-between frame at
          // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and
-@@ -1001,14 +1372,10 @@
+@@ -1001,14 +1390,10 @@
          let attachmentsChanged = d.attachments != chips
          if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
          text = d.text
@@ -777,7 +813,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1045,6 +1412,7 @@
+@@ -1045,6 +1430,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -785,7 +821,7 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
-@@ -1079,7 +1447,7 @@
+@@ -1079,7 +1465,7 @@
          guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
          // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
          // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
@@ -794,7 +830,7 @@
          // no trap on a NaN or huge size (crash ratchet)
          let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
          if rep.pixelsWide != wide || rep.pixelsHigh != high,
-@@ -1124,15 +1492,17 @@
+@@ -1124,15 +1510,17 @@
  
      private func drawButtons(_ ctx: CGContext) {
          ctx.translateBy(x: 0, y: -(995 + dy))
