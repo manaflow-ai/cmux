@@ -16,8 +16,8 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::hub::Hub;
 use crate::hub::transfer_pull::{MAX_FRAME, PageSource, TransferDial};
+use crate::hub::{Hub, transfer_park};
 use crate::hub_carrier::{CircuitService, HubStream, ServiceRefusal, TransferGate};
 use crate::rpc::RpcError;
 
@@ -47,13 +47,29 @@ pub async fn read_frame<R: AsyncRead + Unpin>(io: &mut R) -> Option<Value> {
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Serves the requests of one circuit from `from` on `io`, by `hub`, until it closes.
+/// Serves the requests of one circuit from `from` on `io`, by `hub`, until it closes. A
+/// pre-copy's target parks it with `await_move` and answers the move it is handed with `moved`
+/// (`hub/transfer_park.rs`); a circuit that closes before that answer leaves the move unknown.
 pub async fn serve_pages<S: AsyncRead + AsyncWrite + Unpin>(hub: &Arc<Hub>, from: &str, mut io: S) {
+    let mut answering: Option<(String, Answer)> = None;
     while let Some(request) = read_frame(&mut io).await {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let method = request.get("method").and_then(Value::as_str).unwrap_or("");
         let params = request.get("params").cloned().unwrap_or(Value::Null);
-        let answer = match hub.transfer_source_page(from, method, &params).await {
+        let answered = match method {
+            "await_move" => match await_move(hub, from, &params, &mut io).await {
+                Parked::Closed => return,
+                Parked::Moving(handoff) => {
+                    let transfer_id = handoff.body.get("transferId").and_then(Value::as_str);
+                    answering = Some((transfer_id.unwrap_or("").to_owned(), handoff.answer));
+                    Ok(json!({"body": handoff.body}))
+                }
+                Parked::Answered(answered) => answered,
+            },
+            "moved" => transfer_park::take_moved(&mut answering, &params),
+            _ => hub.transfer_source_page(from, method, &params).await,
+        };
+        let answer = match answered {
             Ok(result) => json!({"id": id, "result": result}),
             Err(error) => {
                 json!({"id": id, "error": {"code": error.code, "message": error.message}})
@@ -62,6 +78,52 @@ pub async fn serve_pages<S: AsyncRead + AsyncWrite + Unpin>(hub: &Arc<Hub>, from
         if write_frame(&mut io, &answer).await.is_err() {
             return;
         }
+    }
+}
+
+type Answer = tokio::sync::oneshot::Sender<Result<Value, transfer_park::Unmoved>>;
+
+enum Parked {
+    /// The circuit closed while parked.
+    Closed,
+    /// A move's body to hand over.
+    Moving(transfer_park::Handoff),
+    /// `{none}`, or a refusal of the wait.
+    Answered(Result<Value, RpcError>),
+}
+
+/// One `await_move`: a move handed over within [`transfer_park::PARK_WAIT`], or `{none}`.
+async fn await_move<S: AsyncRead + Unpin>(
+    hub: &Arc<Hub>,
+    from: &str,
+    params: &Value,
+    io: &mut S,
+) -> Parked {
+    let mut parking = match hub.park_move(from, params) {
+        Ok(parking) => parking,
+        Err(e) => return Parked::Answered(Err(e)),
+    };
+    // The target sends nothing while parked: a record or a close ends the circuit.
+    let (mut handed, closed) = tokio::select! {
+        got = tokio::time::timeout(transfer_park::PARK_WAIT, &mut parking.hand) => {
+            (got.ok().and_then(Result::ok), false)
+        }
+        _ = read_frame(io) => (None, true),
+    };
+    hub.unpark_move(&parking.stage_id, parking.id);
+    if handed.is_none() {
+        // Closed to new hand-offs; one handed over before that is taken here.
+        parking.hand.close();
+        handed = parking.hand.try_recv().ok();
+    }
+    match (handed, closed) {
+        (Some(handoff), true) => {
+            let _ = handoff.answer.send(Err(transfer_park::Unmoved::NotSent));
+            Parked::Closed
+        }
+        (None, true) => Parked::Closed,
+        (Some(handoff), false) => Parked::Moving(handoff),
+        (None, false) => Parked::Answered(Ok(json!({"none": true}))),
     }
 }
 

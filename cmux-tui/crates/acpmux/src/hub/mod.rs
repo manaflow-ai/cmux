@@ -554,6 +554,7 @@ mod transfer_guard;
 mod transfer_hub_precopy;
 mod transfer_in;
 mod transfer_out;
+pub mod transfer_park;
 pub mod transfer_pull;
 mod transfer_watch;
 #[cfg(test)]
@@ -1523,6 +1524,8 @@ pub struct Hub {
     /// How a hub move reaches its source for the pages (`transfer_pull.rs`): the hub carrier's
     /// `TransferSource` circuit once it starts, or a test's in-process stand-in.
     pub(super) transfer_dial: StdMutex<Option<Arc<dyn transfer_pull::TransferDial>>>,
+    /// The circuits a pre-copy's target parked for its move's control (`transfer_park.rs`).
+    pub(super) parked_moves: StdMutex<transfer_park::Parked>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// How long a foreground shell runs before it goes to the background, None: never
@@ -1947,6 +1950,7 @@ impl Hub {
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             transfer_dial: StdMutex::new(None),
+            parked_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
