@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.guidance.otherAgents.help" : {
+      "comment" : "Settings > Agents > Guidance and Skills: toggle help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gemini, OpenCode and agents you added get the same guidance."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحصل Gemini وOpenCode والوكلاء الذين أضفتهم على الإرشادات نفسها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode i agenti koji su dodani dobijaju iste smjernice."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode og agenter, du har tilføjet, får den samme vejledning."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode und von dir hinzugefügte Agenten erhalten dieselbe Anleitung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode y los agentes que añadiste reciben la misma guía."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode et les agents que vous avez ajoutés reçoivent les mêmes consignes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode e gli agenti che hai aggiunto ricevono le stesse linee guida."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini、OpenCode、追加したエージェントにも同じガイダンスを伝えます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode និងភ្នាក់ងារដែលអ្នកបានបន្ថែម ទទួលបានការណែនាំដូចគ្នា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode, 직접 추가한 에이전트도 같은 안내를 받습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode og agenter du har lagt til, får den samme veiledningen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode i dodani przez Ciebie agenci otrzymują te same wskazówki."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode e os agentes que você adicionou recebem as mesmas orientações."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode и добавленные вами агенты получают те же рекомендации."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode และเอเจนต์ที่คุณเพิ่มเองจะได้รับคำแนะนำเดียวกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode ve sizin eklediğiniz ajanlar aynı yönergeleri alır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode і додані вами агенти отримують ті самі рекомендації."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini, OpenCode và các tác nhân bạn đã thêm nhận cùng hướng dẫn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini、OpenCode 及你添加的代理会得到相同的指引。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gemini、OpenCode 及你新增的代理會得到相同的指引。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
