@@ -9,7 +9,7 @@ fn human_ps_names_state_stream_and_place() {
         "hosts": [{
             "host_pid": 42, "pgid": 42, "state": "in-use", "stream_held": true,
             "terminal_id": "t1", "reason": "this daemon shows it",
-            "placements": [{"surface": 1, "pane": "pane:1", "workspace_name": "main"}],
+            "placements": [{"pane": "pane_1a2b3c", "workspace_name": "main"}],
             "gc": {"candidate": false, "refusal": "a live daemon holds its stream"}
         }],
         "helpers": [],
@@ -18,7 +18,7 @@ fn human_ps_names_state_stream_and_place() {
     let out = human_ps(&census);
     assert!(out.contains("in-use"), "{out}");
     assert!(out.contains("held"), "{out}");
-    assert!(out.contains("main/pane:1"), "{out}");
+    assert!(out.contains("main/pane_1a2b3c"), "{out}");
     assert!(!out.contains("gc candidate"), "{out}");
 }
 

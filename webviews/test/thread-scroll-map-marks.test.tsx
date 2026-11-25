@@ -89,6 +89,7 @@ async function mount(rows: readonly AcpmuxRow[], layout: ConversationLayout) {
     placement: { left: 0, width: 120, overlapsText: false, gutter: 0, reserve: 0 },
     marks: { has: () => false, can: () => false, toggle: () => {} } as unknown as Props["marks"],
     jump: () => undefined,
+    cutoverLook: "band",
     ...next,
   });
   let current = props({});
