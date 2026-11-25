@@ -7,7 +7,9 @@
 //!   laptop has. With no answer from the store, `auto: true` answers the row as it is (Auto on,
 //!   not in the Cloud yet) and the daemon goes on asking.
 //! - `_acpmux/auto_session/set {sessionId, mode}` with `mode` one of `local`, `auto`, `cloud`:
-//!   the same switch in the place picker's three states (`set_mode`).
+//!   the same switch in the place picker's three states (`set_mode`). `cloud` for a chat that
+//!   cannot be moved there is refused as a move is, and a chat that had Auto off has it off
+//!   again (`to_cloud`).
 //! - `_acpmux/auto_session/move {sessionId, to}` with `to` one of `cloud`, `local` ->
 //!   `{autoSession}`: the chat moves now, also in the middle of a turn. Answered once the
 //!   Cloud took the move; a refusal is the request's error, one plain sentence with the
@@ -24,6 +26,7 @@ use std::sync::Arc;
 use cmux_auto_session::wire::MoveTo;
 use serde_json::{Value, json};
 
+use super::HolderHandle;
 use super::export::leftover as patch;
 use super::record::{AutoRecord, Mode};
 use crate::hub::{Hub, Session};
@@ -115,15 +118,42 @@ async fn set_mode(hub: &Arc<Hub>, session: &Arc<Session>, mode: Mode) -> Result<
     let id = session.id.as_str();
     let row = match mode {
         Mode::Auto => holder.set_auto(id, true, Some(false)).await?,
-        Mode::Cloud => {
-            if !hub.auto_record(session).is_some_and(|record| record.auto) {
-                holder.set_auto(id, true, Some(true)).await?;
-            }
-            holder.move_to(id, MoveTo::Cloud).await?
-        }
+        Mode::Cloud => to_cloud(hub, holder, session).await?,
         Mode::Local => holder.set_local(id).await?,
     };
     Ok(json!({ "autoSession": row }))
+}
+
+/// `mode: "cloud"`. A chat with Auto on is moved, and a move the Cloud refuses changes nothing
+/// of it. A chat with Auto off is registered as kept in the Cloud first, then moved; when it
+/// is not moved after all, Auto is switched off for it again before the request answers why,
+/// so the chat is as it was: not an Auto chat, and not copied to the Cloud.
+async fn to_cloud(
+    hub: &Arc<Hub>,
+    holder: &HolderHandle,
+    session: &Arc<Session>,
+) -> Result<Value, RpcError> {
+    let id = session.id.as_str();
+    if hub.auto_record(session).is_some_and(|record| record.auto) {
+        return holder.move_to(id, MoveTo::Cloud).await;
+    }
+    holder.set_auto(id, true, Some(true)).await?;
+    // With no answer from the store the chat has Auto on and is not in the Cloud yet (the
+    // record names no epoch). The store would refuse to move a chat it does not know, in words
+    // that fit a chat the person never set to Cloud.
+    let record = hub.auto_record(session).filter(|record| record.auto);
+    let moved = if record.is_some_and(|record| record.epoch == 0) {
+        Err(HolderHandle::cloud_did_not_answer())
+    } else {
+        holder.move_to(id, MoveTo::Cloud).await
+    };
+    if moved.is_err()
+        && let Err(error) = holder.set_auto(id, false, None).await
+    {
+        let why = error.message;
+        tracing::warn!(session = %id, "auto session: Auto not switched off again: {why}");
+    }
+    moved
 }
 
 /// `_acpmux/auto_session/move {sessionId, to}`: the chat runs in the Cloud, or on this

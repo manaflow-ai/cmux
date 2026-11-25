@@ -5,9 +5,10 @@
 //! nobody runs; otherwise the chat's holder gives it (`give.rs`). When this laptop is that
 //! holder it starts the give from the store's answer, without waiting for its next renewal.
 //!
-//! A chat set to this machine only is moved home first. Auto goes off for it once it is here
-//! and this machine has stored a copy of its own: the store refuses earlier, while the Cloud
-//! has something this machine has not.
+//! A chat set to this machine only is moved home first. Auto goes off for it once it is here,
+//! this machine has stored a copy of its own and has taken the chat's Cloud inbox: the store
+//! refuses earlier, while the Cloud has something this machine has not, and closing the chat
+//! there drops what the inbox still held.
 
 use cmux_auto_session::AutoCloud;
 use cmux_auto_session::cloud::AutoCloudError;
@@ -20,6 +21,7 @@ use super::run::Loop;
 use super::switch::answer;
 use super::tasks::{Ctx, answered, row};
 use super::{Command, Reply};
+use crate::auto_session::HolderHandle;
 use crate::rpc::RpcError;
 
 /// Where a move goes, in the person's words.
@@ -108,6 +110,13 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Some(State::Standby { .. }) => self.move_chat(id, MoveTo::Local, true, reply),
             // On its way in already: Auto goes off once it is here.
             Some(State::ComingHome { .. }) => {
+                let view = self.chats.get(id).and_then(|tracked| tracked.view.as_ref());
+                let kept = view.is_some_and(|view| view.keep_in_cloud);
+                if kept {
+                    // The store still keeps the chat in the Cloud, which ends "this machine
+                    // only" (`chats.rs`): a move here tells it otherwise, in one write.
+                    return self.move_chat(id, MoveTo::Local, true, reply);
+                }
                 self.want_local(id, true);
                 answer(Some(reply), Ok(row(&self.hub, id)));
             }
@@ -182,21 +191,48 @@ impl<C: AutoCloud + 'static> Loop<C> {
         });
     }
 
-    /// A chat set to this machine only, once it is home with a copy of its own in the store:
-    /// Auto goes off. The store refuses while the chat still owes it that copy, and the next
-    /// copy asks again.
+    /// A chat set to this machine only, once it is home with a copy of its own in the store and
+    /// nothing of the Cloud's is still owed to this machine: Auto goes off.
+    ///
+    /// Closing a chat in the store marks its whole inbox as taken, so a prompt sent while the
+    /// chat was on its way home must be this machine's first: the chat's lane is empty and
+    /// idle (no drain waits or runs), and the store's last view has no message this machine
+    /// has not taken. The store also refuses while the chat still owes it a copy.
+    ///
+    /// Asked whenever one of those may have become true: a copy ended, the lane finished, or a
+    /// view came from the store (`run.rs`). It reads the record only for a chat that is home.
     pub(super) async fn leave_when_home(&mut self, id: &str) {
         let Some(tracked) = self.chats.get(id) else { return };
         let home = matches!(tracked.chat.state, State::Holding { .. })
             && tracked.chat.copy == CopyState::Stored;
+        let idle = tracked.lane.is_empty() && !tracked.lane_busy;
+        let taken = tracked.view.as_ref().is_some_and(|view| !view.inbox_pending());
+        if !home || !idle || !taken || tracked.leaving {
+            return;
+        }
         let wanted = self
             .hub
             .auto_session(id)
             .and_then(|session| self.hub.auto_record(&session))
             .is_some_and(|record| record.local_wanted);
-        if home && wanted {
-            self.step(id, Event::AutoOff).await;
+        if !wanted {
+            return;
         }
+        // One ask at a time: the store's answer clears it (`switch.rs` `closed`).
+        if let Some(tracked) = self.chats.get_mut(id) {
+            tracked.leaving = true;
+        }
+        self.step(id, Event::AutoOff).await;
+    }
+}
+
+impl HolderHandle {
+    /// What a request to run a chat in the Cloud answers when the Cloud has not said yet that
+    /// the chat is an Auto chat (its registration got no answer): the words of a move the
+    /// Cloud did not answer, which can be asked again.
+    pub(crate) fn cloud_did_not_answer() -> RpcError {
+        let silent = AutoCloudError::transport("the Cloud did not answer in time");
+        move_error(&silent, MoveTo::Cloud)
     }
 }
 
@@ -250,5 +286,19 @@ mod tests {
         let silent = move_error(&AutoCloudError::transport("no network"), MoveTo::Local);
         assert!(silent.message.contains("did not answer"), "{}", silent.message);
         assert_eq!(reason(&silent), Some("auto.unreachable"));
+    }
+
+    #[test]
+    fn a_chat_the_cloud_has_not_answered_for_is_not_moved_and_can_be_asked_again() {
+        let error = HolderHandle::cloud_did_not_answer();
+        assert_eq!(
+            error.message,
+            "This chat was not moved to the Cloud: the Cloud did not answer; try again. It stays \
+             where it is."
+        );
+        assert_eq!(reason(&error), Some("auto.unreachable"));
+        let retryable = error.data.as_ref().and_then(|data| data.get("retryable"));
+        assert_eq!(retryable, Some(&json!(true)));
+        assert!(!error.message.contains("Set it to Auto or Cloud"), "{}", error.message);
     }
 }

@@ -28,14 +28,37 @@ pub fn moves(log: &[EventRecord]) -> usize {
     prompts(log).iter().filter(|text| text.starts_with(MOVED)).count()
 }
 
+/// Whether the turn of the log's `nth` prompt that starts with `opening` completed: it ran to
+/// its end, and was not stopped and did not fail.
+pub fn completed(log: &[EventRecord], opening: &str, nth: usize) -> bool {
+    let asked = |event: &&EventRecord| {
+        event.kind == "user_message"
+            && event.msg["text"].as_str().is_some_and(|text| text.starts_with(opening))
+    };
+    let Some(prompt) = log.iter().filter(asked).nth(nth - 1) else { return false };
+    // Turns of one chat run one after the other: the next result is this prompt's.
+    let result = log.iter().find(|event| event.kind == "turn_result" && event.seq > prompt.seq);
+    result.is_some_and(|result| result.msg["status"] == "completed")
+}
+
 /// Whether the log's `nth` moved-turn continuation ran to its end.
 pub fn went_on(log: &[EventRecord], nth: usize) -> bool {
-    let continued = |event: &&EventRecord| {
-        event.kind == "user_message"
-            && event.msg["text"].as_str().is_some_and(|text| text.starts_with(MOVED))
-    };
-    let Some(prompt) = log.iter().filter(continued).nth(nth - 1) else { return false };
-    log.iter().any(|event| event.kind == "turn_result" && event.seq > prompt.seq)
+    completed(log, MOVED, nth)
+}
+
+/// How many turns the log says started.
+pub fn turns(log: &[EventRecord]) -> usize {
+    log.iter().filter(|event| event.kind == "turn_started").count()
+}
+
+/// Asserts that a machine that gave the chat away did not go on with it. `given` is its log
+/// right after the give and `later` its log some time on: no turn started there since, no
+/// prompt ran there since, and the turn it stopped was never told that the chat stayed.
+pub fn did_not_go_on(given: &[EventRecord], later: &[EventRecord]) {
+    assert_eq!(turns(later), turns(given), "a turn started where the chat was given away");
+    assert_eq!(prompts(later), prompts(given), "a prompt ran where the chat was given away");
+    let stayed = prompts(later).iter().any(|text| text.starts_with(STAYED));
+    assert!(!stayed, "the chat was given away: {:?}", prompts(later));
 }
 
 /// The prompt whose turn runs a tool's shell until it is stopped: the shell appends "start"
@@ -88,6 +111,7 @@ async fn a_chat_moved_by_hand_mid_turn_goes_on_once_on_the_machine_and_once_back
     until("the laptop's shell is gone", || !crate::daemon_env::alive(laptop_shell)).await;
     let given = log_of(&laptop.hub, &id);
     assert!(answered(&given, &build(&first)), "the laptop settled the turn it stopped");
+    assert_eq!(moves(&given), 0, "the laptop gave the turn away: {:?}", prompts(&given));
 
     // The machine goes on with the turn once, told that the chat moved, in the laptop's own
     // agent conversation: the session file is where the machine's agent looks.
@@ -106,6 +130,9 @@ async fn a_chat_moved_by_hand_mid_turn_goes_on_once_on_the_machine_and_once_back
         .await;
     assert!(world.view(&id).keep_in_cloud);
 
+    // The laptop gave the chat: with the machine done, nothing ran on the laptop since.
+    did_not_go_on(&given, &log_of(&laptop.hub, &id));
+
     // The phone sends a prompt, and the machine is in the middle of its tool call when the
     // person moves the chat home.
     let second = world.dir.path().join("second.log");
@@ -121,6 +148,8 @@ async fn a_chat_moved_by_hand_mid_turn_goes_on_once_on_the_machine_and_once_back
     comes_home(&world, &laptop, &id, 3).await;
     until("the machine's shell is gone", || !crate::daemon_env::alive(machine_shell)).await;
     let at_give = std::fs::read(&on_machine).unwrap();
+    let machine_gave = log_of(&machine.hub, &id);
+    assert!(answered(&machine_gave, &build(&second)), "the machine settled the turn it stopped");
 
     // Home: the turn goes on once more, on the laptop, in the same conversation, and every
     // prompt of the chat ran exactly once.
@@ -138,7 +167,10 @@ async fn a_chat_moved_by_hand_mid_turn_goes_on_once_on_the_machine_and_once_back
     let home = std::fs::read(&on_laptop).unwrap();
     assert!(home.starts_with(&at_give), "the machine's file came home");
     assert!(home.len() > at_give.len(), "the laptop's agent wrote on in it");
-    assert_eq!(moves(&log_of(&machine.hub, &id)), 1, "the machine ran nothing after it gave");
+    // The machine gave the chat: with the laptop done, nothing ran on the machine since.
+    let machine_log = log_of(&machine.hub, &id);
+    assert_eq!(moves(&machine_log), 1, "the machine ran nothing after it gave");
+    did_not_go_on(&machine_gave, &machine_log);
     let view = world.view(&id);
     assert_eq!((view.holder.clone(), view.epoch), (device(), 3), "{view:?}");
     assert!(view.moving.is_none() && !view.keep_in_cloud, "{view:?}");

@@ -186,7 +186,11 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// no laptop has) leaves the chat an Auto chat, and whoever asked hears why.
     pub(super) async fn closed(&mut self, id: &str, result: Result<SessionView, AutoCloudError>) {
         let waiting = match self.chats.get_mut(id) {
-            Some(tracked) => std::mem::take(&mut tracked.closing),
+            Some(tracked) => {
+                // A chat set to this machine only may ask again (`moves.rs`).
+                tracked.leaving = false;
+                std::mem::take(&mut tracked.closing)
+            }
             None => Vec::new(),
         };
         // The chat's epoch in the store's answer tells the core whether a stopped tree is
