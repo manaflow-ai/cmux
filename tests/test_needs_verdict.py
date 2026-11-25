@@ -82,7 +82,6 @@ NOT_MERGE_GATES = {
     ("nightly.yml", "prepare-nightly-variant"): "nightly, not a merge gate",
     ("nightly.yml", "publish-nightly"): "nightly, not a merge gate",
     ("nightly.yml", "report-nightly-failure"): "nightly report, not a merge gate",
-    ("sdk-release-cut.yml", "summarize"): "release cut, not a merge gate",
     ("stable-next.yml", "report"): "stable release report, not a merge gate",
 }
 

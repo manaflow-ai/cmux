@@ -82,7 +82,12 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
         return animation;
       };
       let target = 0;
-      field.addEventListener(FIELD_GROWTH_EVENT, (event) => (target = (event as FieldGrowthEvent).detail.to));
+      const durations: number[] = [];
+      field.addEventListener(FIELD_GROWTH_EVENT, (event) => {
+        const { detail } = event as FieldGrowthEvent;
+        target = detail.to;
+        durations.push(detail.duration);
+      });
       const view = new EditorView(field, {
         state: EditorState.create({ schema, plugins: [fieldGrowth(() => false)] }),
       });
@@ -129,6 +134,12 @@ test("one line grows and shrinks in CSS pixels at every composer zoom", async ()
           animation!.dispatchEvent(new window.Event("finish"));
           expect(growthHoldsText(field)).toBe(false);
         }
+        // A new line is one move, nigh instant: at rest within 60 ms, retargets included (Leo,
+        // 2026-11-23: "stop playing the stupid fucking slow ass animation when new lines are there in
+        // the composer ... one good motion and feeling nigh instant"). The spring before took 178 ms.
+        if (zoom === 1) console.log(`composer growth per new line: ${Math.max(...durations)} ms`);
+        expect(durations.length).toBeGreaterThan(0);
+        expect(Math.max(...durations)).toBeLessThanOrEqual(60);
         // A resize that is no edit's (a window rewrap, frames after the last key) moves nothing.
         view.dispatch(view.state.tr.insertText("z"));
         runFrame();

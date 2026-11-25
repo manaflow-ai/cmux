@@ -31,7 +31,7 @@ enum MiscHandlerStrings {
     static var terminalChatBusy: String { String(localized: "handlers.misc.failed.terminalChatBusy", defaultValue: "This chat is still working. Switch when its turn ends.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static var terminalChatStopFailed: String { String(localized: "handlers.misc.failed.terminalChatStopFailed", defaultValue: "The chat could not stop, so no terminal resumes its session.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static var terminalChatNoPane: String { String(localized: "handlers.misc.failed.terminalChatNoPane", defaultValue: "The chat stopped, but its workspace has no pane for the terminal.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
-    /// Toggle Terminal and Chat's row on a terminal running an agent session (the pane's ⋮, the tab's right-click).
+    /// Toggle Terminal and Chat's row on a terminal running an agent session (the tab's right-click).
     static var terminalChatSwitchToChat: String { String(localized: "handlers.misc.terminalChat.switchToChat", defaultValue: "Switch to Chat", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// Toggle Terminal and Chat's row on a chat a terminal runs.
     static var terminalChatSwitchToTerminal: String { String(localized: "handlers.misc.terminalChat.switchToTerminal", defaultValue: "Switch to Terminal", table: "MiscHandlers", bundle: .module.inAppLanguage) }

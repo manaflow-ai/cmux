@@ -111,7 +111,7 @@ test("mention loading rows are decorative and yield to results, empty and failur
   expect(placeholders()).toHaveLength(3);
   expect(host.querySelectorAll('button, [role="option"], [tabindex]')).toHaveLength(0);
   expect([...placeholders()].every((row) => row.getAttribute("aria-hidden") === "true")).toBe(true);
-  const items = mentionItems({ query: "example", files: results, sessions: [] });
+  const items = mentionItems({ query: "example", files: results });
   await render({ kind: "searching", results }, items);
   expect(placeholders()).toHaveLength(0);
   expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);

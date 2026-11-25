@@ -688,6 +688,38 @@ async fn the_persons_slow_start_keeps_waiting_past_the_start_budget_and_says_so(
     let _ = std::fs::remove_file(&gate);
 }
 
+/// no-hangs (2026-11-24): the person's start has no deadline, so a harness that waits on input
+/// or a lock (no CPU, no thread ready, nothing read in) held the new chat "starting" forever, and
+/// on Linux nothing read the harness's state at all. Now it ends `harness_hung` once its harness
+/// did no work for `START_HUNG` (shortened here), on Linux as on macOS.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn the_persons_start_of_a_harness_that_does_nothing_ends_as_hung() {
+    let gate = std::env::temp_dir().join(format!("acpmux-idle-gate-{}", uuid::Uuid::now_v7()));
+    let mut cfg = gated_config(&gate, &[]);
+    let idle = HarnessProfile {
+        argv: vec!["sleep".into(), "600".into()],
+        ..cfg.harnesses["fake"].clone()
+    };
+    cfg.harnesses.insert("idle".to_owned(), idle);
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    hub.config.write().await.agent_start_timeout_ms = Some(300);
+    hub.set_start_hung(Duration::from_secs(2));
+    let mut person = connect(&hub).await;
+    let began = std::time::Instant::now();
+    let answered = tokio::time::timeout(
+        Duration::from_secs(30),
+        person.request(method::SESSION_NEW, new_params("idle-start", "idle")),
+    )
+    .await
+    .expect("the person's start of an idle harness never ended");
+    let error = answered.expect_err("an idle harness answered its start");
+    assert!(error.contains("did no work"), "{error}");
+    assert!(began.elapsed() >= Duration::from_secs(2), "ended before START_HUNG");
+}
+
 /// A Chief turn answers a person's message, so killing its start at a wall clock on a loaded host
 /// loses the start and the turn (load 469, `session/new: no answer within 200 s`). A start that
 /// asks for it (`waitStart`, from a connection that is not an agent's) waits on its harness and

@@ -921,6 +921,27 @@ def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool 
     return (promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):] + rest[len(owned):]
 
 
+FLEET_SPILL_SWITCH = "CI_FAST_TIER_FLEET_SPILL"
+
+
+def fleet_spill(env: Mapping[str, str], owned: Sequence[str], saturated: bool,
+                reserved: Sequence[str]) -> tuple[str, ...]:
+    """The FLEET_CLIENT_JOBS that take the fleet gateway while Blacksmith macOS is off (place()).
+
+    With the switch off no Blacksmith label takes a job, so a cascade job no idle mini took waits on its owned
+    label: 2026-11-23 09-11Z the fast tier queued 46 to 65 min on glaeda-side-std-xcode-26.6 (173 jobs queued
+    there, every one of its 31 slots busy) while the gateway had idle runners. `saturated` (the owned runners
+    were read live and none was idle for it) lists such a job for its build-fleet client instead;
+    side_lane_placement.fleet_gateway() still keeps it only with an idle gateway runner of its own, and a fleet
+    verdict `queued` hands it back to the owned route. vars.CI_FAST_TIER_FLEET_SPILL `0` turns this off.
+    """
+    if not saturated or (env.get(FLEET_SPILL_SWITCH) or "").strip() == "0":
+        return ()
+    requested = set((env.get("FLEET_CLIENT_JOBS") or "").split())
+    jobs = (env.get("JOBS") or "").split()
+    return tuple(job for job in jobs if job in requested and job not in owned and job not in reserved)
+
+
 def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
           waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False,
           saturated: bool = False, route_wait: float | None = None) -> Placement:
@@ -946,10 +967,14 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         return Placement(empty, "", skipped(env))
     if off:
         placement = _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
+        spill = fleet_spill(env, owned, saturated, placement.fleet_jobs)
+        why = f"{blacksmith_off_why(env)}, so every job stays on its owned label. {placement.why}"
+        if spill:
+            why += (f"; no idle mini took {', '.join(spill)}, so it is reserved for the fleet gateway "
+                    f"(vars.{FLEET_SPILL_SWITCH} `0` turns this off)")
         return dataclasses.replace(placement, retry_runner="", retry_jobs=(),
                                    fresh_stall=tuple(dict.fromkeys((*off, *placement.fresh_stall))),
-                                   why=f"{blacksmith_off_why(env)}, so every job stays on its owned label. "
-                                       f"{placement.why}")
+                                   fleet_jobs=tuple(dict.fromkeys((*placement.fleet_jobs, *spill))), why=why)
     return _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
 
 
