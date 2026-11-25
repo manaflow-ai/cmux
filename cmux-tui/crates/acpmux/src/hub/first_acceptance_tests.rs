@@ -21,13 +21,14 @@ async fn wedge_a_resend_answers_with_the_inbox_receipt_its_first_run_got() {
     let hub = hub();
     let session = chat(&hub, "01-target", "target");
     let outcome = ledger_entry(&session, "msg_1");
+    let outcome_for_wait = outcome.clone();
     let mut first = outcome.subscribe();
     // In flight, not accepted yet: the resend waits for it (it neither answers "taken" nor
     // gives up).
     let waiting = {
         let session = session.clone();
         tokio::spawn(async move {
-            first_acceptance(&session, "msg_1", outcome_token(&outcome), &mut first).await
+            first_acceptance(&session, "msg_1", outcome_token(&outcome_for_wait), &mut first).await
         })
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -84,11 +85,12 @@ async fn wedge_a_resend_of_a_first_run_refused_unaccepted_hears_no_acceptance() 
     let hub = hub();
     let session = chat(&hub, "01-target2", "target2");
     let outcome = ledger_entry(&session, "msg_2");
+    let outcome_for_wait = outcome.clone();
     let mut first = outcome.subscribe();
     let waiting = {
         let session = session.clone();
         tokio::spawn(async move {
-            first_acceptance(&session, "msg_2", outcome_token(&outcome), &mut first).await
+            first_acceptance(&session, "msg_2", outcome_token(&outcome_for_wait), &mut first).await
         })
     };
     tokio::time::sleep(Duration::from_millis(20)).await;
