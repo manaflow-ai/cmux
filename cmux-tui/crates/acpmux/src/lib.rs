@@ -70,6 +70,7 @@ pub mod close_why;
 pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
+pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
@@ -110,6 +111,7 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
