@@ -301,7 +301,8 @@ impl Made {
         for raw in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
             let path = String::from_utf8_lossy(raw).into_owned();
             if let Some(folder) = path.strip_suffix('/') {
-                nested_paths.push((folder.to_string(), raw[..raw.len() - 1].to_vec()));
+                nested_paths
+                    .push((folder.to_string(), raw.strip_suffix(b"/").unwrap_or(raw).to_vec()));
                 continue;
             }
             if let Some((folder, why)) =
@@ -444,12 +445,11 @@ impl Made {
         .map_err(|error| format!("listing folders: {error}"))?;
         let mut found = Vec::new();
         for raw in listed.split(|byte| *byte == 0).filter(|path| path.ends_with(b"/")) {
+            let trimmed = raw.strip_suffix(b"/").unwrap_or(raw);
             let relative = String::from_utf8_lossy(raw).trim_end_matches('/').to_string();
-            let path = work.join(std::ffi::OsStr::from_bytes(&raw[..raw.len() - 1]));
+            let path = work.join(std::ffi::OsStr::from_bytes(trimmed));
             if path.join(".git").exists()
-                || skipped
-                    .iter()
-                    .any(|item| item.raw.strip_suffix(b"/") == Some(&raw[..raw.len() - 1]))
+                || skipped.iter().any(|item| item.raw.strip_suffix(b"/") == Some(trimmed))
             {
                 continue;
             }
