@@ -40,7 +40,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -309,9 +309,81 @@ impl Delivery {
     }
 }
 
-/// The deliveries, saved at `path` when the store is on disk.
+/// The deliveries, saved at `path` when the store is on disk. Shared with the disk writer
+/// (`disk_writer.rs`), which makes the saves no caller waits on ([`Outbox::update`]).
 #[derive(Default)]
-pub struct Outbox {
+pub struct Outbox(Arc<OutboxState>);
+
+impl std::ops::Deref for Outbox {
+    type Target = OutboxState;
+    fn deref(&self) -> &OutboxState {
+        &self.0
+    }
+}
+
+impl Outbox {
+    /// Changes delivery `id` with `f`; the save goes to the disk writer, never waited on here.
+    /// A change whose save is lost (a failed write, a stop before the writer reached it) leaves
+    /// the file a state a restart goes on from safely (an attempt's count, an answer the next
+    /// attempt reads again); [`OutboxState::update_saved`] for one a caller lets something go
+    /// after. This ran on the request's own worker and waited out every `fsync` (hang-watch
+    /// hq#8669, `Outbox::save`): on a slow disk each update held a tokio worker for a sync and
+    /// queued behind every other save.
+    pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
+        let Some((change, ran)) = self.0.change(id, f) else { return };
+        self.0.changed.notify_waiters();
+        self.save_later(change);
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    /// Asks the disk writer for a save that holds change `change`. Saves asked while one waits
+    /// share it: the save writes everything changed by the time it runs.
+    fn save_later(&self, change: u64) {
+        if self.0.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
+        self.0.save_wanted.fetch_max(change, std::sync::atomic::Ordering::Relaxed);
+        let state = Arc::downgrade(&self.0);
+        // Unique per outbox, never reused: a new outbox at a dropped one's address must not
+        // coalesce into that one's dead job still waiting.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let key = self.0.save_key.get_or_init(|| {
+            format!("outbox:{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+        });
+        crate::disk_writer::run_later(key, move || {
+            if let Some(state) = state.upgrade() {
+                let wanted = state.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
+                state.save(wanted);
+                state.save_tried.fetch_max(wanted, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
+}
+
+/// A save [`Outbox::update`] asked for that the writer has not made yet is made now: a hub that
+/// goes (a restart, a test's reopen) leaves nothing of its own on the writer's queue.
+impl Drop for Outbox {
+    fn drop(&mut self) {
+        // Only a save the writer has not tried: one that ran and failed is not made again here,
+        // as a change's failed save never was. One running now ends first (the disk lock).
+        let wanted = self.0.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
+        if wanted > self.0.save_tried.load(std::sync::atomic::Ordering::Relaxed) {
+            self.0.save(wanted);
+        }
+    }
+}
+
+/// [`Outbox`]'s state.
+#[derive(Default)]
+pub struct OutboxState {
+    /// The newest change [`Outbox::update`] asked the disk writer to save.
+    save_wanted: std::sync::atomic::AtomicU64,
+    /// The newest change the disk writer's save tried to write.
+    save_tried: std::sync::atomic::AtomicU64,
+    /// This outbox's job key on the disk writer (`save_later`).
+    save_key: std::sync::OnceLock<String>,
     deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
@@ -323,6 +395,10 @@ pub struct Outbox {
     /// Fired when a peer's link is ready again (`hub/peers.rs`): a message waiting out a retry
     /// delay tries again at once instead of minutes later.
     pub peer_ready: Notify,
+    /// How many times each peer's link was ready or listed ([`Self::note_peer_ready`]): a
+    /// delivery waiting on `peer_ready` ends its wait only when its own peer's count moved, so
+    /// another peer's link coming back does not wake it ([`Self::peer_ready_count`]).
+    ready_counts: StdMutex<HashMap<String, u64>>,
     /// For each peer, the open delivery its last link's redelivery reached last
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
@@ -333,6 +409,9 @@ pub struct Outbox {
     /// or hung disk does.
     #[cfg(test)]
     stall: StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Injected once, at the journal write, before the usual rollback.
+    #[cfg(test)]
+    pub(crate) next_write_error: StdMutex<Option<std::io::Error>>,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -369,7 +448,24 @@ struct Disk {
     snapshot_retry_at: u64,
 }
 
-impl Outbox {
+impl OutboxState {
+    /// Peer `peer`'s link is ready again or listed its sessions: its count moves, then every
+    /// waiting delivery looks (`server/outbox.rs` `deliver`), and only those to `peer` go.
+    pub fn note_peer_ready(&self, peer: &str) {
+        *self
+            .ready_counts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(peer.to_owned())
+            .or_default() += 1;
+        self.peer_ready.notify_waiters();
+    }
+
+    /// How many times `peer`'s link was ready or listed in this launch (0 for one never seen).
+    pub fn peer_ready_count(&self, peer: &str) -> u64 {
+        self.ready_counts.lock().unwrap_or_else(|e| e.into_inner()).get(peer).copied().unwrap_or(0)
+    }
+
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
@@ -657,29 +753,30 @@ impl Outbox {
         self.book().deliveries.get(id).filter(|d| !d.is_team_receipt()).cloned()
     }
 
-    /// Changes delivery `id` with `f` and saves.
-    /// A change whose failed save leaves the file a state a restart goes on from safely (an
-    /// attempt's count, an answer the next attempt reads again); [`Self::update_saved`] for
-    /// one a caller lets something go after.
-    pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
-        self.update_saved(id, f);
-    }
-
-    /// [`Self::update`], answering whether the change is on disk: a caller that lets something
-    /// go once it is (attachment bytes, an attempt that may reach a peer) waits for that (review
-    /// of #37284 at a088585e: a failed save was logged and the bytes went anyway). False for a
-    /// failed save; true when no such delivery is here.
-    pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
+    /// Changes delivery `id` with `f` and marks it for the next write: the change's number and
+    /// how `f` ended. None when no such delivery is here.
+    fn change(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Delivery),
+    ) -> Option<(u64, std::thread::Result<()>)> {
         let mut book = self.book();
-        let Some(d) = book.deliveries.get_mut(id) else { return true };
+        let d = book.deliveries.get_mut(id)?;
         // A closure that panics part way has still changed the delivery: that change is marked
         // and saved like any other before the panic goes on, so memory never holds what no
         // write will take (a restart went back to before it and sent it again).
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
         book.dirty.insert(id.to_owned());
-        let change = book.changed();
-        drop(book);
+        Some((book.changed(), ran))
+    }
+
+    /// [`Outbox::update`], answering whether the change is on disk, and waiting for that: a
+    /// caller that lets something go once it is (attachment bytes, an attempt that may reach a
+    /// peer) waits for that (review of #37284 at a088585e: a failed save was logged and the bytes
+    /// went anyway). False for a failed save; true when no such delivery is here.
+    pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
+        let Some((change, ran)) = self.change(id, f) else { return true };
         let saved = self.save_checked(change);
         if let Err(e) = &saved {
             tracing::warn!("outbox: could not save: {e:#}");
@@ -774,13 +871,25 @@ impl Outbox {
                 let _ = started.send(());
                 let _ = go_on.recv();
             }
+            #[cfg(test)]
+            if let Some(error) =
+                self.next_write_error.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                return Err(error.into());
+            }
             let journal = journal_path(&path);
             if lines.iter().any(|b| *b != b'\n') {
                 if disk.journal_open {
                     use std::io::Write;
                     let appended = crate::store::open_private_append(&journal).and_then(|mut f| {
                         let start = f.metadata()?.len();
-                        let written = f.write_all(&lines).and_then(|()| f.sync_data());
+                        let written = f.write_all(&lines).and_then(|()| {
+                            #[cfg(test)]
+                            crate::config::startup_seams::sync(&journal);
+                            #[cfg(debug_assertions)]
+                            crate::store::disk_fault::sync();
+                            f.sync_data()
+                        });
                         if written.is_err() {
                             // A failed change is not kept (an add is taken out): its whole line
                             // must not stay to be read after a restart. An append-only handle
@@ -1362,7 +1471,7 @@ mod tests {
         for t in threads {
             t.join().unwrap();
         }
-        outbox.update("d-3", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-3", |d| d.state = State::Delivered);
         let restarted = Outbox::default();
         let pending = restarted.open(&path);
         assert_eq!(pending.len(), 63);
@@ -1520,9 +1629,9 @@ mod tests {
                 // A send's life: queued, delivering, attempted again, delivered.
                 let id = format!("d-{}", kept + n);
                 outbox.add(sized(kept + n, State::Queued)).unwrap();
-                outbox.update(&id, |d| d.state = State::Delivering);
-                outbox.update(&id, |d| d.attempts += 1);
-                outbox.update(&id, |d| d.state = State::Delivered);
+                let _ = outbox.update_saved(&id, |d| d.state = State::Delivering);
+                let _ = outbox.update_saved(&id, |d| d.attempts += 1);
+                let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
             }
             let after = (outbox.disk.lock().unwrap().written - start) / changes as u64;
             eprintln!("kept {kept}: before {before} B per change, after {after} B per change");
@@ -1577,7 +1686,7 @@ mod tests {
         for n in 0..3 {
             outbox.add(delivery(n)).unwrap();
         }
-        outbox.update("d-1", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-1", |d| d.state = State::Delivered);
         let journal = journal_path(&path);
         let mut torn = std::fs::read(&journal).unwrap();
         assert!(!torn.is_empty(), "small changes go to the journal");
@@ -1651,7 +1760,7 @@ mod tests {
         // The snapshot's rename fails: a folder that is not empty is in its place.
         std::fs::create_dir_all(path.join("occupied")).unwrap();
         outbox.disk.lock().unwrap().snapshot_next = true;
-        outbox.update("d-0", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-0", |d| d.state = State::Delivered);
         // The change is on disk in the journal, so it is saved; the snapshot waits for a later
         // try, not the next change.
         assert_eq!(outbox.disk.lock().unwrap().saved, outbox.book().changes);
@@ -1677,7 +1786,7 @@ mod tests {
         let outbox = Outbox::default();
         outbox.open(&path);
         outbox.add(delivery(0)).unwrap();
-        outbox.update("d-0", |d| d.state = State::Delivering);
+        let _ = outbox.update_saved("d-0", |d| d.state = State::Delivering);
         assert!(!read_saved(&path).deliveries["d-0"].settled());
         // The older daemon: delivers it and rewrites the snapshot, leaving the journal.
         let mut older = read_saved(&path).deliveries;
