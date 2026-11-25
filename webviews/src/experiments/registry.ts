@@ -62,6 +62,7 @@ import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
@@ -77,6 +78,7 @@ import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
+import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -175,6 +177,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatMinimapPlaceholder,
   codeActionsLook,
   turnErrorCard,
+  capacityWaitLook,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
@@ -215,6 +218,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatTuckLook,
   hatOpenLook,
   goalHatPlace,
+  customizeBarPlace,
   hatDoneLook,
   hatDoneCheckPlace,
   trayHeadLook,
