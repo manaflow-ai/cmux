@@ -20,6 +20,9 @@ public nonisolated struct WallpaperTint: Equatable, Sendable {
     /// The picture's mean color in horizontal bands, top first (``bands(of:count:)``); empty when only the mean was
     /// taken. The pictorial group palette draws a group from the band at its place.
     public var bands: [WallpaperTint] = []
+    /// The picture read as a light source (``WallpaperLightField``, `appearance.wallpaperLighting`), from the same
+    /// small decode; nil when only the mean was taken.
+    public var light: WallpaperLightField?
 
     /// How far a neutral theme tint moves toward the picture's hue at that tint's brightness.
     static let strength = 0.5

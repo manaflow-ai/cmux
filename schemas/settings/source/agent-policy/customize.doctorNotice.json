@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Whether the app shows a toast naming files or layers that change the person's setup: a notice only, it changes nothing; on is the default."
+}

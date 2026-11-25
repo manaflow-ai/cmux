@@ -503,9 +503,23 @@ from the admitted `wg-init` / `wg-resp` exchange.
   and encrypts every datagram between the phone and the Mac. TLS to the TURN
   server only hides from the local network that the datagrams are WireGuard;
   the TURN operator sees the same ciphertext it sees over UDP. The TLS server
-  name is the `turns:` URL's host, verified against the public web PKI
-  (webpki roots, ring); a certificate that does not verify fails the
-  allocation, and the dial goes on without that path.
+  name is the `turns:` URL's host, verified against the OS trust store
+  (`rustls-platform-verifier`, ring), as are the signaling WebSocket and the
+  HTTP API; a certificate the OS does not trust fails the allocation, and the
+  dial goes on without that path. The OS store includes any root an MDM
+  profile or the person installed, so a company network that inspects TLS
+  (PROTOCOL.md "Corporate networks") can read and change this TLS. That gives
+  it nothing on the link: WireGuard's keys come from the admitted `wg-init` /
+  `wg-resp` exchange and the phone pins the Mac's identity key, so the proxy
+  sees the ciphertext, addresses and short-lived TURN credentials it would see
+  on the wire anyway, plus the bearer token it already sees in the app's
+  URLSession API calls through the same proxy.
+- **The system's proxy** carries the link's TCP connections where the
+  settings name one (`CONNECT` or SOCKS5), with the user name and password the
+  settings hold for it (HTTP Basic, SOCKS5). Those credentials go only to that
+  proxy, never to the destination, and are never logged; a proxy that wants
+  NTLM or Kerberos fails the dial with a sentence, nothing is retried with
+  other credentials.
 - **TURN credentials** come only from `/v1/ice` (short-lived Cloudflare TURN
   credentials, 1 h), never stored, and are the same ones WebRTC uses.
 - **The TeamHub carries no data** (the session's WebSocket relay, below, is a
@@ -524,8 +538,11 @@ from the admitted `wg-init` / `wg-resp` exchange.
   (its network drops UDP) or a debug option asks for one. The allocation
   relays only to the addresses the Mac sends to (TURN permissions), and the
   Mac's tunnel accepts nothing that does not authenticate.
-- **Debug "Block UDP"** (`block_udp`, simulator `CMUX_MOBILE_DEV_BLOCK_UDP`) only
-  narrows the phone's own paths. A Release build ignores the setting; the
+- **Debug "Block UDP", "Proxy only" and "Drop WireGuard"** (`block_udp`,
+  `proxy_only`, `drop_wireguard`; simulator `CMUX_MOBILE_DEV_BLOCK_UDP`,
+  `CMUX_MOBILE_DEV_PROXY_ONLY`, `CMUX_MOBILE_DEV_DROP_WIREGUARD`, and
+  `CMUX_MOBILE_DEV_PROXY` for the proxy itself) only narrow the phone's own
+  paths (hostd reads the same variables for its own). A Release build ignores the setting; the
   environment variable is read by the shared Rust core, so it is a test
   hook for whoever launches the app with it, never a way to reach a Mac.
 
@@ -1399,7 +1416,14 @@ going first) and never take one of the places that cap real prompts, so dev phon
 the next real phone's prompt. A signed-in phone dials the Macs it lists, which can be another build on the same
 computer, and that prompt was one the person never meant to answer (2026-11-17: an `ios-onboard`
 phone asked a running `cu-all` build, which had no code and prompted). A false claim here gains
-nothing: it only hides a request from the prompt.
+nothing: it only hides a request from the prompt. The person's own Approve Phone Requests
+Automatically (`mobile.autoApprovePhones`) never pairs such a request either: with the setting on,
+another build's dev iPhone app still waits quietly, so only the person's Allow in Settings > Mobile
+pairs it there (route audit, 2026-11-24). Every other phone of the account, the App Store and
+TestFlight apps included, pairs with the setting on as before, and so do the iPhone apps with no build
+space on a NIGHTLY, RC or release Mac: the Production configuration (`dev.cmux.mobile.prod`), the shared
+Demo build (`dev.cmux.mobile.demo`) and cmux Dev (`dev.cmux.mobile.dev`), whose Mac that is. Their names
+are reserved tags, so no tagged dev build has them.
 
 ## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 
