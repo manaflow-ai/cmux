@@ -55,23 +55,17 @@ struct HomeNarrowSidebarTests {
         return Page(split: split, home: home, content: content, window: window, defaults: defaults, suite: suite)
     }
 
-    /// Leo, 2026-10-19: "the search completley disappeared when you coulve probably still fit it...
-    /// and/or just turned it to an icon. the filter button also just disappeared." The avatar-only
-    /// list keeps the Unread filter and shows search as a circle; compose stays the chat's.
+    /// The avatar-only list is Messages' strip (the user, 2026-11-24): a width under the full list snaps to it, and it
+    /// shows no search, filter or compose (compose is the chat's).
     @Test(arguments: [100, 120, 140, 187] as [CGFloat])
-    func theAvatarListShowsTheSearchIconAndFilterButNoCompose(_ width: CGFloat) throws {
+    func theAvatarListIsMessagesStrip(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
-        #expect(abs(p.split.sidebarWidth - width) < 1)
+        #expect(abs(p.split.sidebarWidth - HomeSidebarWidth.minimum) < 1, "\(width) pt did not snap to the strip")
         let home = p.home
-        #expect(home.compose.isHidden, "compose shows in the \(width) pt list")
-        #expect(!home.unreadToggle.isHidden, "the Unread filter is gone from the \(width) pt list")
-        #expect(!home.searchButton.isHidden, "the search icon is gone from the \(width) pt list")
-        #expect(home.unreadToggle.frame.maxX <= width && home.searchButton.frame.minX >= 0)
-        #expect(!home.unreadToggle.frame.intersects(home.searchButton.frame))
-        #expect(home.searchCapsule.isHidden, "the search capsule shows in the \(width) pt list")
-        #expect(home.list.searchField.alphaValue == 0 || home.list.searchField.frame.width == 0,
-                "the search field shows in the \(width) pt list")
+        #expect(home.compose.isHidden && home.unreadToggle.isHidden && home.searchButton.isHidden, "a button shows in the strip")
+        #expect(home.searchCapsule.isHidden, "the search capsule shows in the strip")
+        #expect(home.list.searchField.alphaValue == 0 || home.list.searchField.frame.width == 0, "the search field shows in the strip")
     }
 
     @Test(arguments: [100, 140] as [CGFloat])
