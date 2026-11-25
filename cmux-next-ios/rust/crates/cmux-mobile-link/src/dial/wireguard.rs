@@ -64,7 +64,9 @@ mod paths;
 pub use multipath::{InterfaceKind, NetInterface, set_cellular_assist, set_interfaces};
 pub use paths::{app_backgrounded, set_app_backgrounded};
 use roam::apply_multipath_to_live_sessions;
-pub use roam::{network_changed, portmap_use, rehome, resume_session, roam_timeline, route_destinations};
+pub use roam::{
+    network_changed, portmap_use, rehome, relay_hold_port, resume_session, roam_timeline, route_destinations,
+};
 #[doc(hidden)]
 pub use roam::{
     relay_held, roam_session, session_endpoints, simulate_blackout, simulate_network_loss,
