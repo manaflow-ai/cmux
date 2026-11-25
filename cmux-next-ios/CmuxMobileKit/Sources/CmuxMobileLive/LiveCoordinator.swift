@@ -505,6 +505,9 @@ public final class LiveCoordinator {
     private func restoreSnapshot() {
         guard let snapshot = snapshots.loadFirstScreen(accountID: userID) else { return }
         self.snapshot = snapshot
+        // A chat opened before its workspace is listed (a notification while the list loads, a
+        // row past the first screen) draws from the saved copy, not "Loading chat…".
+        store.savedWorkspace = { [weak self] id in self?.savedWorkspace(id: id) }
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
         var workspaces: [Workspace] = []
@@ -538,6 +541,25 @@ public final class LiveCoordinator {
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
+    }
+
+    /// The rest of the saved rows, read at most once by ``savedWorkspace(id:)`` ahead of `restoreRest`.
+    @ObservationIgnored private var savedRestRead: [String: LiveSnapshot.MacWorkspaces]?
+
+    /// The workspace `id` as the snapshot on disk saved it: the first screen's rows, else the rest
+    /// (read now, once, when `restoreRest` has not landed yet). Nil when it was never saved.
+    func savedWorkspace(id: String) -> Workspace? {
+        guard let snapshot, !stopped, snapshot.teamID == store.activeTeamID else { return nil }
+        for list in snapshot.workspaces.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        guard snapshot.workspaces.values.contains(where: { !$0.isComplete }) else { return nil }
+        let rest = savedRestRead ?? snapshots.restNow(snapshot, accountID: userID)
+        savedRestRead = rest
+        for list in rest.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        return nil
     }
 
     /// The rest of the cached rows, read after the first screen: each Mac still showing exactly
