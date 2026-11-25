@@ -194,6 +194,7 @@
     "field:phone-frames/paint#program",
     "field:phone-frames/paint#rtt_ms",
     "field:phone-frames/paint#samples",
+    "field:phone-frames/paint#transports",
     "field:presence#mac",
     "field:signal#from",
     "field:signal#fromUserId",
