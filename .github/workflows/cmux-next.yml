@@ -3794,19 +3794,12 @@ jobs:
           echo "::notice title=cmux-next fast tier (cargo) planner reuse::$RUN_URL passed on the trusted feat-cmux-next push (${SHA:0:12})"
           echo "Planner reused $RUN_URL: it passed on \`${SHA:0:12}\` with the measured input closure (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # A persistent pool runner keeps this job's whole target between its jobs and gives each source
-      # whose bytes are unchanged its recorded mtime back, so cargo rebuilds only the crates a change
-      # reaches and their dependents (scripts/ci/pool-warm-target.sh); on Blacksmith a sticky disk holds it.
-      # The warm target's own test, where cargo is: unchanged bytes stay fresh, a changed crate and its
-      # dependents rebuild, an unrecorded job leaves nothing to trust (a three-crate workspace, ~5 s).
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-cargo-warm-target.md
       - name: Test the warm cargo target
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         run: bash scripts/ci/tests/pool-warm-target.test.sh
 
-      # On Blacksmith (RUNNER_POOLS sends the job there when the pool is down or overflowing) the same
-      # tree lives on a sticky disk, as cmux-tui-spec.yml's warm clippy target: feat-cmux-next pushes
-      # commit it, every other run mounts a clone and never writes it back. Keys are literal
-      # (tests/test_ci_testbox_broker_guard.py).
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-cargo-warm-target.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
         id: warm-next
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && startsWith(runner.name, 'blacksmith') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -3864,10 +3857,7 @@ jobs:
           add-rust-environment-hash-key: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
-      # Off Blacksmith the GitHub store above always misses (it is full and churns in minutes), so the
-      # compiled dependencies come from R2 instead. Why: docs/ci/cmux-next-workflow-notes.md#note-210b
-      # Skipped, with its restores and saves, when the warm target above is linked: cargo then builds in
-      # that tree (CARGO_TARGET_DIR), which keeps the dependencies, and cmux-tui/target stays empty.
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-cargo-warm-target.md
       - name: Key the cargo build in R2
         id: r2-cargo-key
         if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
@@ -3885,8 +3875,7 @@ jobs:
             echo "registry-key=cmux-next-fast-tier-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
           } >> "$GITHUB_OUTPUT"
-          # libghostty-vt's zig build keeps its objects in a cache of its own (content-addressed, so any
-          # older copy is safe to restore). Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
+          # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
           zig_prefix="cmux-next-fast-tier-ghostty-vt-zig-v1-$workspace-$("${CMUX_ZIG:-zig}" version)-"
           {
             echo "zig-prefix=$zig_prefix"
@@ -3923,8 +3912,6 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
-      # A pull request falls back to the newest cache; a push restores only its exact key, so a new
-      # ghostty-next commit saves a cache holding that commit's objects alone (no growth).
       # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
       - name: Restore the libghostty-vt zig cache from R2
         id: r2-zig-cache
