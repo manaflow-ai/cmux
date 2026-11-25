@@ -304,6 +304,24 @@ export function rowGapLook(): (typeof ROW_GAP_LOOKS)[RowGapLook] {
   return set !== undefined && set in ROW_GAP_LOOKS ? ROW_GAP_LOOKS[set as RowGapLook] : ROW_GAP_LOOKS.shipped;
 }
 
+/// The gap from a reply's footer row (Copy, Branch, ...) to the next turn's "Working for" / "Worked for" line or the
+/// waiting indicator, in px at Interface Size 1. It matched no rule and stood the block gap (24): the 24 buttons sit
+/// centred in their 32 row and the 20 line in its 32 row, so it read as ~38 from the icons to the words (Leo,
+/// 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the next
+/// working for?"). Not flush: "it is noticeably bad when you start a new working for whatever and there is no space
+/// before" (Leo, 2026-11-21). Gallery `agent-pane.woken-turn-gap` compares the looks (`<html data-footer-working-gap>`);
+/// `block`, today's 24, stays the default until Leo picks. Read only for such a pair.
+export const FOOTER_WORKING_GAP_LOOKS = {
+  block: TRANSCRIPT_BLOCK_GAP,
+  run: TRANSCRIPT_RUN_GAP,
+  footer: TRANSCRIPT_FOOTER_GAP,
+} as const;
+export type FooterWorkingGapLook = keyof typeof FOOTER_WORKING_GAP_LOOKS;
+export function footerWorkingGapLook(): FooterWorkingGapLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.footerWorkingGap;
+  return set === "run" || set === "footer" ? set : "block";
+}
+
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
@@ -338,6 +356,9 @@ export function transcriptGap(previous: number, next: number): number {
   // "Worked for" opens a finished turn's work: right under another turn's last one-line row it stood flush with it,
   // so "Sent to", another agent's line and "Worked for" read as one run (Leo, 2026-11-21: "way too close. no way.").
   if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return workedHeadGap();
+  // The next turn's "Working for" / "Worked for" line, or the waiting indicator, under a reply's footer row.
+  if (previous === MARK_FOOTER_ROW && (next === MARK_WORKED || next === MARK_INDICATOR))
+    return FOOTER_WORKING_GAP_LOOKS[footerWorkingGapLook()];
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>
     mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;

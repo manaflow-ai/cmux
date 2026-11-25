@@ -122,5 +122,26 @@ export default agentPaneEntry({
       snapshot: working(),
       recording: recordingOf(true),
     },
+    // Leo, 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the
+    // next working for?" The footer row to the woken turn's Worked for: `<html data-footer-working-gap>`
+    // (transcriptGrid.ts `footerWorkingGapLook`). `block` (24) still ships; pick one of the tighter arms.
+    "footer-working-24": {
+      note: "Shipped: Worked for stands the block gap (24) under the footer row; with the buttons centred in their 32 row and the line in its 32 row it reads as ~38 from the icons to the words.",
+      snapshot: chat([]),
+      recording,
+      documentAttributes: { "footer-working-gap": "block" },
+    },
+    "footer-working-16": {
+      note: "Alternative: the run gap (16), as Worked for stands under any one-line row. ~30 from the icons to the words.",
+      snapshot: chat([]),
+      recording,
+      documentAttributes: { "footer-working-gap": "run" },
+    },
+    "footer-working-8": {
+      note: "Alternative: the footer gap (8), as a status line under a footer row and the footer under its reply. ~22 from the icons to the words.",
+      snapshot: chat([]),
+      recording,
+      documentAttributes: { "footer-working-gap": "footer" },
+    },
   },
 });
