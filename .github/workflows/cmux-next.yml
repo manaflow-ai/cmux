@@ -2071,6 +2071,7 @@ jobs:
           python3 -I scripts/cmux-next/tests/test_settings_export_keys.py
           python3 -I scripts/cmux-next/tests/test_settings_section_type_budget.py
           python3 -I scripts/cmux-next/tests/test_settings_swift_out.py
+          python3 -I scripts/cmux-next/tests/test_settings_agent_policy_files.py
 
       # The phone daemon lane's per-command field allowlist, generated from the daemon's request
       # Why: docs/ci/cmux-next-workflow-notes.md#note-151
