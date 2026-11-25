@@ -8,8 +8,11 @@ import Testing
 ///
 /// The banner over Workspaces and chats (`LiveCoordinator.phaseChanged`): a link coming up or
 /// coming back shows nothing inside the shared 10 s bound (first connect and reconnect alike), and
-/// "Connected" answers only a banner that was on screen. Measured on an injected clock: how long
-/// a banner is on screen in each case, with the old policy (no hold) and the new one.
+/// coming back never flashes "Connected". Measured on an injected clock: how long a banner is on
+/// screen in each case, with the old policy (shown at once, then "Connected" for 1.5 s) and the new
+/// one (held, then gone the moment the link is back).
+///
+/// Leo, 2026-11-23: "i dont wanna see reconnecting to the Mac in a toast, i want it to just connect."
 @MainActor
 @Suite struct BannerHoldTests {
     /// Replays `phaseChanged`'s banner rule for one outage of `outage` on `clock`, and returns
@@ -22,14 +25,13 @@ import Testing
             screen.saw(value, at: clock.now)
         }
         var flash: Task<Void, Never>?
-        let state: ConnectionBannerState = firstConnect ? .connecting(to: "Mac") : .reconnecting(to: "Mac")
         let delay: Duration = held ? QuietStatusGate.threshold : .zero
-        notice.hold(state, for: delay)
+        notice.hold(.connectionFailed, for: delay)
         await advance(clock, by: outage)
-        // .connected: "Connected" for 1.5 s only if a banner was on screen (the old rule
-        // flashed it after any reconnect banner, which showed at once).
-        if !firstConnect, let shown = notice.shown, shown != .connected {
-            notice.show(.connected)
+        // .connected: the old rule flashed "Connected" for 1.5 s after any reconnect banner,
+        // which showed at once; the new one clears the slot.
+        if !held, !firstConnect {
+            notice.show(Self.oldConnectedToast)
             flash = Task { [clock] in
                 do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
                 notice.show(nil)
@@ -42,6 +44,9 @@ import Testing
         screen.saw(nil, at: clock.now)
         return Int(screen.total.components.seconds * 1000 + screen.total.components.attoseconds / 1_000_000_000_000_000)
     }
+
+    /// The old 1.5 s "Connected" toast (the state is gone; only the old policy's replay draws it).
+    private static let oldConnectedToast = ConnectionBannerState.failed("Connected")
 
     /// How long a banner was on screen, from the slot's changes.
     @MainActor private final class Screen {
@@ -82,27 +87,27 @@ import Testing
     }
 
     @Test func aLongOutageStillSaysSoAfterTheBound() async {
-        // 12 s down: shown from 10 s, then "Connected" for 1.5 s.
-        #expect(await exposure(outage: .seconds(12), firstConnect: false, held: true) == 3500)
+        // 12 s down: the one chip from 10 s, gone the moment the link is back (no "Connected").
+        #expect(await exposure(outage: .seconds(12), firstConnect: false, held: true) == 2000)
     }
 
     @Test func aRetryInsideTheWaitDoesNotRestartIt() async {
         let clock = LinkTestClock()
         defer { clock.stop() }
         let notice = HeldNotice<ConnectionBannerState>(clock: clock)
-        notice.hold(.reconnecting(to: "Mac"), for: .seconds(10))
+        notice.hold(.connectionFailed, for: .seconds(10))
         await advance(clock, by: .seconds(6))
-        notice.hold(.reconnecting(to: "Mac"), for: .seconds(10))
+        notice.hold(.connectionFailed, for: .seconds(10))
         #expect(notice.shown == nil)
         await advance(clock, by: .seconds(4))
-        #expect(notice.shown == .reconnecting(to: "Mac"), "the first instant counts")
+        #expect(notice.shown == .connectionFailed, "the first instant counts")
     }
 
     @Test func aStateWithAnActionShowsAtOnce() async {
         let clock = LinkTestClock()
         defer { clock.stop() }
         let notice = HeldNotice<ConnectionBannerState>(clock: clock)
-        notice.hold(.reconnecting(to: "Mac"), for: .seconds(10))
+        notice.hold(.connectionFailed, for: .seconds(10))
         notice.show(.macOffline("Mac"))
         #expect(notice.shown == .macOffline("Mac"))
         await advance(clock, by: .seconds(11))

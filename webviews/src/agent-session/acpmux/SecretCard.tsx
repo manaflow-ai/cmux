@@ -5,7 +5,8 @@ import type { AcpmuxSecretAsk } from "./model";
 /// An agent's ask for a secret (cx-ncc.42), among the chat's asks above the composer: what it asks
 /// for and why, a private field, Provide and Decline. The value goes to acpmux only (`onAnswer`),
 /// which keeps it in memory and gives the agent a one-use ref; the chat never shows it, and the
-/// field empties as it is sent.
+/// field empties as it is sent. "Keep as key NAME" also has acpmux store it in the key store (cmux
+/// keys), so later commands enter it by name without another card.
 export function SecretCard({
   ask,
   agent,
@@ -13,13 +14,15 @@ export function SecretCard({
 }: {
   ask: AcpmuxSecretAsk;
   agent: string;
-  /// `value` provides the secret; none declines. A rejection means the secret did not go.
-  onAnswer(value?: string): void | Promise<unknown>;
+  /// `value` provides the secret; none declines. `keep` stores it as key `ask.name` too. A rejection
+  /// means the secret did not go.
+  onAnswer(value?: string, keep?: boolean): void | Promise<unknown>;
 }) {
   const t = useT();
   const [value, setValue] = useState("");
   const [refused, setRefused] = useState(false);
   const [sending, setSending] = useState(false);
+  const [keep, setKeep] = useState(false);
   const provide = (event: React.FormEvent) => {
     event.preventDefault();
     if (!value || sending) return;
@@ -29,7 +32,7 @@ export function SecretCard({
     setSending(true);
     // The field empties as it is sent; only a send that failed puts the typed secret back, so the
     // person does not have to retype it.
-    void Promise.resolve(onAnswer(sent)).then(
+    void Promise.resolve(onAnswer(sent, keep)).then(
       () => setSending(false),
       () => {
         setSending(false);
@@ -67,6 +70,15 @@ export function SecretCard({
           {t("secret.decline")}
         </button>
       </div>
+      <label className="acpmux-secret-card-keep">
+        <input
+          type="checkbox"
+          aria-label={t("secret.keep", { name: ask.name })}
+          checked={keep}
+          onChange={(event) => setKeep(event.target.checked)}
+        />
+        <span>{t("secret.keep", { name: ask.name })}</span>
+      </label>
     </form>
   );
 }
