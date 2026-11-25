@@ -17,6 +17,7 @@ mod relay;
 pub(crate) mod socks;
 mod ssh;
 mod stream;
+pub mod tailnet;
 #[cfg(unix)]
 mod unix;
 mod websocket;
@@ -37,7 +38,7 @@ use crate::observability::TransportSnapshot;
 pub use dial::WireGuardDialer;
 pub use dial::{
     DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, PER_ADDRESS_CONNECT_TIMEOUT,
-    SocksDialer, resolve_dial_target,
+    SocksDialer, TailnetDialer, resolve_dial_target,
 };
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
@@ -48,12 +49,13 @@ pub use iroh_config::{
 };
 #[cfg(unix)]
 pub use machine_pipe::{
-    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+    MACHINE_PIPE_METHOD, MachinePipeDialer, TERMINAL_REFUSALS, machine_pipe_reply,
+    machine_pipe_request,
 };
 pub use relay::{
-    RegistrationState, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
-    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
+    BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls,
+    register_relay_daemon, register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
 pub use ssh::{
@@ -61,6 +63,7 @@ pub use ssh::{
     SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
+pub use tailnet::{NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints, add_candidates};
 #[cfg(unix)]
 pub use unix::UnixProvider;
 pub(crate) use websocket::DisplaySeconds;
@@ -185,6 +188,10 @@ pub trait LinkGroup: Send + Sync {
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError>;
     async fn close(&self) -> Result<(), ProviderError>;
+    /// Drops the carrier of a link that just failed, keeping the group: its next `open` dials
+    /// fresh instead of opening a stream on a connection that waits out its idle timeout on a
+    /// dead path. A no-op for a group that opens its socket with each link.
+    fn abandon(&self) {}
 }
 
 /// Returns an endpoint label safe for diagnostics and user-facing status.

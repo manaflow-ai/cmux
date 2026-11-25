@@ -14,6 +14,7 @@ import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model"
 import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
+import { trailingTimer } from "../../../ui/trailingTimer";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
 import { HOVER_INTENT, useHoverIntent } from "../../../ui/hoverIntent";
@@ -32,6 +33,8 @@ import { PreviewCard } from "./PreviewCard";
 import { RAIL_ACCESSIBILITY_ID, useRailSide } from "./railSide";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { ScrollMap } from "./ScrollMap";
+import { cutoverSlot } from "./cutoverSlot";
+import { threadMinimapCutover } from "./cutover.experiment";
 import { threadMinimapLayout } from "./layout.experiment";
 import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
@@ -322,6 +325,7 @@ export function ThreadMinimap({
 
 function ThreadMinimapView({
   source,
+  cutoverRow,
   earlier = PromptHeads.EMPTY,
   later = PromptHeads.EMPTY,
   promptCount,
@@ -339,6 +343,8 @@ function ThreadMinimapView({
 }: {
   /// The transcript's rows, layout and offset (MinimapSource): read when the rail draws.
   source: MinimapSource;
+  /// The New divider in the displayed transcript, when it has news beneath it.
+  cutoverRow?: number;
   /// MinimapSource.update's version: a new one renders the rail.
   version: number;
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
@@ -393,6 +399,7 @@ function ThreadMinimapView({
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
   const [mark] = useState(() => MARK_OPACITY[experimentArm(threadMinimapMark)]);
+  const [cutoverLook] = useState(() => experimentArm(threadMinimapCutover));
   /// How other chats' messages draw (incoming.experiment.ts), read once per pane: folded per run into
   /// one tick (the default), dimmer at rest, both or neither.
   const [incomingLook] = useState(() => INCOMING_LOOK[experimentArm(threadMinimapIncoming)]);
@@ -529,8 +536,6 @@ function ThreadMinimapView({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
-  /// The chat the rail's list was last placed for: a switch places it in the next frame (the offset effect).
-  const placedSession = useRef<string | undefined>(undefined);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -1090,7 +1095,16 @@ function ThreadMinimapView({
             return box.top - node.getBoundingClientRect().top - LANDING_OFFSET - topInsetNow.current;
           },
           SETTLE_FRAMES,
-          { explicit: true },
+          {
+            explicit: true,
+            // Until the row is drawn, the landing follows the prompt's top in the transcript's layout
+            // as it is now. A jump to a prompt an older page just brought in reads the layout of the
+            // commit before that page measured, which put the prompt 32,000 px down a 300-turn chat;
+            // the row was never drawn there, so nothing corrected it: a click on prompt 60 left the
+            // reader on prompt 245 (Leo, 2026-11-10: "The scroll rail isn't working right now. ...
+            // I don't know where my last chat just went").
+            unmeasured: () => target() - node.scrollTop,
+          },
         );
       if (how === "scrub" || how === "click" || !row || reducedMotion()) {
         stopScroll(node);
@@ -1327,14 +1341,11 @@ function ThreadMinimapView({
   >(undefined);
   /// The one timer that places the list once a fling is at rest (FLING_REST_MS), and the render it asks
   /// for. Each fling frame moves it later; the unmount clears it.
-  const restTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// One timer per fling, however many frames move it (ui/trailingTimer.ts): a clearTimeout and a
+  /// setTimeout each fling frame were a native call pair a frame.
   const [rested, setRested] = useState(0);
-  useEffect(
-    () => () => {
-      if (restTimer.current !== undefined) clearTimeout(restTimer.current);
-    },
-    [],
-  );
+  const [restTimer] = useState(() => trailingTimer(() => setRested((count) => count + 1)));
+  useEffect(() => () => restTimer.stop(), [restTimer]);
   /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES). The rail is
   /// inside the scroller, and a wheel over its own list browses the rail, not the chat.
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
@@ -1392,18 +1403,11 @@ function ThreadMinimapView({
           : 0;
       bandMotion.current = { first: onScreen.first, last: onScreen.last, top: reader, at: now, fast, sessionId };
       if (fast >= FLING_MOVES) {
-        if (restTimer.current !== undefined) clearTimeout(restTimer.current);
-        restTimer.current = setTimeout(() => {
-          restTimer.current = undefined;
-          setRested((count) => count + 1);
-        }, FLING_REST_MS);
+        restTimer.push(FLING_REST_MS);
         return;
       }
     }
-    if (restTimer.current !== undefined) {
-      clearTimeout(restTimer.current);
-      restTimer.current = undefined;
-    }
+    restTimer.cancel();
     const place = () => {
       const current = listOffset.current;
       const next = railScrollTop(
@@ -1420,17 +1424,21 @@ function ThreadMinimapView({
       setListTop(next);
       followPointer(node);
     };
-    // A chat switch: the transcript's rows mounted in this commit and nothing has laid them out yet, so the
+    // In the next frame's callback, before that frame paints, never in the commit. A chat switch or a
+    // rail click mounts the transcript's rows in this commit and nothing has laid them out yet, so the
     // offset write here was the commit's first forced style and layout of the whole new chat, and the
     // transcript's anchor pass laid it out again after its own writes (bench/settled-page.bench.ts
-    // chat_switch: 45 ms of a 190 ms switch). In the next frame's callback, before that frame paints, the
-    // page is laid out once by then and the write only moves the list: the rail is placed in the first frame.
-    if (placedSession.current !== sessionId) {
-      placedSession.current = sessionId;
-      const frame = requestAnimationFrame(place);
-      return () => cancelAnimationFrame(frame);
+    // chat_switch: 45 ms of a 190 ms switch). A rail click commits many times a frame while its pages
+    // arrive, and each commit paid that layout here (bench/chat-fast-scroll.bench.ts rail_click_paint).
+    // In the frame the page is laid out once by then and the write only moves the list; a commit that
+    // moves the band again before that frame replaces the pending place, so the list moves once a frame.
+    // With no frames to wait for (a DOM test's environment), the commit places it.
+    if (typeof requestAnimationFrame !== "function") {
+      place();
+      return;
     }
-    place();
+    const frame = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(frame);
   }, [
     shown,
     onScreen.first,
@@ -1443,6 +1451,7 @@ function ThreadMinimapView({
     sessionId,
     rowPitch,
     rested,
+    restTimer,
   ]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser
@@ -1590,6 +1599,8 @@ function ThreadMinimapView({
   if (full)
     return (
       <ScrollMap
+        cutoverRow={cutoverRow}
+        cutoverLook={cutoverLook}
         rows={rows}
         turns={loadedTurns}
         layout={layout}
@@ -1609,6 +1620,7 @@ function ThreadMinimapView({
       />
     );
   if (!shown) return null;
+  const cutover = cutoverRow === undefined ? undefined : cutoverSlot(turns, cutoverRow, ranges);
   const indexAt = (clientY: number) => {
     const node = list.current;
     if (!node) return 0;
@@ -1627,7 +1639,8 @@ function ThreadMinimapView({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const fades = railFades(onScreen, turns.length, height, listTop, rowPitch);
+  const browsing = railBrowsing.current && railBrowsing.current.sessionId === sessionId;
+  const fades = railFades(browsing ? undefined : onScreen, turns.length, height, listTop, rowPitch);
   const fadeReach = railFadeReach(turns.length, height, listTop, rowPitch);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
@@ -1750,7 +1763,7 @@ function ThreadMinimapView({
             ref={list}
             className="acpmux-minimap__list"
             {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
-            // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
+            // The edge fades: 2.5rem, a quarter of a short rail, and clear of the band when following the transcript.
             data-fade-top={fades.top || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}
             // A list longer than its room scrolls itself, and the wheel over it is the rail's (railWheel.ts).
@@ -1856,6 +1869,15 @@ function ThreadMinimapView({
             onPointerUp={endScrub}
             onPointerCancel={endScrub}
           >
+            {cutover !== undefined && (
+              <li
+                aria-hidden="true"
+                className="acpmux-minimap__cutover"
+                data-look={cutoverLook}
+                style={{ top: cutover * rowPitch }}
+                data-edge={cutover === 0 ? "start" : cutover === turns.length ? "end" : undefined}
+              />
+            )}
             <TickList
               ticks={ticks}
               rowPitch={rowPitch}

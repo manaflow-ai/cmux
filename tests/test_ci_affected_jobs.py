@@ -679,10 +679,65 @@ class TheRepository(unittest.TestCase):
         self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-app-ffi/src/lib.rs"))  # the app links its pinned release
         self.assertEqual(set(router.DAEMON_PATHS) - set(router._daemon_map_inputs(ROOT)), set())
 
+    def test_the_gate_passes_over_only_changes_no_routed_job_reads(self):
+        """`gate` lets the changes job skip the graph: every input of each of cmux-tui-spec.yml's routed jobs, a Rust
+        source or manifest anywhere, the map and the router need it; a web or Swift change does not, and `route` on
+        such a change runs none of the workflow's jobs, so skipping it changes no answer."""
+        workflow = ".github/workflows/cmux-tui-spec.yml"
+        map_text = (ROOT / jobs.MAP).read_text()
+        workspace_inputs, all_jobs = jobs.load_map(map_text)
+        with git_tree.GitTree(ROOT) as tree:
+            graph = jobs.Graph(tree, workspace_inputs, all_jobs)
+            inputs = sorted({entry for job in all_jobs if job.workflow == workflow for entry in graph.inputs(job)})
+            for entry in inputs:
+                probe = entry.rstrip("/") + "/x" if jobs.is_directory(tree, entry) else entry
+                with self.subTest(input=probe):
+                    self.assertTrue(jobs.gate(ROOT, [probe], workflow, map_text=map_text)[0], probe)
+            for path in ("Native/x/src/lib.rs", "cmux-next-ios/rust/Cargo.toml", jobs.MAP, *jobs.SELF, workflow,
+                         ".github/post-merge-batch.json", "scripts/ci/pr_router.json", "cmux-tui/README.md"):
+                with self.subTest(path=path):
+                    self.assertTrue(jobs.gate(ROOT, [path], workflow, map_text=map_text)[0], path)
+            outside = ["webviews/src/App.tsx", "Packages/macOS/CmuxNext/Sources/X/Y.swift", "docs/x.md"]
+            self.assertFalse(jobs.gate(ROOT, outside, workflow, map_text=map_text)[0])
+            result = jobs.route(tree, outside, map_text=map_text, workflow=workflow)
+            self.assertFalse(any(result.run.values()), result.lines())
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
+
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'
         self.assertEqual(jobs.workflow_paths(text, "push"), ["a/**", "b.txt"])
         self.assertIsNone(jobs.workflow_paths(text, "pull_request"))
+
+
+class ReplayOwnCrateTests(unittest.TestCase):
+    """affected_jobs_replay.py fails a skip of a job whose own crate changed; a binaries_only job (daemon-test runs the
+    published binaries) owns its crates' sources, not their tests/, benches/ or examples/ (cmux#50031)."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("affected_jobs_replay", ROOT / "scripts/ci/affected_jobs_replay.py")
+        cls.replay = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.replay)
+
+    def job(self, binaries_only: bool):
+        return jobs.Job(".github/workflows/x.yml", "j", "j", ["cmux-tui/crates/cmux-tui"], [], [],
+                        binaries_only=binaries_only)
+
+    def test_binaries_only_job_does_not_own_its_crates_tests(self):
+        changed = ["cmux-tui/crates/cmux-tui/tests/terminal_throughput_stages.rs",
+                   "cmux-tui/crates/cmux-tui/benches/b.rs", "cmux-tui/crates/cmux-tui/examples/e.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(True), changed), [])
+
+    def test_binaries_only_job_still_owns_its_sources_and_manifest(self):
+        changed = ["cmux-tui/crates/cmux-tui/src/main.rs", "cmux-tui/crates/cmux-tui/Cargo.toml",
+                   "cmux-tui/crates/cmux-tui/src/tests/mod.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(True), changed), changed)
+
+    def test_a_test_running_job_owns_its_crates_tests(self):
+        changed = ["cmux-tui/crates/cmux-tui/tests/terminal_throughput_stages.rs"]
+        self.assertEqual(self.replay.own_crate_changes(jobs, self.job(False), changed), changed)
 
 
 if __name__ == "__main__":

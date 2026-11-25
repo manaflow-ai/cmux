@@ -1,39 +1,33 @@
 import AppKit
 import CmuxNextDesign
 
-// Icons that carry no news stay out of sight until the pointer is on the bar or the bar has the keyboard (Lawrence
-// 2026-11-21, "drastically simplify all parts of the UI"): the site-info chip of a secure page and the hollow star of a
-// page not bookmarked. They keep their room, faded to clear, so their coming and going moves no text. A page that is not
-// secure keeps its "Not secure" chip, and a bookmarked page its filled star.
+// The site-info chip and the bookmark star always show (https://github.com/manaflow-ai/cmux/issues/50986). They used to
+// fade to clear at rest and in on hover or focus (Lawrence 2026-11-21, "drastically simplify"): a person saw no star
+// until they pointed at the bar, then a white one after bookmarking, and read the bar as broken ("unless i focus on it i
+// see it.. otherwise its not there"). They now draw at full strength in every state, in the bar's ink (`OmnibarInk`).
 //
-// The profile avatar is quiet too (Leo 2026-11-22, "why do we have the profile icon here if it's always visible ... hide
-// it along with the favouite/left side \"stuff\" about icon"): a tab's profile does not change while you read the page.
+// The profile avatar is quiet (Leo 2026-11-22, "why do we have the profile icon here if it's always visible ... hide it
+// along with the favouite/left side \"stuff\" about icon"): a tab's profile does not change while you read the page, so
+// it is clear at rest and shows when the pointer is on the bar or the bar has the keyboard. It keeps its room, so its
+// coming and going moves no text.
 extension AddressBarView {
-    /// The site-info chip says nothing a person needs at rest: a secure web page's neutral icon, with no label.
-    var chipIsQuiet: Bool {
-        chip.indicator.symbol == PageInfoIndicator.secureSymbol && chip.indicator.label == nil && chip.indicator.tone == .neutral
-    }
-
-    /// The star says nothing a person needs at rest: the page is not bookmarked.
-    var starIsQuiet: Bool { starButton.state == .off }
-
-    /// The profile avatar says nothing new at rest: it is the same on every page of the tab.
-    var profileBadgeIsQuiet: Bool { true }
-
-    /// Whether the quiet icons show: the pointer is on the bar, or the bar has the keyboard.
+    /// Whether the quiet profile avatar shows: the pointer is on the bar, or the bar has the keyboard.
     var showsQuietIcons: Bool { pill.debugHovering || controller.state.hasFocus }
 
-    /// Fades the quiet icons in or out; `fade` nil sets them at once (a page or focus change).
+    /// Shows the chip and the star at full strength, and fades the profile avatar in or out; `fade` nil sets it at once
+    /// (a page or focus change). Every path that once faded the quiet icons (a page, focus, hover or bookmark change)
+    /// still lands here.
     func updateQuietIcons(fade: MotionFade?) {
-        let shown = showsQuietIcons
-        for (view, quiet) in [(chip as NSView, chipIsQuiet), (starButton as NSView, starIsQuiet), (profileBadgeView as NSView, profileBadgeIsQuiet)] {
-            let alpha: CGFloat = quiet && !shown ? 0 : 1
-            guard view.alphaValue != alpha else { continue }
-            if let fade {
-                Motion.feedback.animate(fade, in: view) { view.animator().alphaValue = alpha }
-            } else {
-                view.alphaValue = alpha
-            }
+        for view in [chip as NSView, starButton as NSView] where view.alphaValue != 1 {
+            view.alphaValue = 1
+        }
+        let profileAlpha: CGFloat = showsQuietIcons ? 1 : 0
+        guard profileBadgeView.alphaValue != profileAlpha else { return }
+        let avatar: NSView = profileBadgeView
+        if let fade {
+            Motion.feedback.animate(fade, in: avatar) { avatar.animator().alphaValue = profileAlpha }
+        } else {
+            avatar.alphaValue = profileAlpha
         }
     }
 }

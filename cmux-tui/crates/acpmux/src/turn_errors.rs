@@ -66,6 +66,9 @@ pub fn is_capacity_error(message: &str) -> bool {
         || m.contains("overloaded")
         || m.contains("at capacity")
         || (m.contains("no non-exhausted") && m.contains("account"))
+        // The cmux-platform worker gateway's own ceiling (2026-11-23): "502 the gateway is at
+        // its call limit; retry". Capacity, not a dropped connection: it is waited out.
+        || m.contains("at its call limit")
 }
 
 /// An HTTP gateway failure is independent of account credentials.
@@ -197,6 +200,14 @@ pub fn transient_cause(error: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether `error` says the disk was full: `ENOSPC`, "No space left on device (os error 28)".
+pub fn is_disk_full(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("no space left on device")
+        || lower.contains("os error 28")
+        || lower.contains("enospc")
+}
+
 /// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
 pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
     match raw {
@@ -223,6 +234,11 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
         || crate::recovery::auth_kind(shown).is_some()
     {
         return None;
+    }
+    // A full disk clears by itself (a build's output reclaimed, a cache pruned): the chat waits
+    // for free space, then goes on (`hub/auto_resume/disk_wait.rs`).
+    if is_disk_full(raw) || is_disk_full(shown) {
+        return Some("disk");
     }
     // Before the refused requests: a prompt past the window is a 400 that compacting answers.
     if is_context_overflow(raw) || is_context_overflow(shown) {
@@ -340,6 +356,7 @@ mod tests {
         "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 503 Service Unavailable)",
         "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2401s). This is a server-side issue, usually temporary. Try again in a moment.",
         "API Error: 503 no non-exhausted claude accounts available, next account frees up in 7m (retry after 429s).",
+        "API Error: 502 the gateway is at its call limit; retry",
         "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
         "Selected model is at capacity.",
         "Selected model is at capacity. overloaded",

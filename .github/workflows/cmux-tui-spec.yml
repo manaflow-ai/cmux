@@ -3,10 +3,9 @@ name: cmux-tui spec inventory
 on:
   push:
     branches:
+      # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite
+      # cmux-tui-spec), not per push; its clippy and test jobs save their cargo caches there.
       - main
-      # The clippy job's cargo cache is saved from feat-cmux-next pushes, so pull
-      # requests into it start warm.
-      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - ".github/workflows/cmux-tui-spec.yml"
@@ -40,6 +39,7 @@ on:
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "Resources/theme-files/*.json"
       - "Resources/sidebar-looks/*.json"
@@ -51,6 +51,7 @@ on:
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
@@ -89,9 +90,11 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
+      - "scripts/ci/apt-ensure.sh"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/**"
@@ -104,8 +107,24 @@ on:
       # Customize inputs of the routed jobs: the seven-language conformance and
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
+      # The installers' signed release file check (linux-release-verify.test.sh) reads these.
+      - "web/public/tui/install-static.sh"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
+      - "web/services/vms/drivers/linuxRelease.ts"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to test (empty is the caller's commit).
+        type: string
+        default: ""
+      only:
+        description: Run only this job id (a bisect probe); empty runs every job.
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       commit:
@@ -139,51 +158,74 @@ jobs:
   # The router (cmux-tui-spec-changed.py): on a pull request, whether its change touches
   # one of this workflow's `push` paths. A push or a dispatch always runs every job.
   changes:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.route.outputs.run }}
-      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir }}
+      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir }}
       acpmux_protocol_ir_tree: ${{ steps.graph.outputs.acpmux_protocol_ir_tree }}
-      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests }}
+      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests }}
       acpmux_tests_tree: ${{ steps.graph.outputs.acpmux_tests_tree }}
-      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim }}
+      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim }}
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
-      carrier_sim: ${{ steps.graph.outputs.carrier_sim }}
+      carrier_sim: ${{ steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
-      router_changed: ${{ steps.graph.outputs.router_changed }}
+      router_changed: ${{ steps.graph.outputs.router_changed || steps.gate.outputs.router_changed }}
       acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
-      # Blobless and narrow: the router reads names and trees from git, and blobs only under the dirs
-      # below (the crate graph's manifests and sources, the map, the scripts). A full depth-2 checkout
-      # of the whole tree took 36 s of this job's 44 s (p50, 2026-11-21). A blob outside these dirs
-      # reads as NeedsFullTree and routes every job (fail-open), never fewer.
+      # Blobless, and at first only the router's own files: the names and trees come from git (about 1 s).
+      # The next step checks out the rest only when the change needs the crate graph.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/
-            /scripts/
-            /tests/
-            /cmux-tui/
-            /first-party-apps/
-            /workers/
-            /schemas/
-            /plans/
+            /.github/workflows/cmux-tui-spec.yml
+            /.github/scripts/
+            /scripts/ci/*.py
+            /scripts/ci/*.json
+
+      # Whether the change needs the crate graph at all (affected_jobs.py gate): it does when it touches this
+      # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
+      # skipped workflows, the map, the router). A pull request that touches none skips the graph, its checkout
+      # and the check (240 of the last 397 feat-cmux-next merges, 2026-11-24; about 50 s of this job's 63 s p50 went
+      # to them): every routed job reads `false`, and the feat-cmux-next push still runs them all. A push, a dispatch, the full-ci label or no base: needed.
+      - name: Does the change need the crate graph?
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1 2>/dev/null || true)
+          fi
+          python3 scripts/ci/affected_jobs.py gate --workflow .github/workflows/cmux-tui-spec.yml \
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+
+      # The dirs the graph reads blobs under (the crate graph's manifests and sources, the map, the scripts):
+      # one batched fetch of their blobs, about 32 s (2026-11-24). A full depth-2 checkout of the whole tree
+      # took 36 s of this job's 44 s (p50, 2026-11-21). A blob outside these dirs reads as NeedsFullTree and
+      # routes every job (fail-open), never fewer.
+      - name: Check out what the crate graph reads
+        if: steps.gate.outputs.needed != 'false'
+        run: git sparse-checkout set --no-cone /.github/ /scripts/ /tests/ /cmux-tui/ /first-party-apps/ /workers/ /schemas/ /plans/
 
       # The base side of the change: the crate graph also reads the base's copy of each changed file
       # (base_tree), which a blobless checkout lacks. One batched fetch of just those blobs (git diff
       # prefetches both sides); without it a change under cmux-tui/ would route every job.
       - name: Fetch the base copies of the changed files
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.gate.outputs.needed != 'false'
         continue-on-error: true
         run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps workers schemas plans > /dev/null
 
       - name: Test the router
+        if: steps.gate.outputs.needed != 'false'
         run: python3 .github/scripts/test_cmux_tui_spec_changed.py
 
       - name: Does the change touch this workflow's paths?
@@ -204,6 +246,7 @@ jobs:
       # `!= 'false'`).
       - name: Which test jobs can the change affect (crate graph)
         id: graph
+        if: steps.gate.outputs.needed != 'false'
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
@@ -235,8 +278,10 @@ jobs:
 
       # This job runs on every pull request, so a change that gives a routed job a new input (a new
       # include_str!, a fixture, a script) outside the `paths:` of that job's workflow fails here, by name,
-      # rather than leaving the input untested. A red here runs every routed job.
+      # rather than leaving the input untested. A red here runs every routed job. A change the gate passes
+      # over touches nothing the check reads but the existence of a file a job names (the push checks it).
       - name: Every routed job's inputs are on its workflow's paths
+        if: steps.gate.outputs.needed != 'false'
         run: python3 scripts/ci/affected_jobs.py check
 
   # A pull request that changes the crate-graph router (scripts/ci/affected_jobs.py's SELF) replays the
@@ -245,7 +290,7 @@ jobs:
   router-replay:
     name: crate-graph router replay
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.router_changed == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'router-replay') && (!cancelled() && needs.changes.outputs.router_changed == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
@@ -253,6 +298,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
           fetch-depth: 40
 
       - name: Replay merged pull requests through both routers
@@ -264,14 +310,15 @@ jobs:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'inventory') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    timeout-minutes: 10 # the machine join test runs its suite under three shells (about 4 min on a lane VM)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Test inventory checker
         run: python3 cmux-tui/scripts/test_check_spec_inventory.py
@@ -281,6 +328,11 @@ jobs:
 
       - name: Test the machine join script
         run: sh cmux-tui/scripts/machine-join.test.sh
+
+      # The signed Linux release file path of install-static.sh and machine-join.sh
+      # (cmuxterm-hq docs/design/linux-signed-packages.md section 8).
+      - name: Test the installers' signed release file check
+        run: sh cmux-tui/scripts/linux-release-verify.test.sh
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
@@ -315,14 +367,15 @@ jobs:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'api-compat') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -345,14 +398,15 @@ jobs:
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'acpmux-protocol-ir') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_protocol_ir != 'false')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # A green result of this job for the same input tree (affected_jobs.py result_key) is this
       # run's result: the tested steps are skipped and the job reports green with that run named.
@@ -376,7 +430,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-lib-test
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
           # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
@@ -446,7 +500,11 @@ jobs:
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
     # On a pull request, only when acpmux's own paths change (the changes job's acpmux-own step) or with full-ci.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_tests != 'false') }}
+    # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request into
+    # feat-cmux-next skips it unless labeled full-ci, and the post-merge batch (suite cmux-tui-spec) runs it. In
+    # 11-13Z on 2026-11-23 it took 2,567 runner-min on 96 pull requests, and about 3 of the 14 reds sampled were the
+    # pull request's own. Off: the repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on runs it on pull requests again.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'acpmux-tests') && (!cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_tests != 'false')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || vars.ACPMUX_TESTS_ON_PULL_REQUESTS == 'on')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 40
     permissions:
@@ -455,6 +513,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # The test step's time budget counts from here, so it ends with a verdict inside timeout-minutes.
       - name: Start the time budget
@@ -498,8 +557,7 @@ jobs:
       - name: Install bubblewrap
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
+          bash scripts/ci/apt-ensure.sh bubblewrap
           # Ubuntu 24.04 (the pool runners) refuses unprivileged user namespaces to unconfined
           # programs, so bwrap cannot start and the four linux_sandbox::bwrap tests fail on every
           # run, base included (as cmux-tui-sdks.yml).
@@ -525,7 +583,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
           # Keyed on the pinned toolchain and the lockfile, not on rust-cache's environment hash: that
@@ -586,7 +644,7 @@ jobs:
             esac
           done
           # A pull request skips the slowest tests (scripts/ci/acpmux-tests-pr-deferred.txt): each ran past 60 s
-          # in most pull request runs and set the run's length. The feat-cmux-next push runs every test, so a red
+          # in most pull request runs and set the run's length. The post-merge batch runs every test, so a red
           # one of them causes shows on the tip. Off: the full-ci label, or the repository variable
           # ACPMUX_TESTS_PR_DEFER=off.
           skip=()
@@ -595,7 +653,7 @@ jobs:
               [[ -n "$name" && "$name" != \#* ]] && skip+=(--skip "$name")
             done < ../scripts/ci/acpmux-tests-pr-deferred.txt
             (( ${#skip[@]} )) && skip=(--exact "${skip[@]}")
-            echo "acpmux tests: $(( (${#skip[@]} - 1) / 2 )) slow test(s) deferred to the feat-cmux-next push" >> "$GITHUB_STEP_SUMMARY"
+            echo "acpmux tests: $(( (${#skip[@]} - 1) / 2 )) slow test(s) deferred to the post-merge batch" >> "$GITHUB_STEP_SUMMARY"
           fi
           started=$SECONDS
           # The time budget: the job's 40-minute cap (timeout-minutes) cancels a run with no verdict, and 43 pull
@@ -731,22 +789,29 @@ jobs:
 
       # The whole log of this push's run, red or green, for the pull requests into feat-cmux-next (the restore
       # step above): a few hundred kB gzipped, one per push that ran the tests, restored by prefix.
+      # feat-cmux-next runs this job only in the post-merge batch (a workflow_call from a workflow_dispatch,
+      # inputs.sha the tested tip), never on a push: with `push` alone nothing was saved after #52321, every red
+      # pull request found no base log, retried the base's own reds alone and replayed them on a rebuilt merge
+      # parent (about 15 of a red run's 33 min), and a base test flaky there read as the change's own red. A
+      # bisect probe (inputs.only) tests an old commit, so it saves nothing.
       - name: Save this push's test log for pull requests
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.sha != '' && inputs.only == '')) && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        env:
+          TESTED_SHA: ${{ inputs.sha }}
         run: |
           dir="$RUNNER_TEMP/acpmux-base-run"
           [[ -s "$RUNNER_TEMP/acpmux-tests-head.log" ]] || exit 0
           mkdir -p "$dir"
           gzip -c "$RUNNER_TEMP/acpmux-tests-head.log" > "$dir/head.log.gz"
-          echo "$GITHUB_SHA" > "$dir/sha"
+          echo "${TESTED_SHA:-$GITHUB_SHA}" > "$dir/sha"
           date +%s > "$dir/time"
 
       - name: Save the base's last test log
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.sha != '' && inputs.only == '')) && github.ref == 'refs/heads/feat-cmux-next' && steps.tree.outputs.hit != 'true' && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') }}
         uses: ./.github/actions/cache-save
         with:
           path: ${{ runner.temp }}/acpmux-base-run
-          key: acpmux-tests-base-log-${{ github.sha }}
+          key: acpmux-tests-base-log-${{ inputs.sha || github.sha }}
 
       # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
       # for this base only: it is not kept for the tree.
@@ -769,14 +834,15 @@ jobs:
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'acpmux-sim') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # A green result of this job for the same input tree (affected_jobs.py result_key) is this
       # run's result: the tested steps are skipped and the job reports green with that run named.
@@ -799,7 +865,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-acpmux-sim
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
           # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
@@ -846,8 +912,8 @@ jobs:
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
     # After merge (CI 10x, 2026-11-21: 1.02% of pull request runner-minutes, 0.05% of heads it alone caught): every
-    # feat-cmux-next push runs it (the safety net runs every job); a pull request only with the full-ci label.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.carrier_sim != 'false') }}
+    # post-merge batch runs it (the safety net runs every job); a pull request only with the full-ci label.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'carrier-sim') && (!cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.carrier_sim != 'false'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 40
     env:
@@ -857,6 +923,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       # A green result of this job for the same input tree (affected_jobs.py result_key) is this
       # run's result: the tested steps are skipped and the job reports green with that run named.
@@ -870,9 +937,7 @@ jobs:
 
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
 
       # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
       # ghostty-next gitlink with zig, as the clippy job does.
@@ -895,7 +960,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-carrier-sim
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
           # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
@@ -930,14 +995,15 @@ jobs:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'rustfmt') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Test the changed-package rustfmt check
         run: python3 .github/scripts/test_cmux_tui_fmt_changed.py
@@ -993,8 +1059,8 @@ jobs:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
     # Tier B of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it, and its few misses are fixed forward.
-    if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it, and its few misses are fixed forward.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'clippy') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 40
     # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
@@ -1009,13 +1075,14 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
 
       - name: Test the changed-package clippy check
         run: python3 .github/scripts/test_cmux_tui_clippy_changed.py
 
       # A replay checks the old tree with this run's script.
       - name: Keep this run's check scripts
-        run: cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$RUNNER_TEMP/"
+        run: cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py scripts/ci/apt-ensure.sh "$RUNNER_TEMP/"
 
       - name: Check out the replayed commit
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.commit != '' }}
@@ -1052,9 +1119,10 @@ jobs:
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        # Persistent fleet images already carry these packages. Avoid network and
+        # sudo work on that path; cold runners still install every missing package.
+        # The kept copy: a replayed commit from before the helper has no scripts/ci/apt-ensure.sh.
+        run: bash "$RUNNER_TEMP/apt-ensure.sh" clang libclang-dev pkg-config
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
         run: bash scripts/ci/init-submodule.sh ghostty-next
@@ -1079,7 +1147,7 @@ jobs:
       # rust-cache restore below, as before. Keys are literal (tests/test_ci_testbox_broker_guard.py).
       - name: Mount the warm clippy target (feat-cmux-next push, commits)
         id: warm-next
-        if: startsWith(runner.name, 'blacksmith') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        if: startsWith(runner.name, 'blacksmith') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next'
         continue-on-error: true
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
@@ -1089,7 +1157,7 @@ jobs:
 
       - name: Mount the warm clippy target (other runs, read-only)
         id: warm-read
-        if: startsWith(runner.name, 'blacksmith') && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+        if: startsWith(runner.name, 'blacksmith') && !((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next')
         continue-on-error: true
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
@@ -1128,7 +1196,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-pr-clippy
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
           # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold

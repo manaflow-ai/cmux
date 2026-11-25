@@ -296,7 +296,7 @@ final class HostView: NSView {
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: point(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
 
     // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
     // button. The tracking area exists only while the field holds attachments,
@@ -364,6 +364,8 @@ extension FieldChrome {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
+    /// cmux: the rows' scroll position changed (``MessagesLabHomeView/onScrolled``).
+    var onScrolled: (() -> Void)?
     /// The projection, nil until `install` (crash program: no longer an IUO that trapped
     /// when read early).
     private(set) var store: Store?
@@ -561,7 +563,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         followKeyState()  // its own window's key state (cx-95476)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
-        host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
+        // cmux: the "+" opens the host's + menu above the button (Files, the recent clipboard).
+        host.fieldChrome.onPlus = { [weak self] in
+            guard let self else { return }
+            self.intents?.plusClicked(anchor: self.host.fieldChrome.plus)
+        }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in
             self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
@@ -621,6 +627,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             self?.host.updateTopFadeScrollEdge()
             self?.scrolledForSaveHover()
             self?.intents?.scrolled()
+            self?.onScrolled?()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
