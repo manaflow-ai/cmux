@@ -6,9 +6,9 @@ import Testing
 /// `initialize` and not to the relay's params rule; the relay refused every initialize as
 /// `transport.intent_invalid` (`unknown _meta.acpmux key`), and no GUI chat connected in Leo's
 /// NIGHTLY for about 7 h (737+ refusals, 2026-11-21). A newer page's capability opt-in now goes
-/// without that key, so the daemon answers with its default behaviour. Since cmux#49717 the strip
-/// (P0) drops an unknown key on every method, top-level, `_meta` or `_meta.acpmux`; a mode field,
-/// a credential and a forged shape still refuse.
+/// without that key, so the daemon answers with its default behaviour. Since cmux#49717 every
+/// method's unknown param, `_meta` sibling and `_meta.acpmux` key goes the same way; a forged
+/// shape, a credential and a daemon mode field stay refused.
 @Suite
 struct AcpmuxPaneInitializeFailSafeTests {
     private static let hostToken = String(repeating: "a", count: 64)
@@ -79,33 +79,42 @@ struct AcpmuxPaneInitializeFailSafeTests {
         }
     }
 
+    /// cmux#49717 (P0) drops a top-level param or `_meta` sibling the relay does not know on every
+    /// method, the handshake included; a forged shape still meets the params rule.
     @Test func anInitializesUnknownTopLevelParamOrMetaSiblingGoesWithoutIt() throws {
         var params = try AcpmuxPaneInitializeParamsContractTests.contract()
         params["futureParam"] = true
-        let top = try #require(try Self.forwarded(try Self.text("initialize", params)))
-        #expect((top["params"] as? [String: Any])?["futureParam"] == nil)
-        let sibling = try #require(try Self.forwarded(try Self.initialize(["acpmux": ["peerRowBatches": true], "other": true])))
-        let meta = try #require((sibling["params"] as? [String: Any])?["_meta"] as? [String: Any])
-        #expect(meta["other"] == nil)
-        #expect(Self.acpmux(sibling)?["peerRowBatches"] as? Bool == true)
+        let text = try Self.text("initialize", params)
+        let frame = try #require(try Self.forwarded(text), "the relay refused: \(Self.refusal(text) ?? "-")")
+        #expect((frame["params"] as? [String: Any])?["futureParam"] == nil)
+        let sibling = try Self.initialize(["acpmux": ["peerRowBatches": true], "other": true])
+        let siblingFrame = try #require(try Self.forwarded(sibling), "the relay refused: \(Self.refusal(sibling) ?? "-")")
+        #expect(((siblingFrame["params"] as? [String: Any])?["_meta"] as? [String: Any])?["other"] == nil)
+        #expect(Self.acpmux(siblingFrame)?["peerRowBatches"] as? Bool == true)
         let notObject = try Self.initialize(["acpmux": "peerRowBatches"])
         #expect(Self.refusal(notObject) == "_meta.acpmux is not an object")
     }
 
+    /// cmux#49717 (P0): a newer page's key on any other method goes without it too, so the chat keeps
+    /// working; a daemon mode field outside the setting methods stays refused.
     @Test func unknownKeysOnOtherMethodsGoWithoutThem() throws {
         let start: [String: Any] = ["cwd": "/tmp", "mcpServers": [Any](), "_meta": ["acpmux": ["harness": "claude", "someFutureFlag": true]]]
-        let started = try #require(try Self.forwarded(try Self.text("session/new", start), first: false))
+        let startText = try Self.text("session/new", start)
+        let started = try #require(try Self.forwarded(startText, first: false), "the relay refused: \(Self.refusal(startText, first: false) ?? "-")")
         #expect(Self.acpmux(started)?["someFutureFlag"] == nil)
         #expect(Self.acpmux(started)?["harness"] as? String == "claude")
         let prompt: [String: Any] = ["sessionId": "s", "prompt": [Any](), "_meta": ["acpmux": ["promptId": "p", "someFutureFlag": true]]]
-        let prompted = try #require(try Self.forwarded(try Self.text("session/prompt", prompt), first: false))
+        let promptText = try Self.text("session/prompt", prompt)
+        let prompted = try #require(try Self.forwarded(promptText, first: false), "the relay refused: \(Self.refusal(promptText, first: false) ?? "-")")
         #expect(Self.acpmux(prompted)?["someFutureFlag"] == nil)
         #expect(Self.acpmux(prompted)?["promptId"] as? String == "p")
         let attach: [String: Any] = ["sessionId": "s", "someFutureFlag": true]
-        let attached = try #require(try Self.forwarded(try Self.text("_acpmux/attach", attach), first: false))
+        let attachText = try Self.text("_acpmux/attach", attach)
+        let attached = try #require(try Self.forwarded(attachText, first: false), "the relay refused: \(Self.refusal(attachText, first: false) ?? "-")")
         #expect((attached["params"] as? [String: Any])?["someFutureFlag"] == nil)
-        let mode: [String: Any] = ["cwd": "/tmp", "mcpServers": [Any](), "_meta": ["acpmux": ["harness": "claude", "permissionMode": "bypassPermissions"]]]
-        #expect(Self.refusal(try Self.text("session/new", mode), first: false) == #"mode field "permissionMode" in _meta.acpmux"#)
+        #expect((attached["params"] as? [String: Any])?["sessionId"] as? String == "s")
+        let mode: [String: Any] = ["sessionId": "s", "prompt": [Any](), "_meta": ["acpmux": ["promptId": "p", "permissionMode": "bypassPermissions"]]]
+        #expect(Self.refusal(try Self.text("session/prompt", mode), first: false) == #"mode field "permissionMode" in _meta.acpmux"#)
     }
 
     @Test func theInitializeThePageSendsGoesUnchangedButForTheToken() throws {
