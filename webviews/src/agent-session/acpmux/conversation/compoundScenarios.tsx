@@ -93,7 +93,10 @@ export function CompoundPane({
           {now.queue > 0 && <div data-compound-queue style={{ height: now.queue }} />}
           <form className="acpmux-composer" onSubmit={(event) => event.preventDefault()}>
             <div className="acpmux-composer-strip-placeholder" />
-            <div className="acpmux-composer-box">
+            <div
+              className="acpmux-composer-box"
+              data-page-glass="docked composer specimen: the page's glass, as ComposerBox.tsx"
+            >
               <div className="acpmux-md-field" style={{ height: now.card - CARD_EMPTY + FIELD_EMPTY }} />
               <div style={{ height: CARD_EMPTY - FIELD_EMPTY }} />
             </div>
