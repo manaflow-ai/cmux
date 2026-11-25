@@ -31,9 +31,14 @@ pub struct RebalanceArgs {
     /// The longest each move waits for a turn that started meanwhile to end, in seconds.
     #[arg(long, value_name = "SECS", default_value_t = 60)]
     pub timeout: u64,
-    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    /// Move a receipt's session back where it came from (the id a pass printed, in
+    /// rebalance.jsonl).
     #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
     pub undo: Option<String>,
+    /// Run the pass for a peer host from this hub: its sessions read with `session info`, each
+    /// moved with `session move HOST/ID` (the registry switch is read for that host).
+    #[arg(long, value_name = "HOST", conflicts_with = "undo")]
+    pub machine: Option<String>,
 }
 
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
@@ -282,9 +287,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
@@ -553,6 +559,12 @@ pub enum Command {
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
     Inbox(InboxArgs),
+    /// Listen on a teammate's agent address: read what it receives while its owner's grant
+    /// lets you. Needs a team hub (`meshRelay`).
+    Listen {
+        #[command(subcommand)]
+        command: ListenCmd,
+    },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -1911,6 +1923,30 @@ pub enum InboxCmd {
     Read { id: String },
     /// Acknowledge one team message.
     Ack { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum ListenCmd {
+    /// Open a listen on a teammate's agent address.
+    Open {
+        /// The address, @member/agent.
+        address: String,
+        /// How long it stays open, in seconds (60 to 604800; the hub's default without it).
+        #[arg(long, value_name = "SECONDS")]
+        ttl: Option<u64>,
+    },
+    /// List your listens and others' on your addresses.
+    Ls,
+    /// Close one of your listens by id.
+    Close { id: String },
+    /// Read the messages an address you listen on received.
+    Read {
+        /// The address, @member/agent.
+        address: String,
+        /// Continue from the previous JSON response's `next` cursor.
+        #[arg(long)]
+        before: Option<u64>,
+    },
 }
 
 #[derive(Subcommand)]
