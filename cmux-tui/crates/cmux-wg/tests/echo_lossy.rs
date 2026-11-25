@@ -205,17 +205,19 @@ async fn echo_at_80ms_and_one_percent_loss() {
         if only.as_deref().is_some_and(|only| !name.starts_with(only)) {
             continue;
         }
-        let mut p99 = Vec::new();
+        let (mut p50, mut p99) = (Vec::new(), Vec::new());
         let (mut max, mut gaps, mut over) = (0f64, 0f64, 0);
         for seed in 1..=6 {
             let r = run(choice, seed * 7919).await;
+            p50.push(r.p50);
             p99.push(r.p99);
             max = max.max(r.max);
             gaps = gaps.max(r.max_gap);
             over += r.gaps_over_200;
         }
         eprintln!(
-            "{name:16} echo p99 per seed {:?} ms; worst echo {max:.0} ms; longest gap {gaps:.0} ms; gaps over 200 ms: {over} of 6 runs (target p99 {:.0})",
+            "{name:16} echo p50 per seed {:?} ms; p99 per seed {:?} ms; worst echo {max:.0} ms; longest gap {gaps:.0} ms; gaps over 200 ms: {over} of 6 runs (target p99 {:.0})",
+            p50.iter().map(|p| p.round()).collect::<Vec<_>>(),
             p99.iter().map(|p| p.round()).collect::<Vec<_>>(),
             RTT_MS + 50.0
         );
