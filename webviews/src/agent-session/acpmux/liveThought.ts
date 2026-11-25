@@ -74,8 +74,6 @@ export const liveThought = {
 
 /// The thought item each live-turn row of the transcript drew last, by row id (`drewThoughts`).
 let drawn = new Map<string, AcpmuxActivity>();
-let debugThoughtFailures = 0;
-
 /// What the transcript drew of the running turn: each row's last item when it is a thought. Read
 /// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
 export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
@@ -125,45 +123,26 @@ export function thoughtOnly(
   next: AcpmuxSnapshot,
 ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
-  if (index === undefined || !sameButRows(previous, next)) return debugThoughtFailure("snapshot", { index });
+  if (index === undefined || !sameButRows(previous, next)) return undefined;
   const row = previous.rows[index];
   const now = next.rows[index];
-  if (!row || !now || row.id !== now.id || now.kind !== "activity" || now.streaming !== true)
-    return debugThoughtFailure("row", { row, now });
-  if (!sameExcept(row, now, ROW_KEYS)) return debugThoughtFailure("row-fields", { row, now });
+  if (!row || !now || row.id !== now.id || now.kind !== "activity" || now.streaming !== true) return undefined;
+  if (!sameExcept(row, now, ROW_KEYS)) return undefined;
   const was = row.items;
   const items = now.items;
-  if (!was || !items || was.length !== items.length || !items.length)
-    return debugThoughtFailure("items", { was, items });
+  if (!was || !items || was.length !== items.length || !items.length) return undefined;
   const last = items.length - 1;
-  for (let at = 0; at < last; at += 1)
-    if (was[at] !== items[at]) return debugThoughtFailure("prefix", { was, items, at });
+  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return undefined;
   const before = was[last]!;
   const after = items[last]!;
-  if (!isThought(before) || !isThought(after) || before.tool || after.tool)
-    return debugThoughtFailure("kinds", { before, after });
-  if (!sameExcept(before, after, ITEM_KEYS) || !after.text.startsWith(before.text))
-    return debugThoughtFailure("growth", { before, after });
+  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return undefined;
+  if (!sameExcept(before, after, ITEM_KEYS) || !after.text.startsWith(before.text)) return undefined;
   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
-  if (!sameThought(drawnNow, before)) {
-    if (debugThoughtFailures < 8) {
-      debugThoughtFailures += 1;
-      console.log("LIVE_THOUGHT_GUARD", now.id, { drawnNow, before, after, drawn: drawn.get(now.id) });
-    }
-    return debugThoughtFailure("drawn", { drawnNow, before, after, drawn: drawn.get(now.id) });
-  }
+  if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
-}
-
-function debugThoughtFailure(reason: string, values: Record<string, unknown>): undefined {
-  if (debugThoughtFailures < 8) {
-    debugThoughtFailures += 1;
-    console.log("LIVE_THOUGHT_GUARD", reason, values);
-  }
-  return undefined;
 }
 
 /// The thought the transcript drew for row `id`: the one in its rows, or the newer one this store
