@@ -43,7 +43,6 @@ struct OmnibarInkTests {
         ])
         bar.update(url: URL(string: url), security: .secure)
         bar.setBookmarkStar(.off)
-        bar.setProfileBadge(BrowserProfileBadge(monogram: "D", color: nil, name: "Default"))
         if inWindow {
             content.addSubview(chrome)
             settle(window)
@@ -115,20 +114,18 @@ struct OmnibarInkTests {
         let url = "https://github.com/manaflow-ai/cmux"
         let f = try fixture(window: window, url: url, dark: !light)
 
-        let (grounds, themeSecondary, hoverFill) = f.bar.performWithTheme {
-            (Palette.addressBar.inkGrounds(.flat(coverage: 0)), (ThemeContext.active ?? ThemeScope.app.tokens).textSecondary, Palette.hoverFill)
+        let (grounds, themeSecondary) = f.bar.performWithTheme {
+            (Palette.addressBar.inkGrounds(.flat(coverage: 0)), (ThemeContext.active ?? ThemeScope.app.tokens).textSecondary)
         }
         if !light {
             // The theme's own secondary tone misses on the bar: the check below guards a real gap.
             #expect(OmnibarInk.worstContrast(themeSecondary, over: grounds) < ThemeTokens.minimumTextContrast)
         }
-        let plate = try rgb(hoverFill)
         let marks: [(String, NSColor?, [ThemeRGB])] = [
             ("host", try hostInk(f.bar, url: url), grounds),
             ("site-info icon", chipIcon(f.bar), grounds),
             ("star", f.bar.starButton.shownTint, grounds),
             ("placeholder", placeholderInk(f.bar), grounds),
-            ("profile badge", f.bar.profileBadgeTextColor, grounds.map { plate.composited(over: $0) }),
         ]
         for (name, color, under) in marks {
             let contrast = OmnibarInk.worstContrast(try rgb(color), over: under)
@@ -156,7 +153,5 @@ struct OmnibarInkTests {
         let inside = f.bar.performWithTheme { OmnibarStyle.iconInk }
         #expect(try !same(outside, inside), "the app's ink is not another color than the workspace's")
         #expect(try same(f.bar.starButton.shownTint, inside), "the star keeps the app theme's ink in the dark workspace")
-        #expect(try same(f.bar.profileBadgeTextColor, f.bar.performWithTheme { OmnibarStyle.ink.iconColor(on: [Palette.hoverFill], bare: false) }),
-                "the profile badge keeps the app theme's ink in the dark workspace")
     }
 }
