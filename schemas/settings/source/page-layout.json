@@ -36,6 +36,7 @@
     {"id": "cloudEnvironments", "note": "Settings > Cloud > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
     {"id": "tailnet", "note": "Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers."},
     {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."},
+    {"id": "archivedWorkspaces", "note": "Settings > Sidebar > Archived Workspaces (cmux#51635): the sidebar draws no archived workspace or link; this card lists them in sidebar order with Open, Restore and Delete, like ChatGPT's Settings > Data controls > Archived chats; `cmux.settings.archived.*`. Deep link: #/settings/sidebar?focus=card.archivedWorkspaces."},
     {"id": "customizeLibrary", "note": "Appearance > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`."},
     {"id": "keys", "note": "Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys."},
     {"id": "agentCustomization", "note": "Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): each agent's effective settings with the scope each comes from, the curated keys to edit and Open file per config file (`cmux.settings.agentConfig`, the bundled `cmux --json agent-config settings`), and every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks (`cmux.settings.agentHooks.*`, the bundled `cmux --json agent-config hooks`)."},
@@ -44,6 +45,7 @@
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
+    {"id": "automationsCloud", "note": "Settings > Automations: cloud automations (cmux platform /v1/automations): the list with each trigger, last run and on/off switch, the form (a GitHub event on a repository, a webhook whose URL and secret show once, or a schedule; condition rows; the agent's repository, branch template, harness and prompt template with a preview against a sample event; limits), the run log and the template gallery; `cmux.settings.autocloud.*`, from the bundled `cmux autocloud overview --json` (cmux-tui cli/autocloud.rs shapes every string and checks every spec). Deep link: #/settings/automations."},
     {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
     {"id": "extensions", "note": "Settings > Extensions: each installed extension's own settings from its manifest's `settings` schema, one group per extension; `cmux.settings.extensions.list` and `.set` (ExtensionSettingsPageRoute) send the daemon's `apps.settings.list` and `apps.settings.set` on the app's own connection."}
   ],
@@ -192,7 +194,7 @@
               "sidebar.hoverCards.groups.sections.ports"
             ]}
           ],
-          "trail": ["spaces"],
+          "trail": ["spaces", "archivedWorkspaces"],
           "actions": ["rooms"],
           "aliases": ["rooms"]
         },
@@ -383,6 +385,14 @@
           "note": "Which subscription or key each Cloud thread runs on: the person's own connections in order, the organization's after them, and what members may do (cmux-tui/docs/model-connections.md). cmux://settings/models/add opens it with Add a Connection (focus=models.add).",
           "groups": [],
           "lead": ["models"]
+        },
+        {
+          "id": "automations",
+          "title": {"key": "settings.category.automations", "text": "Automations"},
+          "symbol": "bolt",
+          "note": "Cloud automations (Leo 2026-11-24: \"having people be able to set up their own conditions for when autocloud will go off\"): a GitHub event, a webhook or a schedule, conditions over the event, and the agent it starts; the run log and the template gallery.",
+          "groups": [],
+          "lead": ["automationsCloud"]
         }
       ]
     },
@@ -563,6 +573,7 @@
             {"title": {"key": "settings.pageGroup.network", "text": "Network Requests"}, "keys": [
               "browser.omnibar.remoteSuggestions", "announcements.fetch"
             ]},
+            {"group": "settings.group.anonymousTelemetry", "note": "Opt-in crash reports and product analytics (`sendAnonymousTelemetry`)."},
             {"group": "settings.group.hangReports"},
             {"group": "settings.group.usagePatterns", "note": "Opt-in local usage patterns (cmux-usage-patterns); `cmux usage-patterns` reads them."},
             {"group": "settings.group.sshLinks", "note": "The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate)."}

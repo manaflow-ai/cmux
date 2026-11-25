@@ -112,6 +112,7 @@ struct TerminalSizingMacsPage: View {
                 if macs.isEmpty, store.awaitsAccountData {
                     // The account's Macs are still on their way: not "No Macs.".
                     CmuxSpinner(label: Text("Loading Macs…"))
+                        .placeholderBound("settings.macs.loading", .milliseconds(2000))
                 } else if macs.isEmpty {
                     Text("No Macs.").foregroundStyle(theme.colors.label2)
                 }

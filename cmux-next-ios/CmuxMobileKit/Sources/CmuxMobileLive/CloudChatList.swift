@@ -4,8 +4,9 @@ import Foundation
 /// A Cloud machine can hold every chat it ever ran: the list draws the newest page
 /// of them and grows by a page on request, instead of every chat sorted by id.
 ///
-/// acpmux picks and orders the page (`_acpmux/sessions {localOnly, limit}`: this machine's
-/// chats, newest `updatedAt` first, ties by `sessionId`), the order the Mac's lists and the
+/// acpmux picks and orders the page (`_acpmux/sessions {localOnly, topLevelOnly, limit}`: this
+/// machine's chats, no side chat or session another chat's agent started, newest `updatedAt`
+/// first, ties by `sessionId`), the order the Mac's lists and the
 /// phone's Mac chats read too, so every device draws one order. The phone neither sorts nor
 /// filters the list (acpmux `hub/session_pages.rs`, `the_mac_and_the_phone_read_one_order`).
 public enum CloudChatList {
@@ -35,7 +36,7 @@ public enum CloudChatList {
 
     /// The params of a list read of the first `shown` chats.
     nonisolated static func params(shown: Int) -> JSONValue {
-        .object(["localOnly": .bool(true), "limit": .number(Double(max(shown, 1)))])
+        .object(["localOnly": .bool(true), "topLevelOnly": .bool(true), "limit": .number(Double(max(shown, 1)))])
     }
 
     /// Reads the first `shown` of this machine's chats from its acpmux.
