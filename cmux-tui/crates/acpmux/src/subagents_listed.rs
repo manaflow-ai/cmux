@@ -163,7 +163,7 @@ impl SubagentTree {
             running_now.iter().map(|(id, _)| item(id, self.listed.get(*id), "running")).collect();
         let mut done: Vec<(&String, &Listed)> =
             self.listed.iter().filter(|(id, _)| !running_ids.contains(id.as_str())).collect();
-        done.sort_by(|a, b| b.1.seq.cmp(&a.1.seq));
+        done.sort_by_key(|a| std::cmp::Reverse(a.1.seq));
         let ended_omitted = done.len().saturating_sub(ended);
         let ended = done
             .into_iter()

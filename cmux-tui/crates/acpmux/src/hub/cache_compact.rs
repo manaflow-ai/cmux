@@ -4,11 +4,19 @@
 //!
 //! The chat's `usage_update`s carry when its prompt cache lapses (`_meta.acpmux.cacheExpiresAt`,
 //! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
-//! Cache Expires" on (`agents.cacheCompact.enabled`, off by default: a compaction is a model call
-//! that counts toward usage), each such update arms one timer for the session, [`lead_ms`] before
+//! Cache Expires" on (`agents.cacheCompact.enabled`, on by default since 2026-11-24; only an
+//! explicit `false` turns it off), each such update arms one timer for the session, [`lead_ms`] before
 //! that expiry, while the context is at least `agents.cacheCompact.minContextPercent` of its
 //! window. When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
+//!
+//! Why on, at 30% (Leo, 2026-11-24: "we need to be compacting arguably BEFORE cache expires...",
+//! "this can be toggled but... this as a default seems decent."): off by default, nothing fired in
+//! 48 h on one lane VM, and every wake after a 55+ min idle rewrote its whole context (60K-123K
+//! tokens; the cache read only the shared ~10K prefix). Over 67 warm compactions (mean 146K
+//! tokens before), one read about 12K from cache and wrote about 23K: about 40% of the cold
+//! rewrite it saves, so it pays once more than ~40% of idle chats are woken again. Most contexts
+//! there were 60-100K, which a 50% threshold on a 200K window misses and 30% catches.
 //!
 //! It fires only when the chat is idle as the idle reaper judges it (no turn running or
 //! starting, nothing queued, no permission, question, secret or continuation waiting, no
@@ -62,15 +70,15 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle)>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
-const DEFAULT_MIN_CONTEXT: f64 = 50.0;
+const DEFAULT_MIN_CONTEXT: f64 = 30.0;
 const MIN_CONTEXT_RANGE: (f64, f64) = (10.0, 95.0);
 
-/// The Settings keys as the daemon reads them: None when off (the default, a missing or
-/// unreadable file included), else the context share (0-1) a chat must reach.
+/// The Settings keys as the daemon reads them: None when off (only an explicit
+/// `agents.cacheCompact.enabled: false`), else the context share (0-1) a chat must reach. No
+/// document (no settings file) is the defaults: on, at [`DEFAULT_MIN_CONTEXT`].
 pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
-    let doc = doc?;
-    let get = |key: &str| crate::user_settings::value(doc, key);
-    if get(SETTING_ENABLED).and_then(|v| v.as_bool()) != Some(true) {
+    let get = |key: &str| doc.and_then(|doc| crate::user_settings::value(doc, key));
+    if get(SETTING_ENABLED).and_then(|v| v.as_bool()) == Some(false) {
         return None;
     }
     let percent = get(SETTING_MIN_CONTEXT)
@@ -83,7 +91,10 @@ pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
 fn read_threshold() -> Option<f64> {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => settings_threshold(Some(&doc)),
-        _ => None,
+        crate::user_settings::Settings::Missing => settings_threshold(None),
+        // A file that exists but cannot be parsed may hold an explicit `false`: arm nothing until
+        // it reads again rather than override what it may say.
+        crate::user_settings::Settings::Unreadable(_) => None,
     }
 }
 
