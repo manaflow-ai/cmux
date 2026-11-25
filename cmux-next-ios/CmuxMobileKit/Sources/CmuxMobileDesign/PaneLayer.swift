@@ -45,7 +45,6 @@ final class PaneLayerController: UIViewController {
     private var graceUntil: CFTimeInterval = 0
     private var lastTransition: CFTimeInterval = 0
     private weak var maskedBar: UINavigationBar?
-    private weak var shiftedBar: UINavigationBar?
     private var watchedGestures: [ObjectIdentifier] = []
     /// Told when a transition starts or stops moving this pane.
     var reportTransition: ((Bool) -> Void)?
@@ -122,7 +121,6 @@ final class PaneLayerController: UIViewController {
         link?.invalidate()
         link = nil
         report(false)
-        unshift()
         unmask()
     }
 
@@ -154,35 +152,20 @@ final class PaneLayerController: UIViewController {
             // the swipe is cancelled).
             let isPop = !navigation.viewControllers.contains(from)
             let top = isPop ? from : to
-            let under = isPop ? to : from
             guard let topMinX = PaneLayerGeometry.presentedMinX(of: top.view, in: navigation.view) else { return }
             let edge = min(max(topMinX, 0), width)
             // The span of the screen the bar may draw over: its own pane's.
             let visible: ClosedRange<CGFloat> = pane === top ? 0...edge : edge...width
             let paneSpan: ClosedRange<CGFloat> = pane === top ? edge...width : 0...edge
-            // The bar belongs to the page under this one: it slides with that page (its parallax),
-            // as a page's own header does, instead of standing still at full width over both.
-            // UIKit moves the bar itself too (its own show animation): the shift is what is left
-            // to put its leading edge on the under page's.
-            let presentedTx = (bar.layer.presentation() ?? bar.layer).affineTransform().tx
-            let ownMinX = (PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? 0) - presentedTx
-            var barMinX = ownMinX + presentedTx
-            if pane === top, PaneLayerProbe.follows,
-               let underMinX = PaneLayerGeometry.presentedMinX(of: under.view, in: navigation.view) {
-                let target = min(0, underMinX)
-                shift(bar, by: max(-width, min(width, target - ownMinX)))
-            }
-            // Clip and fade by where the bar is drawn this frame (UIKit's paused transition
-            // animations on the bar win over a model change until they end).
-            _ = barMinX
-            barMinX = PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? barMinX
+            // The bar stays where UIKit draws it (its own transition animations own its
+            // position): it is clipped to the page under this one, by where it is drawn.
+            let barMinX = PaneLayerGeometry.presentedMinX(of: bar, in: navigation.view) ?? 0
             mask(bar, to: visible, in: navigation.view, barMinX: barMinX)
             PaneLayerProbe.shared?.sample(bar: bar, root: navigation.view, paneSpan: paneSpan)
             graceUntil = pane === top ? now + 0.6 : 0
             return
         }
         // Settled: the bar back in place, and the keyboard followed again.
-        unshift()
         report(false)
         // This pane on top: the bar stays off it until SwiftUI hides it.
         if navigation.topViewController === pane, now < graceUntil, !bar.isHidden {
@@ -196,7 +179,7 @@ final class PaneLayerController: UIViewController {
         if now - lastTransition > 0.5 { stopTracking() }
     }
 
-    /// `barMinX`: the bar's leading edge as it is drawn this frame (with its shift), in `root`.
+    /// `barMinX`: the bar's leading edge as it is drawn this frame, in `root`.
     private func mask(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView, barMinX: CGFloat) {
         guard PaneLayerProbe.masks else { return }
         if PaneLayerProbe.follows { fadeGlass(in: bar, to: visible, barMinX: barMinX) }
@@ -216,21 +199,6 @@ final class PaneLayerController: UIViewController {
         layer.frame = CGRect(x: visible.lowerBound - barMinX, y: -1000,
                              width: visible.upperBound - visible.lowerBound, height: bar.bounds.height + 2000)
         CATransaction.commit()
-    }
-
-    /// Moves the bar with the page it belongs to (its leading edge at `x`).
-    private func shift(_ bar: UINavigationBar, by x: CGFloat) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        bar.transform = CGAffineTransform(translationX: x, y: 0)
-        CATransaction.commit()
-        shiftedBar = bar
-    }
-
-    private func unshift() {
-        guard let bar = shiftedBar else { return }
-        if bar.transform != .identity { bar.transform = .identity }
-        shiftedBar = nil
     }
 
     private func unmask() {
@@ -274,7 +242,6 @@ final class PaneLayerController: UIViewController {
         MainActor.assumeIsolated {
             link?.invalidate()
             maskedBar?.layer.mask = nil
-            shiftedBar?.transform = .identity
             for entry in fadedGlass.values { entry.view.alpha = entry.alpha }
         }
     }
@@ -370,7 +337,7 @@ final class PaneLayerProbe {
     #if DEBUG
     static let shared: PaneLayerProbe? = CommandLine.arguments.contains("-CmuxMobilePaneLayerProbe") ? PaneLayerProbe() : nil
     static let masks = !CommandLine.arguments.contains("-CmuxMobilePaneLayerNoMask")
-    /// The bar stands still through a swipe back (masked only) under `-CmuxMobileSwipeBackLegacy`.
+    /// The bar's glass is not faded through a swipe back under `-CmuxMobileSwipeBackLegacy`.
     static var follows: Bool { !SwipeBackWholePage.legacy }
     #else
     static let shared: PaneLayerProbe? = nil
