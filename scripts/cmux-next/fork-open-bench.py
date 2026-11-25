@@ -63,6 +63,7 @@ sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 # Every Fork To destination (AgentForkDestination), by its raw value.
 PLACEMENTS = {"right": "palette.forkAgentConversationRight", "left": "palette.forkAgentConversationLeft",
@@ -413,7 +414,8 @@ def fork_once(run, placement, parent, before_sessions):
         time.sleep(0.01)  # test script: about once a frame
     trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 300}, timeout=30) or {}
     marks = trace.get("marks_ms") or {}
-    time.sleep(0.5)  # test script: anything a fork opens twice opens by now
+    # sleep-ok: an observation window after the trace settled: a second open (a failure) must show by now.
+    time.sleep(0.5)
     workspace1, panes1, focused1 = shown_layout(run)
     workspaces1, windows1 = workspace_count(run), window_count(run)
     after = checks(run, fork_pane, watch) if fork_session and fork_pane else {}
@@ -558,7 +560,9 @@ def main():
             raise SystemExit(f"fork-open: agent.harness.add: {added.get('message') or added.get('error')}")
         trusted = icl.rpc(acpmux_socket(), "acp.trust.set", {"cwd": work, "level": "trusted"})
         say("trust", json.dumps(trusted)[:200])
-        time.sleep(3)  # test script: the app settles after launch
+        # The app settles after launch: its windows and panes stop changing.
+        wait_stable(lambda: run.rpc("debug.surfaces"), "the app's surfaces after launch", timeout=20, interval=0.2,
+                    reads=5, raise_on_timeout=False)
         for size in SIZES:
             for index, placement in enumerate(WANTED):
                 for i, session in enumerate(chats[size][index]):

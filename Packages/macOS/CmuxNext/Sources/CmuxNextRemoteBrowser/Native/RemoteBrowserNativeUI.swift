@@ -113,8 +113,8 @@ public final class RemoteBrowserNativeUI: NSObject {
     /// The cmux dialog of a page's JavaScript dialog: the page's origin as the title, its message as
     /// the line, and the buttons Chrome shows for that kind.
     static func spec(for dialog: RbDialog) -> CmuxDialogSpec {
-        let ok = String(localized: "remoteBrowser.dialog.ok", defaultValue: "OK", bundle: .module)
-        let cancel = String(localized: "remoteBrowser.dialog.cancel", defaultValue: "Cancel", bundle: .module)
+        let ok = String(localized: "remoteBrowser.dialog.ok", defaultValue: "OK", bundle: .localizedModule)
+        let cancel = String(localized: "remoteBrowser.dialog.cancel", defaultValue: "Cancel", bundle: .localizedModule)
         var fields: [CmuxDialogField] = []
         let buttons: [CmuxDialogButton]
         switch dialog.kind {
@@ -125,8 +125,8 @@ public final class RemoteBrowserNativeUI: NSObject {
             buttons = [.cancel(cancel), .ok(ok)]
         case "beforeunload":
             let leave = dialog.isReload
-                ? String(localized: "remoteBrowser.dialog.reload", defaultValue: "Reload", bundle: .module)
-                : String(localized: "remoteBrowser.dialog.leave", defaultValue: "Leave", bundle: .module)
+                ? String(localized: "remoteBrowser.dialog.reload", defaultValue: "Reload", bundle: .localizedModule)
+                : String(localized: "remoteBrowser.dialog.leave", defaultValue: "Leave", bundle: .localizedModule)
             buttons = [.cancel(cancel), .ok(leave)]
         default:
             buttons = [.cancel(cancel), .ok(ok)]

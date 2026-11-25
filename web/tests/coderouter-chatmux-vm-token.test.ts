@@ -71,6 +71,13 @@ describe("chatmux VM tokens", () => {
         CODEROUTER_CHATMUX_ISSUERS: `${ISSUER}, https://preview.example`,
       })?.issuers,
     ).toEqual([ISSUER, "https://preview.example"]);
+    // A list where one address is not https is off as a whole, never a partial trust.
+    expect(
+      chatmuxConfig({
+        CODEROUTER_CHATMUX_JWKS_URL: "https://a.example/jwks.json,http://b.example/jwks.json",
+        CODEROUTER_CHATMUX_ISSUERS: ISSUER,
+      }),
+    ).toBe(null);
   });
 });
 
@@ -113,6 +120,29 @@ describe("chatmux machines in request authentication", () => {
       teamId: "team-a",
       machineId: "chatmux:vm-123",
     });
+  });
+
+  test("several JWKS addresses: a token from any listed signer verifies, an unlisted signer's does not", async () => {
+    const stagingJwk = { ...(await exportJWK(other.publicKey)), kid: "staging-2026-10-02", alg: "ES256", use: "sig" };
+    const third = await generateKeyPair("ES256");
+    const sets: Record<string, unknown> = {
+      "https://dev.test/.well-known/jwks.json": { keys: [publicJwk] },
+      "https://staging.test/.well-known/jwks.json": { keys: [stagingJwk] },
+    };
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const body = sets[String(input instanceof Request ? input.url : input)];
+      return body ? Response.json(body) : new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    const cfg = chatmuxConfig({
+      CODEROUTER_CHATMUX_JWKS_URL: "https://dev.test/.well-known/jwks.json, https://staging.test/.well-known/jwks.json",
+      CODEROUTER_CHATMUX_ISSUERS: `${ISSUER},https://cmux-api/staging`,
+    });
+    expect(cfg).not.toBe(null);
+    expect(await verifyChatmuxVmToken(await token(), cfg, at)).toEqual({ ...claims, iss: ISSUER } as never);
+    const staging = await token({ iss: "https://cmux-api/staging" }, { kid: "staging-2026-10-02" }, other.privateKey);
+    expect(await verifyChatmuxVmToken(staging, cfg, at)).toEqual({ ...claims, iss: "https://cmux-api/staging" } as never);
+    expect(await verifyChatmuxVmToken(await token({}, { kid: "staging-2026-10-02" }, third.privateKey), cfg, at)).toBe(null);
+    expect(await verifyChatmuxVmToken(await token({}, { kid: "nowhere" }), cfg, at)).toBe(null);
   });
 
   test("a bad chatmux token fails closed and never falls back to another credential", async () => {

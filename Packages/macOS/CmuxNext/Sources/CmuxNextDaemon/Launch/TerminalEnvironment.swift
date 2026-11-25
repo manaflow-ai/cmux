@@ -25,7 +25,9 @@ public struct TerminalEnvironment: Sendable {
     /// Process identity the daemon itself needs (state root, temp dir, ssh
     /// agent). Taken from the app process, never from the login shell, and
     /// only for the daemon process: terminals inherit them from it.
-    public let daemonIdentityKeys: Set<String> = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"]
+    public var daemonIdentityKeys: Set<String> {
+        Set(DaemonLaunchRules.call("daemon_identity_keys") as? [String] ?? [])
+    }
 
     public func isAllowed(_ key: String) -> Bool {
         guard !LoginEnvironment.shared.excludedKeys.contains(key), !isCredential(key) else { return false }
@@ -74,10 +76,9 @@ public struct TerminalEnvironment: Sendable {
     /// Environment for the daemon process: `terminal(login:base:)` plus the
     /// app's process identity keys, plus `overrides`.
     public func daemon(login: [String: String]?, base: [String: String], overrides: [String: String]) -> [String: String] {
-        var env: [String: String] = terminal(login: login, base: base)
-        for key in daemonIdentityKeys { if let value = base[key] { env[key] = value } }
-        for (key, value) in overrides { env[key] = value }
-        return env
+        var request: [String: Any] = ["base": base, "overrides": overrides]
+        if let login { request["login"] = login }
+        return DaemonLaunchRules.call("daemon_environment", request) as? [String: String] ?? overrides
     }
 
     /// The terminal identity the app hands every shell, modeled on what

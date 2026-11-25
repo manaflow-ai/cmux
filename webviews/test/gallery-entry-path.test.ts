@@ -21,4 +21,5 @@ test("every gallery entry's id is found in its own file", async () => {
     if (found !== path) wrong.push(`${entry.id} (${path}): ${found}; write its id as a string literal`);
   }
   expect(wrong).toEqual([]);
-});
+  // Every entry file loads first: about 15 s cold on a 4-core runner, past bun's 5 s default.
+}, 120_000);

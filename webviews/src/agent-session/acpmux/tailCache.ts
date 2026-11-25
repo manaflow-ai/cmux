@@ -11,7 +11,7 @@
 // failure: the chat opens cold, as it did before.
 import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import type { QueuedPrompt } from "./model";
 
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next

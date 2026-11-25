@@ -53,6 +53,68 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// A disabled button dims in its colors: every role's title and hint read at the disabled floor on every
+    /// card surface (a Sign In button faded as a whole to 45% read 1.1:1), yet dimmer than the enabled title,
+    /// and a solid fill stays solid, so what shows through the glass cannot lower it.
+    @Test func everyDisabledDialogButtonStaysLegibleAndDimmer() {
+        let accented = ThemeInput(background: ThemeRGB(hex: 0x1F2430), foreground: ThemeRGB(hex: 0xCBCCC6))
+        for input in [Self.light, Self.dark, accented] {
+            let tokens = ThemeTokens.derive(from: input)
+            for role in [CmuxDialogButton.Role.default, .destructive, .cancel, .normal] {
+                let enabled = CmuxDialogButtonLook(role: role, tokens: tokens)
+                let disabled = CmuxDialogButtonLook(role: role, tokens: tokens, isEnabled: false)
+                for (on, off) in zip(enabled.surfaces, disabled.surfaces) {
+                    let ratio = disabled.title.contrast(with: off)
+                    #expect(ratio >= CmuxDialogButtonLook.disabledMinimumContrast, "\(role) disabled title: \(ratio):1")
+                    #expect(disabled.keyHint.contrast(with: off) >= CmuxDialogButtonLook.disabledMinimumContrast)
+                    #expect(ratio < enabled.title.contrast(with: on), "\(role): disabled reads as strong as enabled")
+                }
+                #expect((disabled.fill.alpha == 1) == (enabled.fill.alpha == 1), "\(role): disabled changed the fill's opacity")
+            }
+        }
+    }
+
+    /// A gray button outside any card sits on the window: in a see-through window over the worst desktop its title
+    /// reads at least as well as the theme's own text there (Hot Dog Stand's Cancel, fit to the dialog card, read
+    /// 1.65:1 on its see-through window), and in an opaque window at 4.5:1.
+    @Test(arguments: [1.0, 0.6])
+    func aGrayButtonOnTheWindowReadsAsTheThemeTextDoes(opacity: Double) {
+        let hotDogStand = ThemeInput(background: ThemeRGB(hex: 0xEA3323), foreground: ThemeRGB(hex: 0xFFFFFF))
+        for var input in [Self.light, Self.dark, hotDogStand] {
+            input.backgroundOpacity = opacity
+            let tokens = ThemeTokens.derive(from: input)
+            let ground = CmuxDialogButtonLook.windowSurfaces(tokens)[0]
+            let floor = min(CmuxDialogButtonLook.minimumContrast, tokens.textPrimary.withAlpha(1).contrast(with: ground))
+            for role in [CmuxDialogButton.Role.cancel, .normal] {
+                let look = CmuxDialogButtonLook(role: role, tokens: tokens, card: CmuxDialogButtonLook.windowSurfaces(tokens))
+                let ratio = look.title.contrast(with: look.fill.composited(over: ground))
+                #expect(ratio + 0.05 >= floor, "\(role) at opacity \(opacity): \(ratio):1 under \(floor):1")
+            }
+        }
+    }
+
+    /// a1273: a button on a popover's menu glass (the bookmark bubble) has no scrim under it, so whatever page shows
+    /// through can be the brightest or the darkest: every ink still reads at 4.5:1, in each role and state, light, dark
+    /// and a theme with its own accent, and a gray button keeps a fill that reads as a button.
+    @Test func everyDialogButtonInkReadsOnTheMenuGlassOverAnyPage() {
+        let accented = ThemeInput(background: ThemeRGB(hex: 0x1F2430), foreground: ThemeRGB(hex: 0xCBCCC6))
+        for input in [Self.light, Self.dark, accented] {
+            let tokens = ThemeTokens.derive(from: input)
+            let card = CmuxDialogButtonLook.menuCardSurfaces(tokens)
+            for role in [CmuxDialogButton.Role.default, .destructive, .cancel, .normal] {
+                for state in CmuxDialogButtonLook.State.allCases {
+                    let look = CmuxDialogButtonLook(role: role, tokens: tokens, state: state, card: card)
+                    #expect(look.surfaces.count == card.count)
+                    for surface in look.surfaces {
+                        #expect(look.title.contrast(with: surface) >= 4.5, "\(role) \(state) title: \(look.title.contrast(with: surface)):1")
+                        #expect(look.keyHint.contrast(with: surface) >= 4.5, "\(role) \(state) hint: \(look.keyHint.contrast(with: surface)):1")
+                    }
+                    #expect(look.fill.alpha > 0.05, "\(role) \(state): a fill, not bare text")
+                }
+            }
+        }
+    }
+
     /// A filled destructive button (the close question's Close) is white on red in every theme and state, as macOS
     /// draws one (Aziz 2026-11-13: "the black on red looks bad it must be white on red"); light themes drew black.
     @Test func aFilledDestructiveButtonIsWhiteOnRed() {

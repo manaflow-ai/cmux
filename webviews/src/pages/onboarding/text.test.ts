@@ -2,7 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import type { OnboardingFooter } from "./ops";
-import { countsLine, keychainLine, keyIntent, primaryLabel, quotedList } from "./text";
+import {
+  countsLine,
+  keychainLine,
+  keyIntent,
+  primaryLabel,
+  primaryLabels,
+  quotedList,
+  skipLabel,
+  windowTitle,
+} from "./text";
 
 const en = createStrings(table, ["en"]);
 const de = createStrings(table, ["de"]);
@@ -57,6 +66,12 @@ describe("primary label", () => {
     expect(primaryLabel(en, "findBrowsers")).toBe("Find Browsers");
     expect(primaryLabel(en, "import")).toBe("Import");
     expect(primaryLabel(en, "beginImporting")).toBe("Begin Importing");
+  });
+  test("each step's button and Skip labels, and the window title", () => {
+    expect(primaryLabels(en, "agents")).toEqual(["Continue"]);
+    expect(skipLabel(en, "skip")).toBe("Skip");
+    expect(skipLabel(en, "skipImporting")).toBe("Skip Importing");
+    expect(windowTitle(en, null)).toBe("Agents");
   });
 });
 

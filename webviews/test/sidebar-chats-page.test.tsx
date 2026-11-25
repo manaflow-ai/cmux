@@ -54,15 +54,16 @@ async function mount() {
   host = view.document.createElement("div");
   view.document.body.replaceChildren(host);
   const calls: Call[] = [];
-  let emit!: (block: unknown) => void;
+  const streams = new Map<string, (data: unknown) => void>();
+  const emit = (block: unknown) => streams.get(SidebarChatsOps.block)?.(block);
   const frames: Array<() => void> = [];
   const client = {
     call: (op: string, params: Record<string, unknown>) => {
       calls.push({ op, params });
       return Promise.resolve(undefined);
     },
-    subscribe: async (_stream: string, onEvent: (data: unknown) => void) => {
-      emit = onEvent;
+    subscribe: async (stream: string, onEvent: (data: unknown) => void) => {
+      streams.set(stream, onEvent);
       return () => {};
     },
     handle: () => () => {},

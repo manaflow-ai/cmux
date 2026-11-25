@@ -37,7 +37,7 @@ extension BrowserHibernation {
         // The record's profile: a tab moved to another one while asleep wakes there, without the old one's history.
         let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
         let history = profile == placeholder.profileID ? placeholder.restoreState : nil
-        wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshotImage(key) != nil)
+        wakeLog.start(key, engine: placeholder.engineKind, snapshot: snapshots.image(for: key) != nil)
         // The page was discarded (logged with its cause); restoring it loads it again.
         // The kind of request only: a URL is the person's browsing and stays out of the log.
         let prewarm = prewarmCauses.removeValue(forKey: key)
@@ -88,7 +88,7 @@ extension BrowserHibernation {
         // The pixels the placeholder shows now are already decoded, so the cover has them in the
         // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
         let shown = asleep.shownPicture
-        if let picture = shown ?? snapshotImage(key) {
+        if let picture = shown ?? snapshots.image(for: key) {
             let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: shown != nil, cap: Self.standInCap,
                                                                          clock: standInClock) ?? false
             if !covered { uncoveredWakes += 1 }
@@ -126,19 +126,20 @@ extension BrowserHibernation {
         }
     }
 
-    /// The picture a hibernated tab shows: its compressed one in `snapshots`.
-    func snapshotImage(_ key: String) -> CGImage? {
-        snapshots.image(for: key)
-    }
-
-    /// Keeps a hibernating page's picture until it wakes or closes.
-    func keep(_ picture: HibernationSnapshots.Picture, for key: String) {
-        snapshots.insert(picture, for: key)
-    }
-
     /// A fresh picture (never one from an earlier sleep), compressed whole into `snapshots`.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) ?? cache.flatMap({ $0.pageThumbnailVersions[key] == tab.state.pictureVersion ? $0.pageThumbnails.image(for: key) : nil }) else { return nil } // Chromium: its current leave picture
+        guard let image = await capture(tab) ?? leavePicture(tab, key: key) else { return nil }
         return await HibernationSnapshots.compress(image)
+    }
+
+    /// Chromium: its leave picture of the URL it has now (its title, load state aside). A page that gets none is
+    /// counted by why (`debug.surfaces` `snapshot_missing`), so a bench tells a page never pictured from a picture
+    /// of an earlier URL and from one the 16 MB leave-picture budget dropped.
+    private func leavePicture(_ tab: any BrowserTab, key: String) -> CGImage? {
+        guard let cache else { return nil }
+        let pictured = cache.pageThumbnailURLs[key], current = tab.state.url?.absoluteString
+        if pictured != nil, pictured == current, let image = cache.pageThumbnails.image(for: key) { return image }
+        snapshots.noteMissing(pictured: pictured, current: current) // never shown or blank, of an earlier URL, or dropped
+        return nil
     }
 }
