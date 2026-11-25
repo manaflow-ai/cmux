@@ -3632,17 +3632,34 @@ async fn dispatch_request_with_identity(
                 method::MUX_INBOX_THREADS => {
                     // Its held count reads the surge journal's tail from the log.
                     let hub = Arc::clone(hub);
-                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let before = params.get("before").and_then(Value::as_u64);
+                    tokio::task::spawn_blocking(move || {
+                        Ok(hub.inbox_threads_page(&s, limit, before))
+                    })
+                    .await
+                    .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
                     let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
                     // Held messages that left memory are read from the log (`inbox_surge.rs`).
-                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
+                    let limit = params.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+                    let mut reply = tokio::task::spawn_blocking(move || {
+                        hub.inbox_thread_whole(&s, &thread, mark)
+                    })
+                    .await
+                    .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))??;
+                    // A page of the newest `limit` messages; `more` says the rest are there.
+                    if let (Some(limit), Some(list)) =
+                        (limit, reply.get_mut("messages").and_then(Value::as_array_mut))
+                    {
+                        let total = list.len();
+                        list.truncate(limit.max(1));
+                        reply["total"] = json!(total);
+                        reply["more"] = json!(total > limit.max(1));
+                    }
+                    Ok(reply)
                 }
                 _ => {
                     let text = text_of("text")

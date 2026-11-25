@@ -128,6 +128,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_fold.rs"]
+mod fold;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -309,6 +311,13 @@ pub struct Inbox {
     /// The threads whose surge-held messages [`trim`] let go of. Those stay whole in the log
     /// (`persist_surge_event`), so a thread read (`inbox_thread_whole`) reads them from there.
     pub(super) held_evicted: std::collections::HashSet<String>,
+    /// Per thread, how many older program notices a newer one replaced (`inbox_fold.rs`): the
+    /// thread's count shows them, its messages do not.
+    pub(super) folded: std::collections::HashMap<String, u64>,
+    /// The threads some of whose messages left memory for the chat's archive file.
+    pub(super) archived_threads: std::collections::HashSet<String>,
+    /// Messages that left memory and are not in the archive file yet.
+    pub(super) archive_pending: Vec<Value>,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -522,6 +531,11 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
             .unwrap_or(sender);
         format!("from:{sender}")
     };
+    // A program's notice folds into one thread per sender and kind, never one per pull request
+    // its first line names (`inbox_fold.rs`).
+    if let Some(key) = fold::notice_key(&prefix, text) {
+        return key;
+    }
     match first_pr(text.lines().next().unwrap_or_default()) {
         Some(n) => format!("{prefix}/pr:{n}"),
         None => prefix,
@@ -1515,6 +1529,7 @@ impl Hub {
                             answer: Some(tx.clone()),
                             reader: reader.clone(),
                         });
+                        fold::fold_thread(&mut inbox, &thread);
                         trim(&mut inbox);
                         true
                     }
@@ -2359,6 +2374,8 @@ impl Hub {
                     } else {
                         thread
                     };
+                    // A notice journaled under a thread of its pull request folds as a new one does.
+                    let thread = fold::refolded(thread, field("text"));
                     let item = Item {
                         surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
                         verdict: None,
@@ -2476,11 +2493,18 @@ impl Hub {
             held.insert(item.prompt_id.clone());
             inbox.items.push(item);
         }
+        fold::fold_all(&mut inbox);
         trim(&mut inbox);
+        // What an earlier run archived stays readable from the archive file.
+        if let Some(dir) = self.store.session_path(&session.id).filter(|p| p.is_dir()) {
+            let (held, _) = fold::archive_threads(&dir);
+            inbox.archived_threads.extend(held);
+        }
         // A needYou journaled before a restart is counted again by the pass (a rule may have
         // changed what counts: program notices are fyi now).
         surge_held |= inbox.surge_counts_need_you() > 0;
         drop(inbox);
+        self.archive_aged_inbox(session);
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
             super::surge_triage::resume_after_restore(session);
@@ -2613,21 +2637,50 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        self.inbox_threads_page(session, None, None)
+    }
+
+    /// [`Self::inbox_threads`], a page of it: at most `limit` threads, those whose newest
+    /// message is older than `before` (unix ms) when given. `more` names the `before` of the next
+    /// page, null on the last. With no `limit`, every thread.
+    pub fn inbox_threads_page(
+        &self,
+        session: &Session,
+        limit: Option<usize>,
+        before: Option<u64>,
+    ) -> Value {
+        // Old read messages leave memory first, so the list is of what is live.
+        self.archive_aged_inbox(session);
         // Read before the inbox lock: the journal's read pruning takes it.
         let held_now = self.surge_held_now(session);
         let inbox = session.inbox();
+        // One pass, one map: a thread is found by its key, not by a walk of the threads so far.
+        let mut at: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::with_capacity(inbox.items.len() / 2 + 1);
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
-            match threads.iter_mut().find(|(k, _)| *k == item.thread) {
-                Some((_, list)) => list.push(item),
-                None => threads.push((&item.thread, vec![item])),
+            match at.get(item.thread.as_str()) {
+                Some(&i) => threads[i].1.push(item),
+                None => {
+                    at.insert(&item.thread, threads.len());
+                    threads.push((&item.thread, vec![item]));
+                }
             }
         }
         let newest = |list: &[&Item]| list.iter().map(|i| i.at).max().unwrap_or(0);
-        threads.sort_by_key(|(_, list)| std::cmp::Reverse(newest(list)));
+        let mut threads: Vec<(u64, &str, Vec<&Item>)> =
+            threads.into_iter().map(|(k, list)| (newest(&list), k, list)).collect();
+        threads.sort_by_key(|(at, _, _)| std::cmp::Reverse(*at));
+        if let Some(before) = before {
+            threads.retain(|(at, _, _)| *at < before);
+        }
+        let total = threads.len();
+        let limit = limit.unwrap_or(usize::MAX).max(1);
+        let more = (total > limit).then(|| threads[limit - 1].0);
+        threads.truncate(limit);
         let rows: Vec<Value> = threads
             .iter()
-            .map(|(key, list)| {
+            .map(|(_, key, list)| {
                 let mut from: Vec<String> = Vec::new();
                 for i in list {
                     let shown = display_sender(&i.sender, &i.from);
@@ -2644,10 +2697,11 @@ impl Hub {
                 } else {
                     "fyi"
                 };
+                let folded = inbox.folded.get(*key).copied().unwrap_or(0);
                 json!({
                     "threadId": key, "key": key, "label": label(key), "from": from,
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
-                    "count": list.len(), "newestAt": newest(list),
+                    "count": list.len() as u64 + folded, "folded": folded, "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
                     // The held bar's "need you" filter: an unread message for the person.
                     // A program's notice that is no FIRE never is, held before that rule or not.
@@ -2669,7 +2723,8 @@ impl Hub {
             }
             counts.json()
         };
-        json!({"sessionId": session.id, "threads": rows, "surge": counts})
+        json!({"sessionId": session.id, "threads": rows, "surge": counts,
+               "total": total, "more": more})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
@@ -2819,6 +2874,7 @@ fn trim(inbox: &mut Inbox) {
             excess -= 1;
             // The archive reader and resend ledger still resolve an evicted held post.
             if item.surge_held {
+                inbox.archive_pending.push(fold::archive_line(&item));
                 inbox.held_evicted.insert(item.thread);
             } else {
                 inbox.trimmed.insert(item.prompt_id);
