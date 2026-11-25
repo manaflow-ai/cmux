@@ -2,7 +2,7 @@
 
 GitHub refuses a workflow file over 500 KB (512,000 bytes) before any job starts, so every pull request
 and push loses the whole workflow (2026-11-10: #40348 took the file to 512,883 bytes). The longest
-explanations live here; the workflow keeps a `# Why: ...#note-N` line where each stood (since note-558 the line is
+explanations live here; the workflow keeps a `# Why: ...#note-N` line where each stood (since note-560 the line is
 `# Why: note-N`, and adjacent ones share a line: `# Why: note-A, note-B`).
 `tests/test_ci_workflow_file_size.py` holds every workflow under the limit with room to spare.
 
@@ -3518,10 +3518,13 @@ Release after the merge, and push-attribution names the PR on a red.
 
 Above `app-compile-fleet.if` in `.github/workflows/cmux-next.yml`.
 
-It takes the gateway, or a wider class of it, only while app-compile-placement saw a runner idle
-(gateway_runner). With none idle it does not run: release-compile then runs, and
-macos-placement puts it in the cascade (CASCADE_RUNS), so it takes a free Blacksmith
-slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
+It runs on cmux-linux whether or not app-compile-placement saw a gateway runner idle: since note-557 its
+runner only reads the verdict the controller posts, so a busy gateway is no reason to skip it. It used to
+run only on an idle reading, and the skip sent the PR to the Mac Release compile: in the 24 h before
+2026-11-25 ~02:00Z, 50 of 114 PR Release compiles (about 950 Mac minutes) were PRs whose only Mac
+reason was this skip. release-compile still runs when this job gives no verdict (unavailable, or skipped
+on a later attempt), and macos-placement still lists it in the cascade (CASCADE_RUNS) when no gateway was
+idle, so that fallback takes a free slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
 It does not wait for the PR quiet period: its runner only hands the head to the build fleet's
 Linux compile, and the run's group cancels it on a newer push, as does its own group below.
 
@@ -4376,6 +4379,13 @@ tip on a push) refuses a row the base lacks (a unit fixed in place does not free
 without `--base`, judges every unlisted offender and fails a row whose unit no longer offends, whatever file the
 change touched: whether a unit offends depends on files it does not live in (a strings map, a string table). Its own tests run in the same background check.
 
+The same step then prints `--input-block`: each place a view is disabled, loses hit testing or is grayed out on a
+link condition (connecting, reconnecting, reattaching, resuming, offline, disconnected, not attached, the hub not
+ready), on the web pages, the Mac app and the iOS apps (Leo, 2026-11-24, back in the iOS app after minutes in
+another app: "the entire thing is somehow grayed out and I can't interact with anything at all"). It is a report:
+it exits 0 whatever it finds, and the findings are the work queue for the lanes that make input accepted while the
+link comes back. A blocking rule for it needs Leo's own word.
+
 The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
 kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
 fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
@@ -5006,6 +5016,18 @@ spill off; unset or any other value leaves it on.
 
 ## note-556
 
+Above the `if:` of `swift-canary-fleet`, `swift-canary`, `fast-tier-rerun-placement`, `fast-tier-fleet` and `fast-tier` in `.github/workflows/cmux-next.yml`.
+
+CI v2 step 11 (Leo, 2026-11-24: "how about finishing up our borg/ci v2? did we finish all 27+ things?"): a
+feat-cmux-next pull request runs the fast tier's Swift suites and the Swift canary as the `mac-fast-tier` and
+`mac-swift-canary` steps of ci/steps.toml, in pr-pipeline.yml's `mac` job, which pr-router.yml starts only when
+the change routes a `mac` step and the head is in the full tier (scripts/ci/pr_router.py FULL_TIER_JOBS). Each
+step asks scripts/ci/mac_tiers.py, which reads cmux_next_route.py over the same merge-commit diff, whether its
+tier is routed. So fast-tier, fast-tier-fleet, fast-tier-rerun-placement, swift-canary and swift-canary-fleet
+lost their pull request clause here (fast-tier-handback-placement follows fast-tier-fleet), and
+macos-placement no longer places them for a pull request. A push to feat-cmux-next and a dispatch still run
+them here, unchanged.
+
 Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
 
 Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,
@@ -5019,6 +5041,34 @@ request skips it while the newest base push verdict is red (scripts/ci/base_red_
 full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.
 
 ## note-557
+
+Above `path_route: PR_FAST_ONLY` in `.github/workflows/cmux-next.yml` (the last block of
+scripts/ci/cmux-next-steps/classify-pull-request-paths.sh).
+
+Leo, 2026-11-21: "help 100x ci speed and the decrease of needed minutes aka lower resources and lower wall time and
+lower machine time while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."
+(cmuxterm-hq goals/ci-verdict-wall-100x.md: PR verdict p50 at most 0.64 min.)
+
+A pull request into feat-cmux-next runs only the PR fast tier in this workflow: the push head preflight, path
+routing (its same-tree cmux-tui probe no longer runs, since no daemon or scheme tier is routed), the PR red-checks
+comment and the compile-status job, which on a same-repository head hands cmux-next/compile to the build-fleet
+controller and ends (it compiles nothing here). The route writes `false` for swift_canary, cmuxnext_swift,
+mac_release, macos, generated, swift, daemon, full, fast_tier, fast_tier_cargo and scheme after every other route,
+so each job they feed skips through its existing `if:`: macOS placement, the Mac fast tier and its fleet jobs, the
+Swift canary, the app compile placement and fleet app compile, web bundles, swift test, daemon tests, generated
+files, the Release compile, the scheme compile and crash-ends-app, and the cargo fast tier (10 to 17 min on
+2026-11-24 PR runs). All of them still run on the feat-cmux-next push run and the base tier (the batched tier); a
+red there is fixed forward.
+
+Skipped is a passing verdict to land-judge (PASSING: success, neutral, skipped; a skip with no cancel in its run is
+a routed skip, not "skipped by a cancel") and to next-autoland, whose Swift-package rule still dispatches
+cmux-next.yml on the branch for a missing swift test (swift_dispatch) as before, and whose cmux-next/compile rule is
+answered by the controller status that compile-status still requests. No check goes missing: each skipped job keeps
+its check run.
+
+The full-ci label runs every tier on the PR as before (labeling a PR full-ci re-runs this workflow). The dev-build
+label keeps its scheme compile. `vars.CI_PR_FAST_ONLY` set to `0` turns the whole block off; unset or any other
+value leaves it on.
 
 Above `runs-on` in app-compile-fleet and swift-canary-fleet in `.github/workflows/cmux-next.yml`.
 
@@ -5061,48 +5111,106 @@ PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are
 
 ## note-558
 
+Above `fleet_queue_p90()` and its check in `fleet_gateway()` in `scripts/ci/side_lane_placement.py`
+(the `macos-placement` job's "Place the macOS jobs" step).
+
+Placement lists fast-tier for the build fleet (note-555's spill) only when the fleet could start its steps
+within the client's 20-minute queue wait. In the 24 hours to 2026-11-24 22Z, none of fast-tier-fleet's 771
+green runs had a fleet verdict inside 20 minutes: every one waited out `--queue-timeout 1200` (p50 21.2 min,
+16,548 gateway runner-min) and handed the tier back (725 hand-back placements). The light class's p90 queue
+wait was 3,317 s. A step the client stops waiting for keeps its place (note-539) and later runs for nobody,
+ahead of the work queued after it (cmuxterm-hq docs/handbook/process-outlives-its-reader.md): about 1,500
+such steps a day.
+
+So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.light`, 5 s timeout), like
+cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
+`cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
+gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
+
+## note-559
+
+Above the fast-tier-cargo job's env in `.github/workflows/cmux-next.yml`, its "List the changed paths" and run
+steps, and `scope()` in `scripts/cmux-next/fast-tier.py`.
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A pull request into
+feat-cmux-next runs only the fast tier entries, and the compiles, its change reaches; the full run moved into
+the post-merge batch (suite `fast-tier`, cmux-next-fast-tier-batch.yml), where the judge bisects a red to its
+commit.
+
+`fast-tier.py --changed-files` picks the entries: a cargo entry when the change reaches its crate's inputs in
+affected_jobs.py's crate graph (or the workspace inputs, or fast_tier_cargo_route.py's LINKED); a CmuxNext
+suite when cmux_next_route.py routes the change to it (full, all tests, the fast registry, a priority suite or
+its test targets); another swift package when the change is under it or a local `.package(path:)` it depends
+on; a script entry when the change is under its folder. A cargo compile still runs when the change reaches the
+job's inputs, so a broken build is still caught on the pull request. An unreadable list, the `full-ci` label, a
+change to fast-tier.py, its registry or its quarantine, or a routing error runs every entry.
+
+fast-tier-cargo writes the merge commit's first-parent diff and adds its hash to the job-reuse fingerprint
+(`--extra scope=...`), so a scoped pass is never reused for a full one. The Mac fast tier step
+(ci/steps.toml `mac-fast-tier`) passes `CI_PATHS_FILE` when no FFI repin selected its own suites. Pushes to
+feat-cmux-next still run every entry.
+
+The switch: `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs every entry on the pull request again (both jobs).
+
+## note-560
+
 Above `- backend/catalog/cloud-operations.json`; Above `- Resources/cmux-cli-path/**` in `.github/workflows/cmux-next.yml`.
 
 cmux-tui tree-key inputs: the crates embed these files.
 
-## note-559
+## note-561
 
 Above `- docs/cmux-next/customize-recipes.md` in `.github/workflows/cmux-next.yml`.
 
 cmux-customize-recipes embeds the recipes guide (in the tree key).
 
-## note-560
+## note-562
 
 Above `- samples/apps/**` (2 places) in `.github/workflows/cmux-next.yml`.
 
 CmuxNextAppsTests reads the sample apps (AppOpenTargetTests).
 
-## note-561
+## note-563
 
 Above `- release-notes/next/highlights/**` (2 places) in `.github/workflows/cmux-next.yml`.
 
 The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
 
-## note-562
+## note-564
 
 Above `- scripts/cmux-next/fast-tier.py` (2 places) in `.github/workflows/cmux-next.yml`.
 
 The PR fast tier: its runner, registry, quarantine list and test.
 
-## note-563
+## note-565
+
+Above `- Resources/bin/**` (2 places) in `.github/workflows/cmux-next.yml`.
+
+The bundled CLI shims the app ships.
+
+## note-566
 
 Above `- web/data/model-catalog/**` in `.github/workflows/cmux-next.yml`.
 
 Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
 tests/test_web_bundle_key_inputs.sh keeps this list complete).
 
-## note-564
+## note-567
+
+Above `pure-checks-coalesce:` in `.github/workflows/cmux-next.yml`.
+
+One run per 30-minute window on the feat-cmux-next tip for checks whose result
+does not publish a per-commit artifact. Pull requests, dispatches and reruns
+keep the existing behavior because base-coalesce only coalesces base pushes.
+Publishing and per-landing jobs intentionally do not depend on this gate.
+
+## note-568
 
 Above `push-head-preflight:` in `.github/workflows/cmux-next.yml`.
 
 feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
 
-## note-565
+## note-569
 
 Above `push-head-preflight:` in `.github/workflows/cmux-next.yml`.
 
@@ -5114,19 +5222,35 @@ handoff stay on that label: each holds a statuses write App token (# ephemeral-r
 Not cmux-gcp-nightly-jit-x64: on 2026-11-20 these jobs filled it (333 queued) and the nightly's own
 pick-nightly-app-runner waited behind them; that label serves nightly runs only. A re-run falls through to the pools.
 
-## note-566
+## note-570
+
+Above `base_red_jobs: ${{ steps.base-red.outputs.red_jobs || '[]' }}` (job `path_route`) in `.github/workflows/cmux-next.yml`.
+
+The breaker-wired jobs red on feat-cmux-next now (JSON list, `[]` off a pull request): RFD 0148 row 12.
+
+## note-571
+
+Above the step `Jobs red on the base right now` (job `path_route`) in `.github/workflows/cmux-next.yml`.
+
+RFD 0148 row 12 (Leo, 2026-11-24: "ci! i hope we're continuing to cut and optimize"): a job red on
+feat-cmux-next right now is red on the pull request too, and gh-merge-green excuses that red as the base's, so
+it is not started (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci
+runs it, vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-23: 6.8k PR minutes of fast tier (cargo) ran
+while red on the base (fast tier itself is push-only since note-556) (build-fleet/data fleet-data-raw gh-jobs).
+
+## note-572
 
 Above `dev-daily-tree-wait:` in `.github/workflows/cmux-next.yml`.
 
 A cmux NEXT DEV daily run builds exactly the SHA main's dispatcher asked
 
-## note-567
+## note-573
 
 Above `timeout-minutes: 19` (job `macos-placement`) in `.github/workflows/cmux-next.yml`.
 
 Its own 8 minutes plus the PR quiet period step's 11 (the wait is at most 10 minutes).
 
-## note-568
+## note-574
 
 Above the step `Wait until the pull request has had no push for the quiet period` (job `macos-placement`) in `.github/workflows/cmux-next.yml`.
 
@@ -5136,404 +5260,416 @@ verdict of its own: cmuxterm-hq#16094). Only the Mac jobs wait for it (Leo, 2026
 follows this job, so the Linux jobs still start at once, a change that reaches no Mac tier sleeps on no
 runner, and the routing before this job counts toward the wait. Why: docs/ci/cmux-next-workflow-notes.md#note-1
 
-## note-569
+## note-575
 
 Above `[[ "$QUIET_SECONDS" =~ ^[0-9]+$ ]] || QUIET_SECONDS=300` in the step `Wait until the pull request has had no push for the quiet period`'s script (job `macos-placement`) in `.github/workflows/cmux-next.yml`.
 
 At most 10 minutes, whatever the variable says.
 
-## note-570
+## note-576
 
 Above the step `Mark a run on the minis` (job `macos-placement`) in `.github/workflows/cmux-next.yml`.
 
 Fail-safe: without the marker the run is only not watched. Skipped
 
-## note-571
+## note-577
 
 Above the step `Upload the owned-pool watch marker` (job `macos-placement`) in `.github/workflows/cmux-next.yml`.
 
 With no free overflow slot a bot re-run takes the same side label
 
-## note-572
+## note-578
 
 Above `JOB_TIMEOUT_MINUTES: 15` in the step `Start the slow checks in the background` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The job's own cap (the same expression as its timeout-minutes; tests/test_run_checks_concurrently.py).
 
-## note-573
+## note-579
 
 Above `AFFECTED_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}` in the step `Start the slow checks in the background` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The pull request's base (the merge commit's first parent; fetch-depth 2); empty on a push.
 
-## note-574
+## note-580
 
 Above `POOL_TAIL_SECONDS=300` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A check still running POOL_TAIL_SECONDS before the cap stops with its name, so the job ends in a verdict.
 The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
 
-## note-575
+## note-581
 
 Above `(( job_start <= now && now - job_start < JOB_TIMEOUT_MINUTES * 60 )) || job_start="$now"` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A stale or future event file (not this job's) is no clock: count from now.
 
-## note-576
+## note-582
 
 Above `scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf ...` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A pull request runs only the commands its diff reaches (--affected, scripts/ci/check_pool_affected.py); a push
 runs every one, so each command skipped here still has a verdict on the base.
 
-## note-577
+## note-583
 
 Above `python3 tests/test_cmux_next_prepush_gate.py --shard 1/4` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The pre-push gate refuses a push that adds a violation and names the commit in CI.
 Its 145 cases in four parts (tests/unittest_shard.py): one command, it outlasted every other by 2x.
 
-## note-578
+## note-584
 
 Above `python3 tests/test_ui_font.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 UI font: the system font everywhere, no Inter default (check-ui-font.py).
 
-## note-579
+## note-585
 
 Above `python3 tests/test_cmux_next_perf_gate_unlit.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
 
-## note-580
+## note-586
 
 Above `python3 tests/test_base_merge_warning.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
 
-## note-581
+## note-587
 
 Above `python3 tests/test_job_input_fingerprint.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A changed input, workflow file or toolchain never reuses a pass (CI_NEXT_JOB_REUSE).
 
-## note-582
+## note-588
 
 Above `python3 tests/test_job_reuse.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Only a pass from this repository's own runs is reused, never a fork's (scripts/ci/job_reuse.py).
 
-## note-583
+## note-589
 
 Above `python3 tests/test_dev_release_product_key.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The DEV Release app's key changes with every path that can reach it (dev-release-product).
 
-## note-584
+## note-590
 
 Above `python3 tests/test_dev_release_product_reuse.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
 
-## note-585
+## note-591
 
 Above `python3 tests/test_nightly_release_product_key.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The cmux NEXT Nightly app's key and record namespace: never a DEV key or record.
 
-## note-586
+## note-592
 
 Above `python3 tests/test_nightly_release_product_reuse.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The nightly app's products pack and unpack safely, and nightly.yml keys what it skips.
 
-## note-587
+## note-593
 
 Above `python3 tests/test_ci_compile_test_plan.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
 
-## note-588
+## note-594
 
 Above `python3 tests/test_guard_hooks_from_base.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
 
-## note-589
+## note-595
 
 Above `python3 tests/test_feat_ci_guard_group.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
 
-## note-590
+## note-596
 
 Above `python3 tests/test_ios_internal_builder.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The INTERNAL iOS builder's trigger decisions and What to Test notes.
 
-## note-591
+## note-597
+
+Above `bash scripts/cmux-next/tests/capability-text.test.sh` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
+
+Version skew: the capability-text lint.
+
+## note-598
 
 Above `python3 -I scripts/cmux-next/tests/test_bench_launch_console.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 GUI benches read the console user as the hq worker that grants gui-session-v1 does (step 8c947a3b).
 
-## note-592
+## note-599
 
 Above `python3 -I scripts/cmux-next/tests/test_typing_bench_launch_arm.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A launch-time A/B key writes the build's own override file and proves its switches once per launch.
 
-## note-593
+## note-600
 
 Above `python3 -I tests/test_chromium_staleness.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.
 
-## note-594
+## note-601
 
 Above `python3 -I scripts/cmux-next/herdr-sync.py check` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The herdr-derived agent plugin's vendored manifests match their pin.
 
-## note-595
+## note-602
 
 Above `python3 -I scripts/cmux-next/tests/test_build_names.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The restore journey names a DEV build's socket and acpmux home by the app's rule.
 
-## note-596
+## note-603
 
 Above `python3 -I scripts/cmux-next/tests/test_rj_rows.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Its view-report rows say what they saw (an unreadable report is not a missing grid).
 
-## note-597
+## note-604
 
 Above `python3 -I scripts/cmux-next/tests/test_rj_update.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Its update to another build installs B with the running copy's identity (rj_update.py).
 
-## note-598
+## note-605
 
 Above `python3 -I scripts/cmux-next/tests/test_renderer_rest.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 renderer-rest.py's per-renderer footprint parse (#44113).
 
-## note-599
+## note-606
 
 Above `python3 -I scripts/cmux-next/tests/test_check_v2_app_callers.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 check-v2-app-callers.py's caller scan (#44407).
 
-## note-600
+## note-607
 
 Above `python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py` in the step `Start the slow checks in the background`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
 
-## note-601
+## note-608
 
 Above the step `God files and types (Swift)` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Every check runs even when an earlier one fails; the last step fails the
 
-## note-602
+## note-609
 
 Above `rc=0` in the step `God files and types (Swift)`'s script (job `checks`); Above `rc=0` in the step `God files (cmux-tui Rust)`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Exit 1 is a god file (warn-only); any other code is a broken check and fails.
 
-## note-603
+## note-610
 
 Above the step `CmuxNextApp size cap` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Every CmuxNextApp edit re-emits the whole module; the target may only
 
-## note-604
+## note-611
 
 Above the step `Tests inject their notification center` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A test that posts to a process-global notification center reaches every
 
-## note-605
+## note-612
 
 Above the step `Motion tokens` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Animation timing comes from the Motion tokens (plans/cmux-next/motion.md),
 
-## note-606
+## note-613
 
 Above the step `Instrument tokens` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Instrument's one token file (schemas/instrument/instrument.json): today's values still match their
 sources, and the pending list only shrinks (pending-baseline.json).
 
-## note-607
+## note-614
 
 Above the step `Motion scale` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The one motion duration scale (schemas/motion-scale/motion-scale.json): its Swift, CSS and
 
-## note-608
+## note-615
 
 Above the step `Surface roles` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The overlay surface roles (schemas/surface-roles/surface-roles.json): their Swift and CSS
 
-## note-609
+## note-616
 
 Above the step `Protected-folder copies` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
 
-## note-610
+## note-617
 
 Above the step `Phone lane field allowlist` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The phone daemon lane's per-command field allowlist, generated from the daemon's request
 
-## note-611
+## note-618
 
 Above `bash scripts/cmux-next/tests/bundle-resources-layout.test.sh` in the step `Ghostty resources bundle`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Ghostty's themes survive the Resources phase in either order (Xcode, the fleet builder).
 
-## note-612
+## note-619
 
 Above the step `Bundled terminfo` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The bundled terminfo (Ghostty's entries with cmux's overlay on top)
 
-## note-613
+## note-620
 
 Above the step `App Store review rules (cmux-next-ios intents, Info.plist)` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 What App Store Connect rejects only after an upload (ITMS-90626 device
 
-## note-614
+## note-621
 
 Above the step `No fleet host names in gallery fixtures` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Gallery fixtures are public sample data the gallery and PR captures render: they name
 
-## note-615
+## note-622
 
 Above the step `Kill switches are declared, tied to a PR and unexpired` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Per-PR kill switches (release-notes/next/kill-switches.json): each switch names its PR,
 
-## note-616
+## note-623
 
 Above the step `Base-red classifier (per test)` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 "Red on the base, so not ours" is judged per failing test, and a crash or a cut-short
 
-## note-617
+## note-624
 
 Above the step `DEV update and classic import scripts` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The cmux NEXT DEV update script (an unchanged build is left alone; an
 
-## note-618
+## note-625
 
 Above the step `Routing replay (router changes)` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 A pull request that changes the router replays the last 30 merged PRs' changed files
 
-## note-619
+## note-626
 
 Above `mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"` in the step `Check the app FFI pin`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 The blobs as the base commit stores them: no attribute (export-ignore, a filter) applies.
 
-## note-620
+## note-627
 
 Above `echo "note: the base check has no --tree; the checkout copy runs"` in the step `Check the app FFI pin`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 Only while the base predates --tree (the pull request that adds it).
 
-## note-621
+## note-628
 
 Above the step `Daemon capabilities export is fresh` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 plans/cmux-next/daemon-capabilities.json against the lists in
 
-## note-622
+## note-629
 
 Above the step `Fail on any red check` (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
 
-## note-623
+## note-630
 
 Above `while IFS='|' read -r outcome name; do` in the step `Fail on any red check`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 `outcome|name`: an empty outcome (a check that never ran) still names its step.
 
-## note-624
+## note-631
 
 Above `for name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: ${name% (*}"; done` in the step `Fail on any red check`'s script (job `checks`) in `.github/workflows/cmux-next.yml`.
 
 One annotation per red check: the red-checks line compares them with the base's run, so a
 new red check is told from a base one (scripts/ci/pr_red_checks_comment.py).
 
-## note-625
+## note-632
 
 Above `web-bundles:` in `.github/workflows/cmux-next.yml`.
 
 Reports a same-tree cmux-tui that nothing will publish, in red, at once.
 
-## note-626
+## note-633
 
 Above `swift-canary-fleet:` in `.github/workflows/cmux-next.yml`.
 
 The build fleet's compile verdict for the Swift canary. Opt-in: with the
 
-## note-627
+## note-634
 
 Above the step `Check out the fleet compile reader` (job `swift-canary-fleet`); Above the step `Check out the fleet compile reader` (job `release-compile-fast`) in `.github/workflows/cmux-next.yml`.
 
 (scripts/ci/fleet_compile_result.py) and compile here only when it has none. Trusted base copy.
 
-## note-628
+## note-635
 
 Above `if [[ -n "${PR:-}" ]]; then` in the step `Compile-check CmuxNext on the build fleet`'s script (job `swift-canary-fleet`) in `.github/workflows/cmux-next.yml`.
 
 A pull request reads its head's Debug app compile, which the controller submits when this job is
 queued and posts back; no runner waits on it. Any non-pass leaves the Mac canary to run.
 
-## note-629
+## note-636
 
 Above `client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"` in the step `Compile-check CmuxNext on the build fleet`'s script (job `swift-canary-fleet`) in `.github/workflows/cmux-next.yml`.
 
 A gateway without the client has no verdict (cmux17, run 39573725240).
 
-## note-630
+## note-637
 
 Above `word=none` in the step `Compile-check CmuxNext on the build fleet`'s script (job `swift-canary-fleet`) in `.github/workflows/cmux-next.yml`.
 
 Release results are only reused for pushes. A same-repository PR must compile its pinned head in Debug.
 
-## note-631
+## note-638
 
 Above `app-compile-placement:` in `.github/workflows/cmux-next.yml`.
 
 The PR app compile's gateway runner, judged at once (Leo, 2026-11-08: the Linux checks start at once
 
-## note-632
+## note-639
 
 Above the step `Check out the fleet compile reader` (job `app-compile-fleet`) in `.github/workflows/cmux-next.yml`.
 
 Trusted base copy of the reader: the pull request's head never runs here.
 
-## note-633
+## note-640
 
 Above `reader=scripts/ci/fleet_compile_result.py` in the step `Compile-check the app at the pull request's head on the build fleet`'s script (job `app-compile-fleet`) in `.github/workflows/cmux-next.yml`.
 
 The controller submits this head's Debug app compile when this job is queued (or when this read
 names the pull request) and posts its result here; nothing waits on a runner of its own.
 
-## note-634
+## note-641
+
+Above `word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug \` in the step `Compile-check the app at the pull request's head on the build fleet`'s script (job `app-compile-fleet`) in `.github/workflows/cmux-next.yml`.
+
+The reader's reason line (stderr) names why a red failed (the build fleet job and its first error).
+
+## note-642
 
 Above `pending) verdict=unavailable; summary="The build fleet kept the compile of \'$REF\' queued past t...` in the step `Compile-check the app at the pull request's head on the build fleet`'s script (job `app-compile-fleet`) in `.github/workflows/cmux-next.yml`.
 
@@ -5541,73 +5677,79 @@ pending: the controller holds this head's check but the fleet kept it queued or 
 cmux-ci exit 75 (652 of 1030 red runs re-queued, 2026-11-23/24) it is a warning, and the
 Release compile at land, plus the fallback where mac_release asks for it, still compile the head.
 
-## note-635
+## note-643
 
 Above `swift-canary:` in `.github/workflows/cmux-next.yml`.
 
 Small package-only Swift edits get a mini-first type-check/build canary.
 
-## note-636
+## note-644
 
 Above `exit 1` in the step `Run the fast tier's Swift suites on the build fleet`'s script (job `fast-tier-fleet`) in `.github/workflows/cmux-next.yml`.
 
 finish exits already; the literal exit is the client guard's contract (no "$client" call follows).
 
-## note-637
+## note-645
 
 Above `step_re='^cmux-ci: step ([0-9a-f]{6,64}) '` in the step `Run the fast tier's Swift suites on the build fleet`'s script (job `fast-tier-fleet`) in `.github/workflows/cmux-next.yml`.
 
 A step id as the fleet tools read it (tip-test-compile.sh): 6 to 64 hex.
 
-## note-638
+## note-646
 
 Above `if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi` in the step `Run the fast tier's Swift suites on the build fleet`'s script (job `fast-tier-fleet`) in `.github/workflows/cmux-next.yml`.
 
 The client names its step before the step's own log streams.
 
-## note-639
+## note-647
 
 Above `fast-tier-handback-placement:` in `.github/workflows/cmux-next.yml`.
 
 The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
 
-## note-640
+## note-648
 
 Above `fast-tier:` in `.github/workflows/cmux-next.yml`.
 
 The PR fast tier (hq#1915, cx-29ch2): every registered deterministic suite
 
-## note-641
+## note-649
+
+Above `actions: read` (job `fast-tier`); Above `actions: read` (job `fast-tier-cargo`); Above `actions: read` (job `swift-test`); Above `actions: read` (job `generated-files`); Above `actions: write` (job `release-compile`) in `.github/workflows/cmux-next.yml`.
+
+The reuse lookup lists artifacts.
+
+## note-650
 
 Above the step `Give this job its own acpmux home` (job `fast-tier`) in `.github/workflows/cmux-next.yml`.
 
 This job's tests can start acpmux daemons: they get a home of the job's
 
-## note-642
+## note-651
 
 Above `echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"` in the step `Give this job its own acpmux home`'s script (job `fast-tier`); Above `echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"` in the step `Give this job its own acpmux home`'s script (job `swift-test`); Above `echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"` in the step `Give this job its own acpmux home`'s script (job `daemon-test`); Above `echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"` in the step `Give this job its own acpmux home`'s script (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
 An inherited socket would still name another home's daemon; empty is unset.
 
-## note-643
+## note-652
 
 Above the step `Keep Swift package builds on this owned Mac` (job `fast-tier`) in `.github/workflows/cmux-next.yml`.
 
 Checkout removes .build. On an owned Mac the tier builds in one of the
 
-## note-644
+## note-653
 
 Above the step `Verify planner promotion evidence` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 The mode switch is deliberately insufficient on its own.  Promotion
 
-## note-645
+## note-654
 
 Above the step `Look for a trusted planner pass` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 Enforcement is promoted only after the HQ mirror collector has a complete
 
-## note-646
+## note-655
 
 Above the step `Test the warm cargo target` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
@@ -5617,7 +5759,7 @@ reaches and their dependents (scripts/ci/pool-warm-target.sh); on Blacksmith a s
 The warm target's own test, where cargo is: unchanged bytes stay fresh, a changed crate and its
 dependents rebuild, an unrecorded job leaves nothing to trust (a three-crate workspace, ~5 s).
 
-## note-647
+## note-656
 
 Above the step `Mount the warm cargo target (feat-cmux-next push, commits)` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
@@ -5626,21 +5768,21 @@ tree lives on a sticky disk, as cmux-tui-spec.yml's warm clippy target: feat-cmu
 commit it, every other run mounts a clone and never writes it back. Keys are literal
 (tests/test_ci_testbox_broker_guard.py).
 
-## note-648
+## note-657
 
 Above the step `Link this runner's warm cargo target` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 A run that never writes the disk links it only when a feat-cmux-next run recorded a tree there;
 an empty disk would be a cold build where rust-cache holds the third-party crates.
 
-## note-649
+## note-658
 
 Above the step `Cache cargo build` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
 Skipped when the warm target above is linked.
 
-## note-650
+## note-659
 
 Above the step `Key the cargo build in R2` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
@@ -5649,102 +5791,102 @@ compiled dependencies come from R2 instead. Why: docs/ci/cmux-next-workflow-note
 Skipped, with its restores and saves, when the warm target above is linked: cargo then builds in
 that tree (CARGO_TARGET_DIR), which keeps the dependencies, and cmux-tui/target stays empty.
 
-## note-651
+## note-660
 
 Above the step `Record this runner's warm cargo target` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 After every cargo step, pass or fail, never on cancel: the source manifest the next job on this
 runner restores mtimes from. A job that ends before it leaves none (restore consumed it).
 
-## note-652
+## note-661
 
 Above the step `Strip the workspace's own output before the R2 save` (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 A feat-cmux-next push off Blacksmith whose inputs R2 lacks saves them: dependencies only, as
 rust-cache keeps (scripts/ci/cargo_target_strip.py). Why: docs/ci/cmux-next-workflow-notes.md#note-210b
 
-## note-653
+## note-662
 
 Above `rm -rf "$REGISTRY/src"` in the step `Strip the workspace's own output before the R2 save`'s script (job `fast-tier-cargo`) in `.github/workflows/cmux-next.yml`.
 
 Extracted sources come back from the .crate files in registry/cache.
 
-## note-654
+## note-663
 
 Above `submodules: false` in the step `Checkout` (job `swift-test`); Above `submodules: false` in the step `Retry checkout after transient network failure` (job `swift-test`); Above `submodules: false` in the step `Checkout` (job `daemon-test`); Above `submodules: false` in the step `Retry checkout after transient network failure` (job `daemon-test`); Above `submodules: false` in the step `Checkout` (job `generated-files`); Above `submodules: false` in the step `Retry checkout after transient network failure` (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
 The package graph reads no submodule; GhosttyNextKit comes from
 SwiftPM (Packages/Shared/CmuxGhosttyKit).
 
-## note-655
+## note-664
 
 Above the step `Mint the cmux-bot artifact read token` (job `swift-test`); Above the step `Mint the cmux-bot artifact read token` (job `generated-files`); Above the step `Mint the cmux-bot artifact read token` (job `release-compile`) in `.github/workflows/cmux-next.yml`.
 
 A feat-cmux-next push or dispatch lists the pass artifacts with a cmux-bot token,
 
-## note-656
+## note-665
 
 Above the step `Keep Swift package builds on this owned Mac` (job `swift-test`); Above the step `Keep Swift package builds on this owned Mac` (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
 Checkout removes .build. Link the owned Mac's kept build after Xcode
 
-## note-657
+## note-666
 
 Above the step `Set up pinned cmux-tui Rust (sidebar layout reducer)` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 The sidebar layout reducer's cargo tests run in fast-tier-cargo on Linux
 
-## note-658
+## note-667
 
 Above the step `Setup Bun` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 The package's resources include the web bundles (agent pane, pages,
 
-## note-659
+## note-668
 
 Above the step `Run package tests (changed suites first, then selected targets)` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 Samples and fails a run still going after 15 minutes, so a hang shows
 
-## note-660
+## note-669
 
 Above `deadline=$(( $(date +%s) + 2280 ))` in the step `Run package tests (changed suites first, then selected targets)`'s script (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 One deadline for both passes, 2 min inside the step timeout, so a pass
 hung before any test starts is still sampled and reported.
 
-## note-661
+## note-670
 
 Above `heavy_skip=()` in the step `Run package tests (changed suites first, then selected targets)`'s script (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 The heavy suites only ever run in their own step: never --skip "" (an
 empty pattern matches, and so skips, every test).
 
-## note-662
+## note-671
 
 Above the step `Run CloudBringBack cases in fresh processes` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 Cloud bring-back round trips launch two daemons and mutate shared
 
-## note-663
+## note-672
 
 Above the step `Run the commit-boundary audit in its own process` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 The commit-boundary audit reads every observer on the main run loop, so
 
-## note-664
+## note-673
 
 Above the step `Run control package tests and callback regressions` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 Each isolated step below runs when its suites' target is selected and
 
-## note-665
+## note-674
 
 Above the step `Run CLI parity tests` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 The CLI parity tests assert routing, not scheduler throughput. Concurrent
 
-## note-666
+## note-675
 
 Above `out="$RUNNER_TEMP/generated/files"` in the step `Regenerate stale files`'s script (job `swift-test`); Above `out="$RUNNER_TEMP/generated/files"` in the step `Regenerate stale files`'s script (job `daemon-test`); Above `out="$RUNNER_TEMP/generated/files"` in the step `Regenerate stale files`'s script (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
@@ -5752,26 +5894,26 @@ The regenerated files themselves, at their repository paths, so
 they copy onto the PR head. A diff would be against the merge
 commit, whose context the head may not have.
 
-## note-667
+## note-676
 
 Above the step `Stop this job's acpmux daemons and remove its home` (job `swift-test`); Above the step `Stop this job's acpmux daemons and remove its home` (job `daemon-test`); Above the step `Stop this job's acpmux daemons and remove its home` (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
 Also after a failure or a cancel: end the daemon of this job's home and
 
-## note-668
+## note-677
 
 Above the step `Upload the test helper's crash reports` (job `swift-test`) in `.github/workflows/cmux-next.yml`.
 
 A test helper that died on a signal leaves its crash report here
 
-## note-669
+## note-678
 
 Above `if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print...` in the step `Pack the exports for the base autofix`'s script (job `daemon-test`); Above `if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print...` in the step `Pack the exports for the base autofix`'s script (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
 A dispatch packs only as the base tier run (its base_tier input, read from the event so this
 step needs no input the workflow may not declare).
 
-## note-670
+## note-679
 
 Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
 
@@ -5781,104 +5923,110 @@ Mac run of it is red too and gh-merge-green excuses that red as the base's, so i
 (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
 vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-24: 0 of 37 PR runs green in 2 h, about 10k min a day.
 
-## note-671
+## note-680
 
 Above `path: .base-red-src` (job `generated-files-base-red`) in `.github/workflows/cmux-next.yml`.
 
 Only the script, into its own folder (as cmux-next-guards.yml's tooling-tests-base-red does).
 
-## note-672
+## note-681
 
 Above the step `Record this pass for the same inputs` (job `generated-files`) in `.github/workflows/cmux-next.yml`.
 
 A pass records itself for the next run on the same inputs: an artifact named after
 
-## note-673
+## note-682
 
 Above `release-compile-fast:` in `.github/workflows/cmux-next.yml`.
 
 The fleet compile check is the first Release gate. It checks the exact
 
-## note-674
+## note-683
 
 Above `release-compile-fast-admission:` in `.github/workflows/cmux-next.yml`.
 
 Promotion admission keys off this exact job name. Keep it separate from
 
-## note-675
+## note-684
 
 Above the step `Release compile` (job `release-compile`) in `.github/workflows/cmux-next.yml`.
 
 On a mini, the compile reads the fleet's shared compile cache (glaeda fleet-cas, the store
 
-## note-676
+## note-685
 
 Above the step `Warn on missing Release bundle notices` (job `release-compile`) in `.github/workflows/cmux-next.yml`.
 
 Early advisory for a newly bundled binary. The signed nightly check
 
-## note-677
+## note-686
 
 Above the step `Look up the DEV Release app compiled on the same inputs` (job `cmux-scheme-compile`) in `.github/workflows/cmux-next.yml`.
 
 The DEV Release app is reused, not recompiled, when nothing it is built from changed
 
-## note-678
+## note-687
 
 Above the step `Fetch the same-tree cmux-tui` (job `cmux-scheme-compile`) in `.github/workflows/cmux-next.yml`.
 
 The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
 
-## note-679
+## note-688
 
 Above the step `Source key of the web bundles` (job `cmux-scheme-compile`) in `.github/workflows/cmux-next.yml`.
 
 The app's web bundles are build output (cx-vn5); the "Verify web
 
-## note-680
+## note-689
 
 Above the step `Restore the web bundles from R2` (job `cmux-scheme-compile`) in `.github/workflows/cmux-next.yml`.
 
 R2 first (feat-cmux-next's bundles, published by the web-bundles job of
 
-## note-681
+## note-690
+
+Above `retention-days: 2` in the step `Upload the DEV Release app record` (job `cmux-scheme-compile`) in `.github/workflows/cmux-next.yml`.
+
+As long as the product artifact it names.
+
+## note-691
 
 Above `same-tree-status-daemon:` in `.github/workflows/cmux-next.yml`.
 
 The post-merge backstop: every feat-cmux-next push runs its push tiers (a
 
-## note-682
+## note-692
 
 Above `git init -q --bare "$GAP_REPO"` in the step `Place the compile`'s script (job `dev-landing-place`) in `.github/workflows/cmux-next.yml`.
 
 Commits only, for the distance to each host's last compile.
 
-## note-683
+## note-693
 
 Above the step `Publish the compile cache seed` (job `dev-landing-compile`) in `.github/workflows/cmux-next.yml`.
 
 A host build packed its compile cache: put it in the shared store and record its digest
 
-## note-684
+## note-694
 
 Above the step `Dispatch with GITHUB_TOKEN, waiting through a rate limit` (job `request-cmux-next-dev-publish`) in `.github/workflows/cmux-next.yml`.
 
 The fallback holds only GITHUB_TOKEN. A refusal for the rate limit waits
 
-## note-685
+## note-695
 
 Above `pr-red-checks:` in `.github/workflows/cmux-next.yml`.
 
 The checks job's red sub-checks join the PR's red-checks line (pr-red-checks-comment.yml), each
 
-## note-686
+## note-696
 
 Above `if [[ -n "${PR:-}" ]]; then` in the step `Wait for the fleet Release compile and publish cmux-next/compile`'s script (job `compile-status`) in `.github/workflows/cmux-next.yml`.
 
 A controller that accepted this PR head for Release-at-land returns an awaiting_land
 receipt. Read it without waiting so the per-tip job can finish before posting pending.
 
-## note-687
+## note-697
 
 Above `compile-status-handoff:` in `.github/workflows/cmux-next.yml`.
 
