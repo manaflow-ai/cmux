@@ -7,13 +7,15 @@
 //!
 //! Bounded: at most [`ATTEMPTS`] tries, [`BACKOFF`] apart (or the hub's `retryAfterSeconds`, up
 //! to [`MAX_RETRY_AFTER`]), so a command waits at most a few seconds more than before before it
-//! says what failed. A refusal that does not pass (401, 403, 400, an unknown recipient) is never
+//! says what failed. A caller with a deadline of its own (a read's `READ_WAIT`) passes it to
+//! [`retry_within`], so no try runs past it. A refusal that does not pass (401, 403, 400, an unknown recipient) is never
 //! tried again. The relay's own loops (inbox, heartbeat) keep their own backoff and do not come
 //! through here.
 
 use crate::mesh::HubError;
 use std::future::Future;
 use std::time::Duration;
+use tokio::time::Instant;
 
 /// The most tries of one call.
 pub const ATTEMPTS: usize = 3;
@@ -42,26 +44,91 @@ pub fn transient(e: &HubError, not_found_passes: bool) -> bool {
 
 /// `call` until it succeeds, fails in a way that does not pass, or has been tried [`ATTEMPTS`]
 /// times; the last failure is returned as it came.
-pub async fn retry<T, F, Fut>(not_found_passes: bool, mut call: F) -> Result<T, HubError>
+pub async fn retry<T, F, Fut>(not_found_passes: bool, call: F) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries(not_found_passes, None, call).await
+}
+
+/// [`retry`] within `deadline`: a try still waiting at the deadline ends there, as a hub that
+/// did not answer, and no try starts at or after it (a read's whole wait, `READ_WAIT`, bounds
+/// every try of it). Whether the deadline passed is the caller's to check.
+pub async fn retry_within<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Instant,
+    call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries(not_found_passes, Some(deadline), call).await
+}
+
+/// The longest `retryAfterSeconds` a send waits out ([`retry_send`]): the hub's windows are one
+/// minute long, so its answer is never longer than this.
+pub const SEND_MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+
+/// A send to the hub (it carries an idempotency key, so posting it again is the same message),
+/// tried again as [`retry`] does, but a 429's `retryAfterSeconds` is waited out up to
+/// [`SEND_MAX_RETRY_AFTER`] instead of failing the send: before this, every send behind a full
+/// rate window failed at once with `the hub answered 429 mesh.rate_limited`, though the window
+/// reopened within the minute (2026-11-23, every relayed send to a busy host for two hours).
+pub async fn retry_send<T, F, Fut>(call: F) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries_with(true, None, SEND_MAX_RETRY_AFTER, call).await
+}
+
+async fn tries<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Option<Instant>,
+    call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries_with(not_found_passes, deadline, MAX_RETRY_AFTER, call).await
+}
+
+async fn tries_with<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Option<Instant>,
+    max_retry_after: Duration,
+    mut call: F,
+) -> Result<T, HubError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, HubError>>,
 {
     let mut attempt = 0;
     loop {
-        let e = match call().await {
-            Ok(value) => return Ok(value),
-            Err(e) => e,
+        let answered = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, call()).await,
+            None => Ok(call().await),
+        };
+        let e = match answered {
+            Ok(Ok(value)) => return Ok(value),
+            Ok(Err(e)) => e,
+            Err(_) => return Err(HubError::unavailable("the mesh hub did not answer in time")),
         };
         let Some(wait) = BACKOFF.get(attempt).copied() else { return Err(e) };
         if !transient(&e, not_found_passes) {
             return Err(e);
         }
         let wait = match e.retry_after {
-            Some(after) if after > MAX_RETRY_AFTER => return Err(e),
+            Some(after) if after > max_retry_after => return Err(e),
             Some(after) => after.max(wait),
             None => wait,
         };
+        if deadline.is_some_and(|deadline| Instant::now() + wait >= deadline) {
+            return Err(e);
+        }
         tracing::debug!(attempt, error = %e, "mesh hub call failed; trying again");
         tokio::time::sleep(wait).await;
         attempt += 1;
@@ -168,5 +235,122 @@ mod tests {
         .await;
         assert!(got.is_ok());
         assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+
+    /// A deadline nearer than the first backoff: the failure is returned at once, with no sleep
+    /// and no second try.
+    #[tokio::test(start_paused = true)]
+    async fn a_deadline_shorter_than_the_first_backoff_ends_after_one_try() {
+        let tries = AtomicUsize::new(0);
+        let started = Instant::now();
+        let deadline = started + BACKOFF[0] / 2;
+        let got: Result<(), _> = retry_within(false, deadline, || async {
+            tries.fetch_add(1, Ordering::SeqCst);
+            Err(status(503, Some("mesh.unavailable")))
+        })
+        .await;
+        assert_eq!(got.unwrap_err().status, Some(503));
+        assert_eq!(tries.load(Ordering::SeqCst), 1);
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    /// A send waits out a 429's retryAfterSeconds (up to a minute) and goes; a read does not.
+    #[tokio::test(start_paused = true)]
+    async fn a_send_waits_out_a_rate_window_and_then_goes() {
+        let calls = AtomicUsize::new(0);
+        let started = Instant::now();
+        let got = retry_send(|| {
+            let n = calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if n == 0 {
+                    let mut e = status(429, Some("mesh.rate_limited"));
+                    e.retry_after = Some(Duration::from_secs(40));
+                    Err(e)
+                } else {
+                    Ok(n)
+                }
+            }
+        })
+        .await;
+        assert_eq!(got.unwrap(), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(
+            started.elapsed() >= Duration::from_secs(40),
+            "it waited the hub's retryAfterSeconds"
+        );
+        // A read keeps its short bound: the same answer is not waited on.
+        let read = retry(false, || async {
+            let mut e = status(429, Some("mesh.rate_limited"));
+            e.retry_after = Some(Duration::from_secs(40));
+            Err::<(), _>(e)
+        })
+        .await;
+        assert!(read.is_err());
+    }
+
+    /// A retryAfter under the cap but past the deadline is not waited: the 429 is returned now.
+    /// One that ends before the deadline is waited and the call tried again.
+    #[tokio::test(start_paused = true)]
+    async fn a_retry_after_that_would_cross_the_deadline_is_not_waited() {
+        let limited = |after: u64| {
+            let mut e = status(429, Some("mesh.rate_limited"));
+            e.retry_after = Some(Duration::from_secs(after));
+            e
+        };
+        let tries = AtomicUsize::new(0);
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(2);
+        let got: Result<(), _> = retry_within(false, deadline, || async {
+            tries.fetch_add(1, Ordering::SeqCst);
+            Err(limited(MAX_RETRY_AFTER.as_secs()))
+        })
+        .await;
+        assert_eq!(got.unwrap_err().status, Some(429));
+        assert_eq!(tries.load(Ordering::SeqCst), 1);
+        assert_eq!(started.elapsed(), Duration::ZERO);
+
+        let tries = AtomicUsize::new(0);
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(5);
+        let got = retry_within(false, deadline, || async {
+            if tries.fetch_add(1, Ordering::SeqCst) == 0 { Err(limited(2)) } else { Ok(()) }
+        })
+        .await;
+        assert!(got.is_ok());
+        assert_eq!(tries.load(Ordering::SeqCst), 2);
+        assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+
+    /// A try still waiting at the deadline ends there, as a hub that did not answer (retryable),
+    /// and none starts after it; the same after a failed first try and its backoff.
+    #[tokio::test(start_paused = true)]
+    async fn a_try_still_waiting_at_the_deadline_ends_there() {
+        let tries = AtomicUsize::new(0);
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(5);
+        let got: Result<(), _> = retry_within(true, deadline, || async {
+            tries.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            Ok(())
+        })
+        .await;
+        let e = got.unwrap_err();
+        assert!(!e.refused && e.status.is_none(), "{e:?}");
+        assert_eq!(tries.load(Ordering::SeqCst), 1);
+        assert_eq!(started.elapsed(), Duration::from_secs(5));
+
+        let tries = AtomicUsize::new(0);
+        let started = Instant::now();
+        let got: Result<(), _> = retry_within(true, started + Duration::from_secs(5), || async {
+            if tries.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err(HubError::unavailable("the hub: error sending request"));
+            }
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            Ok(())
+        })
+        .await;
+        assert!(!got.unwrap_err().refused);
+        assert_eq!(tries.load(Ordering::SeqCst), 2);
+        assert_eq!(started.elapsed(), Duration::from_secs(5));
     }
 }

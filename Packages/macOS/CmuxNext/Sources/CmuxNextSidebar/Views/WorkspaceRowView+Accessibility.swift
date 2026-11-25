@@ -107,16 +107,18 @@ extension WorkspaceRowView {
     /// row reads (`SidebarWorkspace.spokenRowTitle`), nil for the workspace's.
     static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
                                   presence: [SidebarPresence], title: String? = nil) -> String {
-        var parts = [title ?? ws.title]
+        var parts = [content.displayedTitle(title ?? ws.title)]
         let detail = content.now.map(Strings.rowNow) ?? content.detail
         if let detail { parts.append(detail) }
+        if let meta = content.meta { parts.append(meta) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
         if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) })
-            ?? content.tasks.map({ Strings.taskProgress(done: $0.done, total: $0.total) }) ?? content.trailingStatus { parts.append(s) }
+            ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
         if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
+        if content.subagentsFailed > 0 { parts.append(Strings.subagentsFailed(content.subagentsFailed)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {

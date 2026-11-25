@@ -31,7 +31,7 @@ public struct SidebarScreenIntentActions {
 
     /// A machine header menu's screen rows its screen button does not offer (``SidebarMachine/screenAction``, the
     /// button's rule): Share This Mac only where the button is Share (This Mac), View Screen only where it is View and
-    /// can run (Cloud, or a Mac whose screen device is online), neither on a Linux or unidentified SSH machine.
+    /// can run (Cloud, or a Mac or joined Linux machine whose screen device is online), neither on an unidentified SSH machine.
     public static func hiddenMenuRows(_ header: SidebarMachine?) -> Set<ActionID> {
         let share: ActionID = "macScreen.shareThisMac", view: ActionID = "machine.viewScreen"
         switch header?.screenAction {
@@ -62,7 +62,7 @@ public struct SidebarScreenIntentActions {
             guard let id = invocation.target?.id, let window = window(),
                   let machine = window.sections.first(where: { $0.machine?.id.rawValue == id })?.machine,
                   case .viewScreen? = machine.screenAction, machine.screenActionEnabled
-            else { return .refused(String(localized: "screen.refusal.noScreen", defaultValue: "this window's sidebar has no screen to view on that machine", table: "SidebarReveal", bundle: .module)) }
+            else { return .refused(String(localized: "screen.refusal.noScreen", defaultValue: "this window's sidebar has no screen to view on that machine", table: "SidebarReveal", bundle: .localizedModule)) }
             window.handle(.viewScreen(machine.id))
             return .done
         }

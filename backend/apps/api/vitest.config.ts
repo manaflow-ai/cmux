@@ -3,6 +3,10 @@ import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { createHash } from "node:crypto"
 import { defineConfig } from "vitest/config"
 import { cloudAllowedTeams } from "./test/setup/cloud-teams.ts"
+import { writeChiefVmSource } from "./scripts/gen-chief-vm-source.ts"
+
+// The turn machine's chief-vm, as the Worker embeds it (build output, not in git).
+writeChiefVmSource()
 
 // Test-only keys: a fake Stack signing key (its JWKS replaces Stack's published
 // keys only when ENVIRONMENT=test) and the API's token signing key.
@@ -139,6 +143,7 @@ export default defineConfig({
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
           PLATFORM_AGENT_GATEWAY: "on",
+          PLATFORM_MACHINE_GITHUB: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",

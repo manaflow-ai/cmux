@@ -133,7 +133,7 @@ export default changelogPageEntry({
       note: 'Leo 2026-10-20 ("before/afters for our techincal stuff is p important... we want things to be PRETTY!!!!"), variant A, the default: a highlight\'s before/after pair under its sheet row, one 7:4 box with the before left of a split the person drags (or moves with the arrow keys). Here the split is moved to 30%. A lone picture stays off the sheet.',
       notes: compareNotes,
       play: async (ctx) => {
-        await ctx.focus({ selector: ".cl-compare-range" });
+        await ctx.focus({ selector: ".ui-compare-range" });
         for (let i = 0; i < 20; i++) await ctx.press("ArrowLeft");
       },
     },
@@ -147,7 +147,7 @@ export default changelogPageEntry({
       notes: compareNotes,
       route: "#/?compare=toggle",
       play: async (ctx) => {
-        await ctx.click({ selector: ".cl-compare-switch button" });
+        await ctx.click({ selector: ".ui-compare-switch button" });
       },
     },
     "compare-lightbox": {
@@ -155,7 +155,7 @@ export default changelogPageEntry({
       notes: compareNotes,
       play: async (ctx) => {
         await ctx.click({ selector: ".cl-compare-enlarge" });
-        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .ui-compare"));
       },
     },
     "compare-lightbox-side": {
@@ -164,7 +164,7 @@ export default changelogPageEntry({
       route: "#/?compare=side",
       play: async (ctx) => {
         await ctx.click({ selector: ".cl-compare-enlarge" });
-        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .ui-compare"));
       },
     },
     "compare-lightbox-toggle": {
@@ -173,7 +173,7 @@ export default changelogPageEntry({
       route: "#/?compare=toggle",
       play: async (ctx) => {
         await ctx.click({ selector: ".cl-compare-enlarge" });
-        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .ui-compare"));
       },
     },
     "compare-ledger": {

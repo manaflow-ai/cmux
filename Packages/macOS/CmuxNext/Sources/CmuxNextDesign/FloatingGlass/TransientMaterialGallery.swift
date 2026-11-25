@@ -85,11 +85,14 @@ struct TransientMaterialGallery {
             }
         }
 
-        var menuVeil: CGFloat {
-            switch self {
-            case .before, .standard: GlassMenuMaterial.veil
-            case .quieter: GlassMenuMaterial.veil - 0.10
-            case .denser: GlassMenuMaterial.veil + 0.10
+        /// The menu veil this variant paints in a theme: the theme's own (``GlassMenuMaterial/veil(for:)``), or that
+        /// a step quieter or denser for the fixtures.
+        func menuVeil(for tokens: ThemeTokens) -> CGFloat {
+            let veil = GlassMenuMaterial.veil(for: tokens)
+            return switch self {
+            case .before, .standard: veil
+            case .quieter: veil - 0.10
+            case .denser: min(1, veil + 0.10)
             }
         }
     }
@@ -120,7 +123,7 @@ struct TransientMaterialGallery {
             let surface = Glass.makeMenuPanel(content: content, cornerRadius: radius)
             if variant == .quieter || variant == .denser {
                 surface.contentView.subviews.compactMap { $0 as? GlassMenuVeilView }.first?.removeFromSuperview()
-                let veil = MenuVeilFixture(frame: surface.contentView.bounds, alpha: variant.menuVeil)
+                let veil = MenuVeilFixture(frame: surface.contentView.bounds, variant: variant)
                 veil.autoresizingMask = [.width, .height]
                 surface.contentView.addSubview(veil, positioned: .below, relativeTo: nil)
             }
@@ -141,10 +144,10 @@ struct TransientMaterialGallery {
 
     /// Gallery-only veil over the real menu glass; production retains GlassMenuVeilView.
     private final class MenuVeilFixture: NSView {
-        private let veilAlpha: CGFloat
+        private let variant: Variant
 
-        init(frame: NSRect, alpha: CGFloat) {
-            veilAlpha = alpha
+        init(frame: NSRect, variant: Variant) {
+            self.variant = variant
             super.init(frame: frame)
             wantsLayer = true
             setAccessibilityElement(false)
@@ -158,7 +161,9 @@ struct TransientMaterialGallery {
         override func updateLayer() {
             let glass = enclosingOverlayMaterial.map { $0 != .opaque } ?? true
             layer?.backgroundColor = glass
-                ? performWithTheme { Palette.surfaceBackground.withAlphaComponent(veilAlpha) }.cgColor
+                ? performWithTheme {
+                    Palette.surfaceBackground.withAlphaComponent(variant.menuVeil(for: ThemeContext.active ?? ThemeScope.app.tokens))
+                }.cgColor
                 : NSColor.clear.cgColor
         }
 

@@ -493,6 +493,24 @@ pub fn scroll(top: Hwnd, at: Point, dx: f64, dy: f64) -> DResult<ActionOutcome> 
     })
 }
 
+/// Moves the pointer to `at` and presses nothing (a hover). Background: a
+/// WM_MOUSEMOVE posted to the window under the point (the real pointer stays
+/// put). Foreground: the window raised and the real pointer moved there with
+/// SendInput, and left there (a hover needs the pointer to stay).
+pub fn move_pointer(top: Hwnd, at: Point, delivery: Delivery) -> DResult<ActionOutcome> {
+    let (target, p) = child_at(top, at)?;
+    if delivery == Delivery::Foreground {
+        raise(top)?;
+        send(&[move_to(at)])?;
+        return Ok(ActionOutcome::delivered("send_input").at(at));
+    }
+    post(target, WM_MOUSEMOVE, 0, pure::point_lparam(p.x, p.y))?;
+    Ok(ActionOutcome {
+        note: "posted a mouse move to the window under the point".into(),
+        ..ActionOutcome::delivered("window_message").at(at)
+    })
+}
+
 const DRAG_STEPS: usize = 12;
 
 pub fn drag(

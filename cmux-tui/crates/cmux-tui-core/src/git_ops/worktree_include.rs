@@ -287,7 +287,7 @@ fn expand(
         }
     };
     for (name, is_directory) in candidates {
-        if name == ".git" {
+        if skipped(relative, &name) {
             continue;
         }
         let path = relative.join(&name);
@@ -299,6 +299,17 @@ fn expand(
             expand(root, &path, rest, directory_only, budget, found);
         }
     }
+}
+
+/// `.git`, and the project's worktree folder (`.claude/worktrees`,
+/// `agentPane.sessionWorktrees` Project): a new worktree never gets a copy
+/// of the others.
+fn skipped(relative: &Path, name: &str) -> bool {
+    name == ".git"
+        || relative
+            .join(name)
+            .iter()
+            .eq(cmux_config::session_worktrees::PROJECT_FOLDER.iter().map(std::ffi::OsStr::new))
 }
 
 /// The folders a walk may still visit.
@@ -321,7 +332,7 @@ fn children(root: &Path, relative: &Path, budget: &mut Budget) -> Vec<(String, b
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             let is_directory = entry.file_type().ok()?.is_dir();
-            (name != ".git").then_some((name, is_directory))
+            (!skipped(relative, &name)).then_some((name, is_directory))
         })
         .collect();
     listed.sort();
