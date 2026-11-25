@@ -85,6 +85,9 @@ public final class CrashReporter: Sendable {
         options.appHangTimeoutInterval = 8.0
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
+        // No request URLs in breadcrumbs or spans: a URL can hold a path, a branch or a repository name.
+        options.enableNetworkBreadcrumbs = false
+        options.enableNetworkTracking = false
         // Objective-C exceptions that reach NSApplication's reportException:
         // hook, with their reason and throw stack (main d481d516e520). The
         // SDK also registers NSApplicationCrashOnExceptions, which every
