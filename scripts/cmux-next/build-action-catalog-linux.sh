@@ -47,6 +47,11 @@ PY
   git -C "$root" show "$sha:cmux-tui/rust-toolchain.toml" > "$work.partial/rust-toolchain.toml" 2>/dev/null || true
   mv "$work.partial" "$work"
 fi
+# The swift image has clang but no `cc`, which rustc links with and build scripts compile with by default.
+if ! command -v cc >/dev/null && command -v clang >/dev/null; then
+  export CC=clang
+  export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=clang
+fi
 (cd "$work" && CARGO_TARGET_DIR="$out/target" cargo build --quiet --release --manifest-path "$work/Cargo.toml")
 mkdir -p "$out/lib" "$out/include"
 cp "$out/target/release/libcmux_action_catalog.a" "$out/lib/"
