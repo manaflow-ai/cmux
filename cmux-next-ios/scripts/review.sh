@@ -12,14 +12,21 @@
 #   the reason "review.sh --urgent: a person waits ...". Not for an agent's own end-of-task run.
 #
 # --backend: the Cloud backend this tag's Mac and iPhone builds talk to, chosen at launch, no rebuild.
-#   (none), dev   the shared dev Workers deployment (default): a backend.json an earlier run left is
-#                 removed, and the phone's kept override cleared
-#   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
+#   (none)        this tag's own stack (the default): `cloud-dev-stack.sh up --tag <tag>` brings it up
+#                 or re-ups it with this checkout's backend code, beside the fleet builds, then both
+#                 apps point at it as with tag-stack. An up that fails falls back to the shared dev
+#                 Workers, and the Backend line says why (the hand-off still finishes).
+#   dev           the shared dev Workers deployment: a backend.json an earlier run left is removed, and
+#                 the phone's kept override cleared; no stack is touched
+#   tag-stack     this tag's stack as it is now (no up; it must exist): its origin from
 #                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
 #                 another command). The stack runs the tag's API, mobile Worker and device hub; both
 #                 apps use all three from the one origin (the Mac from its client-config, the phone
-#                 from the next two ports), and the phone's receipt must name the stack's mobile Worker.
-#   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
+#                 from the next two ports, or its public origin's slot hosts), and the phone's receipt
+#                 must name the stack's mobile Worker. The Mac takes the tailnet origin; the phone the
+#                 public one (https://api.s<N>.wdev.cmux.dev, off the tailnet too) when the stack has it.
+#   <origin>      https://<machine>.tail137216.ts.net[:port], https://api.s<N>.wdev.cmux.dev,
+#                 `preview-N`, or the dev Workers API origin.
 #                 Anything else is refused before any build (review_mac.py backend-check; the apps
 #                 refuse it too, and Release builds ignore every override).
 #   The Mac gets ~/Library/Application Support/cmux-next/<bundle id>/backend.json, which every launch
@@ -119,7 +126,10 @@ TEAM=7WLXT3NR37
 TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE="" URGENT=0 SIM_SIGNIN_RETRIED=0
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
-BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
+BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (no override)" REPORT_BACKEND_MAC="not checked"
+# The default (no --backend): this tag's stack, brought up beside the fleet builds (review_start_stack), then
+# read (review_await_backend). STACK_UP_PID is that up; STACK_UP_LOG its output.
+BACKEND_DEFAULT=0 STACK_UP_PID="" STACK_UP_LOG=""
 # A tag stack's own mobile Worker (cloud-dev-stack.sh url --service mobile): the phone's receipt must name it.
 BACKEND_MOBILE_URL=""
 # The phone's origins when the stack has a public one (cloud-dev-stack.sh url --public): the same stack behind the
@@ -201,34 +211,102 @@ retry_command() {
 # --urgent: the reason the fleet logs for raising this hand-off's steps (cmux-ci run --urgent, cmux-ci promote).
 urgent_reason() { printf 'review.sh --urgent: a person waits on the phone for the hand-off of tag %s at %s' "$SLUG" "${SHA:0:12}"; }
 
-# --backend to an origin (BACKEND_URL) and the report's words for it (BACKEND_REPORT), before any build.
+# --backend to an origin (BACKEND_URL) and the report's words for it (BACKEND_REPORT), before any build. The
+# default only marks the stack to bring up (review_start_stack), whose origins review_await_backend reads.
 review_resolve_backend() {
-  local out
   case "$BACKEND_ARG" in
-    ""|dev|default)
-      BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" ;;
+    "")
+      BACKEND_DEFAULT=1 BACKEND_URL="" BACKEND_REPORT="this tag's stack (not up yet)" ;;
+    dev|default)
+      BACKEND_URL="" BACKEND_REPORT="shared dev Workers (--backend dev, no override)" ;;
     tag-stack)
-      local stack="${CNX_CLOUD_DEV_STACK:-$REPO_ROOT/scripts/cmux-next/cloud-dev-stack.sh}"
-      [[ -x "$stack" ]] || die "--backend tag-stack needs $stack , which this checkout does not have; pass --backend <https://...ts.net:port> instead"
-      out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
-      out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
-      BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
-      # The stack's mobile Worker and device hub: its client-config names them for the Mac, and the phone
-      # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
-      BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
-      BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub)"
-      # Its public origin, when it has one, is the phone's: it works away from the tailnet too.
-      local pub=""
-      pub="$("$stack" url --tag "$SLUG" --public 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || pub=""
-      if [[ -n "$pub" ]]; then
-        BACKEND_PHONE_URL="$(mac_py backend-check "$pub")" || die "--backend tag-stack: the stack's public URL $pub is not a tag stack origin"
-        BACKEND_PHONE_MOBILE_URL="$("$stack" url --tag "$SLUG" --public --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_PHONE_MOBILE_URL=""
-        BACKEND_REPORT="$BACKEND_REPORT; the phone: $BACKEND_PHONE_URL (its public origin)"
-      fi ;;
+      review_stack_backend "" || exit 2 ;;
     *)
       BACKEND_URL="$(mac_py backend-check "$BACKEND_ARG")" || exit 2
       BACKEND_REPORT="$BACKEND_URL (--backend)" ;;
   esac
+}
+
+review_stack_cmd() { printf '%s' "${CNX_CLOUD_DEV_STACK:-$REPO_ROOT/scripts/cmux-next/cloud-dev-stack.sh}"; }
+
+# The tag stack's origins (BACKEND_URL, BACKEND_MOBILE_URL, BACKEND_PHONE_URL, BACKEND_PHONE_MOBILE_URL) and the
+# report's words; $1 is appended to them ("" or ", default"). Returns 1 with the reason on stderr.
+review_stack_backend() {
+  local stack out pub
+  stack="$(review_stack_cmd)"
+  [[ -x "$stack" ]] || { echo "review.sh: --backend tag-stack needs $stack , which this checkout does not have; pass --backend <origin> instead" >&2; return 1; }
+  out="$("$stack" url --tag "$SLUG" 2>&1)" || { echo "review.sh: --backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}" >&2; return 1; }
+  out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
+  BACKEND_URL="$(mac_py backend-check "$out")" || { echo "review.sh: --backend tag-stack: the stack's URL $out is not a tailnet origin" >&2; return 1; }
+  # The stack's mobile Worker and device hub: its client-config names them for the Mac, and the phone
+  # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
+  BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
+  BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub$1)"
+  # Its public origin, when it has one, is the phone's: it works away from the tailnet too. With none (every public
+  # slot is held), the phone takes the tailnet origin too, and the report says so.
+  pub="$("$stack" url --tag "$SLUG" --public 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || pub=""
+  if [[ -n "$pub" ]]; then
+    BACKEND_PHONE_URL="$(mac_py backend-check "$pub")" || { echo "review.sh: --backend tag-stack: the stack's public URL $pub is not a tag stack origin" >&2; return 1; }
+    BACKEND_PHONE_MOBILE_URL="$("$stack" url --tag "$SLUG" --public --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_PHONE_MOBILE_URL=""
+    BACKEND_REPORT="$BACKEND_REPORT; the phone: $BACKEND_PHONE_URL (its public origin)"
+  else
+    BACKEND_REPORT="$BACKEND_REPORT; the phone: tailnet only (no free public slot: off the tailnet it cannot reach the stack)"
+  fi
+}
+
+# The default: bring this tag's stack up (or re-up it with this checkout) in the background, beside the fleet
+# builds; its output goes to STACK_UP_LOG. Nothing for an explicit --backend.
+review_start_stack() {
+  [[ $BACKEND_DEFAULT -eq 1 ]] || return 0
+  local stack
+  stack="$(review_stack_cmd)"
+  STACK_UP_LOG="${TAG_STATE:-${TMPDIR:-/tmp}}/stack-up.$$.log"  # this run's own: another run of the tag has its own
+  mkdir -p "$(dirname "$STACK_UP_LOG")"
+  if [[ ! -x "$stack" ]]; then
+    echo "no $stack in this checkout" >"$STACK_UP_LOG"
+    return 0
+  fi
+  echo "==> this tag's backend stack: $stack up --tag $SLUG (beside the builds; --backend dev skips it)"
+  # Another up of this tag (a second hand-off, or the leftover up of an interrupted one) holds the VM's lock for
+  # the tag: wait for it (up to about 10 min), then up again with this checkout.
+  (
+    local tries=0
+    while :; do
+      "$stack" up --tag "$SLUG" </dev/null >"$STACK_UP_LOG" 2>&1 && exit 0
+      grep -q "another up of this tag" "$STACK_UP_LOG" 2>/dev/null && [[ $tries -lt 20 ]] || exit 1
+      tries=$((tries + 1))
+      sleep 30
+    done
+  ) </dev/null >/dev/null 2>&1 &  # never holds review.sh's output open (a `| tee` of a run that died early)
+  STACK_UP_PID=$!
+}
+
+# The default: wait for the stack's up and point both apps at it. An up that failed (the VM unreachable, no
+# PlanetScale login, a build error in the backend) leaves the shared dev Workers, with the reason on the
+# Backend line: the hand-off still finishes, on the backend every build had before.
+review_await_backend() {
+  [[ $BACKEND_DEFAULT -eq 1 ]] || return 0
+  BACKEND_DEFAULT=2  # once
+  local rc=0 why=""
+  if [[ -n "$STACK_UP_PID" ]]; then
+    wait "$STACK_UP_PID" || rc=$?
+  else
+    rc=127
+  fi
+  if [[ $rc -eq 0 ]]; then
+    # In this shell (its origins are this run's), its refusal kept beside the up's log.
+    if review_stack_backend ", default" 2>"$STACK_UP_LOG.why"; then
+      echo "==> backend: $BACKEND_URL (this tag's stack)"
+      return 0
+    fi
+    why="$(tail -n 1 "$STACK_UP_LOG.why" 2>/dev/null)"
+  fi
+  # An up that printed nothing leaves no reason in its log: never an error of its own under set -e (pipefail).
+  [[ -n "$why" ]] || why="$({ grep -v '^[[:space:]]*$' "$STACK_UP_LOG" 2>/dev/null || true; } | tail -n 1)"
+  why="${why#review.sh: }"
+  BACKEND_URL="" BACKEND_MOBILE_URL="" BACKEND_PHONE_URL="" BACKEND_PHONE_MOBILE_URL=""
+  BACKEND_REPORT="shared dev Workers (FALLBACK: this tag's stack did not come up: ${why:-up exited $rc}; log $STACK_UP_LOG; --backend dev skips the stack)"
+  echo "==> backend: $BACKEND_REPORT" >&2
 }
 
 passed() { [[ "$PASSED_PHONES" == *" $1 "* ]]; }
@@ -268,13 +346,48 @@ fleet_submit_mac() {
   # Macs, and failed there when its headers changed (job cb3e5fa3159ea9806ae980fe); with FFI commits
   # every half hour the pin is behind nearly always. cmux-next needs no shared dev backend (AGENTS.md):
   # the tag's own local mode.
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
+  local ref reuse=()
+  ref="$(mac_build_ref)"
+  # --build always: the hand-off pairs the phone with a tagged Mac app, which a swap into a copy of the
+  # NIGHTLY is not. Since the fleet client's swap-first default (an agent's submission of a change it can
+  # swap queues nothing), a head that changes only Rust the app links queued no Mac build, and every such
+  # hand-off ended "printed no job id" (vfix1125, 2026-11-25). The base's build: any tag's equal build
+  # answers at once (--any-tag).
+  if [[ "$ref" == "$SHA" ]]; then reuse=(--build); else reuse=(--any-tag --build); fi
+  out="$(cmux_ci build cmux --ref "$ref" "${reuse[@]}" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
-  MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
-    { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
+  MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' 2>/dev/null)" ||
+    { REPORT_MAC="BLOCKED: cmux-ci build cmux queued no job: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-300)"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
   mac_promote
+}
+
+# The commit the Mac build is made from: this head, or its feat-cmux-next merge base when
+# scripts/cmux-next/build_select.py says the head changes nothing the Mac app builds or bundles (an
+# iPhone-only change, review.sh's own scripts): the base's Mac app is this head's, and a build of it the fleet
+# already made (build-ahead, another tag) answers with no Mac minutes. Before 2026-11-24 every hand-off built
+# the head, so an iPhone-only PR queued a full Mac build (#53007: 3+ h queued for 7 CmuxMobileKit files).
+# CNX_REVIEW_MAC_BUILD=head builds the head anyway. Saved per head in $STATE/mac-ref, so a rerun resumes it.
+mac_build_ref() {
+  if [[ -s "$STATE/mac-ref" ]]; then
+    cat "$STATE/mac-ref"
+    return 0
+  fi
+  local ref="$SHA" base="" mac=""
+  if [[ "${CNX_REVIEW_MAC_BUILD:-auto}" != head ]]; then
+    base="$(git -C "$REPO_ROOT" merge-base "$SHA" origin/feat-cmux-next 2>/dev/null || true)"
+    if [[ -n "$base" && "$base" != "$SHA" ]]; then
+      mac="$(python3 "${CNX_REVIEW_BUILD_SELECT:-$REPO_ROOT/scripts/cmux-next/build_select.py}" --repo "$REPO_ROOT" --json "$base" "$SHA" 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["mac"])' 2>/dev/null || true)"
+    fi
+  fi
+  if [[ "$mac" == none ]]; then
+    ref="$base"
+    echo "==> Mac build: this head changes nothing in the Mac app (build_select.py); the tag gets the build of its base ${base:0:12}" >&2
+  fi
+  printf '%s\n' "$ref" >"$STATE/mac-ref"
+  printf '%s\n' "$ref"
 }
 
 # --urgent: the Mac build moves up the Mac queue (cmux-ci promote; a build has no --urgent). A refusal
@@ -343,6 +456,9 @@ fleet_finish_mac() {
     return 1
   fi
   REPORT_MAC="fleet job $MAC_JOB, published to HQ"
+  local ref
+  ref="$(cat "$STATE/mac-ref" 2>/dev/null || true)"
+  [[ -z "$ref" || "$ref" == "$SHA" ]] || REPORT_MAC="$REPORT_MAC (built from the base ${ref:0:12}: this head changes nothing in the Mac app)"
 }
 
 fleet_finish_sim() {
@@ -403,6 +519,14 @@ fleet_finish_sim() {
     REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log)$next; retry: $(retry_command)"
     return 1
   fi
+  # Saved before the download: a rerun fetches this step's artifact again (sim_reusable) instead of sending a new
+  # step, which the controller refuses ("409: step_key already names a different step"; vcorp1125d, 2026-11-25).
+  printf '%s\n' "$SIM_STEP" >"$STATE/sim-passed"
+  sim_download
+}
+
+# The passed step's artifact into $STATE/ios.zip.
+sim_download() {
   rm -f "$STATE/ios.zip"
   cmux_ci artifact "$SIM_STEP" "$STATE/ios.zip" >/dev/null ||
     { REPORT_SIM="BLOCKED: step $SIM_STEP passed but its artifact did not download; retry: $(retry_command)"; return 1; }
@@ -420,13 +544,16 @@ safe_unzip() {
 # The simulator verdict and the device app from the step's artifact.
 read_ios_artifact() {
   local why
+  # The head is reusable only once this read passes (below): an unsafe zip, a manifest of another head or a failed
+  # check must never leave an older mark that a rerun would reuse.
+  rm -f "$STATE/ios-passed"
   why="$(safe_unzip "$STATE/ios.zip" "$STATE/ios" 2>&1)" ||
-    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; return 1; }
+    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; sim_forget; return 1; }
   local check
   # One field per line (a tab split loses empty fields); the reason for a mismatch goes in the report.
   check="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" read-manifest "$STATE/ios/handoff.json" \
     --tag "$SLUG" --sha "$SHA" --bundle-id "dev.cmux.mobile.$SLUG" 2>&1)" ||
-    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; return 1; }
+    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; sim_forget; return 1; }
   local status host device reason dir
   { IFS= read -r status; IFS= read -r host; IFS= read -r device; IFS= read -r reason; } <<<"$check"
   dir="$STATE/ios"
@@ -435,11 +562,39 @@ read_ios_artifact() {
   else
     REPORT_SIM="BLOCKED: fleet simulator check on $host failed: ${reason:-unknown}; evidence $dir; retry: $(retry_command)"
     REVIEW_FAILED=1
+    sim_forget
   fi
   why="$(safe_unzip "$STATE/ios/CmuxMobileApp-Demo-device-unsigned.app.zip" "$STATE/device" 2>&1)" ||
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the device app is not a safe zip (${why##*$'\n'})"; REVIEW_FAILED=1; return 1; }
   [[ -d "$STATE/device/CmuxMobileApp.app" ]] ||
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the artifact has no device app"; REVIEW_FAILED=1; return 1; }
+  # This head's iPhone build passed: a rerun (the Mac build failed, a phone was locked) reuses it (sim_reusable).
+  [[ "$status" != pass ]] || printf '%s\n' "${SIM_STEP:-}" >"$STATE/ios-passed"
+}
+
+# A rerun at this head reuses the iPhone build whose step passed here before, instead of sending the step again: the
+# controller answers that step's key only to the run that sent it (a new run seals a new sign-in key), so the
+# rerun of 0e728c2b25 got "409: step_key already names a different step" and nothing for the phone (2026-11-24).
+# The state is per tag and head, and read_ios_artifact checks the manifest's tag and commit again.
+sim_reusable() {
+  if [[ -s "$STATE/ios-passed" && -s "$STATE/ios.zip" ]]; then
+    SIM_STEP="$(head -n 1 "$STATE/ios-passed")"
+    echo "==> iPhone app: reusing this head's build from step ${SIM_STEP:-?} (its simulator check passed)"
+    return 0
+  fi
+  # A step that passed but whose artifact did not download: fetch it again; read_ios_artifact checks it as always.
+  [[ -s "$STATE/sim-passed" ]] || return 1
+  SIM_STEP="$(head -n 1 "$STATE/sim-passed")"
+  [[ "$SIM_STEP" =~ ^[0-9a-f]{24}$ ]] || return 1
+  echo "==> iPhone app: step $SIM_STEP passed before; downloading its artifact again"
+  sim_download || { echo "==> iPhone app: its artifact did not download again; sending a new step" >&2; REPORT_SIM=""; sim_forget; return 1; }
+}
+
+# Give up the passed step: a rerun sends a new one, under a new key (sim_key's -rN), since the controller answers the
+# old key only with the old step ("409: step_key already names a different step").
+sim_forget() {
+  rm -f "$STATE/sim-passed"
+  sim_next_attempt
 }
 
 # --- the tagged Mac -----------------------------------------------------------
@@ -937,6 +1092,7 @@ main() {
   unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
   TAG_STATE="$HOME/Library/Application Support/cmux-dev/cnx-ios-builds/$SLUG"
   STATE="$TAG_STATE/$SHA"
+  review_start_stack
   review_run
 }
 
@@ -957,11 +1113,12 @@ review_run() {
   fi
 
   mkdir -p "$STATE"
-  fleet_start_sim
-  local mac_ok=1 ios_ok=1 target
+  local mac_ok=1 ios_ok=1 target sim_reused=0
+  if sim_reusable; then sim_reused=1; else fleet_start_sim; fi
   { fleet_submit_mac && fleet_finish_mac; } || mac_ok=0
-  fleet_finish_sim || ios_ok=0
+  [[ $sim_reused -eq 1 ]] || fleet_finish_sim || ios_ok=0
   [[ $ios_ok -eq 0 ]] || read_ios_artifact || ios_ok=0
+  review_await_backend
   if [[ $NO_PHONE -eq 1 ]]; then
     finish || exit 1
   fi
