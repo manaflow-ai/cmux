@@ -227,51 +227,135 @@ class ScreenDiffTests(unittest.TestCase):
 
 
 class StillsArtifactTests(unittest.TestCase):
-    """The baseline comes from ios-gate-stills-*, or review-gate-path-* on runs before the split."""
+    """The baseline: the newest feat-cmux-next ios-gate-stills-* with screens, found by one listing per name."""
+
+    BIG = 30 << 20
 
     def setUp(self) -> None:
         self.mod = load()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def fetch(self, run_artifacts: dict[int, list[str]]) -> tuple[dict, list[str]]:
+    @staticmethod
+    def artifact(aid, name, run=1, size=BIG, branch="feat-cmux-next", created="2026-11-23T10:00:00Z", fork=False):
+        return {"id": aid, "name": name, "size_in_bytes": size, "expired": False, "created_at": created,
+                "workflow_run": {"id": run, "head_branch": branch, "head_sha": "a" * 40,
+                                 "repository_id": 7, "head_repository_id": 8 if fork else 7}}
+
+    def fetch(self, by_name: dict[str, list[dict]], families=("iphone",), empty: set = frozenset(),
+              fail: set = frozenset()) -> tuple[dict, list, list[str]]:
         import io
+        import urllib.parse
         import zipfile
-        runs = [{"id": rid, "conclusion": "success", "head_sha": "a" * 40, "html_url": ""} for rid in run_artifacts]
-        downloaded: list[str] = []
+        downloaded: list = []
+        listed: list[str] = []
 
         def api(url, token, deadline):
-            if "/workflows/" in url:
-                return json.dumps({"workflow_runs": runs}).encode()
-            rid = int(url.split("/runs/")[1].split("/")[0])
-            return json.dumps({"artifacts": [{"name": n, "id": n} for n in run_artifacts[rid]]}).encode()
+            name = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["name"][0]
+            listed.append(name)
+            return json.dumps({"artifacts": by_name.get(name, [])}).encode()
 
         def download(url, token, deadline, path):
-            downloaded.append(url.split("/artifacts/")[1].split("/")[0])
+            aid = url.split("/artifacts/")[1].split("/")[0]
+            downloaded.append(aid)
+            if aid in fail:
+                raise TimeoutError("reading the answer: past the 180 s deadline")
+            family = path.stem
             buffer = io.BytesIO()
             with zipfile.ZipFile(buffer, "w") as archive:
-                archive.writestr("screens/iphone/a.png", b"x")
+                archive.writestr(f"{family}.status.json", "{}")
+                if aid not in empty:
+                    archive.writestr(f"screens/{family}/a.png", b"x")
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(buffer.getvalue())
             return path
 
         self.mod._api, self.mod._download = api, download
-        result = self.mod.fetch_baselines("o/r", "appstore", ["iphone"], Path(self.tmp.name), "t", "0")
-        return result, downloaded
+        result = self.mod.fetch_baselines("o/r", "appstore", list(families), Path(self.tmp.name), "t", "0")
+        return result, downloaded, listed
 
-    def test_the_stills_artifact_is_read(self) -> None:
-        result, downloaded = self.fetch({1: ["review-gate-path-appstore-iphone", "ios-gate-stills-appstore-iphone"]})
-        self.assertEqual(downloaded, ["ios-gate-stills-appstore-iphone"])
+    def test_the_stills_artifact_is_read_with_one_listing(self) -> None:
+        result, downloaded, listed = self.fetch({"ios-gate-stills-appstore-iphone": [self.artifact("s1", "ios-gate-stills-appstore-iphone", run=5)]})
+        self.assertEqual(downloaded, ["s1"])
+        self.assertEqual(listed, ["ios-gate-stills-appstore-iphone"])
         self.assertIsNotNone(result["iphone"].directory)
+        self.assertEqual(result["iphone"].run_id, 5)
+        self.assertEqual(result["iphone"].run_url, "https://github.com/o/r/actions/runs/5")
 
     def test_a_run_from_before_the_split_still_serves(self) -> None:
-        result, downloaded = self.fetch({1: ["review-gate-path-appstore-iphone"]})
-        self.assertEqual(downloaded, ["review-gate-path-appstore-iphone"])
+        result, downloaded, _ = self.fetch({"review-gate-path-appstore-iphone": [self.artifact("p1", "review-gate-path-appstore-iphone")]})
+        self.assertEqual(downloaded, ["p1"])
         self.assertIsNotNone(result["iphone"].directory)
 
     def test_none_kept_names_the_stills_artifact(self) -> None:
-        result, _ = self.fetch({1: ["review-gate-lint-appstore"]})
+        result, downloaded, _ = self.fetch({})
+        self.assertEqual(downloaded, [])
         self.assertIn("ios-gate-stills-appstore-iphone", result["iphone"].problem)
+
+    def test_a_status_only_artifact_is_skipped_without_a_download(self) -> None:
+        # Run 45257341586, cancelled before its walk exported, kept a stills artifact with no screens.
+        name = "ios-gate-stills-appstore-iphone"
+        result, downloaded, _ = self.fetch({name: [
+            self.artifact("tiny", name, run=9, size=400, created="2026-11-23T20:00:00Z"),
+            self.artifact("old", name, run=3, created="2026-11-23T09:00:00Z")]})
+        self.assertEqual(downloaded, ["old"])
+        self.assertEqual(result["iphone"].run_id, 3)
+
+    def test_pull_request_and_fork_runs_are_not_baselines(self) -> None:
+        name = "ios-gate-stills-appstore-iphone"
+        result, downloaded, _ = self.fetch({name: [
+            self.artifact("pr", name, run=9, branch="lane/x", created="2026-11-23T20:00:00Z"),
+            self.artifact("fork", name, run=8, fork=True, created="2026-11-23T19:00:00Z"),
+            self.artifact("base", name, run=2, created="2026-11-23T09:00:00Z")]})
+        self.assertEqual(downloaded, ["base"])
+
+    def test_an_artifact_with_no_screens_falls_through_to_an_older_one(self) -> None:
+        name = "ios-gate-stills-appstore-iphone"
+        result, downloaded, _ = self.fetch({name: [
+            self.artifact("new", name, run=9, created="2026-11-23T20:00:00Z"),
+            self.artifact("old", name, run=3, created="2026-11-23T09:00:00Z")]}, empty={"new"})
+        self.assertEqual(downloaded, ["new", "old"])
+        self.assertIsNotNone(result["iphone"].directory)
+        self.assertEqual((result["iphone"].run_id, result["iphone"].problem), (3, ""))
+
+    def test_the_smaller_family_downloads_first_and_a_slow_one_says_its_size(self) -> None:
+        result, downloaded, _ = self.fetch({
+            "ios-gate-stills-appstore-ipad": [self.artifact("pad", "ios-gate-stills-appstore-ipad", size=411 << 20)],
+            "ios-gate-stills-appstore-iphone": [self.artifact("phone", "ios-gate-stills-appstore-iphone", size=55 << 20)],
+        }, families=("ipad", "iphone"), fail={"pad"})
+        self.assertEqual(downloaded, ["phone", "pad"])
+        self.assertIsNotNone(result["iphone"].directory)
+        self.assertIsNone(result["ipad"].directory)
+        self.assertIn("(431 MB)", result["ipad"].problem)
+
+
+class ScaleChangeTests(unittest.TestCase):
+    """The iPad's stills are halved before upload: a full-size baseline is another scale, not a change."""
+
+    def setUp(self) -> None:
+        self.mod = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def run_diff(self, base_size: int) -> str:
+        write_family(self.root / "in", "ipad", {"gate-ipad-home": screen(size=10), "gate-ipad-settings": screen(size=10)})
+        write_family(self.root / "base", "ipad", {"gate-ipad-home": screen(size=base_size),
+                                                  "gate-ipad-settings": screen(size=base_size)})
+        out = self.root / "s.md"
+        self.mod.main(["--head-root", str(self.root / "in"), "--baseline-root", str(self.root / "base"),
+                       "--family", "ipad", "--event", "pull_request", "--pr-body", "", "--out", str(out)])
+        return out.read_text()
+
+    def test_a_baseline_at_another_scale_is_not_compared(self) -> None:
+        text = self.run_diff(20)
+        self.assertIn("stills are at another scale (20x20 -> 10x10)", text)
+        self.assertNotIn("differ from feat-cmux-next with no Visual-change line", text)
+        self.assertIn("Nothing was compared", text)
+
+    def test_the_same_scale_still_compares(self) -> None:
+        text = self.run_diff(10)
+        self.assertIn("2 screens unchanged", text)
 
 
 class ApiRetryTests(unittest.TestCase):
