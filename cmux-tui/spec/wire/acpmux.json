@@ -129,6 +129,8 @@
     "method:_acpmux/chat_settings",
     "method:_acpmux/chat_settled",
     "method:_acpmux/chat_transcript",
+    "method:_acpmux/chat_transcript_find",
+    "method:_acpmux/chat_transcript_page",
     "method:_acpmux/chats",
     "method:_acpmux/chats_search",
     "method:_acpmux/chats_warm",
@@ -294,6 +296,7 @@
     "method:_acpmux/subsession/stop",
     "method:_acpmux/surgery",
     "method:_acpmux/tag",
+    "method:_acpmux/tailnet/join",
     "method:_acpmux/tailnet/login",
     "method:_acpmux/tailnet/logout",
     "method:_acpmux/tailnet/start",
@@ -709,6 +712,17 @@
       "notify:_acpmux/session_changed",
       "notify:session/update"
     ],
+    "agent-channels-v1": [
+      "method:_acpmux/channel/close",
+      "method:_acpmux/channel/connect",
+      "method:_acpmux/channel/listen",
+      "method:_acpmux/channel/open",
+      "method:_acpmux/channel/send",
+      "method:_acpmux/channel/unlisten",
+      "notify:_acpmux/channel/closed",
+      "notify:_acpmux/channel/data",
+      "notify:_acpmux/channel/opened"
+    ],
     "agent-hold-v1": [
       "method:_acpmux/agent_hold"
     ],
@@ -1052,6 +1066,11 @@
     "session-changed-delta-v1": [
       "method:initialize",
       "notify:_acpmux/session_changed",
+      "notify:_acpmux/session_patch"
+    ],
+    "session-changed-delta-v2": [
+      "method:_acpmux/session_resync",
+      "method:initialize",
       "notify:_acpmux/session_patch"
     ],
     "session-files-v1": [
