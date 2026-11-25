@@ -19,6 +19,8 @@ import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
+import { chatLoadCoalesce } from "./loadCoalesce.experiment";
+import { coalescedUnderLoad } from "./loadCoalesce";
 import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
@@ -40,8 +42,9 @@ reportChatSnapshot(postNative);
   },
 );
 
-// One transcript snapshot per display frame, however many deltas land in it.
-AcpmuxDirectClient.scheduleFrame = nextFrame;
+// One transcript snapshot per display frame, however many deltas land in it; under load, with
+// CHAT-LOAD-COALESCE on (loadCoalesce.ts, off by default), one per 100 ms while frames come late.
+AcpmuxDirectClient.scheduleFrame = experimentArm(chatLoadCoalesce) === "on" ? coalescedUnderLoad(nextFrame) : nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);
