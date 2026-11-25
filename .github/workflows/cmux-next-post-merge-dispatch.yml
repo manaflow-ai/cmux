@@ -41,9 +41,24 @@ jobs:
             scripts/ci/post_merge_batch.py
             .github/post-merge-batch.json
           sparse-checkout-cone-mode: false
+      # The job token shares the repository's per-hour Actions budget with every other workflow: on
+      # 2026-11-25 from 03:19Z on every tick ended "API rate limit exceeded for installation" and no
+      # batch ran for hours. The cmux bot App's token (ci-compile-attribution.yml mints it with actions
+      # write too) has its own budget; the job token stays the fallback when the App cannot be minted.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
       - name: Start one batch run when the tip is untested
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
         run: |
           if [ ! -f scripts/ci/post_merge_batch.py ]; then
