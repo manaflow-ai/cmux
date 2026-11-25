@@ -1,86 +1,58 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.experiments.forum": {
-      "comment": "Settings > Experiments: title of the toggle that shows the team's forum page",
+    "settings.labs.previousBuild": {
+      "comment": "Settings > Advanced > Labs: toggle that shows the Go Back to Previous Build row on the Updates card",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Forum"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Go Back to Previous Build"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "العودة إلى الإصدار السابق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrati se na prethodnu verziju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gå tilbage til forrige build"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zum vorherigen Build zurückkehren"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Volver a la compilación anterior"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Revenir à la version précédente"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Torna alla build precedente"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "以前のビルドに戻す"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ត្រឡប់ទៅកំណែមុន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이전 빌드로 되돌리기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gå tilbake til forrige versjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wróć do poprzedniej wersji"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Voltar para a versão anterior"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вернуться к предыдущей сборке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ย้อนกลับไปยังบิลด์ก่อนหน้า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Önceki sürüme geri dön"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Повернутися до попередньої збірки"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Quay lại bản dựng trước"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "返回上一个版本"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "返回上一個版本"}}
       }
     },
-    "settings.experiments.forum.help": {
-      "comment": "Settings > Experiments: help under the Forum toggle",
+    "settings.labs.previousBuild.help": {
+      "comment": "Settings > Advanced > Labs > Go Back to Previous Build: what the toggle does. Updates is the name of the Settings card.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."}}
-      }
-    },
-    "settings.experiments.terminalAgentMark": {
-      "comment": "Settings > Experiments: title of the toggle that draws terminal agents' marks on a rounded square",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Terminal Agent Marks"}}
-      }
-    },
-    "settings.experiments.terminalAgentMark.help": {
-      "comment": "Settings > Experiments: help under the Terminal Agent Marks toggle",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."}}
-      }
-    },
-    "settings.sessions.keepAwakeWhenLocked": {
-      "comment": "Settings > Sessions: title of the toggle that keeps the Mac awake for a working agent while the screen is locked",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Keep Agents Running While Locked"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "إبقاء الوكلاء قيد التشغيل أثناء القفل"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Neka agenti rade dok je zaključano"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Hold agenter kørende, mens skærmen er låst"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Agenten im gesperrten Zustand weiterlaufen lassen"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Mantener los agentes en marcha con la pantalla bloqueada"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Garder les agents actifs pendant le verrouillage"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Mantieni gli agenti attivi quando è bloccato"}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "ロック中もエージェントを実行し続ける"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "បន្តដំណើរការភ្នាក់ងារពេលចាក់សោ"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "잠긴 동안에도 에이전트 계속 실행"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Hold agenter i gang mens skjermen er låst"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Utrzymuj agentów w działaniu podczas blokady"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Manter agentes em execução enquanto bloqueado"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Не останавливать агентов при блокировке"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์ทำงานต่อขณะล็อก"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Kilitliyken ajanları çalışır tut"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Не зупиняти агентів під час блокування"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Giữ tác nhân chạy khi khóa máy"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "锁定时保持智能体运行"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "鎖定時保持代理程式執行"}}
-      }
-    },
-    "settings.sessions.keepAwakeWhenLocked.help": {
-      "comment": "Settings > Sessions: help under Keep Agents Running While Locked",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "أثناء قفل جهاز Mac، يبقى مستيقظًا لوكيل يعمل، حتى على البطارية، لمدة تصل إلى ساعتين. إغلاق الغطاء على البطارية لا يزال يضعه في وضع السكون."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Dok je vaš Mac zaključan, ostaje budan za agenta koji radi, čak i na bateriji, do 2 sata. Zatvaranje poklopca na bateriji ga i dalje uspavljuje."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Mens din Mac er låst, forbliver den vågen for en agent, der arbejder, selv på batteri, i op til 2 timer. Lukker du låget på batteri, går den stadig i dvale."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Während dein Mac gesperrt ist, bleibt er für einen arbeitenden Agenten wach, auch im Akkubetrieb, bis zu 2 Stunden. Das Schließen des Deckels im Akkubetrieb versetzt ihn weiterhin in den Ruhezustand."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Mientras tu Mac está bloqueado, permanece activo para un agente que está trabajando, incluso con batería, hasta 2 horas. Cerrar la tapa con batería lo sigue poniendo en reposo."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Pendant que votre Mac est verrouillé, il reste éveillé pour un agent au travail, même sur batterie, jusqu’à 2 heures. Fermer l’écran sur batterie le met toujours en veille."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Mentre il Mac è bloccato, resta attivo per un agente al lavoro, anche a batteria, fino a 2 ore. Chiudere lo schermo a batteria lo mette comunque in stop."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "Mac がロックされている間、作業中のエージェントのためにバッテリー駆動でも最大 2 時間スリープしません。バッテリー駆動中に蓋を閉じるとスリープします。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ពេល Mac របស់អ្នកត្រូវបានចាក់សោ វានៅភ្ញាក់សម្រាប់ភ្នាក់ងារដែលកំពុងធ្វើការ សូម្បីតែប្រើថ្ម រហូតដល់ 2 ម៉ោង។ ការបិទគម្របពេលប្រើថ្មនៅតែធ្វើឱ្យវាដេក។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "Mac이 잠겨 있는 동안 작업 중인 에이전트를 위해 배터리 사용 중에도 최대 2시간 동안 깨어 있습니다. 배터리 사용 중 덮개를 닫으면 여전히 잠자기 상태가 됩니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Mens Macen er låst, holder den seg våken for en agent som jobber, også på batteri, i opptil 2 timer. Lukker du lokket på batteri, går den fortsatt i dvale."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy Mac jest zablokowany, pozostaje wybudzony dla pracującego agenta, nawet na baterii, do 2 godzin. Zamknięcie pokrywy na baterii nadal go usypia."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Enquanto o Mac está bloqueado, ele fica ativo para um agente que está trabalhando, mesmo na bateria, por até 2 horas. Fechar a tampa na bateria ainda o coloca em repouso."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Пока Mac заблокирован, он не засыпает ради работающего агента, даже от батареи, до 2 часов. Если закрыть крышку при работе от батареи, Mac всё равно уснёт."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "ขณะที่ Mac ถูกล็อก เครื่องจะไม่พักเครื่องเพื่อให้เอเจนต์ที่กำลังทำงานต่อได้ แม้ใช้แบตเตอรี่ นานสูงสุด 2 ชั่วโมง การปิดฝาขณะใช้แบตเตอรี่ยังคงทำให้เครื่องพัก"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Mac’iniz kilitliyken, çalışan bir ajan için pildeyken bile 2 saate kadar uyanık kalır. Pildeyken kapağı kapatmak onu yine uyutur."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Поки Mac заблоковано, він не засинає заради агента, що працює, навіть від батареї, до 2 годин. Якщо закрити кришку на батареї, Mac однаково засне."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi máy Mac bị khóa, máy vẫn thức cho tác nhân đang làm việc, kể cả khi dùng pin, tối đa 2 giờ. Gập nắp khi dùng pin vẫn khiến máy ngủ."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Mac 锁定时，即使使用电池，也会为正在工作的智能体保持唤醒，最长 2 小时。使用电池时合上盖子仍会进入睡眠。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Mac 鎖定時，即使使用電池，也會為正在工作的代理程式保持喚醒，最長 2 小時。使用電池時闔上蓋子仍會進入睡眠。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اعرض الإصدار الذي احتفظ به cmux قبل آخر تحديث في بطاقة التحديثات، مع زر للعودة إليه."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži verziju koju je cmux zadržao prije posljednjeg ažuriranja na kartici Ažuriranja, s dugmetom za povratak na nju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis det build, cmux gemte før den seneste opdatering, på kortet Opdateringer med en knap til at gå tilbage til det."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zeigt auf der Karte „Updates“ den Build, den cmux vor dem letzten Update behalten hat, mit einer Taste zum Zurückkehren."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Muestra en la tarjeta Actualizaciones la compilación que cmux guardó antes de la última actualización, con un botón para volver a ella."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Affiche sur la carte Mises à jour la version que cmux a conservée avant la dernière mise à jour, avec un bouton pour y revenir."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra nella scheda Aggiornamenti la build che cmux ha conservato prima dell’ultimo aggiornamento, con un pulsante per tornarci."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "前回のアップデート前に cmux が保持したビルドを「アップデート」カードに表示し、そのビルドに戻すボタンを付けます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញកំណែដែល cmux បានរក្សាទុកមុនការធ្វើបច្ចុប្បន្នភាពចុងក្រោយ នៅលើកាតបច្ចុប្បន្នភាព ជាមួយប៊ូតុងដើម្បីត្រឡប់ទៅវាវិញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "마지막 업데이트 전에 cmux가 보관한 빌드를 업데이트 카드에 표시하고, 그 빌드로 되돌리는 버튼을 제공합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis versjonen cmux beholdt før siste oppdatering på Oppdateringer-kortet, med en knapp for å gå tilbake til den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuje na karcie Aktualizacje wersję zachowaną przez cmux przed ostatnią aktualizacją, z przyciskiem powrotu do niej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostra no cartão Atualizações a versão que o cmux guardou antes da última atualização, com um botão para voltar a ela."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывает на карточке «Обновления» сборку, сохранённую cmux перед последним обновлением, с кнопкой возврата к ней."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงบิลด์ที่ cmux เก็บไว้ก่อนการอัปเดตครั้งล่าสุดบนการ์ดอัปเดต พร้อมปุ่มสำหรับย้อนกลับไปใช้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "cmux’un son güncellemeden önce sakladığı sürümü Güncellemeler kartında, ona geri dönmek için bir düğmeyle gösterir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показує на картці «Оновлення» збірку, яку cmux зберіг перед останнім оновленням, із кнопкою повернення до неї."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị bản dựng cmux đã giữ lại trước lần cập nhật gần nhất trên thẻ Cập nhật, kèm nút để quay lại bản đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在“更新”卡片上显示 cmux 在上次更新前保留的版本，并提供返回该版本的按钮。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在「更新」卡片上顯示 cmux 在上次更新前保留的版本，並提供返回該版本的按鈕。"}}
       }
     },
     "settings.sidebar.showLiveToggle": {
@@ -221924,6 +221896,60 @@
         }
       }
     },
+    "settings.sessions.keepAwakeWhenLocked": {
+      "comment": "Settings > Sessions: title of the toggle that keeps the Mac awake for a working agent while the screen is locked",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Agents Running While Locked"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إبقاء الوكلاء قيد التشغيل أثناء القفل"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Neka agenti rade dok je zaključano"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hold agenter kørende, mens skærmen er låst"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agenten im gesperrten Zustand weiterlaufen lassen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mantener los agentes en marcha con la pantalla bloqueada"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Garder les agents actifs pendant le verrouillage"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mantieni gli agenti attivi quando è bloccato"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ロック中もエージェントを実行し続ける"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បន្តដំណើរការភ្នាក់ងារពេលចាក់សោ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "잠긴 동안에도 에이전트 계속 실행"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hold agenter i gang mens skjermen er låst"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Utrzymuj agentów w działaniu podczas blokady"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Manter agentes em execução enquanto bloqueado"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не останавливать агентов при блокировке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์ทำงานต่อขณะล็อก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kilitliyken ajanları çalışır tut"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не зупиняти агентів під час блокування"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giữ tác nhân chạy khi khóa máy"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "锁定时保持智能体运行"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "鎖定時保持代理程式執行"}}
+      }
+    },
+    "settings.sessions.keepAwakeWhenLocked.help": {
+      "comment": "Settings > Sessions: help under Keep Agents Running While Locked",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أثناء قفل جهاز Mac، يبقى مستيقظًا لوكيل يعمل، حتى على البطارية، لمدة تصل إلى ساعتين. إغلاق الغطاء على البطارية لا يزال يضعه في وضع السكون."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dok je vaš Mac zaključan, ostaje budan za agenta koji radi, čak i na bateriji, do 2 sata. Zatvaranje poklopca na bateriji ga i dalje uspavljuje."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mens din Mac er låst, forbliver den vågen for en agent, der arbejder, selv på batteri, i op til 2 timer. Lukker du låget på batteri, går den stadig i dvale."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Während dein Mac gesperrt ist, bleibt er für einen arbeitenden Agenten wach, auch im Akkubetrieb, bis zu 2 Stunden. Das Schließen des Deckels im Akkubetrieb versetzt ihn weiterhin in den Ruhezustand."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mientras tu Mac está bloqueado, permanece activo para un agente que está trabajando, incluso con batería, hasta 2 horas. Cerrar la tapa con batería lo sigue poniendo en reposo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Pendant que votre Mac est verrouillé, il reste éveillé pour un agent au travail, même sur batterie, jusqu’à 2 heures. Fermer l’écran sur batterie le met toujours en veille."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mentre il Mac è bloccato, resta attivo per un agente al lavoro, anche a batteria, fino a 2 ore. Chiudere lo schermo a batteria lo mette comunque in stop."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Mac がロックされている間、作業中のエージェントのためにバッテリー駆動でも最大 2 時間スリープしません。バッテリー駆動中に蓋を閉じるとスリープします。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេល Mac របស់អ្នកត្រូវបានចាក់សោ វានៅភ្ញាក់សម្រាប់ភ្នាក់ងារដែលកំពុងធ្វើការ សូម្បីតែប្រើថ្ម រហូតដល់ 2 ម៉ោង។ ការបិទគម្របពេលប្រើថ្មនៅតែធ្វើឱ្យវាដេក។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Mac이 잠겨 있는 동안 작업 중인 에이전트를 위해 배터리 사용 중에도 최대 2시간 동안 깨어 있습니다. 배터리 사용 중 덮개를 닫으면 여전히 잠자기 상태가 됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mens Macen er låst, holder den seg våken for en agent som jobber, også på batteri, i opptil 2 timer. Lukker du lokket på batteri, går den fortsatt i dvale."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy Mac jest zablokowany, pozostaje wybudzony dla pracującego agenta, nawet na baterii, do 2 godzin. Zamknięcie pokrywy na baterii nadal go usypia."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Enquanto o Mac está bloqueado, ele fica ativo para um agente que está trabalhando, mesmo na bateria, por até 2 horas. Fechar a tampa na bateria ainda o coloca em repouso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пока Mac заблокирован, он не засыпает ради работающего агента, даже от батареи, до 2 часов. Если закрыть крышку при работе от батареи, Mac всё равно уснёт."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขณะที่ Mac ถูกล็อก เครื่องจะไม่พักเครื่องเพื่อให้เอเจนต์ที่กำลังทำงานต่อได้ แม้ใช้แบตเตอรี่ นานสูงสุด 2 ชั่วโมง การปิดฝาขณะใช้แบตเตอรี่ยังคงทำให้เครื่องพัก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Mac’iniz kilitliyken, çalışan bir ajan için pildeyken bile 2 saate kadar uyanık kalır. Pildeyken kapağı kapatmak onu yine uyutur."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Поки Mac заблоковано, він не засинає заради агента, що працює, навіть від батареї, до 2 годин. Якщо закрити кришку на батареї, Mac однаково засне."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi máy Mac bị khóa, máy vẫn thức cho tác nhân đang làm việc, kể cả khi dùng pin, tối đa 2 giờ. Gập nắp khi dùng pin vẫn khiến máy ngủ."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Mac 锁定时，即使使用电池，也会为正在工作的智能体保持唤醒，最长 2 小时。使用电池时合上盖子仍会进入睡眠。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Mac 鎖定時，即使使用電池，也會為正在工作的代理程式保持喚醒，最長 2 小時。使用電池時闔上蓋子仍會進入睡眠。"}}
+      }
+    },
     "settings.agents.promptSuggestions": {
       "extractionState": "manual",
       "localizations": {
@@ -266811,6 +266837,34 @@
             "value": "將結果依「工作區」、「工作階段」、「命令」和「代理」分組，並在你輸入時重新分組，同時選取最佳符合項目。"
           }
         }
+      }
+    },
+    "settings.experiments.forum": {
+      "comment": "Settings > Experiments: title of the toggle that shows the team's forum page",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Forum"}}
+      }
+    },
+    "settings.experiments.forum.help": {
+      "comment": "Settings > Experiments: help under the Forum toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."}}
+      }
+    },
+    "settings.experiments.terminalAgentMark": {
+      "comment": "Settings > Experiments: title of the toggle that draws terminal agents' marks on a rounded square",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Agent Marks"}}
+      }
+    },
+    "settings.experiments.terminalAgentMark.help": {
+      "comment": "Settings > Experiments: help under the Terminal Agent Marks toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."}}
       }
     },
     "settings.appearance.liveWallpaperFrameRate": {

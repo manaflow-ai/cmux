@@ -19,6 +19,7 @@ import { backgroundReactionLook } from "../agent-session/acpmux/conversation/bac
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
+import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
@@ -247,6 +248,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerControlsAnchor,
   cloudStartComposerLook,
+  cloudStartJustGo,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
