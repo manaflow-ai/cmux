@@ -81,6 +81,7 @@ fn wire(kinds: &BTreeMap<String, String>, name: &str) -> String {
     }
 }
 
+// skew: strict: reads the spec's closed types to list their keys; it decodes no peer message.
 /// The keys of a closed object type (`additionalProperties: false`), `_meta` left out.
 fn closed_keys(types: &Map<String, Value>, schema: &Value) -> Option<Vec<String>> {
     let name = schema.get("$ref")?.as_str()?.strip_prefix("#/types/")?;
