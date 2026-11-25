@@ -555,10 +555,12 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(ids([
       { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
       { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
+      { id: "vm_move_b", name: `cloud journey auto ${old} move B`, status: "running" },
+      { id: "vm_cold", name: `cloud journey auto ${old} cold`, status: "paused" },
       { id: "vm_young", name: `cloud journey auto ${young}`, status: "paused" },
       { id: "vm_gone", name: `cloud journey auto ${old}`, status: "deleted" },
       { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
-    ])).toEqual(["vm_running", "vm_paused_gw"]);
+    ])).toEqual(["vm_running", "vm_paused_gw", "vm_move_b", "vm_cold"]);
     // Just inside the bound is a concurrent run's machine; just past it is leaked.
     const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
     expect(ids([edge])).toEqual([]);
@@ -598,6 +600,8 @@ describe("cloud journey: leaked machine sweep", () => {
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
       { id: "vm_tiny", name: "cloud journey auto jr-zz", status: "paused" },
+      { id: "vm_tiny_sfx", name: "cloud journey auto jr-zz move B", status: "paused" },
+      { id: "vm_glued", name: `cloud journey auto ${old}x`, status: "paused" },
       { id: "vm_future", name: `cloud journey auto ${tagAt(now + 3600_000)}`, status: "paused" },
       null,
     ])).toEqual([]);

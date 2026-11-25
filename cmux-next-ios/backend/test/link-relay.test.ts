@@ -1,9 +1,12 @@
+import { runInDurableObject } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it, vi } from "vitest"
 import vectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"
+import type { Env } from "../src/env.ts"
+import type { LinkRelay } from "../src/link-relay.ts"
+import { relayRoomName } from "../src/placement.ts"
 import { checkFrame } from "../src/relay-frame.ts"
 import { linkStatLine, userHubName, uuidToBytes } from "../src/team-hub.ts"
-import type { Env } from "../src/env.ts"
 import { connect, register, sockOf, token, worker, type Sock } from "./helpers.ts"
 
 // PROTOCOL.md "WebSocket relay": the last way a WireGuard link reaches its peer, WireGuard datagrams in relay
@@ -526,5 +529,103 @@ describe("netcheck targets (PROTOCOL.md \"Relay placement\")", () => {
     const closed = new Promise<number>((r) => ws.addEventListener("close", (e) => r(e.code)))
     ws.send(new Uint8Array([1, 1, ...new Uint8Array(16)]))
     expect(await closed).toBe(1008)
+  })
+})
+
+describe("relay prewarm (RFD 0142 C4, PROTOCOL.md \"Relay placement\")", () => {
+  /** The session's relay, named as the Worker's relay route names it (dev is the primary project: no prefix). */
+  const relays = (env as unknown as Env).LINK_RELAY
+  const relayOf = (owner: string, sessionId: string, space = "") => relays.get(relays.idFromName(relayRoomName(owner, space, sessionId)))
+  const prewarmedAt = (owner: string, sessionId: string, space = "") => runInDurableObject(relayOf(owner, sessionId, space), (r: LinkRelay) => r.prewarmedAt)
+  const until = async (f: () => Promise<boolean>) => {
+    for (let i = 0; i < 100; i++) {
+      if (await f()) return true
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    return false
+  }
+
+  it("the hub creates the session's relay when it forwards the first wg-init, before anyone joins", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    expect(await until(async () => (await prewarmedAt("alice", sessionId)) !== undefined)).toBe(true)
+    // A client that knows nothing of it joins and talks exactly as before.
+    const a = await joined(tok, sessionId, phone)
+    expect(a.frames.find((f) => f.type === "joined")).toEqual({ type: "joined", peer: false })
+    const b = await joined(tok, sessionId, mac)
+    expect(b.frames.find((f) => f.type === "joined")).toEqual({ type: "joined", peer: true })
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+    await b.until((x) => x.binary.length === 1)
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it("prewarms once per session, not on other signals, and not with the kill switch", async () => {
+    const { phone, mac, p, m, sessionId } = await session()
+    expect(await until(async () => (await prewarmedAt("alice", sessionId)) !== undefined)).toBe(true)
+    const first = await prewarmedAt("alice", sessionId)
+    await new Promise((r) => setTimeout(r, 5))
+    // A retried wg-init of the same session does not prewarm again.
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+    await m.until((x) => x.frames.filter((f) => f.type === "signal" && f.sessionId === sessionId).length === 2)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(await prewarmedAt("alice", sessionId)).toBe(first)
+    // A WebRTC session never rides the relay: no prewarm.
+    const rtc = crypto.randomUUID()
+    p.send({ type: "signal", to: mac, from: phone, sessionId: rtc, payload: { kind: "webrtc-offer", sdp: "v=0" } })
+    await m.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === rtc))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(await prewarmedAt("alice", rtc)).toBeUndefined()
+    // The relay's kill switch: no prewarm either.
+    const vars = env as unknown as { LINK_RELAY_MODE?: string }
+    vars.LINK_RELAY_MODE = "off"
+    try {
+      const off = crypto.randomUUID()
+      p.send({ type: "signal", to: mac, from: phone, sessionId: off, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+      await m.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === off))
+      await new Promise((r) => setTimeout(r, 50))
+      expect(await prewarmedAt("alice", off)).toBeUndefined()
+    } finally {
+      delete vars.LINK_RELAY_MODE
+    }
+  })
+
+  it("names the relay as the route does in a dev build space, and the join lands on the prewarmed object", async () => {
+    const tok = await token("alice")
+    const spaceName = "dev:relay-prewarm"
+    const space = { "x-cmux-build-space": spaceName }
+    const reg = async (kind: "mac" | "phone") => {
+      const deviceId = crypto.randomUUID()
+      const r = await worker.fetch("https://api.test/v1/devices", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tok}`, ...space }, body: JSON.stringify({ deviceId, kind, name: kind, teamId: "team-a" }) })
+      expect(r.status).toBe(200)
+      return deviceId
+    }
+    const phone = await reg("phone")
+    const mac = await reg("mac")
+    const open = async (id: string) => {
+      const res = await worker.fetch(`https://api.test/v1/teams/team-a/signal?deviceId=${id}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}`, ...space } })
+      expect(res.status).toBe(101)
+      const s = sockOf(res.webSocket!)
+      await s.until((x) => x.frames.some((f) => f.type === "hello"))
+      return s
+    }
+    const p = await open(phone)
+    const m = await open(mac)
+    const sessionId = crypto.randomUUID()
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+    await m.until((x) => x.frames.some((f) => f.type === "signal"))
+    expect(await until(async () => (await prewarmedAt("alice", sessionId, spaceName)) !== undefined)).toBe(true)
+    // The stable space's object of the same session was never made.
+    expect(await prewarmedAt("alice", sessionId)).toBeUndefined()
+    const a = await joined(tok, sessionId, phone, space)
+    // The join reached the very object the hub prewarmed: it holds the joiner's socket now.
+    expect(await runInDurableObject(relayOf("alice", sessionId, spaceName), (_r: LinkRelay, state) => state.getWebSockets(phone).length)).toBe(1)
+    a.ws.close()
+  })
+
+  it("a prewarm is no socket: the object answers it without an upgrade and holds nothing", async () => {
+    const sessionId = crypto.randomUUID()
+    const res = await relayOf("alice", sessionId).fetch("https://link-relay/prewarm", { method: "POST" })
+    expect(res.status).toBe(204)
+    expect(await runInDurableObject(relayOf("alice", sessionId), (_r: LinkRelay, state) => state.getWebSockets().length)).toBe(0)
   })
 })
