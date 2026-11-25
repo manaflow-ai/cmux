@@ -67,6 +67,21 @@ class CefTraceTasks(unittest.TestCase):
                          ("Chrome_IOThread", "OnIpc (a/b.cc)", 0.5))
         self.assertNotIn("Startup (a/b.cc)", [r["posted_from"] for r in rows], "startup tasks are skipped")
 
+    def test_ipc_messages_on_the_browser_threads_by_name(self):
+        # The main thread's wakes from Chrome_IOThread (task 21, ~0.9/s) are IPC messages the I/O thread forwards; the
+        # mojom category names each one. RunTask rows say only "Accept (ipc_mojo_bootstrap.cc)".
+        def ev(ts_s, name, tid, ph="X"):
+            return {"ph": ph, "name": name, "ts": ts_s * S, "dur": 3, "pid": 10, "tid": tid, "args": {}}
+        events = META + [task(0, "Startup")] \
+            + [ev(t, "Receive blink.mojom.LocalFrameHost::UpdateState", 1) for t in range(30, 130)] \
+            + [ev(t, "Send cef.mojom.RenderFrame::SendMessage", 2, ph="i") for t in range(30, 130, 4)] \
+            + [ev(t, "ThreadControllerImpl::RunTask", 1) for t in range(30, 130)] \
+            + [{"ph": "X", "name": "Other", "ts": 50 * S, "dur": 1, "pid": 11, "tid": 1, "args": {}}, task(130, "End")]
+        rows = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30)["events"]
+        self.assertEqual([(r["thread"], r["name"], r["per_s"]) for r in rows],
+                         [("CrBrowserMain", "Receive blink.mojom.LocalFrameHost::UpdateState", 1.0),
+                          ("Chrome_IOThread", "Send cef.mojom.RenderFrame::SendMessage", 0.25)])
+
     def test_a_bare_event_list_and_no_tasks(self):
         self.assertEqual(idle_cpu.cef_trace_tasks(META, skip_s=30)["tasks"], [])
 
