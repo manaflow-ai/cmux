@@ -566,6 +566,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
                 "CmuxNextSidebar",
@@ -962,6 +963,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHome",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
@@ -1066,6 +1068,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextFiles",
                 "CmuxNextLayout",
+                "CmuxNextTerminalFind",
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
@@ -2424,6 +2427,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDictation",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalFind",
                 "CmuxNextTestSupport",
             ],
             swiftSettings: uiSwiftSettings,

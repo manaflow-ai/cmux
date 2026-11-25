@@ -290,10 +290,11 @@ impl MeshDriver {
         }
     }
 
-    /// Decrypt the datagrams already waiting on the socket, up to a batch.
+    /// Decrypt the datagrams already waiting on the socket, up to a batch:
+    /// first what the last batched read took, then one more read.
     fn receive_ready(&mut self, buffer: &mut [u8]) {
         for _ in 1..RECEIVE_BATCH {
-            match self.out.udp.socket().try_recv_from(buffer) {
+            match self.out.udp.try_recv(buffer) {
                 Ok((count, source)) => {
                     if let Some(received) = buffer.get(..count) {
                         self.handle_datagram(received, Some(PeerRoute::Udp(source)));
