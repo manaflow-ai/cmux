@@ -251,7 +251,9 @@ import { withAttachmentRetries } from "../../pages/shared/attachmentRetry";
 import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
 import type { CustomizeRun } from "./conversation/customizeRun";
 import {
+  frameFullParams,
   latestFrameParams,
+  pictureOf,
   readFrames,
   readLatest,
   TURN_FRAMES_CAPABILITY,
@@ -13215,6 +13217,16 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSession;
     if (!sessionId || !this.servesTurnFrames) return [];
     return readFrames(await this.request(TURN_FRAMES_METHOD, turnFramesParams(sessionId, turnId)));
+  }
+  /// Frame `index` of turn `turnId` with its whole picture; undefined when the reply has none.
+  async turnFrameFull(turnId: string, index: number): Promise<string | undefined> {
+    const sessionId = this.selectedSession;
+    if (!sessionId || !this.servesTurnFrames) return undefined;
+    const reply = await this.request(TURN_FRAMES_METHOD, frameFullParams(sessionId, turnId, index));
+    const raw = (reply as { frames?: { index?: unknown; full?: unknown }[] } | undefined)?.frames?.find(
+      (frame) => frame?.index === index,
+    );
+    return pictureOf(raw?.full);
   }
   /// The newest frame of the chat since `sinceSeq`, and the seq to ask from next.
   async latestFrame(sinceSeq: number): Promise<{ frame?: TurnFrame; seq: number }> {
