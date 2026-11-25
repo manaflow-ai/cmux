@@ -35,6 +35,8 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { AutoSession } from "./autoSession/autoSession";
+import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -74,7 +76,6 @@ import {
   SUBAGENT_DONE,
   SUBAGENT_STARTED,
   SUBAGENT_EMPTY,
-  SUBAGENT_OF,
   SUBAGENT_ROW,
   WORKFLOW_CARD,
 } from "./subagents/subagentRows";
@@ -719,6 +720,9 @@ export type AcpmuxRow = {
   runOpen?: true;
   /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
   workedRuns?: AcpmuxActivity[];
+  /// The calls a "Worked for" hides, which its line counts with the Fold Summary Counts switch on
+  /// (conversation/turns.ts `workedCountsText`, `FOLD_COUNTS_SWITCH`).
+  foldCalls?: AcpmuxActivity[];
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
@@ -753,6 +757,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The acpmux tool kind of the call the live line names (`execute`, `read`, ...): a look's thinking
+  /// glyph plays the document's trigger for it (conversation/thinkingGlyphModel.ts `glyphTrigger`).
+  doingKind?: string;
   /// The Codex-style live line names a command still running in an earlier run, which that run
   /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
   /// is scrolled up, the call stays out of its run when the line lets go of it
@@ -1291,8 +1298,12 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
+  startupAdmission?: { sessionId: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
+  capacityWait?: CapacityWaitState;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.
@@ -1385,6 +1396,9 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
+    /// acpmux without Auto, and the pane then offers and draws nothing of it.
+    autoSession?: AutoSession;
     /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
     additionalDirectories?: readonly string[];
     branch?: string;
@@ -1476,9 +1490,6 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
-    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started). The chat header does not draw it; the sidebar's hover card and Expanded rows do.
-    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -1510,6 +1521,10 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// With `listedSessions`: `sessions` is only the newest window of the daemon's list (the first
+  /// `SESSION_PAGE` rows and their changes; sessionPages.ts `holdsAll` false), not the whole list,
+  /// so it says nothing about the chats older than its oldest row (newtab/chatStore.ts merges it).
+  sessionsWindowed?: true;
   /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
   /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
@@ -2834,8 +2849,6 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // The child view's 28px "Subagent of" pill with 8px above and below it.
-  if (row.kind === SUBAGENT_OF) return finish(44);
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.

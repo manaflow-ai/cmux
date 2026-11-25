@@ -9,6 +9,7 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
@@ -16,13 +17,12 @@ import {
   type AcpmuxFileDiff,
   type AcpmuxPlanEntry,
   type AcpmuxRow,
-  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -37,7 +37,8 @@ import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { scriptNoun } from "./commandActions";
-import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, countsFailed, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -55,10 +56,11 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { agentCall } from "./agentCalls";
 import { hidesEveryCall } from "./mcpPresentation";
 import { isThought, isQuietThought, thoughtDuration } from "./thoughts";
 import { SILENT_MS } from "./thinkingModel";
@@ -183,6 +185,24 @@ export function workedCallsText(t: Translate, row: AcpmuxRow): string {
   return row.workedCalls ? t("turn.workedCalls", { calls: toolCalls(t, row.workedCalls) }) : "";
 }
 
+/// The Settings > Advanced > Experiments switch (`experiments.foldSummaryCounts`, off by default)
+/// that has a closed "Worked for" say what it hides: "Worked for 36s · ran 4 commands, edited 2 files".
+/// Off, the line is the time alone, as before.
+export const FOLD_COUNTS_SWITCH = "foldSummaryCounts";
+
+/// What a "Worked for" hides (`foldCalls`), as the tool runs name it (toolRunSummary.ts
+/// `toolRunPhrases`: "ran 4 commands", "edited 2 files", lower case, in the order the turn first did
+/// each) joined by the runs' separator, and how many of those calls failed (the runs' "1 failed",
+/// FailedCount.tsx). Undefined when it hides no call.
+export function workedCountsText(t: Translate, row: AcpmuxRow): { text: string; failed: number } | undefined {
+  const calls = row.foldCalls;
+  if (!calls?.length) return undefined;
+  const phrases = toolRunPhrases(t, calls);
+  if (!phrases.length) return undefined;
+  const failed = calls.filter((item) => countsFailed(item.tool!)).length;
+  return { text: phrases.join(t("toolRun.separator")), failed };
+}
+
 /// ", sent a message, received 2 messages" after a "Worked for" that names the messages between
 /// agents it folds (`workedMessages`, the `messages` arm of workedForMessages.experiment.ts), else "".
 export function workedMessagesText(t: Translate, row: AcpmuxRow): string {
@@ -215,11 +235,6 @@ export const isStopped = (row: AcpmuxRow) =>
 export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
   return (footerSays(row) && workedLabel(t, row)) || undefined;
 }
-
-/// A fold whose line would have nothing to say (`workedLabel` empty): no time, no calls, no messages.
-/// It is no fold; its rows draw as they ran (cmux#54927).
-const saysNothing = (row: Pick<AcpmuxRow, "durationMs" | "toolCount" | "previous" | "workedMessages">) =>
-  row.previous === undefined && row.durationMs === undefined && !row.toolCount && !row.workedMessages;
 const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
@@ -1718,6 +1733,44 @@ const callsIn = (rows: readonly AcpmuxRow[]) =>
     .flatMap(withoutDrafts)
     .reduce((n, row) => n + (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool).length : 0), 0);
 
+/// The names of the subagents `body` draws a row for (its groups, started lines and done lines).
+const shownAgentNames = (body: readonly AcpmuxRow[]): ReadonlySet<string> =>
+  new Set(
+    body.flatMap((row) =>
+      isSubagentGroup(row) || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE
+        ? (row.subagents ?? []).map((agent) => agent.name.trim())
+        : [],
+    ),
+  );
+
+/// An activity row whose every item is an Agent call (agentCalls.ts) for a subagent `shown` draws a
+/// row of its own, matched by the name the call gave it: the call says nothing that row does not. An
+/// Agent call no subagent row answers (it failed before acpmux named one) is never one.
+const onlySpawnsShownAgents = (row: AcpmuxRow, shown: ReadonlySet<string>) =>
+  row.kind === "activity" &&
+  (row.items?.length ?? 0) > 0 &&
+  row.items!.every((item) => {
+    const call = item.tool && agentCall(item.tool);
+    return call !== undefined && shown.has(call.description.trim());
+  });
+
+/// A segment's work that is one or more subagents and nothing else: their rows, and the Agent calls
+/// that spawned them (`onlySpawnsShownAgents`). A subagent's started and failed lines stay in sight
+/// beside the fold (`staysOut`), so its work may hold only the call.
+const subagentsOnly = (work: readonly AcpmuxRow[], shown: ReadonlySet<string>) => {
+  const rows = work.flatMap(withoutDrafts);
+  return (
+    rows.length > 0 &&
+    rows.every(
+      (row) =>
+        isSubagentGroup(row) ||
+        row.kind === SUBAGENT_STARTED ||
+        row.kind === SUBAGENT_DONE ||
+        onlySpawnsShownAgents(row, shown),
+    )
+  );
+};
+
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
@@ -2147,14 +2200,26 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone: it draws no fold, its rows in place (`outside`), as Claude's and Codex's apps draw a
-    // lone subagent. Only where its work holds no call and no message between agents to count.
+    // alone: it draws no fold, its rows in place (`outside`). Nor does a turn whose only work was
+    // subagents and that took under a second, which read "Worked for 0s" (no news, `footerSays`) with
+    // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
+    // Claude's and Codex's apps draw a lone subagent.
+    const shown = shownAgentNames(body);
+    // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
+    // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
+    const lone = said === undefined && subagentsOnly(work, shown);
     const unlabeled =
-      saysNothing({ durationMs, toolCount, previous, ...(named && { workedMessages: messages }) }) &&
-      callsIn(work) === 0 &&
-      messages.sent + messages.received === 0;
+      previous === undefined &&
+      messages.sent + messages.received === 0 &&
+      ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
+        ((durationMs === undefined || durationMs < 1000) && lone));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
+    } else if (lone) {
+      // Its footer says no count or time under the subagent's row either (`footerSays`).
+      folded = style.conclusion;
+    }
+    if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       const from = segment.anchor.at;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
       // tasks and ran 8 commands"), as every arm of workedLine but `time` does for any turn.
@@ -2170,14 +2235,22 @@ function shapeTurn(
                   : [],
               )
           : [];
+      // The calls the fold hides, for the line's counts once Settings > Advanced > Experiments >
+      // Fold Summary Counts is on (`workedCountsText`): the switch is read where the line draws, so
+      // flipping it redraws the line without shaping the turn again.
+      const foldCalls = hidden
+        .flatMap(withoutDrafts)
+        .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       const labelVersion = mixVersion(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
         named ? messages.sent * 1_000 + messages.received + 1 : 0,
       );
+      const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
         id,
-        // What its label names (`named`, and the `header` arm's work, `workKey`) is part of the version too.
-        version: workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion,
+        // What its label names (`named`, the `header` arm's work and the calls its counts name, each
+        // by `workKey`) is part of the version too.
+        version: foldCalls.length ? mixVersion(runsVersion, workKey(foldCalls)) : runsVersion,
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -2199,6 +2272,7 @@ function shapeTurn(
         // "Worked for".
         ...(previous !== undefined && { previous }),
         ...(workedRuns.length && { workedRuns }),
+        ...(foldCalls.length && { foldCalls }),
       };
       if (style.conclusion) shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
@@ -2247,9 +2321,10 @@ function shapeTurn(
             ? [endedPlan(row)]
             : dialogue
               ? [row]
-              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`).
+              : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`),
+                // and an Agent call whose subagent's row is in sight draws as that row alone.
                 unlabeled
-                ? withoutDrafts(row).filter((part) => !isEdit(part))
+                ? withoutDrafts(row).filter((part) => !isEdit(part) && !onlySpawnsShownAgents(part, shown))
                 : renderRows([row], version),
       );
     // Closed over a turn that said something before its answer, the replies read in order and the
@@ -3374,6 +3449,18 @@ export function continuationStart(rows: readonly AcpmuxRow[], start: number): nu
   return from;
 }
 
+/// When the running turn's current stretch began, for a clock outside the transcript (the composer
+/// hat's plan header, cmux#51039): the harness's turn start, else the person's last prompt, moved on
+/// to the latest notice that set the agent going again (`continuationStart`), so it reads as the
+/// transcript's live line does. Undefined without a known start.
+export function liveTurnClockStart(rows: readonly AcpmuxRow[], turnStartedAtMs?: number): number | undefined {
+  let index = rows.length - 1;
+  while (index >= 0 && !sentByPerson(rows[index]!)) index -= 1;
+  const opened = turnStartedAtMs ?? rows[index]?.at;
+  if (opened === undefined || !hasTimestamp(opened)) return undefined;
+  return continuationStart(index < 0 ? rows : rows.slice(index + 1), opened);
+}
+
 /// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,
 /// no stop, nothing to resume or continue.
 const isButtonFooter = (row: AcpmuxRow | undefined): row is AcpmuxRow =>
@@ -3422,6 +3509,7 @@ function codexLiveTurn(
       call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
     line.doing = shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
+    if (call.kind) line.doingKind = call.kind;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
