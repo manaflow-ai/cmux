@@ -5069,3 +5069,21 @@ so the checks that did run were nearly all inputs of the diff, the PR itself, or
 An ideal input-based routing would save about 7% of minutes and almost no wall; the verdict wall is the slowest
 affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
 PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.
+
+## note-558
+
+Above `fleet_queue_p90()` and its check in `fleet_gateway()` in `scripts/ci/side_lane_placement.py`
+(the `macos-placement` job's "Place the macOS jobs" step).
+
+Placement lists fast-tier for the build fleet (note-555's spill) only when the fleet could start its steps
+within the client's 20-minute queue wait. In the 24 hours to 2026-11-24 22Z, none of fast-tier-fleet's 771
+green runs had a fleet verdict inside 20 minutes: every one waited out `--queue-timeout 1200` (p50 21.2 min,
+16,548 gateway runner-min) and handed the tier back (725 hand-back placements). The light class's p90 queue
+wait was 3,317 s. A step the client stops waiting for keeps its place (note-539) and later runs for nobody,
+ahead of the work queued after it (cmuxterm-hq docs/handbook/process-outlives-its-reader.md): about 1,500
+such steps a day.
+
+So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.light`, 5 s timeout), like
+cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
+`cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
+gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
