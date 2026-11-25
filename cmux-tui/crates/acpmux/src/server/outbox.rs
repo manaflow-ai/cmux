@@ -525,6 +525,11 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
 const LIST_LIMIT: usize = 200;
 
 async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    // `{stats: true}`: this daemon's send counters and gauges (`hub/outbox_stats.rs`), the
+    // `/proc/net/snmp` of agent sends. Counts only, no targets: any connection may read them.
+    if params.get("stats").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({"stats": hub.outbox.stats()}));
+    }
     // `{list: true, caller?, limit?}`: this daemon's messages to deliver, newest first, each as
     // its status (`acpmux send --status` with no id, `acpmux session inbox`). Only the unix
     // socket reads the list: it names other sessions' targets.
@@ -539,7 +544,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             .map_or(LIST_LIMIT, |n| usize::try_from(n).unwrap_or(LIST_LIMIT).min(LIST_LIMIT));
         let (deliveries, pending) = hub.outbox.list(caller, limit);
         let deliveries: Vec<Value> = deliveries.iter().map(Delivery::status).collect();
-        return Ok(json!({"deliveries": deliveries, "pending": pending}));
+        return Ok(
+            json!({"deliveries": deliveries, "pending": pending, "stats": hub.outbox.stats()}),
+        );
     }
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
@@ -801,6 +808,16 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         None => Err((error, Next::Unsent)),
                     }
                 }
+                // `HOST/ID` on a machine only the hub reaches, as a followed hub move names it
+                // (`follow_move`): this daemon's lookup reaches nothing there, so the hub carries
+                // it, never a "no session HOST/ID on" this machine.
+                Err((error, Next::NoSession)) if hub.mesh_only_host(&delivery.target) => {
+                    relayed = true;
+                    match relay_attempt(hub, &delivery).await {
+                        Some(outcome) => outcome,
+                        None => Err((error, Next::NoSession)),
+                    }
+                }
                 outcome => outcome,
             }
         };
@@ -966,7 +983,14 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 let sleep = tokio::time::sleep(wait);
                 tokio::pin!(sleep);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
-                let on_open = !delivery.projection_only() && (by_hub || behind_gate);
+                // A name the hub does not list yet waits its own back-off: the hub taking some
+                // other post says nothing about this name, and waking on it would spend the
+                // bounded attempts ([`UNKNOWN_RECIPIENT_ATTEMPTS`]) in a burst.
+                let unlisted = hub
+                    .outbox
+                    .get(id)
+                    .is_some_and(|d| d.error.as_deref().is_some_and(|e| e.contains(UNLISTED)));
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate) && !unlisted;
                 loop {
                     tokio::select! {
                         () = &mut sleep => break,
@@ -1267,6 +1291,10 @@ async fn relay_attempt(
                 (why.unwrap_or_else(|| super::mesh_send::waiting_reason(&e)), Next::Retry)
             } else if passes || held {
                 (super::mesh_send::waiting_reason(&e), Next::Retry)
+            } else if unknown_recipient_waits(&e, delivery.attempts + 1) {
+                // Not listed is not gone: the hub's address book is fed by heartbeats, so a
+                // paused or restarting machine reads as unknown for a while (EAGAIN, not ENOENT).
+                (format!("{UNLISTED}: {e}"), Next::Retry)
             } else {
                 (format!("the mesh hub refused it: {e}"), Next::Fail)
             };
@@ -1279,6 +1307,26 @@ async fn relay_attempt(
         };
         (format!("the mesh relay did not take it: {e}"), next)
     }))
+}
+
+/// The reason a kept delivery waits while the hub lists no session by its name.
+const UNLISTED: &str = "the hub lists no session by that name yet (its machine may be paused, \
+     restarting or between heartbeats); tried again before it fails";
+
+/// How many attempts a kept delivery makes while the hub answers `mesh.unknown_recipient`: on the
+/// outbox's back-off ([`RETRY_DELAYS_SECS`]: 2, 5, 10, 30, 60, 120, 300 s) eight attempts span
+/// about nine minutes, about three of the hub's 90 s heartbeat leases. The hub lists a session
+/// only once its daemon heartbeats it, so a paused, waking or restarting machine reads as unknown
+/// for a while: a not-yet-listed name is EAGAIN, not ENOENT. On one lane VM (2026-11-23 to
+/// 11-25) all 3 of 69 failed deliveries were this answer, on their second attempt. A send the
+/// hub refuses this way at once is still `no session` to its sender (`mesh_send.rs`): only a
+/// delivery the outbox already keeps waits, so a typo is never kept.
+const UNKNOWN_RECIPIENT_ATTEMPTS: u32 = 8;
+
+/// Whether the hub's answer `e` to attempt `attempt` is a name it does not list yet, with
+/// attempts left in [`UNKNOWN_RECIPIENT_ATTEMPTS`].
+fn unknown_recipient_waits(e: &crate::mesh::HubError, attempt: u32) -> bool {
+    e.code.as_deref() == Some("mesh.unknown_recipient") && attempt < UNKNOWN_RECIPIENT_ATTEMPTS
 }
 
 /// Whether only the hub routes `target`: no session here, none a peer lists, no peer of it down.
@@ -1324,6 +1372,14 @@ impl<'a> Caller<'a> {
             .or_else(|| delivery.unproven_caller.as_deref().map(Caller::Unproven))
             .or_else(|| delivery.not_terminal.then_some(Caller::NotTerminal))
     }
+}
+
+/// Whether acceptance `p`, a duplicate with no turn, is a receipt: the chat's inbox, its surge or
+/// a hold took the message, which no turn of its own ever runs (`hub/turns.rs` `first_acceptance`).
+pub(crate) fn taken_without_turn(p: &Value) -> bool {
+    ["inbox", "surgeHeld", "sessionHeld", "held"]
+        .iter()
+        .any(|k| p.get(*k) == Some(&Value::Bool(true)))
 }
 
 /// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
@@ -1406,13 +1462,16 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         };
         match Message::parse(&line) {
-            // A duplicate with no turn is a run of this id still in flight, which may yet be
-            // held or refused: its answer says.
+            // A duplicate with no turn and no receipt is a run of this id still in flight, which
+            // may yet be held or refused: its answer says. One the chat's inbox (or a hold)
+            // took has no turn of its own and is taken: before, each redelivery of it waited
+            // for the message's answer and timed out, every 120 s, forever (2026-11-25).
             Ok(Message::Notification { method: m, params: Some(p) })
                 if m == method::MUX_PROMPT_ACCEPTED
                     && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
                     && !(p.get("duplicate") == Some(&Value::Bool(true))
-                        && p.get("turnId").is_none_or(Value::is_null)) =>
+                        && p.get("turnId").is_none_or(Value::is_null)
+                        && !taken_without_turn(&p)) =>
             {
                 return Ok(p);
             }

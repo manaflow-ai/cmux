@@ -22,8 +22,9 @@ port in Hello, so downstream media and upstream feedback both traverse shaping.
 these are path diagnostics, not a matched wire-bandwidth comparison with another target.
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
-main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch), with
+the targets `rd,webrtc,iphone-sim` (`iphone-sim` last: it builds the app, and a target that fails or
+is cut short leaves the earlier ones' results in `results.json`). It uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
 screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
@@ -174,7 +175,7 @@ Today's targets:
   connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
-  defaults remain `rd,webrtc`.
+  targets remain `rd,webrtc,iphone-sim`.
   Each view launches its own Screen Sharing.app instance (`open -g -n`, never
   activated), binds its pid and window, quits only that pid when the view ends
   (success, failure or signal), and a watchdog ends a view that hangs; a
@@ -472,7 +473,7 @@ server takes the first private-address client that holds the token and that one 
 posts as the step's user, and ends at the viewer's `/done` or after 2 hours. Apple's presented Total
 logs in with the login the worker writes for a `--vnc-login` step (`CMUX_CI_VNC_LOGIN_FILE`), or,
 with no `--vnc-login` (a controller with no fleet login source refuses it), with the fleet password
-in the viewer's login keychain (`manaflow-fleet-sudo`, which `fleet-sudo --login-keychain VIEWER_MAC`
+in the viewer's login keychain (`manaflow-fleet-login`, never the sudo item; `fleet-sudo --login-keychain VIEWER_MAC`
 stores), copied to a 0600 file in the step's output for the run and removed after it. The
 ledger, its log and the printed table are `stage-table/` in evidence.tar.gz.
 
@@ -482,8 +483,9 @@ step's commit (`scripts/reload.sh --tag stagetable`, the build `chat-open.sh` do
 host half's as `--app-host-app`. The host app is started as a direct child of the step, so it shares the
 launcher's Screen Recording grant, signs in to the device hub, turns sharing on, and approves the viewer's
 session; it tells the viewer half its path through the peer server (a file under `/tmp` named by the run
-token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE` (default: the Mac's
-`~/rd-hub-rig/private/creds.env`, the Mac Screen rig's agent test-account file). Without that file on
+token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE`, else the Mac's
+`~/rd-hub-rig/private/creds.env` (the Mac Screen rig's agent test-account file), else
+`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). Without any of them on
 either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
 a `SCREEN-STREAM-EVAL-STAGE ... no app viewer` line says why. A shaped leg
 (`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
