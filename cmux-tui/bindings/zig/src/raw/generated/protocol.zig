@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110";
+pub const ir_sha256 = "0e9ad98facd4f616a6231f6b8026499abece893f159b8615c391195d999fb099";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1207,6 +1207,7 @@ pub const IdMapping = struct {
 
 pub const IdentifyResult = struct {
     api_revision: wire.Field(u32) = .absent,
+    api_version: wire.Field([]const u8) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
     build_id: wire.Field([]const u8) = .absent,
@@ -1227,6 +1228,7 @@ pub const IdentifyResult = struct {
     machine_platform: ?MachinePlatform = null,
     machine_symbol: ?[]const u8 = null,
     min_api_revision: wire.Field(u32) = .absent,
+    min_api_version: wire.Field([]const u8) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -1417,6 +1419,11 @@ pub const ListWorkspacesKnown = struct {
     terminal_revision: wire.Field(u64) = .absent,
     tree_revision: wire.Field([]const u8) = .absent,
     workspace_revision: wire.Field(u64) = .absent,
+};
+
+pub const ListWorkspacesSince = struct {
+    epoch: []const u8,
+    seq: u64,
 };
 
 pub const LivePane = struct {
@@ -1753,6 +1760,13 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const ReleaseWorkspaceNamesResult = struct {
+    /// Workspace names this call handed back to the automatic namer.
+    released: u64,
+    /// User-owned names left pinned: a row renamed between the read and its release.
+    still_pinned: u64,
 };
 
 pub const RemoteHostAppPermissions = struct {
@@ -2350,6 +2364,16 @@ pub const ServerStatsWriterPhase = enum {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const SetClientInfoResult = struct {
+    api_revision: ?u32 = null,
+    api_version: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "api_revision",
+        "api_version",
+    };
 };
 
 pub const SetHostSizePolicyResult = struct {
@@ -3548,10 +3572,16 @@ pub const TerminalResumeCommandResult = struct {
 };
 
 pub const Tree = struct {
+    changed: ?[]const Workspace = null,
+    delta: ?bool = null,
+    epoch: ?[]const u8 = null,
     generation: ?[]const u8 = null,
     next: ?u64 = null,
+    order: ?[]const Id = null,
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
+    removed: ?[]const Id = null,
+    seq: ?u64 = null,
     terminal_revision: ?u64 = null,
     total: ?u64 = null,
     tree_revision: ?[]const u8 = null,
@@ -3560,10 +3590,16 @@ pub const Tree = struct {
     workspaces: []const Workspace,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "changed",
+        "delta",
+        "epoch",
         "generation",
         "next",
+        "order",
         "pane_revision",
         "registry_id",
+        "removed",
+        "seq",
         "terminal_revision",
         "total",
         "tree_revision",
@@ -3809,6 +3845,7 @@ pub const AttachSurfaceRequest = struct {
     replay_history_rows: wire.Field(u32) = .absent,
     replay_history_start: wire.Field(u64) = .absent,
     resume_generation: wire.Field([]const u8) = .absent,
+    resume_max_bytes: wire.Field(u64) = .absent,
     resume_offset: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
@@ -3844,6 +3881,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
                 .{ .name = "resume_generation", .since = null, .capability = "terminal-resume-v1" },
+                .{ .name = "resume_max_bytes", .since = null, .capability = "terminal-resume-bounded-v1" },
                 .{ .name = "resume_offset", .since = null, .capability = "terminal-resume-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
@@ -7193,6 +7231,12 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
 
 pub const ListNotificationsRequest = struct {
     limit: wire.Field(u64) = .absent,
+    /// true: the reply also carries agent_notice_stats.
+    stats: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "stats",
+    };
 };
 
 pub const ListNotificationsResult = JsonValue;
@@ -7338,6 +7382,7 @@ pub const ListWorkspacesRequest = struct {
     after: wire.Field(u64) = .absent,
     known: wire.Field(ListWorkspacesKnown) = .absent,
     limit: wire.Field(u64) = .absent,
+    since: wire.Field(ListWorkspacesSince) = .absent,
 };
 
 pub const ListWorkspacesResult = Tree;
@@ -7354,6 +7399,7 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
                 .{ .name = "after", .since = 12, .capability = "list-workspaces-page-v1" },
                 .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
                 .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
+                .{ .name = "since", .since = null, .capability = "workspace-list-delta-v1" },
             },
         },
         request,
@@ -8765,6 +8811,21 @@ pub fn releaseSurfaceSize(client: anytype, request: ReleaseSurfaceSizeRequest) !
     );
 }
 
+pub const ReleaseWorkspaceNamesRequest = struct {};
+
+pub fn releaseWorkspaceNames(client: anytype, request: ReleaseWorkspaceNamesRequest) !wire.Decoded(ReleaseWorkspaceNamesResult) {
+    return client.callTyped(
+        ReleaseWorkspaceNamesResult,
+        .{
+            .name = "release-workspace-names",
+            .authority = "control",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const ReloadConfigRequest = struct {};
 
 pub const ReloadConfigResult = struct {
@@ -9493,6 +9554,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 
 pub const SetClientInfoRequest = struct {
     api_revision: wire.Field(u32) = .absent,
+    api_version: wire.Field([]const u8) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
@@ -9506,8 +9568,6 @@ pub const SetClientInfoRequest = struct {
     version: wire.Field([]const u8) = .absent,
 };
 
-pub const SetClientInfoResult = EmptyResult;
-
 pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decoded(SetClientInfoResult) {
     return client.callTyped(
         SetClientInfoResult,
@@ -9518,6 +9578,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .capability = null,
             .fields = &.{
                 .{ .name = "api_revision", .since = 12, .capability = null },
+                .{ .name = "api_version", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
@@ -12939,7 +13000,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 312;
+pub const command_count: usize = 313;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13148,6 +13209,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "release-workspace-names", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
