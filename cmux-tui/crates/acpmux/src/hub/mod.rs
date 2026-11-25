@@ -39,7 +39,6 @@ mod prompt_coach;
 mod person_hold;
 pub use person_hold::PromptTriager;
 pub(crate) mod restricted;
-mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
 pub use prompt_coach::CoachRewriter;
@@ -469,7 +468,7 @@ mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
-mod pull_requests;
+pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) use crate::questions;
 mod remote_cwd;
@@ -2370,7 +2369,6 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
-            rolling: StdMutex::new(Default::default()),
             coach: Default::default(),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
