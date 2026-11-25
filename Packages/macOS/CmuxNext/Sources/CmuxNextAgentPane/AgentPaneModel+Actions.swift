@@ -43,6 +43,12 @@ extension AgentPaneModel {
     /// just now (``AgentPaneUserGestures/consumeFreshGesture()``), never the generic half-minute credit.
     static let setupActions: Set<String> = [AgentPaneComputerUseState.setupAction]
 
+    /// The chat header's place controls (cloud/auto/evacuate): Local, Cloud and Auto (`chatPlace.set` with a `mode`), Cancel and Retry of the
+    /// move the chat shows (`chatMove.cancel`, `chatMove.retry`) and Evacuate to Cloud. The app's Rust decides each; they move chats, so
+    /// they need the person's gesture.
+    /// Keep Running (`chatPriority.set` with a `priority`, high or normal) is one of them: it can move the chat when this Mac goes away.
+    static let placeActions: Set<String> = ["chatPlace.set", "chatPriority.set", "chatMove.cancel", "chatMove.retry", "cloudEvacuate", "cloudEvacuate.cancel", "cloudBringBackAll"]
+
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
     /// path (``UpgradeToPro``) as the model router's paywall, with its fixed `source`. webviews
@@ -54,6 +60,12 @@ extension AgentPaneModel {
     /// hurdles to jump through as possible"): the app's `accounts.githubConnect`, with the failed
     /// call's repository and the chat's link. It opens GitHub's page, so it needs the person's gesture.
     static let githubActions: Set<String> = ["accounts.githubConnect"]
+    /// The model picker's "Set up more for Cloud…" row with Cloud picked (webviews cloudPickerEntries.ts, cmux#51731):
+    /// the app's Open Settings on Settings > Cloud (`#/settings/cloud`, DeepLink.cloudRoute), where more ways to reach models on Cloud are set up. The page names no
+    /// section; the app fixes it. It opens a tab, so it spends the person's gesture.
+    static let settingsActions: Set<String> = ["openSettings"]
+    /// The arguments a settings action runs with; the page names none.
+    static let settingsArguments: [String: [String: String]] = ["openSettings": ["route": "#/settings/cloud"]]
 
     /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
@@ -66,11 +78,12 @@ extension AgentPaneModel {
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
-                   repo: String? = nil, returnTo: String? = nil) -> [String: Any] {
+                   repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.setupActions.contains(id)
-            || screenShare || Self.githubActions.contains(id)
+            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id)
+            || Self.setupActions.contains(id) || screenShare || Self.githubActions.contains(id) || Self.settingsActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -81,13 +94,21 @@ extension AgentPaneModel {
         if gated, !(Self.setupActions.contains(id) ? transport.gestures.consumeFreshGesture() : transport.gestures.consume()) {
             return Self.transportFailure(.gestureRequired)
         }
-        var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
-        if screenShare, let session { arguments["session"] = session }
+        var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? Self.settingsArguments[id] ?? [:]
+        if screenShare || Self.placeActions.contains(id), let session { arguments["session"] = session }
+        if let mode { arguments["mode"] = mode }
+        if let priority { arguments["priority"] = priority }
+        if let queued { arguments["queued"] = String(queued) }
+        if let hasDraft { arguments["hasDraft"] = String(hasDraft) }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
         if let app, Self.editorActions.contains(id) { arguments["app"] = app }
+        // The named chats (a chat-list row, Evacuate's selection), comma-joined as the app's handlers read them.
+        if let sessions, Self.placeActions.contains(id) { arguments["sessions"] = sessions.joined(separator: ",") }
         if Self.githubActions.contains(id) {
             if let repo { arguments["repo"] = repo }
+            // `settings_ask`'s card for an org (connection:github:ORG): GitHub's page opens for it.
+            if let org, repo == nil { arguments["org"] = org }
             // Only a link this build opens, carrying nothing it would ignore: GitHub's return comes
             // back to this chat, nowhere else.
             if let returnTo, let scheme = linkScheme, let url = URL(string: returnTo),

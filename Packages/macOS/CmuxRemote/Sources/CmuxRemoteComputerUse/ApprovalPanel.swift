@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
+import CmuxTheme
 import Foundation
 
 /// The engine's `ask` (cmux_computer_use.h): a cmux Remote approval panel, "<Agent> wants to use
@@ -50,7 +51,10 @@ final class ApprovalPanel {
         }
         let panel = self.panel ?? Self.makePanel()
         self.panel = panel
-        let view = ApprovalQuestionView(question: current.question) { [weak self] choice in self?.settle(current.id, choice) }
+        // The app's theme, as the app's own floating prompts wear it (PromptTheme); the system's look without one.
+        let theme = PromptTheme.load(from: PromptTheme.defaultURL)
+        panel.appearance = theme?.appearance
+        let view = ApprovalQuestionView(question: current.question, theme: theme) { [weak self] choice in self?.settle(current.id, choice) }
         panel.contentView = view
         let size = view.fittingSize
         let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -97,14 +101,24 @@ final class ApprovalQuestionView: NSView {
     private let stack = NSStackView()
     private var targets: [ApprovalPressTarget] = []
 
-    init(question: ApprovalQuestion, answer: @escaping (ApprovalAnswer) -> Void) {
+    /// The card's corner with the app's theme: concentric with a 26 pt button rounding 8 pt inside the 16 pt padding,
+    /// as the device-control banner and the app's dialog card round. Without it (Settings > Experiments > Themed
+    /// Floating Prompts off, the default): 12 pt, as before.
+    static let cornerRadius: CGFloat = 24
+    static let plainCornerRadius: CGFloat = 12
+
+    init(question: ApprovalQuestion, theme: PromptTheme? = nil, answer: @escaping (ApprovalAnswer) -> Void) {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 160))
         let surface = NSVisualEffectView()
         surface.material = .popover
+        if theme != nil { surface.blendingMode = .behindWindow }
         surface.state = .active
         surface.wantsLayer = true
-        surface.layer?.cornerRadius = 12
+        surface.layer?.cornerRadius = theme != nil ? Self.cornerRadius : Self.plainCornerRadius
+        if theme != nil { surface.layer?.cornerCurve = .continuous }
         surface.layer?.masksToBounds = true
+        // The theme's veil over the blur (the app's `SurfaceRole.prompt`), dense enough to read over any app.
+        if let theme { surface.layer?.backgroundColor = PromptTheme.color(theme.veil).cgColor }
         surface.setAccessibilityElement(true)
         surface.setAccessibilityRole(.group)
         surface.setAccessibilityIdentifier("computerUse.approval")
@@ -126,14 +140,16 @@ final class ApprovalQuestionView: NSView {
         let textWidth = Self.width - 32
         let glyph = NSImageView(image: NSImage(systemSymbolName: "cursorarrow.rays", accessibilityDescription: nil) ?? NSImage())
         glyph.symbolConfiguration = .init(textStyle: .title3)
-        glyph.contentTintColor = AgentCursorOverlay.blue
-        let title = Self.label(ComputerUseText.approvalTitle(question), style: .headline, wraps: true, width: textWidth - 34)
+        glyph.contentTintColor = theme.map { PromptTheme.color($0.accent) } ?? AgentCursorOverlay.blue
+        let title = Self.label(ComputerUseText.approvalTitle(question), style: .headline,
+                               color: theme.map { PromptTheme.color($0.text) } ?? .labelColor, wraps: true, width: textWidth - 34)
         let header = NSStackView(views: [glyph, title])
         header.orientation = .horizontal
         header.spacing = 10
         header.alignment = .centerY
         stack.addArrangedSubview(header)
-        stack.addArrangedSubview(Self.label(ComputerUseText.approvalDetail(question), style: .body, color: .secondaryLabelColor,
+        stack.addArrangedSubview(Self.label(ComputerUseText.approvalDetail(question), style: .body,
+                                            color: theme.map { PromptTheme.color($0.secondaryText) } ?? .secondaryLabelColor,
                                             wraps: true, width: textWidth))
         func button(_ choice: ApprovalAnswer) -> NSButton {
             let button = NSButton(title: ComputerUseText.choice(choice, app: question.appName), target: nil, action: nil)

@@ -539,7 +539,7 @@ public final class TerminalModel {
                 // Nothing changed on the Mac (an inline program's input reaches into the
                 // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                CmuxMobileTheme.standard.haptics.notify(.error)
             }
         }
     }
@@ -995,7 +995,12 @@ public final class TerminalModel {
             index += 1
             if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
-        return String(text.prefix(count))
+        // End on a word boundary: a draft cut mid-word ("...befo") fuses the first typed word
+        // into it ("befothe"), and autocorrect then rewrites that word, so the keys a test typed
+        // are not the text it reads back. The length stays exactly `count`.
+        guard count > 0 else { return "" }
+        let cut = String(text.prefix(count - 1))
+        return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
