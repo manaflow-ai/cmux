@@ -183,6 +183,32 @@ fn probe_timeout(floor: Duration, srtt: Option<Duration>) -> Duration {
     let scaled = srtt.map_or(Duration::ZERO, |srtt| (srtt * PROBE_RTT_FACTOR).min(PROBE_TIMEOUT_CAP));
     floor.max(scaled)
 }
+/// A resumed parked link that has not answered after this many smoothed
+/// round trips, plus [`RESUME_HEDGE_SLACK`], is presumed stale and a fresh
+/// dial is started next to it (the old link keeps being probed; whichever
+/// answers first is kept). A live resume answers in two round trips: the
+/// tunnel's handshake on its new socket, then the ping's pong. The third
+/// round trip and the slack absorb jitter and one lost datagram's pacing.
+pub const RESUME_HEDGE_RTT_FACTOR: u32 = 3;
+/// Fixed slack on top of [`RESUME_HEDGE_RTT_FACTOR`] round trips: wake-up
+/// scheduling and the radio's promotion from idle.
+pub const RESUME_HEDGE_SLACK: Duration = Duration::from_millis(100);
+/// The hedge never fires sooner: under this, a healthy resume on a fast
+/// path still races a needless dial.
+pub const RESUME_HEDGE_FLOOR: Duration = Duration::from_millis(250);
+/// Nor later than the parked-resume probe's own 1.5 s: past that the app
+/// already gives up on the old link and redials.
+pub const RESUME_HEDGE_CAP: Duration = Duration::from_millis(1500);
+/// With no round trip measured on the link yet.
+pub const RESUME_HEDGE_UNKNOWN: Duration = Duration::from_millis(500);
+
+fn resume_hedge_after(srtt: Option<Duration>) -> Duration {
+    srtt.map_or(RESUME_HEDGE_UNKNOWN, |srtt| {
+        (srtt.saturating_mul(RESUME_HEDGE_RTT_FACTOR) + RESUME_HEDGE_SLACK)
+            .clamp(RESUME_HEDGE_FLOOR, RESUME_HEDGE_CAP)
+    })
+}
+
 /// While a link is suspect it pings this often, so the first ping after
 /// the network comes back is answered within about this long, and so the
 /// tunnel has a datagram to resume on. Only while suspect: an idle healthy
@@ -729,6 +755,9 @@ struct Inner {
     rtt: watch::Sender<Option<Duration>>,
     /// The smoothed round trip of answered pings ([`Link::probe_timeout`]).
     srtt: Mutex<Option<Duration>>,
+    /// When a round trip (the app's heartbeat, the keepalive) last sent its
+    /// first ping as a datagram: the foreground probe takes it for its own.
+    last_datagram_ping: Mutex<Option<Instant>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
@@ -1030,6 +1059,7 @@ impl Link {
             foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
+            last_datagram_ping: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
@@ -1067,24 +1097,65 @@ impl Link {
             tasks.push(tokio::spawn(aligned_keepalive(link, interval, config.keepalive_timeout)));
         } else if let Some(interval) = config.keepalive {
             let link = Self { inner: Arc::clone(&inner) };
+            // The phone pings every interval, busy or not: its pongs are
+            // the link's round-trip samples. The Mac pings only after
+            // `interval` and a quarter with nothing heard: any frame, a
+            // pong or the phone's own ping, proves the phone as a pong of
+            // its own would. On an idle link the phone's pings arrive first
+            // and the Mac only answers: one ping and one pong per interval,
+            // not two of each. Its timeout counts from that quarter earlier, so it
+            // still closes `interval + keepalive_timeout` after the last
+            // frame at the latest, as before; and it is suspect when its own
+            // ping would have made it (`suspect_after` past the interval),
+            // since the phone's ping is due before then.
+            let extra = if link.inner.role == Role::Mac { interval / 4 } else { Duration::ZERO };
+            let suspect_after = config.suspect_after.filter(|after| !extra.is_zero() && *after < extra);
             tasks.push(tokio::spawn(async move {
                 let mut closed = link.inner.closed.subscribe();
+                let mut last_ping = Instant::now();
                 loop {
-                    tokio::select! {
-                        () = tokio::time::sleep(interval) => {}
-                        _ = closed.wait_for(Option::is_some) => return,
+                    loop {
+                        let base = if extra.is_zero() {
+                            last_ping
+                        } else {
+                            link.inner.last_received().max(last_ping)
+                        };
+                        let due = base + interval + extra;
+                        let now = Instant::now();
+                        if due <= now {
+                            break;
+                        }
+                        let suspect_at = suspect_after
+                            .map(|after| base + interval + after)
+                            .filter(|_| !link.inner.suspect_flag.load(Ordering::Relaxed));
+                        if let Some(at) = suspect_at
+                            && at <= now
+                        {
+                            if link.inner.parked_until().is_none() {
+                                link.inner.raise_suspect(base + interval);
+                                // The watchdog sleeps on an idle link: wake it to probe.
+                                link.inner.unanswered_changed.notify_one();
+                            }
+                        }
+                        let wake = suspect_at.filter(|at| *at > now).map_or(due, |at| at.min(due));
+                        tokio::select! {
+                            () = tokio::time::sleep_until(wake) => {}
+                            _ = closed.wait_for(Option::is_some) => return,
+                        }
                     }
                     if !wait_out_park(&link).await {
                         return;
                     }
                     let sent = Instant::now();
+                    last_ping = sent;
+                    let credited = sent.checked_sub(extra).unwrap_or(sent);
                     // Not sent if a park came since the check above.
                     let ping = link.round_trip(true);
                     tokio::pin!(ping);
                     loop {
                         // Wait for the pong, but count any inbound frame as
                         // life: a pong can trail a full transmit queue.
-                        let deadline = link.inner.last_received().max(sent) + config.keepalive_timeout;
+                        let deadline = link.inner.last_received().max(credited) + config.keepalive_timeout;
                         tokio::select! {
                             result = &mut ping => {
                                 if result.is_err() {
@@ -1097,7 +1168,7 @@ impl Link {
                                 if link.inner.parked_until().is_some() {
                                     break;
                                 }
-                                let quiet_since = link.inner.last_received().max(sent);
+                                let quiet_since = link.inner.last_received().max(credited);
                                 if quiet_since + config.keepalive_timeout <= Instant::now() {
                                     link.inner.shut("keepalive timed out");
                                     return;
@@ -1381,7 +1452,10 @@ impl Link {
                 }
                 self.inner.send_datagram(DATAGRAM_PING, nonce, 0)
             };
-            if !datagram {
+            if datagram {
+                *self.inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(Instant::now());
+            } else {
                 self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
             }
             Ok(())
@@ -1465,6 +1539,15 @@ impl Link {
     pub fn probe_timeout(&self, floor: Duration) -> Duration {
         let srtt = *self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
         probe_timeout(floor, srtt)
+    }
+
+    /// How long a resumed parked link may stay silent before a fresh dial
+    /// is raced against it: [`RESUME_HEDGE_RTT_FACTOR`] smoothed round trips
+    /// plus [`RESUME_HEDGE_SLACK`], within [`RESUME_HEDGE_FLOOR`] and
+    /// [`RESUME_HEDGE_CAP`]. A remembered endpoint that died during the park
+    /// then costs this plus the dial instead of the full 1.5 s probe plus it.
+    pub fn resume_hedge_after(&self) -> Duration {
+        resume_hedge_after(*self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
@@ -1871,6 +1954,20 @@ async fn foreground_probe(link: Link) {
                 (last, misses, first_miss) = (None, 0, None);
                 continue;
             }
+            // A datagram ping another round trip (the app's heartbeat, the
+            // keepalive) sent within the last beat, after the ping judged
+            // above, proves the link as one of ours would: judge it a beat
+            // after it left, which is no later than ours would be, instead
+            // of sending another. Its resends are its own round trip's.
+            let other = *inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(other) = other
+                && now.checked_sub(FOREGROUND_PROBE).is_none_or(|beat_ago| other > beat_ago)
+                && last.is_none_or(|(at, _)| other > at)
+            {
+                (last, resent) = (Some((other, 0)), true);
+                tick = (other + FOREGROUND_PROBE).max(now);
+                continue;
+            }
             let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
             if inner.send_datagram(DATAGRAM_PING, nonce, 0) {
                 inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
@@ -2260,6 +2357,8 @@ pub struct ChannelSender {
     /// (`crate::classes`).
     mirror: Option<Delivery>,
     next_seq: AtomicU64,
+    /// Payload bytes queued for the transport so far ([`sent_bytes`](Self::sent_bytes)).
+    sent: AtomicU64,
 }
 
 impl ChannelSender {
@@ -2276,6 +2375,15 @@ impl ChannelSender {
     /// (not the main stream).
     pub fn on_input_stream(&self) -> bool {
         self.stream == INPUT
+    }
+
+    /// Payload bytes this channel has queued for the transport so far. A channel's queue holds
+    /// at most [`CHANNEL_QUEUE_BYTES`], so each chunk of a long write gets in only once the
+    /// writer took the ones before it: while a write waits, this moves exactly as the link
+    /// drains it. A caller's deadline for a request reads it as progress (iOS `DaemonClient`:
+    /// a send that is still moving is never cut by a wall clock).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
     }
 
     /// Counts every payload byte this sender queues from now on into `meter`.
@@ -2334,6 +2442,7 @@ impl ChannelSender {
             }
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
+                    self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
                     }
@@ -2434,6 +2543,7 @@ impl Channel {
                 meter: None,
                 mirror,
                 next_seq: AtomicU64::new(0),
+                sent: AtomicU64::new(0),
             },
             receiver: ChannelReceiver { rx, done: false, meter: None },
         }
@@ -2479,6 +2589,17 @@ mod tests {
             "lossy-10's 1 s round trip"
         );
         assert_eq!(probe_timeout(floor, Some(Duration::from_secs(4))), PROBE_TIMEOUT_CAP);
+    }
+
+    #[test]
+    fn resume_hedge_scales_with_the_round_trip_within_bounds() {
+        let ms = Duration::from_millis;
+        assert_eq!(resume_hedge_after(None), RESUME_HEDGE_UNKNOWN);
+        assert_eq!(resume_hedge_after(Some(ms(2))), RESUME_HEDGE_FLOOR);
+        assert_eq!(resume_hedge_after(Some(ms(20))), RESUME_HEDGE_FLOOR);
+        assert_eq!(resume_hedge_after(Some(ms(70))), ms(310));
+        assert_eq!(resume_hedge_after(Some(ms(300))), ms(1000));
+        assert_eq!(resume_hedge_after(Some(Duration::from_secs(2))), RESUME_HEDGE_CAP);
     }
 
     fn pair() -> (Link, Link) {
@@ -2571,6 +2692,45 @@ mod tests {
             .unwrap();
         assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
         drop(phone);
+    }
+
+    /// `sent_bytes` is a write's progress: it stops where a stalled link stops taking bytes and
+    /// reaches the whole write on a link that drains (iOS `DaemonClient` bounds a send by it).
+    #[tokio::test]
+    async fn sent_bytes_moves_only_while_the_link_takes_the_write() {
+        let (a, _stalled) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
+        let sender = Arc::new(channel.sender);
+        let total = CHANNEL_QUEUE_BYTES * 8;
+        let sending = tokio::spawn({
+            let sender = Arc::clone(&sender);
+            async move { sender.send(Bytes::from(vec![0u8; total])).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let stuck = sender.sent_bytes();
+        assert!(stuck > 0 && stuck < total as u64, "part of the write got in: {stuck}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(sender.sent_bytes(), stuck, "a stalled link makes no progress");
+        sender.close("cancelled", "").await;
+        let _ = sending.await;
+
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            let mut got = 0;
+            while got < total {
+                match incoming.channel.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+            mac
+        });
+        let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from(vec![1u8; total])).await.unwrap();
+        assert_eq!(channel.sender.sent_bytes(), total as u64);
+        let _mac = server.await.unwrap();
     }
 
     /// The peer's close stops our sends: a Mac that refuses an upload before
@@ -3856,14 +4016,14 @@ mod tests {
         let from = sent.load(Ordering::Relaxed);
         tokio::time::sleep(Duration::from_secs(60)).await;
         let background = sent.load(Ordering::Relaxed) - from;
-        // Its keepalive pings and its pongs to the Mac's: 4 each.
-        assert!(background <= 10, "{background} datagrams in a backgrounded minute");
+        // Its keepalive pings: the Mac only answers them.
+        assert!(background <= 5, "{background} datagrams in a backgrounded minute");
         phone.set_foreground_probe(true);
         let from = sent.load(Ordering::Relaxed);
         tokio::time::sleep(Duration::from_secs(60)).await;
         let foreground = sent.load(Ordering::Relaxed) - from;
-        // 20 probes besides.
-        assert!((26..=32).contains(&foreground), "{foreground} datagrams in a foreground minute");
+        // A probe every beat; the keepalive's pings stand in for four of them.
+        assert!((18..=22).contains(&foreground), "{foreground} datagrams in a foreground minute");
         assert!(!phone.is_closed() && !mac.is_closed());
         phone.close("done");
         mac.close("done");

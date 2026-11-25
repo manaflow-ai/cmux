@@ -124,6 +124,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-health-core",
                     # Each window's last frame for the launch's first frame (cmux-launch-image).
                     "cmux-launch-image",
+                    # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
+                    "cmux-pane-pictures",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
