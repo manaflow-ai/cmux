@@ -52,11 +52,93 @@ impl<W: Write + Send + 'static> PerfTraceLayer<W> {
     }
 }
 
+/// The trace file, shared by the span layer and the tool-call events (`note_tool_record`).
+#[derive(Clone)]
+pub struct SharedFile(std::sync::Arc<Mutex<std::io::BufWriter<std::fs::File>>>);
+
+impl Write for SharedFile {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().map_err(|_| std::io::ErrorKind::Other)?.write(b)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().map_err(|_| std::io::ErrorKind::Other)?.flush()
+    }
+}
+
+/// Set once when tracing is on: where tool-call events go, and the trace's time zero.
+static TOOL_SINK: std::sync::OnceLock<(Mutex<Box<dyn Write + Send>>, Instant)> =
+    std::sync::OnceLock::new();
+
 /// The layer for `CMUX_TRACE_FILE`, or None when it is unset or cannot be created.
-pub fn from_env() -> Option<PerfTraceLayer<std::io::BufWriter<std::fs::File>>> {
+pub fn from_env() -> Option<PerfTraceLayer<SharedFile>> {
     let path = std::env::var_os("CMUX_TRACE_FILE")?;
     let file = std::fs::File::create(path).ok()?;
-    Some(PerfTraceLayer::new(std::io::BufWriter::new(file)))
+    let shared = SharedFile(std::sync::Arc::new(Mutex::new(std::io::BufWriter::new(file))));
+    let layer = PerfTraceLayer::new(shared.clone());
+    let _ = TOOL_SINK.set((Mutex::new(Box::new(shared)), layer.start));
+    Some(layer)
+}
+
+/// Open tool calls by (session, toolCallId): when each started, and its kind and title.
+static OPEN_TOOLS: std::sync::LazyLock<
+    Mutex<std::collections::HashMap<(String, String), (Instant, String, String)>>,
+> = std::sync::LazyLock::new(Default::default);
+
+fn field<'a>(msg: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    msg.get(key)
+        .or_else(|| msg.pointer(&format!("/params/{key}")))
+        .or_else(|| msg.pointer(&format!("/params/update/{key}")))
+        .or_else(|| msg.pointer(&format!("/update/{key}")))
+}
+
+/// One journal record of a session: a `tool_call` opens a timer, its terminal
+/// `tool_call_update` closes it and writes one `tool` event (kind, title, status, session) to the
+/// trace. Nothing at all when tracing is off. This is how long each tool call took as acpmux saw
+/// it, the baseline for owning the tool transport (batching, caching, collapsing calls).
+pub fn note_tool_record(session: &str, kind: &str, msg: &serde_json::Value) {
+    let Some((sink, zero)) = TOOL_SINK.get() else { return };
+    note_tool_record_into(sink, *zero, session, kind, msg);
+}
+
+fn note_tool_record_into(
+    sink: &Mutex<Box<dyn Write + Send>>,
+    zero: Instant,
+    session: &str,
+    kind: &str,
+    msg: &serde_json::Value,
+) {
+    let Some(id) = field(msg, "toolCallId").and_then(|v| v.as_str()) else { return };
+    let key = (session.to_owned(), id.to_owned());
+    let text = |k: &str| field(msg, k).and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+    let status = text("status");
+    let terminal = matches!(
+        status.as_str(),
+        "completed" | "failed" | "cancelled" | "canceled" | "done"
+    );
+    let Ok(mut open) = OPEN_TOOLS.lock() else { return };
+    if kind == "tool_call" && !terminal {
+        open.entry(key).or_insert_with(|| (Instant::now(), text("kind"), text("title")));
+        return;
+    }
+    if kind != "tool_call_update" && kind != "tool_call" || !terminal {
+        return;
+    }
+    let Some((started, tool_kind, title)) = open.remove(&key) else { return };
+    drop(open);
+    let event = serde_json::json!({
+        "name": format!("tool:{}", if tool_kind.is_empty() { "other" } else { &tool_kind }),
+        "cat": "tool",
+        "ph": "X",
+        "ts": started.saturating_duration_since(zero).as_micros() as u64,
+        "dur": started.elapsed().as_micros() as u64,
+        "pid": std::process::id(),
+        "tid": 0,
+        "args": { "session": session, "toolCallId": id, "title": title, "status": status },
+    });
+    if let Ok(mut out) = sink.lock() {
+        let _ = writeln!(out, "{event},");
+        let _ = out.flush();
+    }
 }
 
 /// The caller's end-to-end id on a request: `params._meta.traceId` (the Mac and the phone mint

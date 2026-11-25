@@ -3182,6 +3182,8 @@ impl Hub {
             }
         };
         if stored {
+            // Each tool call's time, for the Perfetto trace when it is on (`perf_trace.rs`).
+            crate::perf_trace::note_tool_record(&session.id, &record.kind, &record.msg);
             session.note_transfer_event(&record);
             let (save, backfill) = {
                 let mut breakdown =
