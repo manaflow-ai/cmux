@@ -289,21 +289,18 @@ enum PaneLayerGeometry {
         return layer == nil ? nil : x
     }
 
-    /// The bar's Liquid Glass groups: the outermost views narrower than most of the bar that
-    /// draw a backdrop (a layer the bar's mask does not clip).
+    /// The bar's Liquid Glass backdrops (the capsules behind its buttons, its edge effect): the
+    /// views that draw through a backdrop layer, which the bar's mask does not clip. Their icons
+    /// and the title are ordinary layers the mask clips.
     @MainActor
     static func glassGroups(in bar: UINavigationBar) -> [UIView] {
-        func drawsBackdrop(_ layer: CALayer, depth: Int) -> Bool {
-            if NSStringFromClass(type(of: layer)).contains("Backdrop") { return true }
-            guard depth < 8 else { return false }
-            return layer.sublayers?.contains { drawsBackdrop($0, depth: depth + 1) } ?? false
-        }
         var groups: [UIView] = []
         func walk(_ view: UIView, depth: Int) {
             for sub in view.subviews where !sub.isHidden {
-                if sub.bounds.width > 0, sub.bounds.width < bar.bounds.width * 0.6, drawsBackdrop(sub.layer, depth: 0) {
+                if NSStringFromClass(type(of: sub)).contains("Backdrop")
+                    || NSStringFromClass(type(of: sub.layer)).contains("Backdrop") {
                     groups.append(sub)
-                } else if depth < 8 {
+                } else if depth < 12 {
                     walk(sub, depth: depth + 1)
                 }
             }

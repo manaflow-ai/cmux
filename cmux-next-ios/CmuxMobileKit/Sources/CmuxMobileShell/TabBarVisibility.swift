@@ -145,7 +145,10 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
             guard tabs.isTabBarHidden != hidden || bar.accessibilityElementsHidden != hidden
                 || bar.isUserInteractionEnabled == hidden else { return }
             tabBarLog.info("tab bar \(self.hidden ? "hidden" : "shown", privacy: .public) by the shell")
-            if tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: animated && view.window != nil) }
+            // A page pushed over the tab: the bar goes at once instead of fading out over the
+            // page coming in (it comes back after the page leaves, above).
+            let pushing = hidden && !SwipeBackWholePage.legacy && stack?.transitionCoordinator != nil
+            if tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: animated && !pushing && view.window != nil) }
             bar.accessibilityElementsHidden = hidden
             bar.isUserInteractionEnabled = !hidden
         }
