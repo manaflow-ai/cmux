@@ -5243,3 +5243,32 @@ only on `unavailable` while the placement still names a gateway runner for this 
 the controller's hook never fires on it. Consumers read `fast-tier-fleet-mac`'s verdict and result when it ran,
 else fast-tier-fleet's; an `unavailable` with no fallback leaves cmux-next fast tier to run the suites itself,
 as when no fleet job ran.
+## note-cloud-journey-pr-wall
+
+Above `seed`, the R2 restore steps and the workflow `env` in `.github/workflows/cloud-journey-pr.yml`, and
+`scripts/cmux-next/cloud-journey-cargo-key.sh`.
+
+`Cloud journey (PR CLI on staging)` was about 24 minutes of a pull request's wall, and most of it was a cold
+`cargo build -p cmux-tui` with no cargo cache. In run 45528981033 (PR 55112, Freestyle runner) the job took 37 min:
+queue about 3 s, checkout 23 s, submodules 14 s, apt, Rust and Zig setup 39 s, build 30.75 min (624 crates, 489 of
+them dependencies; the `cmux-tui` crate alone 18 min at `opt-level = 1` with full debuginfo), staging journey 5 min.
+Twelve recent runs: build 11 to 31 min, journey 5 to 9 min, total 20 to 37 min. Path routing was already in place,
+and only 1 of 21 recent matching pull requests matched through test files alone, so routing was not the cause.
+
+Three changes, the check unchanged:
+
+- The compiled dependencies come from R2 (note-210b's store: public reads, so pull requests restore with no
+  credentials). `seed` builds the same binary on a feat-cmux-next push that changes the key's inputs (lockfiles,
+  toolchain, this workflow, the key script) or on a dispatch there. It skips when the exact key exists, strips
+  the workspace's own output (`cargo_target_strip.py`) and saves the target and the registry. It is its own job
+  because the R2 write keys live in `next-cache-writer` (tests/test_ci_pull_request_caches_are_read_only.py), and
+  `journey` already holds `cmux-next-vm-image-dev`. A miss or a slow restore (4 min bound, continue-on-error)
+  builds cold as before.
+- The workspace crates build at `opt-level 0` with `debug = line-tables-only` and no incremental output
+  (`CARGO_PROFILE_DEV_*`, `CARGO_INCREMENTAL` in the workflow env). Dependencies keep `profile.dev.package."*"`
+  (opt-level 3). The journey is network-bound, and a panic still has file and line. The key hashes these
+  variables, so `seed` and `journey` cannot drift.
+- `*_tests.rs` and `tests/` under cmux-tui no longer start the journey: neither reaches the binary.
+
+Not changed here: backend.yml's journey-staging, cloud-resume-matrix.yml and migrate-journey-pr.yml run the same
+uncached build.

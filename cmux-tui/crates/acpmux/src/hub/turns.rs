@@ -1598,6 +1598,9 @@ impl Hub {
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
         // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
         self.recap_turn_started(session, person);
+        // A person waits on this turn's tools: out of background class until it ends
+        // (`cpu_class.rs`, item 6).
+        let lifted = person && child.person_turn(true).await;
         let params = if resumed {
             // The turn the process resumed by itself: adopted, nothing written (`carry.rs`).
             json!({"sessionId": agent_sid, "prompt": [], "_meta": {"carried": true}})
@@ -1640,6 +1643,9 @@ impl Hub {
             },
         )
         .await;
+        if lifted {
+            child.person_turn(false).await;
+        }
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
