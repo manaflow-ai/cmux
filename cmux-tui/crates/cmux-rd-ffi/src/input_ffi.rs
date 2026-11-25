@@ -67,14 +67,9 @@ pub struct CmuxRdInput {
     poisoned: bool,
 }
 
-/// Runs `f` on a live input handle; maps NULL, a poisoned handle and panics to codes.
-///
-/// # Safety
-/// `ptr` is NULL or came from [`cmux_rd_input_new`] and has not been freed, so a
-/// non-NULL `ptr` is aligned and points to a live handle. Nothing else reads or
-/// writes that handle until this returns: `f` gets it as `&mut`.
-unsafe fn with_input(ptr: *mut CmuxRdInput, f: impl FnOnce(&mut CmuxRdInput) -> i32) -> i32 {
-    // SAFETY: NULL or live, aligned and unaliased, by this function's contract.
+fn with_input(ptr: *mut CmuxRdInput, f: impl FnOnce(&mut CmuxRdInput) -> i32) -> i32 {
+    // SAFETY: the caller passes NULL or a live pointer from cmux_rd_input_new
+    // and does not call into the same handle concurrently.
     let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
     if handle.poisoned {
         return CMUX_RD_ERR_PANIC;
@@ -189,7 +184,7 @@ pub unsafe extern "C" fn cmux_rd_input_push(
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
     let Some(event) = (unsafe { event.as_ref() }) else { return CMUX_RD_ERR_NULL };
-    let run = |h: &mut CmuxRdInput| {
+    with_input(input, |h| {
         // SAFETY: guaranteed by the caller.
         let Some(event) = (unsafe { event_from_c(event) }) else { return CMUX_RD_ERR_INVALID };
         let seq = h.inner.push(event);
@@ -198,10 +193,7 @@ pub unsafe extern "C" fn cmux_rd_input_push(
             unsafe { *out_seq = seq };
         }
         CMUX_RD_OK
-    };
-    // SAFETY: `input` is NULL or valid by this function's contract, and the
-    // header lets one thread at a time call an input handle, so no other access overlaps.
-    unsafe { with_input(input, run) }
+    })
 }
 
 /// Applies an `InputAck` datagram (header included, as
@@ -220,13 +212,10 @@ pub unsafe extern "C" fn cmux_rd_input_ack(
 ) -> i32 {
     // SAFETY: guaranteed by the caller.
     let Some(datagram) = (unsafe { bytes_in(datagram, len) }) else { return CMUX_RD_ERR_NULL };
-    let run = |h: &mut CmuxRdInput| match h.inner.on_ack(datagram) {
+    with_input(input, |h| match h.inner.on_ack(datagram) {
         Ok(()) => CMUX_RD_OK,
         Err(e) => error_code(&e),
-    };
-    // SAFETY: `input` is NULL or valid by this function's contract, and the
-    // header lets one thread at a time call an input handle, so no other access overlaps.
-    unsafe { with_input(input, run) }
+    })
 }
 
 /// Writes the next due `Input` datagram (stream-framed on the stream carrier):
@@ -250,7 +239,7 @@ pub unsafe extern "C" fn cmux_rd_input_packet(
     // SAFETY: checked non-NULL; writable by contract. Every path, including a
     // NULL or unusable handle, leaves a defined length.
     unsafe { *out_len = 0 };
-    let run = |h: &mut CmuxRdInput| {
+    with_input(input, |h| {
         let Some(packet) = h.stashed.take().or_else(|| h.inner.packet(now_us)) else {
             // SAFETY: checked non-NULL; writable by contract.
             unsafe { *out_len = 0 };
@@ -264,10 +253,7 @@ pub unsafe extern "C" fn cmux_rd_input_packet(
                 code
             }
         }
-    };
-    // SAFETY: `input` is NULL or valid by this function's contract, and the
-    // header lets one thread at a time call an input handle, so no other access overlaps.
-    unsafe { with_input(input, run) }
+    })
 }
 
 /// When `cmux_rd_input_packet` must run next (0 = now); `UINT64_MAX` when

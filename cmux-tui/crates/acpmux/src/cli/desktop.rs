@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use serde_json::{Value, json};
 
-use crate::desktop_link::{self, Env, Row};
+use crate::desktop_link::{self, Env, Row, State};
 
 #[derive(Subcommand)]
 pub enum DesktopCmd {
@@ -64,9 +64,17 @@ pub fn run(cmd: DesktopCmd, json_out: bool) -> Result<()> {
             println!("{}", line(row));
         }
     }
-    // A link or unlink that could not write (or an unlink that could not read) is a failure the
-    // caller sees, with that app's own reason (not another app's "not on this machine").
-    if let Some(row) = rows.iter().find(|r| r.failed(verb)) {
+    // A link or unlink that could not write is a failure the caller sees, with that app's own
+    // reason (not another app's "not on this machine"). A foreign entry is left alone on purpose.
+    let failed = |r: &&Row| {
+        !r.note.as_deref().is_some_and(|n| n.starts_with("would "))
+            && match verb {
+                "link" => matches!(r.state, State::NotLinked | State::Stale),
+                "unlink" => matches!(r.state, State::Linked | State::Stale),
+                _ => false,
+            }
+    };
+    if let Some(row) = rows.iter().find(failed) {
         anyhow::bail!("{}: {}", row.app.label(), row.note.as_deref().unwrap_or("not linked"));
     }
     Ok(())

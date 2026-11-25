@@ -1136,26 +1136,10 @@ fn commit_resource_effect_patch_in_transaction(
     // not seen here.
     let intent = serde_json::from_str::<Value>(&intent_json).unwrap_or(Value::Null);
     let apply = || apply_resource_patch_timed(transaction, patch, sqlite_revision);
-    let fields = intent.get("fields").and_then(Value::as_object);
-    let (patch, prune) = match fields {
+    let (patch, prune) = match intent.get("fields").and_then(Value::as_object) {
         Some(fields) => crate::state::created_by::scoped_by_fields(fields, apply),
         None => apply(),
     }?;
-    // `created-by-detail-v1`: a tab an agent or a script made keeps who and why, in the commit
-    // that makes it.
-    if let (Some(created_by), Some(tab)) = (
-        fields.and_then(crate::state::created_by::CreatedBy::from_fields),
-        result.get("tab_id").and_then(Value::as_str),
-    ) && matches!(stored_operation.as_str(), "tab.create_terminal" | "tab.create_browser")
-        && crate::state::store::state_tables_ready(transaction)?
-    {
-        crate::state::created_by::record_made(
-            transaction,
-            crate::state::created_by::Made::Tab,
-            tab,
-            &created_by,
-        )?;
-    }
     (spans.prune, spans.apply, spans.written) =
         (prune, applying.elapsed().saturating_sub(prune), patch.changes.len());
     let patch = &patch;

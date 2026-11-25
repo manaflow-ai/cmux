@@ -62,7 +62,7 @@ async def handle(client_reader, client_writer):
         host, _, port = target.decode("ascii").rpartition(":")
         with open(HOSTS_LOG, "a") as log:
             log.write(host + "\n")
-        await asyncio.sleep(ONE_WAY * 2)  # sleep-ok: the simulated delay of the TCP handshake's round trip
+        await asyncio.sleep(ONE_WAY * 2)  # the TCP handshake's round trip
         up_reader, up_writer = await asyncio.open_connection(host, int(port))
         client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         await client_writer.drain()

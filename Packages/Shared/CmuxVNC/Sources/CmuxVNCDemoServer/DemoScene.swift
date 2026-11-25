@@ -60,8 +60,7 @@ final class DemoScene {
         storage.deallocate()
     }
 
-    /// The status window spans the desktop, so a long typed line (a terminal command) stays on one line.
-    var statusRect: CGRect { CGRect(x: 40, y: 40, width: CGFloat(width) - 80, height: 220) }
+    var statusRect: CGRect { CGRect(x: 40, y: 40, width: min(560, CGFloat(width) - 80), height: 220) }
 
     /// Advances the animation one step; returns what changed.
     func tick() -> CGRect {

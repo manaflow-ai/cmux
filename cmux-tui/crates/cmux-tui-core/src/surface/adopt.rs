@@ -173,9 +173,8 @@ impl Surface {
         )
     }
 
-    /// Also the runtime of a never-started lazy tab (`mux/terminal_respawn/lazy.rs`).
-    #[cfg(unix)]
-    pub(crate) fn exited_terminal_placeholder_with_identities(
+    #[cfg(all(unix, test))]
+    pub(super) fn exited_terminal_placeholder_with_identities(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
@@ -237,7 +236,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: TerminalMirror::new(Box::new(term)),
+                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
@@ -252,7 +251,6 @@ impl Surface {
                     input_port::InputRoute::Exited,
                 ))),
                 input_port: Default::default(),
-                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",

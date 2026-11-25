@@ -25,10 +25,6 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// (``PageGestureActionProvider``): an action whose handler only opens its setup sheet for the person
     /// (`newCloudMachine` on Home). Page script alone, or a spent gesture, still runs it as `page`.
     public let gestureActions: Set<String>
-    /// Of ``gestureActions``, those whose gesture must also be the HID system's own input (the app's
-    /// `PersonInputLedger`): a click another process posts reaches WebKit as a real event, so a page
-    /// gesture alone does not prove the person (``PageGestureActionProvider`` refuses it).
-    public let personBackedActions: Set<String>
     /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
     public let commands: Set<String>
     /// Namespace ops the page may only run through `cmux.app.action.run {action: <op>, args}`: the
@@ -72,7 +68,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let servesHostOps: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
-                actions: Set<String> = [], gestureActions: Set<String> = [], personBackedActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
+                actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
                 passiveFrames: Bool = false, followsChatZoom: Bool = false, servesHostOps: Bool = true) {
@@ -83,7 +79,6 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.denied = denied.union(confirmedOps.keys)
         self.actions = actions
         self.gestureActions = gestureActions.intersection(actions)
-        self.personBackedActions = personBackedActions.intersection(self.gestureActions)
         self.commands = commands
         self.confirmedOps = confirmedOps
         // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
@@ -206,7 +201,7 @@ public extension PageDescriptor {
     static let cloud = PageDescriptor(
         id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
-        actions: ["cloudPreviewShare", "cloudPreviewRevoke", "billing.openPortal"],
+        actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
             // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);
@@ -235,34 +230,22 @@ public extension PageDescriptor {
                   "server.addServer",
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
-                  // Labs preview in Devices: reuse the remote host picker and workspace group.
-                  "remote.newGroup",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
-                  // Settings › Computer Use › Saved Approvals (the person's own forget / always / never).
-                  "computerUse.approval.forget", "computerUse.approval.set",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser",
                   // A search no setting matches: Ask cmux to do this opens the Customize chat with the words.
                   "customize.open"])
             .union(settingsSectionActions),
-        // Grant Access on the Computer Use card is the person's own click: only that starts the grant's
-        // Allow in the guided window (OnboardingService.showComputerUse, `byPerson`); script alone opens it only.
-        // The click must be the HID system's (`personBackedActions`): a posted click on Grant Access is refused.
-        gestureActions: ["remote.newGroup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"],
-        personBackedActions: ["palette.computerUse.accessibility", "palette.computerUse.screenRecording"],
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
-    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13); the Customize cmux… card runs
-    /// `openSettings` on Settings > Customize (`setting: card.customizeChecklist`).
-    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``). A click on Open is the
-    /// person's own `app.open` (`gestureActions`): it opens the app as their Cmd-T would, where a page
-    /// script's run gets no view change (a real build: the Clock's Open opened nothing).
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;

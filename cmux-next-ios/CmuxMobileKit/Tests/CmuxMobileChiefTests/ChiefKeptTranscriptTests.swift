@@ -13,7 +13,8 @@ import Testing
         let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "chief-transcripts-\(UUID().uuidString)"))
         defer { cache.removeAll() }
-        let session = ChiefSession(backend: ChiefOfflineBackend(), transcripts: cache)
+        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox, transcripts: cache)
         session.macID = "mac-A"
         session.use(ChiefMockBackend(sleep: { _ in }))
         try await waitUntil("Mac A's Chief to load") { session.store.hasLoadedNewest && !session.store.messages.isEmpty }
@@ -54,14 +55,12 @@ import Testing
         let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "chief-transcripts-\(UUID().uuidString)"))
         defer { cache.removeAll() }
-        let first = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), transcripts: cache)
+        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
+        let first = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: outbox, transcripts: cache)
         try await waitUntil("the mock Chief to load") { first.store.hasLoadedNewest && !first.store.messages.isEmpty }
         let seen = first.store.messages.compactMap(\.seq)
-        // The store keeps its transcript on a later main-actor turn (`scheduleTranscriptSave`);
-        // keep it now, as leaving the foreground does, so the relaunch never races that turn.
-        first.store.saveTranscript()
 
-        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), transcripts: cache)
+        let relaunched = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: outbox, transcripts: cache)
         #expect(relaunched.store.messages.compactMap(\.seq) == seen)
         #expect(relaunched.store.isShowingKeptTranscript)
     }
@@ -72,7 +71,8 @@ import Testing
         let cache = ConversationTranscriptCache(directory: FileManager.default.temporaryDirectory
             .appending(path: "chief-transcripts-\(UUID().uuidString)"))
         defer { cache.removeAll() }
-        let session = ChiefSession(backend: ChiefOfflineBackend(), transcripts: cache)
+        let outbox = ChiefOutbox(file: FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json"))
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox, transcripts: cache)
         session.macID = "mac-A"
         session.use(ChiefMockBackend(sleep: { _ in }))
         try await waitUntil("Mac A's Chief to load") { session.store.hasLoadedNewest && !session.store.messages.isEmpty }

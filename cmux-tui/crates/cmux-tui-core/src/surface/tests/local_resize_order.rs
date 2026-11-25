@@ -43,7 +43,7 @@ fn check_local_resize_order(add_later_output: bool) {
         },
         LocalLaunch {
             master: Box::new(FdMasterPty { file: master, size: Mutex::new(geometry.pty_size()) }),
-            reader: Box::new(Box::new(reader) as Box<dyn Read + Send>),
+            reader: Box::new(reader),
             writer: Box::new(std::io::sink()),
             killer: Box::new(TestChildKiller),
             wait: Box::new(move || {

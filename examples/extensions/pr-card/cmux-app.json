@@ -4,8 +4,7 @@
   "id": "local/pr-card",
   "name": { "en": "PR card" },
   "version": "1.0.0",
-  "description": { "en": "When an agent looks up a GitHub pull request, a card under that step shows its state and checks, five at a time. The pull requests the cards showed are also listed in your sidebar." },
-  "tagline": { "en": "A pull request's state and checks, right in your chat" },
+  "description": { "en": "An example chat widget built only on cmux-extension-sdk: when an agent reads a GitHub pull request, a card under the call shows its state and checks, paged five at a time. The pull requests it showed are listed in a sidebar section." },
   "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
@@ -34,7 +33,7 @@
     "storage:local": "Remember which page of checks each card shows, and the pull requests the cards showed."
   },
   "optionalScopes": {
-    "integration:github:read": "Use the GitHub account you connected in cmux, so private repositories show too. The app never sees your token."
+    "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
   },
   "activation": ["onInterface:cmux.chat.widget/1", "onInterface:cmux.section/1"],
   "files": ["dist/"]

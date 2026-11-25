@@ -180,7 +180,7 @@ struct PasswordCSVFiles {
 
 enum PasswordCSVStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module.inAppLanguage)
+        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
     }
 
     static var prompt: String { t("passwords.csv.prompt", "Choose a password CSV exported from a browser or password manager.") }

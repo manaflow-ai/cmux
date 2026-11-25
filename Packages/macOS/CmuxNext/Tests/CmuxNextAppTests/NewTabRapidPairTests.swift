@@ -81,12 +81,6 @@ struct NewTabRapidPairTests {
 
     /// Two Cmd-T `gap` apart: every opening of the pair adopts a spare, and none is made from the first key until 60 ms
     /// after the second.
-    ///
-    /// The rows of this suite are for the pool's path. The tab of a New Tab key takes the page view of an untouched
-    /// New Tab page that its pane leaves, or that no window shows, before the pool's spare (`AgentTabStore.idlePage`):
-    /// the app starts on such a page, and the first key's tab is one for the second key. So each row counts each
-    /// New Tab page of the app as used before each of its keys (`NewTabOpenFramesTests.useEachNewTabPage`), as after
-    /// a click in each page.
     func pair(gap: Duration, id: String) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: id)
@@ -98,10 +92,8 @@ struct NewTabRapidPairTests {
             rig = try await Self.filledPool(services, window: window, folder: folder)
             let pool = services.newTabSpares, before = rig?.made.count ?? 0, openings = pool.openings.count
 
-            NewTabOpenFramesTests.useEachNewTabPage(services)
             NewTabPage.open(in: pane, seed: nil)
             try await Task.sleep(for: gap)
-            NewTabOpenFramesTests.useEachNewTabPage(services)
             NewTabPage.open(in: pane, seed: nil)
             try await Task.sleep(for: .milliseconds(60))
 
@@ -134,11 +126,8 @@ struct NewTabRapidPairTests {
             defer { Self.cleanUp(services, rig, folder) }
             rig = try await Self.filledPool(services, window: window, folder: folder, framed: { $0 == 0 })
             let before = rig?.made.count ?? 0
-            // The pool's path at each of the 2 keys (`pair`): with an idle page neither key took a spare, and the row said nothing.
-            NewTabOpenFramesTests.useEachNewTabPage(services)
             NewTabPage.open(in: pane, seed: nil)
             try await Task.sleep(for: .milliseconds(150))
-            NewTabOpenFramesTests.useEachNewTabPage(services)
             NewTabPage.open(in: pane, seed: nil)
             try await Task.sleep(for: .milliseconds(500))
             #expect(rig?.made.count == before, "the first open's refill made a spare during the second open (\((rig?.made.count ?? 0) - before) made)")
@@ -221,7 +210,6 @@ struct NewTabRapidPairTests {
             pool.retarget(window)
             let launch = try #require(pool.spare?.view)
             let openings = pool.openings.count
-            NewTabOpenFramesTests.useEachNewTabPage(services) // the pool's path (`pair`): no idle page that the key's tab takes first
             NewTabPage.open(in: pane, seed: nil)
             #expect(pool.openings.dropFirst(openings).first?.spare == true, "the first Cmd-T loaded cold: \(pool.openings.dropFirst(openings).map(\.spare))")
             #expect(pool.spare?.view !== launch, "the first Cmd-T did not adopt the launch's spare")

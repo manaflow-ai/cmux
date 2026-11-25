@@ -16,17 +16,7 @@ export type FileAttachmentInfo = {
 };
 
 /** The same quiet file body in a draft and a sent message. Images keep their own thumbnails. */
-export function FileAttachment({
-  file,
-  remove,
-  statusIcon,
-  failure,
-}: {
-  file: FileAttachmentInfo;
-  remove?: ReactNode;
-  statusIcon?: ReactNode;
-  failure?: string;
-}) {
+export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; remove?: ReactNode }) {
   const language = usePaneLanguage();
   const folder = file.name.endsWith("/");
   const type = file.name.split(".").at(-1)?.toLowerCase() ?? "";
@@ -44,11 +34,9 @@ export function FileAttachment({
       className={`acpmux-file-chip${remove ? " acpmux-file-chip--removable" : ""}`}
       data-file-type={folder ? "folder" : type}
       /* tooltip-allow: the filename may be middle-truncated; the full path is secondary detail */
-      title={failure ?? withSourceLabel(file.path ?? file.name, from)}
+      title={withSourceLabel(file.path ?? file.name, from)}
     >
-      {statusIcon ? (
-        <span className="acpmux-file-chip__status">{statusIcon}</span>
-      ) : folder ? (
+      {folder ? (
         <Folder size={16} />
       ) : key || archive ? (
         <svg

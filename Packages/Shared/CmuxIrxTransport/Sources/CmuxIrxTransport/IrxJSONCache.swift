@@ -22,8 +22,7 @@ extension IrxDiskCache: IrxJSONCache {}
 /// optional access group) but through synchronous SecItem calls, because the
 /// broker's init-time signing arm and the admission path cannot await an
 /// actor. RECONCILE: if the shared store ever grows a synchronous facade,
-/// fold this onto it. Every call carries a no-prompt context: one that would
-/// ask fails (a nil load, a false save) instead.
+/// fold this onto it.
 public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
     public static var service: String { "com.cmuxterm.irx.cache.v1" }
 
@@ -43,7 +42,7 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: query) as CFDictionary, &result)
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return try? JSONDecoder().decode(Value.self, from: data)
     }
@@ -58,22 +57,22 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
                 kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         let updateStatus = SecItemUpdate(
-            KeychainNoPromptContext.applied(to: query) as CFDictionary, attributes as CFDictionary)
+            query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return load() != nil }
         guard updateStatus == errSecItemNotFound else { return false }
         var insert: [String: Any] = query
         attributes.forEach { insert[$0.key] = $0.value }
-        let addStatus = SecItemAdd(KeychainNoPromptContext.applied(to: insert) as CFDictionary, nil)
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus == errSecSuccess { return load() != nil }
         if addStatus == errSecDuplicateItem {
-            let retry = SecItemUpdate(KeychainNoPromptContext.applied(to: query) as CFDictionary, attributes as CFDictionary)
+            let retry = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
             return retry == errSecSuccess && load() != nil
         }
         return false
     }
 
     public func clear() {
-        _ = SecItemDelete(KeychainNoPromptContext.applied(to: baseQuery()) as CFDictionary)
+        _ = SecItemDelete(baseQuery() as CFDictionary)
     }
 
     private func baseQuery() -> [String: Any] {

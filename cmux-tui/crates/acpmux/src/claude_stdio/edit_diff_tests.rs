@@ -251,38 +251,3 @@ async fn claude_edit_write_over_a_huge_file_stays_a_fragment() {
     assert_eq!(content[0]["oldText"], Value::Null);
     assert_eq!(content[0]["_meta"]["acpmux"]["fragment"], true);
 }
-
-/// A subagent's safety-check ask (Leo, 2026-11-23, on a card that read
-/// "Run export ACPMUX_CALLER_SUBAGENT=gen…"): Claude Code describes a call with no description by
-/// its command's first line, which is acpmux's subagent mark; the ask carries no description
-/// then, and a real one passes through.
-#[tokio::test]
-async fn claude_ask_drops_a_description_that_is_only_the_subagent_mark() {
-    let t = Translator::new("acp-1".into(), "bypassPermissions", "haiku", "default");
-    let call_for = |description: &str, id: &str| {
-        json!({"type": "control_request", "request_id": id, "request": {
-            "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": id,
-            "agent_id": "a5e57a5bb25ab7185", "description": description,
-            "decision_reason_type": "safetyCheck",
-            "input": {"command": "export ACPMUX_CALLER_SUBAGENT=general-purpose:a5e57a5bb25ab7185\nrm -f /tmp/x && bash -c 'true'"}
-        }})
-    };
-    let meta = |out: Vec<Message>| {
-        out.iter()
-            .find_map(|m| match m {
-                Message::Request { method: m, params: Some(p), .. }
-                    if m == method::SESSION_REQUEST_PERMISSION =>
-                {
-                    Some(p["toolCall"]["_meta"]["claude"].clone())
-                }
-                _ => None,
-            })
-            .expect("a permission request")
-    };
-    let marked = meta(
-        t.inbound(&call_for("export ACPMUX_CALLER_SUBAGENT=general-purpose:a5e…", "r1")).await,
-    );
-    assert_eq!(marked["description"], Value::Null, "{marked}");
-    let own = meta(t.inbound(&call_for("Remove the scratch file", "r2")).await);
-    assert_eq!(own["description"], "Remove the scratch file");
-}

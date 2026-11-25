@@ -22,12 +22,6 @@ export const HOSTED_DEFAULT_KEY = "chief-hosted-default"
 export interface ChiefBrainPlace {
   readonly host: string
   readonly install: string
-  /**
-   * The Cloud machine (and its team) the server runs on, when `machine.chief_start` made it: MuxDO resumes it when
-   * a message comes while it is paused (mux-machine-wake.ts). Absent for a server that is no Cloud machine.
-   */
-  readonly machine?: string
-  readonly team?: string
 }
 /** The hosted brain's own Cloud workspace; this does not move its brain onto a paired server. */
 export interface ChiefCloudMachine {
@@ -88,8 +82,6 @@ type Params = Record<string, unknown>
 const reject = (code: string, message = code): ReduceResult<UserState> => ({ ok: false, code, message })
 const nameOk = (v: unknown): v is string => typeof v === "string" && v.trim().length >= 1 && v.length <= 100
 const HOST_ID = /^host_[a-z0-9]{20}$/
-/** A Cloud machine or team id in a brain place: the platform checks it is the owner's on every use. */
-const CLOUD_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 /**
  * Checks a requested brain place: the user's session only, a host id, and a live daemon install
@@ -97,17 +89,13 @@ const CLOUD_ID = /^[A-Za-z0-9_-]{1,64}$/
  */
 const brainPlace = (state: UserState, raw: unknown, ctx: ReduceContext): ChiefBrainPlace | ReduceResult<UserState> => {
   if (ctx.principal.kind !== "session") return reject("auth.forbidden", "only the user's session places a chief's brain")
-  const v = raw as { host?: unknown; install?: unknown; machine?: unknown; team?: unknown } | null
+  const v = raw as { host?: unknown; install?: unknown } | null
   if (!v || typeof v !== "object" || typeof v.host !== "string" || !HOST_ID.test(v.host) || typeof v.install !== "string") {
     return reject("validation.invalid", "brain_place needs {host, install}")
   }
   const inst = state.installs[v.install]
   if (!inst || inst.revoked_at !== null || inst.kind !== "daemon") return reject("validation.invalid", "brain_place.install must be a live paired server install")
-  if (v.machine === undefined && v.team === undefined) return { host: v.host, install: v.install }
-  if (typeof v.machine !== "string" || !CLOUD_ID.test(v.machine) || typeof v.team !== "string" || !CLOUD_ID.test(v.team)) {
-    return reject("validation.invalid", "brain_place.machine and brain_place.team come together, as Cloud ids")
-  }
-  return { host: v.host, install: v.install, machine: v.machine, team: v.team }
+  return { host: v.host, install: v.install }
 }
 const isReject = (v: ChiefBrainPlace | ReduceResult<UserState>): v is ReduceResult<UserState> => "ok" in v
 

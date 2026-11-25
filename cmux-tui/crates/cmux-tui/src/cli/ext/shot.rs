@@ -5,13 +5,6 @@
 //! Screen Recording grant, no focus change). An agent reads the outline and
 //! looks at the picture before it says the extension is done.
 //!
-//! `--record` also writes that scene's ops into `DIR/preview/scenes.json`, by
-//! name (`cmux.widget/1 small`), keeping the file's other scenes: the recorded
-//! scenes `ext publish` and registry review check for design warnings
-//! (`design::listing`). A widget is rendered and recorded at every size it
-//! declares. A write that fails is an error with its own exit code
-//! (`exit::RECORD_FAILED`), so a script never goes on with stale scenes.
-//!
 //! The picture is taken by the same `cmux` in a child process
 //! (`window screenshot --out PATH --json`), so it reaches the app the way a
 //! person's `cmux window screenshot` does, with the same global options.
@@ -30,47 +23,6 @@ pub(in crate::cli) struct ShotOptions {
     pub dev: DevOptions,
     /// `--out PATH`; none: a temporary file the app picks (the reply names it).
     pub out: Option<PathBuf>,
-    /// `--record`: write the scene into `preview/scenes.json`.
-    pub record: bool,
-}
-
-/// Where `--record` writes, inside the extension folder.
-pub(super) const RECORDED: &str = "preview/scenes.json";
-
-/// `existing` (a recorded file, or nothing) with each of `scenes` set by name, as
-/// `{name: {ops}}`; the other scenes stay. A file that is not an object of scenes
-/// is replaced.
-pub(super) fn record_into(existing: Option<Value>, scenes: &[(String, Value)]) -> Value {
-    let mut file = match existing {
-        Some(Value::Object(map)) => map,
-        _ => serde_json::Map::new(),
-    };
-    for (name, ops) in scenes {
-        file.insert(name.clone(), json!({ "ops": ops }));
-    }
-    Value::Object(file)
-}
-
-/// Writes the reload's scene into `dir/preview/scenes.json`; the file's path, or why not.
-pub(super) fn record(dir: &Path, outcome: &Outcome) -> Result<PathBuf, String> {
-    if outcome.recorded.is_empty() {
-        return Err(
-            "nothing to record: no view rendered (it draws no section, pane, widget or page)"
-                .into(),
-        );
-    }
-    let path = dir.join(RECORDED);
-    let existing = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
-    let file = record_into(existing, &outcome.recorded);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
-    }
-    let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())? + "\n";
-    std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    Ok(path)
 }
 
 /// The picture `window screenshot` took: where, and its size in pixels.
@@ -177,13 +129,10 @@ pub(super) fn report(
     outcome: &Outcome,
     dir: &Path,
     picture: Option<&Result<Picture, Problem>>,
-    recorded: Option<&Result<PathBuf, String>>,
     json_out: bool,
 ) -> (String, i32) {
     let code = match picture {
         _ if !outcome.ok() => outcome.exit_code(),
-        // Scenes that were asked for and not written: a script must not go on with stale ones.
-        _ if matches!(recorded, Some(Err(_))) => exit::RECORD_FAILED,
         Some(Ok(_)) => exit::OK,
         _ => exit::SHOT_FAILED,
     };
@@ -210,22 +159,10 @@ pub(super) fn report(
         if let Some(object) = value.as_object_mut() {
             object.insert("ok".into(), json!(code == exit::OK));
             object.insert("exitCode".into(), json!(code));
-            if outcome.ok() && code == exit::RECORD_FAILED {
-                object.insert("phase".into(), json!("record"));
-            } else if outcome.ok() && code != exit::OK {
+            if outcome.ok() && code != exit::OK {
                 object.insert("phase".into(), json!("shot"));
             }
             object.insert("shot".into(), shot);
-            match recorded {
-                Some(Ok(path)) => {
-                    let names: Vec<&str> =
-                        outcome.recorded.iter().map(|(n, _)| n.as_str()).collect();
-                    object.insert("recordedScenes".into(), json!(names));
-                    object.insert("recorded".into(), json!(path))
-                }
-                Some(Err(error)) => object.insert("recorded".into(), json!({ "error": error })),
-                None => None,
-            };
         }
         return (value.to_string(), code);
     }
@@ -253,19 +190,6 @@ pub(super) fn report(
         None if outcome.ok() => text.push_str(&format!("\nno picture: {}", not_shown())),
         None => {}
     }
-    match recorded {
-        Some(Ok(path)) => {
-            let names: Vec<&str> = outcome.recorded.iter().map(|(n, _)| n.as_str()).collect();
-            let what = if names.len() == 1 {
-                "the scene".to_string()
-            } else {
-                format!("{} scenes ({})", names.len(), names.join(", "))
-            };
-            text.push_str(&format!("\nrecorded {what} in {}", path.display()));
-        }
-        Some(Err(error)) => text.push_str(&format!("\nnot recorded: {error}")),
-        None => {}
-    }
     (text, code)
 }
 
@@ -279,8 +203,7 @@ pub(super) fn run(
     let dir = options.dev.dir.clone();
     let outcome = dev::once(global, &options.dev, true);
     let picture = (outcome.ok() && shown(&outcome)).then(|| take(globals, options.out.as_deref()));
-    let recorded = (options.record && outcome.ok()).then(|| record(&dir, &outcome));
-    let (text, code) = report(&outcome, &dir, picture.as_ref(), recorded.as_ref(), json_out);
+    let (text, code) = report(&outcome, &dir, picture.as_ref(), json_out);
     println!("{text}");
     code
 }

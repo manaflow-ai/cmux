@@ -18,8 +18,6 @@ use std::time::Duration;
 
 use crate::state::Watch;
 
-pub use crate::watch_route::{Route, route};
-
 /// How long a command that exited without matching waits to run again.
 pub const POLL: Duration = Duration::from_secs(chief_kernel::tools::WATCH_POLL_SECONDS);
 

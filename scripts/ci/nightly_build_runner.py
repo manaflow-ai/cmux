@@ -509,7 +509,7 @@ def main(env: Mapping[str, str] = os.environ,
 
     def wait(seconds: float) -> None:
         nonlocal has_waited
-        sleep(seconds)  # sleep-ok: the poll interval of the caller's read loop
+        sleep(seconds)
         has_waited = True
 
     def read() -> Sequence[Mapping[str, Any]] | None:

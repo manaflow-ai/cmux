@@ -81,18 +81,3 @@ fn only_the_first_presentation_stamp_counts() {
     aim.presented(moved, 2.0);
     assert_eq!(aim.last_move().and_then(|m| m.presented_at), Some(1.0));
 }
-
-/// PL-burst review (minor): the held key emptied `b`, but the pane did not
-/// close (the close was refused or asks first), so the focus never left `b`.
-/// The key's repeats act on `b`, the pane on screen, as a fresh press does:
-/// they were refused, because the repeat check ran before the focus check.
-#[test]
-fn a_repeat_acts_on_the_emptied_pane_while_the_focus_is_still_on_it() {
-    let mut aim = PaneCloseAim::new();
-    aim.pane_emptied("b", key(10.0));
-    assert!(!aim.aims_at_emptied_pane(repeat(10.5), Some("b")));
-    assert!(!aim.aims_at_emptied_pane(repeat(10.6), Some("b")));
-    // Once the focus moves on, the same held key's repeats are aimed at `b`.
-    aim.pane_moved(Some("b"), Some("a"));
-    assert!(aim.aims_at_emptied_pane(repeat(10.7), Some("a")));
-}

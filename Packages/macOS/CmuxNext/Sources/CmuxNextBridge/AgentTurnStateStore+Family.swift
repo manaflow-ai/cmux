@@ -37,9 +37,10 @@ extension AgentTurnStateStore {
         if let record = sessions[session] {
             record.startedBy = parent
         } else if let parent {
-            let record = record(session)
+            let record = Session()
             record.source = source
             record.startedBy = parent
+            sessions[session] = record
         }
     }
 

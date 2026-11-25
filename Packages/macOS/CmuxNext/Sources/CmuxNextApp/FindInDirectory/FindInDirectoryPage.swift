@@ -70,7 +70,7 @@ enum FindInDirectoryPage {
 
 enum FindInDirectoryStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "FindInDirectory", bundle: .module.inAppLanguage)
+        String(localized: key, defaultValue: value, table: "FindInDirectory", bundle: .module)
     }
 
     static var open: String { text("findInDirectory.open", "Open in Default Editor") }

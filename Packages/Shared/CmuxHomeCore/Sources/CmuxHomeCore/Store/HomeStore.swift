@@ -73,9 +73,6 @@ public final class HomeStore {
     /// The Chief's agents that had a session at some point (``agentsStarted(_:)``): an agent queued at its
     /// newest message counts as started once it is here. It only grows: a session that ends leaves its agent started.
     @ObservationIgnored var startedAgents: Set<String> = []
-    /// When each of the Chief's agents' newest session began (``agentsStarted(_:startedAt:)``): its pill counts from it.
-    /// A session that ends keeps its start.
-    @ObservationIgnored var agentSessionStarts: [String: Date] = [:]
     /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
     @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
@@ -148,8 +145,6 @@ public final class HomeStore {
     /// for a running pass, and a pass skips while a prepare runs, so a
     /// prune never deletes a blob a prepare is reusing.
     @ObservationIgnored private var pruneLoop: Task<Void, Never>?
-    /// Whether `start` runs the prune loop (``init(source:blobCacheDirectory:clock:cache:cacheWriteDelay:prunesBlobCache:)``).
-    @ObservationIgnored private let prunesBlobCache: Bool
     @ObservationIgnored var pruning: Task<Void, Never>?
     @ObservationIgnored var preparing = 0
 
@@ -211,17 +206,10 @@ public final class HomeStore {
     /// Drafts, scroll anchors and the coalesced cache writes.
     @ObservationIgnored let viewCache: HomeClientViewCache
 
-    /// - Parameter blobCacheDirectory: The attachment folder; by default one of its own (``ownBlobCacheDirectory()``).
-    ///   The app's Home store passes its folder in the app's Caches (``defaultBlobCacheDirectory``).
-    /// - Parameter prunesBlobCache: Whether this store prunes `blobCacheDirectory` at `start` and while it runs. A
-    ///   store over a local conversation of its own (New Message's blank page, a bare launch's message box) passes
-    ///   false: it keeps none of the folder's blobs, so its pass would delete the drafts' and pending sends' blobs of
-    ///   the store that owns the folder (its keep set is empty).
-    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.ownBlobCacheDirectory(),
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
                 clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
-                cacheWriteDelay: Duration = .milliseconds(250), prunesBlobCache: Bool = true) {
+                cacheWriteDelay: Duration = .milliseconds(250)) {
         self.source = source
-        self.prunesBlobCache = prunesBlobCache
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
         self.cache = cache
@@ -235,13 +223,11 @@ public final class HomeStore {
         restoreCache()
         let clock = self.clock
         let interval = Self.blobCachePruneInterval
-        if prunesBlobCache {
-            pruneLoop = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard self != nil else { return }
-                    await self?.pruneBlobCache()
-                    do { try await clock.sleep(for: interval) } catch { return }
-                }
+        pruneLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                await self?.pruneBlobCache()
+                do { try await clock.sleep(for: interval) } catch { return }
             }
         }
         let source = self.source
@@ -254,9 +240,9 @@ public final class HomeStore {
         }
         // task-owner: one consumer of the owner's agent starts, cancelled by stop()
         agentStartTask = Task { [weak self] in
-            for await starts in await source.agentStarts() {
+            for await peers in await source.agentStarts() {
                 guard let self, !self.stopped else { return }
-                self.agentsStarted(starts.peers, startedAt: starts.startedAt)
+                self.agentsStarted(peers)
             }
         }
     }
@@ -319,8 +305,7 @@ public final class HomeStore {
         if !localFiles.isEmpty { items = items.map(decorated) }
         items = agentMessages[id]?.inserting(into: items, summary: summary(id),
                                              expanded: expandedAgentMessages[id] ?? [], seen: agentSeen[id] ?? [:],
-                                             started: startedAgents.union(agentSessions[id]?.values.map(\.peer) ?? []),
-                                             sessionStarts: agentSessionStarts) ?? items
+                                             started: startedAgents.union(agentSessions[id]?.values.map(\.peer) ?? [])) ?? items
         if let feed = feedRows, feed.conversation == id {
             // A window that does not reach the start shows no rows older than its first message.
             let since = mirror.windows[id]?.reachedStart == false ? items.first(where: { $0.delivery == .committed })?.createdAt : nil

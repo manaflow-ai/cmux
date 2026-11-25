@@ -89,39 +89,6 @@ def rpc(path: str, method: str, params: dict | None = None, timeout: float = 70)
     return result if isinstance(result, dict) else {"value": result}
 
 
-def wait_for(check, seconds: float, interval: float = 0.1):
-    """`check()`'s first truthy value within `seconds`, else None (a check that raises counts as not yet)."""
-    deadline = time.monotonic() + seconds
-    while True:
-        try:
-            value = check()
-            if value:
-                return value
-        except Exception:  # noqa: BLE001 - not ready yet
-            pass
-        if time.monotonic() >= deadline:
-            return None
-        time.sleep(interval)
-
-
-def wait_settled(read, seconds: float, interval: float = 0.1, reads: int = 3) -> bool:
-    """True once `read()` gave the same value `reads` times in a row within `seconds`."""
-    deadline = time.monotonic() + seconds
-    last, same = object(), 0
-    while True:
-        try:
-            value = read()
-            same = same + 1 if value == last else 1
-            last = value
-        except Exception:  # noqa: BLE001 - not readable yet
-            same = 0
-        if same >= reads:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(interval)
-
-
 # ---------------------------------------------------------------- drive
 
 
@@ -136,40 +103,6 @@ class Driver:
             self.log.append(f"{method} {json.dumps(params or {})}: {result['error']}")
         return result
 
-    def read(self, method: str, params: dict | None = None, timeout: float = 20) -> dict:
-        """One request for a wait's poll: not logged, since a poll may read an error many times."""
-        return rpc(self.path, method, params, timeout)
-
-    def until(self, check, what: str, seconds: float = 10.0, interval: float = 0.1):
-        """Waits for `check()` to be truthy; past `seconds` logs that `what` never happened and returns None."""
-        value = wait_for(check, seconds, interval)
-        if not value:
-            self.log.append(f"waited {seconds:g} s: {what} never happened")
-        return value
-
-    def layout(self) -> str:
-        """The topology and the layout counters: both stop changing once the window's layout settled."""
-        return json.dumps([rpc(self.path, "snapshot.get", {}, 20), rpc(self.path, "debug.layout_counters", {}, 20)],
-                          sort_keys=True, default=str)
-
-    def settle(self, what: str, read=None, seconds: float = 10.0) -> bool:
-        """Until `read()` (default `layout()`) reads the same three times in a row; past `seconds` logs it."""
-        settled = wait_settled(read or self.layout, seconds)
-        if not settled:
-            self.log.append(f"waited {seconds:g} s: {what} never settled")
-        return settled
-
-    def tab_count(self) -> int:
-        return sum(len(strip.get("tabs") or []) for strip in rpc(self.path, "debug.tab_drag", {}, 20).get("strips") or [])
-
-    def window_shown(self) -> bool:
-        return bool((rpc(self.path, "debug.layers", {}, 20).get("windows") or [{}])[0].get("frame"))
-
-    def recorded(self, folder: Path, seconds: float) -> bool:
-        """Until `debug.window_record` wrote its `frames.json` in `folder` (the recording ended)."""
-        return bool(self.until(lambda: (folder / "frames.json").is_file(), f"the recording's {folder.name}/frames.json",
-                               seconds + 20, 0.1))
-
     def save(self, name: str, data: dict) -> None:
         if name.startswith("reduce_") and name in THRESHOLDS:
             # What the app said when Reduce Motion was set: a scenario run without it is not one.
@@ -181,9 +114,9 @@ class Driver:
         started = self.call("debug.motion", {"action": "trace_start", "targets": targets})
         if "error" in started:
             return started
-        time.sleep(0.1)  # sleep-ok: the trace's lead-in, a few frames sampled at rest before the act
+        time.sleep(0.1)  # a few frames at rest first
         acted = act()
-        time.sleep(seconds)  # sleep-ok: the trace window itself, `seconds` of frames sampled after the act
+        time.sleep(seconds)
         trace = self.call("debug.motion", {"action": "trace_stop"})
         trace["acted"] = acted
         return trace
@@ -208,7 +141,6 @@ class Driver:
             if not ready:
                 self.log.append(f"{name}: no ready spare after 20 s; the opening is cold")
         before = len(self.call("debug.new_tab", {"action": "state"}).get("openings") or [])
-        tabs_before = self.tab_count()
         trace = self.trace(["tabs", "strip"], lambda: self.key("t", ["command"]), 0.9)
         openings = self.call("debug.new_tab", {"action": "state"}).get("openings") or []
         trace["opening"] = openings[-1] if len(openings) > before else None
@@ -219,8 +151,7 @@ class Driver:
         # would close a tab that was there before.
         if trace["opening"] is not None:
             self.key("w", ["command"])
-            self.until(lambda: self.tab_count() <= tabs_before, f"{name}: Cmd-W closing the new tab")
-            self.settle(f"{name}: the strip after Cmd-W")
+            time.sleep(0.6)
 
     def sidebar(self, prefix: str) -> None:
         """Each toggle with the sidebar width, the panes beside it, and the work the toggle cost.
@@ -285,10 +216,7 @@ class Driver:
             if "error" not in ready:
                 break
             time.sleep(0.5)
-        # The chat's pane moves into its dock column: wait until the readiness answer stops changing.
-        if "error" not in ready:
-            self.settle("the agent chat's pane", lambda: json.dumps(
-                rpc(self.path, "debug.agent_pane", {"action": "readiness"}, 30), sort_keys=True, default=str))
+        time.sleep(2)
         target = {"pane": ready["pane"]} if "error" not in ready and ready.get("pane") else {}
         result = self.call("debug.agent_pane", {"action": "stream", "rows": 2000, "seconds": 3, "trace": 1, **target},
                            timeout=90)
@@ -301,26 +229,17 @@ class Driver:
         window as composited, one JPEG per display frame; no Screen Recording permission needed)."""
         folder = self.out / "capture-new-tab"
         self.call("debug.new_tab", {"action": "drop_spare"})
-        self.until(lambda: not any(spare.get("ready") for spare in
-                                   self.read("debug.new_tab", {"action": "state"}).get("spares") or []),
-                   "drop_spare leaving no ready spare", 10, 0.05)
-        (folder / "frames.json").unlink(missing_ok=True)  # an earlier run's file would end the wait below at once
-        tabs_before = self.tab_count()
+        time.sleep(0.3)
         started = time.monotonic()
         record = self.call("debug.window_record", {"dir": str(folder), "seconds": 1.2})
-        time.sleep(0.15)  # sleep-ok: the recording's lead-in, frames at rest before Cmd-T
+        time.sleep(0.15)
         key_ms = (time.monotonic() - started) * 1000
         self.key("t", ["command"])
-        if "error" not in record:
-            self.recorded(folder, 1.2)
-        self.until(lambda: self.tab_count() > tabs_before, "capture: Cmd-T opening a tab")
+        time.sleep(1.5)
         self.save("capture_new_tab", {"record": record, "key_ms_after_start": round(key_ms, 1)})
         self.key("w", ["command"])
 
     def run(self) -> None:
-        # The app is up (golden.sh waited for its socket): wait for its window and for launch layout to settle.
-        self.until(self.window_shown, "the app's window", 60, 0.25)
-        self.settle("the window after launch", seconds=30)
         self.save("motion_before", self.call("debug.motion", {"action": "read"}))
         # Measure the default speed whatever this host's config says, with Reduce Motion off.
         self.call("debug.motion", {"action": "speed", "value": "fast"})

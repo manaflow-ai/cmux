@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::fold::{Patch, RowTable};
 use super::page::{DEFAULT_ROW_PAGE_BYTES, RowsCursor};
+use crate::hub::Hub;
 use crate::no_panic::LockExt;
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
@@ -98,27 +99,12 @@ impl RowsCache {
     }
 }
 
-/// What the row tables read from the hub: its cache of them, and a chat's log. The hub
-/// implements it (`hub/rows_source.rs`); this module, below the hub, names only this.
-pub trait RowsSource {
-    /// The hub's row tables.
-    fn rows_cache(&self) -> &RowsCache;
-    /// Visits chat `id`'s records past `after` in order until `visit` returns false
-    /// (`Hub::scan_events`).
-    fn scan_log(
-        &self,
-        id: &str,
-        after: u64,
-        visit: &mut dyn FnMut(EventRecord) -> bool,
-    ) -> anyhow::Result<()>;
-}
-
 /// Folds chat `id`'s records past the table's newest into it, from the log.
-fn catch_up(hub: &impl RowsSource, id: &str, folded: &mut Folded) -> Result<(), RpcError> {
+fn catch_up(hub: &Hub, id: &str, folded: &mut Folded) -> Result<(), RpcError> {
     let mut patches = Vec::new();
     let after = folded.table.last_seq();
     let table = &mut folded.table;
-    hub.scan_log(id, after, &mut |rec| {
+    hub.scan_events(id, after, &mut |rec| {
         table.apply(&rec, &mut patches);
         true
     })
@@ -137,7 +123,7 @@ pub struct Following {
 /// rows (`page.rs`). With neither cursor, the newest rows. `follow` asks for the patches after
 /// the page on the live stream; the caller keeps the returned `Following` on its subscription.
 pub fn read(
-    hub: &impl RowsSource,
+    hub: &Hub,
     id: &str,
     params: &Value,
 ) -> Result<(Value, Option<Arc<Following>>), RpcError> {
@@ -162,7 +148,7 @@ pub fn read(
         .and_then(Value::as_u64)
         .map_or(DEFAULT_ROW_PAGE_BYTES, |b| usize::try_from(b).unwrap_or(usize::MAX));
     let follow = params.get("follow").and_then(Value::as_bool) == Some(true);
-    let table = hub.rows_cache().table(id);
+    let table = hub.rows.table(id);
     let mut folded = table.lock_or_recover();
     catch_up(hub, id, &mut folded)?;
     let page = folded.table.page(cursor, max);
@@ -179,12 +165,12 @@ pub fn read(
 /// `_acpmux/rows_patch` params with the patches it has not had, or `_acpmux/rows_lagged` params
 /// when they are no longer kept. None: nothing new.
 pub fn live(
-    hub: &impl RowsSource,
+    hub: &Hub,
     id: &str,
     rec: &EventRecord,
     following: &Following,
 ) -> Option<(&'static str, Value)> {
-    let table = hub.rows_cache().held(id)?;
+    let table = hub.rows.held(id)?;
     let mut folded = table.lock_or_recover();
     if folded.table.last_seq().saturating_add(1) == rec.seq {
         let mut patches = Vec::new();
@@ -216,8 +202,8 @@ pub fn live(
 
 /// The rows of chat `id`'s table, if the hub holds one; for tests.
 #[cfg(test)]
-pub fn held_rows(hub: &impl RowsSource, id: &str) -> Option<Vec<super::Row>> {
-    let table = hub.rows_cache().held(id)?;
+pub fn held_rows(hub: &Hub, id: &str) -> Option<Vec<super::Row>> {
+    let table = hub.rows.held(id)?;
     let folded = table.lock_or_recover();
     Some(folded.table.rows().to_vec())
 }

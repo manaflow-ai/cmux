@@ -16,8 +16,7 @@ mkdir -p "$bin"
 # reused DerivedData bundle. The cmux-tui outputs are owned by another phase.
 owned_bins=(
   cmux-code-mode-mcp cmux-code-mode-run start-cmux-profiling submit-cmux-profile
-  cmux-code-mode-runner cmux-code-mode-sandbox cmux-code-mode-unpack cmux-dev-shim-install
-  cmux-code-mode-macos-profile
+  cmux-code-mode-runner cmux-code-mode-sandbox cmux-dev-shim-install cmux-code-mode-macos-profile
   cmux-open-url open xdg-open
 )
 for name in "${owned_bins[@]}"; do
@@ -31,14 +30,8 @@ for file in "$src/Resources/bin/"*; do
 done
 
 # Bun code-mode resources stay beside the CLI so `cmux run` can locate the
-# runner from current_exe without relying on PATH. They are staged here and
-# shipped as one xz tar, Resources/code-mode.tar.xz (3.5 MB in 54 files, about
-# 0.3 MB packed; CMUX-570): bin/cmux-code-mode-unpack unpacks it into the
-# user's cache on the first `cmux run` or code-mode MCP start.
-stage="${TARGET_TEMP_DIR:-${TMPDIR:-/tmp}}/cmux-code-mode-stage.$$"
-rm -rf "$stage"
-trap 'rm -rf "$stage"' EXIT
-code_mode="$stage/code-mode"
+# runner from current_exe without relying on PATH.
+code_mode="$dest/code-mode"
 mkdir -p "$code_mode/sdk"
 rsync -a --delete "$src/cmux-tui/bindings/typescript/src/" "$code_mode/sdk/src/"
 rsync -a --delete "$src/cmux-tui/bindings/typescript/code-mode/" "$code_mode/sdk/code-mode/"
@@ -51,14 +44,8 @@ compact_json="$src/scripts/cmux-next/compact-json.py"
 python3 "$compact_json" "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operations-v2.json"
 python3 "$compact_json" "$src/backend/catalog/cloud-operations.json" "$code_mode/cloud-operations.json"
 python3 "$compact_json" "$src/backend/catalog/cloud-relay-operations.json" "$code_mode/cloud-relay-operations.json"
-# The SDK's own tests are not run from the app.
-find "$code_mode" -name '*.test.mjs' -delete
-python3 "$src/scripts/cmux-next/pack-code-mode.py" "$code_mode" "$dest/code-mode.tar.xz"
-# An unpacked folder from an older build of this bundle would shadow the archive.
-rm -rf "$dest/code-mode"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-sandbox" "$bin/cmux-code-mode-sandbox"
-install -m 755 "$src/scripts/cmux-next/cmux-code-mode-unpack" "$bin/cmux-code-mode-unpack"
 # The managed dev shim, from its one source: tools that open this build
 # refresh a user's managed `cmux` shim from it (plans/cmux-next/version-skew.md).
 install -m 755 "$src/scripts/lib/cmux-dev-shim-install" "$bin/cmux-dev-shim-install"

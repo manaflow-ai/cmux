@@ -69,8 +69,7 @@ CMUX_NEXT_PAGES_DEV_URL=http://127.0.0.1:4292/
 
 These are **app launch variables**, not Vite port variables.
 The tagged reload launcher preserves them when it creates the app's launch job.
-Follow the [tagged build procedure](../../skills/cmux-dev-workflow/references/tagged-builds.md) for the initial native setup,
-or skip the build: `cmux app try .` runs your web code in a copy of the NIGHTLY.
+Follow the [tagged build procedure](../../skills/cmux-dev-workflow/references/tagged-builds.md) for the initial native setup.
 Follow the current fleet rules when an agent performs that setup.
 
 The app reads the launch variables at startup.

@@ -57,11 +57,8 @@ import Testing
 
         f.show(.morph)
         let morph = try #require(f.panel.activeMorph, "the card did not grow out of its tab")
-        let from = morph.from
-        // The card is drawn at that size now, not laid out larger under a mask.
-        let host = try #require(f.panel.contentView as? PopupHostView)
-        #expect(abs(host.card.frame.width - from.width) < 0.5 && abs(host.card.frame.height - from.height) < 0.5,
-                "the card's surface is \(host.card.frame.size) while the morph starts at \(from)")
+        let grow = try #require(morph.mask.animation(forKey: "bounds") as? CABasicAnimation)
+        let from = try #require((grow.fromValue as? NSValue)?.rectValue)
         #expect(abs(from.width - f.tab.width) < 0.5, "the card grows from \(from.width) pt, not its tab's \(f.tab.width)")
         #expect(from.height < 90, "the card starts at its full height \(from.height)")
         // It grows down from the tab's bottom edge, its leading edge on the tab's: no slide.

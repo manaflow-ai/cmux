@@ -11,23 +11,16 @@ import UIKit
 /// terminal area, under the status bar. The TUI host is bottom-pinned to its
 /// clip (toolbar to the composer stack) with `tuiRows` rows, so rows the clip
 /// has no room for push the app's header (vim's first lines, htop's meters,
-/// Claude Code's banner) off the top. With the keyboard down the rows must be
-/// the room the clip has, in a tab or standalone. With the keyboard up the
-/// grid keeps those rows (the keyboard never resizes the Mac's terminal,
-/// `TerminalKeyboardNoResizeTests`) and the cursor's row stays on screen.
+/// Claude Code's banner) off the top. The rows must be the room the clip has,
+/// in a tab or standalone, keyboard down or up.
 @MainActor
 @Suite(.serialized) struct TerminalTUIAreaTests {
     /// A full-screen app on the phone's own grid (no Mac grid), as vim.
-    /// `cursorAtBottom`: like Claude Code, a header box on the first three
-    /// rows and the cursor in an input line on the last row.
     @MainActor final class TUISession: TerminalSession {
         let programName = "vim"
-        let cursorAtBottom: Bool
         private(set) var isAlternateScreen = false
         private(set) var handler: (@MainActor (TerminalSessionEvent) -> Void)?
         private(set) var resizes: [Int] = []
-
-        init(cursorAtBottom: Bool = false) { self.cursorAtBottom = cursorAtBottom }
 
         func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) { self.handler = handler }
         func send(_ bytes: Data) {}
@@ -38,19 +31,7 @@ import UIKit
             isAlternateScreen = true
             handler?(.connection(.attached))
             handler?(.alternateScreen(true))
-            let body = cursorAtBottom
-                ? "HEADER box top\u{1B}[2;1HHEADER title\u{1B}[3;1HHEADER box bottom"
-                : "HEADER\u{1B}[2;1H~"
-            handler?(.output(Data(("\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + body).utf8)))
-            if cursorAtBottom { placeInputOnLastRow() }
-        }
-
-        /// The input line on the last row of the grid the page claimed (the
-        /// phone's surface has more rows than the app: it is the claimed rows
-        /// the Mac's app draws in), the cursor after its prompt.
-        func placeInputOnLastRow() {
-            guard cursorAtBottom, let rows = resizes.last else { return }
-            handler?(.output(Data("\u{1B}[\(rows);1H\u{1B}[2K> ".utf8)))
+            handler?(.output(Data("\u{1B}[?1049h\u{1B}[H\u{1B}[2JHEADER\u{1B}[2;1H~".utf8)))
         }
     }
 
@@ -73,8 +54,8 @@ import UIKit
     /// TabsKit's insets set by its representable (the demo's
     /// `-CmuxMobileTerminalDemoEmbedded`). `hostGrid`: the Mac's grid is
     /// `30x12` and a full-screen app runs in it (the demo's host grid TUI).
-    static func openTab(hostGrid: Bool, cursorAtBottom: Bool = false) async throws -> Page {
-        let tui = TUISession(cursorAtBottom: cursorAtBottom)
+    static func openTab(hostGrid: Bool) async throws -> Page {
+        let tui = TUISession()
         let grid = hostGrid ? TerminalHostGridDemoSession(spec: "30x12,tui") : nil
         let session: any TerminalSession = grid ?? tui
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "tui")
@@ -87,7 +68,7 @@ import UIKit
         try await TerminalPredictionInputTests.waitUntil(5) { screen.started }
         try #require(screen.started, "the tab page never started its session")
         if grid == nil { tui.enterTUI() }
-        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.superview?.isHidden == false }
+        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
         try #require(model.isTUI, "the tab never showed the full-screen app")
         let marker = grid == nil ? "HEADER" : "Mac grid"
         try await TerminalPredictionInputTests.waitUntil(5) { screen.surface.activeAreaText()?.contains(marker) == true }
@@ -99,8 +80,8 @@ import UIKit
         return Page(screen: screen, session: tui, window: window)
     }
 
-    static func open(_ chrome: TerminalChrome, cursorAtBottom: Bool = false) async throws -> Page {
-        let session = TUISession(cursorAtBottom: cursorAtBottom)
+    static func open(_ chrome: TerminalChrome) async throws -> Page {
+        let session = TUISession()
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "tui")
         let screen = TerminalViewController(model: model, chrome: chrome)
         let window = UIWindow(frame: UIScreen.main.bounds)
@@ -110,7 +91,7 @@ import UIKit
         try await TerminalPredictionInputTests.waitUntil(5) { session.handler != nil }
         try #require(session.handler != nil, "the screen never started its session")
         session.enterTUI()
-        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.superview?.isHidden == false }
+        try await TerminalPredictionInputTests.waitUntil(5) { model.isTUI && screen.surface.superview?.superview?.isHidden == false }
         try #require(model.isTUI, "the page never showed the full-screen app")
         try await TerminalPredictionInputTests.waitUntil(5) { screen.surface.activeAreaText()?.contains("HEADER") == true }
         try #require(screen.surface.activeAreaText()?.contains("HEADER") == true, "the app's screen was never drawn")
@@ -147,9 +128,7 @@ import UIKit
     static func expectFits(_ page: Page, _ state: String, areaTop: CGFloat, cursorRow: Int = 1) throws {
         let view = try #require(page.screen.view)
         let host = try #require(page.screen.surface.superview, "\(state): the surface has no TUI host")
-        // The host sits in a view that clips its height, inside the area's
-        // clip (toolbar to composer).
-        let clip = try #require(host.superview?.superview, "\(state): the TUI host has no clip")
+        let clip = try #require(host.superview, "\(state): the TUI host has no clip")
         let area = clip.convert(clip.bounds, to: view)
         let grid = host.convert(host.bounds, to: view)
         let cell = page.screen.surface.cellSize.height
@@ -166,71 +145,14 @@ import UIKit
         #expect(area.height - grid.height < cell, "the app's rows leave a row of the area empty. \(where_)")
     }
 
-    /// Keyboard up: the grid keeps `rows` (its keyboard-down height), the
-    /// terminal area still starts under the toolbar, and the row Ghostty
-    /// draws the cursor on is inside the area (the lift moves the grid down
-    /// only as far as that needs).
-    static func expectKeepsRowsWithKeyboardUp(_ page: Page, _ state: String, areaTop: CGFloat, rows: CGFloat) throws {
-        let view = try #require(page.screen.view)
-        let host = try #require(page.screen.surface.superview, "\(state): the surface has no TUI host")
-        let clip = try #require(host.superview?.superview, "\(state): the TUI host has no clip")
-        let area = clip.convert(clip.bounds, to: view)
-        let grid = host.convert(host.bounds, to: view)
-        let surface = page.screen.surface
-        let cursor = surface.visibleCursorCell.map { surface.convert($0, to: view) }
-        let where_ = "\(state): area \(area), grid \(grid), cursor \(cursor.map { "\($0)" } ?? "none"), \(page.screen.debugState)"
-        let drawnCursor = try #require(cursor, "the cursor is not drawn. \(where_)")
-        #expect(abs(area.minY - areaTop) < 0.5, "the terminal area starts under the toolbar. \(where_)")
-        #expect(abs(grid.height - rows) < 0.5, "the keyboard changed the app's rows (\(rows) pt before). \(where_)")
-        #expect(drawnCursor.minY >= area.minY - 0.5 && drawnCursor.maxY <= area.maxY + 0.5, "the cursor's row is off screen. \(where_)")
-    }
-
-    /// The top exception: the app's first row is on screen at the top of the
-    /// area, drawn there by the grid itself or by the pinned header (which
-    /// shows the host's first rows of the presented frame), and the cursor's
-    /// row is on screen below the header and above the composer.
-    static func expectHeaderAndCursorVisible(_ page: Page, _ state: String) throws {
-        let screen = page.screen
-        let view = try #require(screen.view)
-        let host = try #require(screen.surface.superview, "\(state): the surface has no TUI host")
-        let clip = try #require(host.superview?.superview, "\(state): the TUI host has no clip")
-        let area = clip.convert(clip.bounds, to: view)
-        let surface = screen.surface
-        let cell = surface.cellSize.height
-        let cursor = surface.visibleCursorCell.map { surface.convert($0, to: view) }
-        let header = screen.tuiHeader
-        let where_ = "\(state): area \(area), host top \(host.convert(CGPoint.zero, to: view).y), header \(header.isHidden ? "hidden" : "\(header.frame) rows \(screen.tuiHeaderRows)"), cursor \(cursor.map { "\($0)" } ?? "none"), \(screen.debugState)"
-        let drawnCursor = try #require(cursor, "the cursor is not drawn. \(where_)")
-        let firstRowShown = host.convert(CGPoint.zero, to: view).y >= area.minY - 0.5
-        var bodyTop = area.minY
-        if !firstRowShown {
-            #expect(!header.isHidden && screen.tuiHeaderRows > 0, "the app's first rows are clipped and no header is pinned. \(where_)")
-            #expect(abs(header.frame.minY - area.minY) < 0.5, "the header is not at the top of the area. \(where_)")
-            #expect(abs(header.frame.height - CGFloat(screen.tuiHeaderRows) * cell) < 0.5, "the header is not whole rows. \(where_)")
-            let frameLayer = try #require(surface.layer.sublayers?.first, "\(where_)")
-            #expect(header.layer.contents != nil, "the header shows no frame. \(where_)")
-            // The header's source starts at the host's first row.
-            let sourceTop = header.layer.contentsRect.minY * frameLayer.bounds.height + frameLayer.frame.minY + surface.frame.minY
-            #expect(abs(sourceTop) < 0.5, "the header shows host y \(sourceTop), not the app's first row. \(where_)")
-            bodyTop = header.frame.maxY
-        }
-        #expect(drawnCursor.minY >= bodyTop - 0.5, "the cursor's row is under the header or above the area. \(where_)")
-        #expect(drawnCursor.maxY <= area.maxY + 0.5, "the cursor's row is under the composer. \(where_)")
-    }
-
-    static func gridHeight(_ page: Page) throws -> CGFloat {
-        try #require(page.screen.surface.superview).bounds.height
-    }
-
     @Test func aFullScreenAppInATabStartsInsideTheTerminalArea() async throws {
         await TerminalScreenTestLock.acquire()
         defer { TerminalScreenTestLock.release() }
         let page = try await Self.open(.embedded)
         defer { page.close() }
         try Self.expectFits(page, "tab, keyboard down", areaTop: Self.tabInsets.top)
-        let rows = try Self.gridHeight(page)
         Self.keyboard(page, height: 336)
-        try Self.expectKeepsRowsWithKeyboardUp(page, "tab, keyboard up", areaTop: Self.tabInsets.top, rows: rows)
+        try Self.expectFits(page, "tab, keyboard up", areaTop: Self.tabInsets.top)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "tab, keyboard down again", areaTop: Self.tabInsets.top)
     }
@@ -241,9 +163,8 @@ import UIKit
         let page = try await Self.openTab(hostGrid: false)
         defer { page.close() }
         try Self.expectFits(page, "tab page, keyboard down", areaTop: Self.tabInsets.top)
-        let rows = try Self.gridHeight(page)
         Self.keyboard(page, height: 336)
-        try Self.expectKeepsRowsWithKeyboardUp(page, "tab page, keyboard up", areaTop: Self.tabInsets.top, rows: rows)
+        try Self.expectFits(page, "tab page, keyboard up", areaTop: Self.tabInsets.top)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "tab page, keyboard down again", areaTop: Self.tabInsets.top)
     }
@@ -264,9 +185,8 @@ import UIKit
         defer { page.close() }
         let top = page.screen.view.safeAreaInsets.top
         try Self.expectFits(page, "standalone, keyboard down", areaTop: top)
-        let rows = try Self.gridHeight(page)
         Self.keyboard(page, height: 336)
-        try Self.expectKeepsRowsWithKeyboardUp(page, "standalone, keyboard up", areaTop: top, rows: rows)
+        try Self.expectFits(page, "standalone, keyboard up", areaTop: top)
         Self.keyboard(page, height: 0)
         try Self.expectFits(page, "standalone, keyboard down again", areaTop: top)
     }

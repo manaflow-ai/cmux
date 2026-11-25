@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import Foundation
 
 /// A CmuxNext target's SwiftPM resource bundle, found without trapping.
@@ -55,8 +54,7 @@ public nonisolated struct ModuleResourceBundle: Sendable {
             // A table no bundle has, so the lookup returns the default value.
             return String(localized: key, defaultValue: defaultValue, table: Self.missingTable, bundle: .main)
         }
-        // In the app's language (`app.language`, AppLanguage): the chosen `.lproj`, else the bundle.
-        return String(localized: key, defaultValue: defaultValue, bundle: bundle.inAppLanguage)
+        return String(localized: key, defaultValue: defaultValue, bundle: bundle)
     }
 
     private static let missingTable = "CmuxNextMissingResourceBundle"

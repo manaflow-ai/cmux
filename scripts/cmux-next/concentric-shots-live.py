@@ -19,10 +19,7 @@ composite with the overlay panels that toasts and dialogs draw in; no Screen Rec
 
 --only NAME[,NAME] shoots just those surfaces.
 """
-import argparse, hashlib, json, os, plistlib, socket, subprocess, sys, tempfile, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
-from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -72,30 +69,6 @@ def snapshot(path, window=None):
     params = {"path": path, "webviews": False}
     params.update({"window": window} if window is not None else {"kind": "main"})
     return rpc("debug.window_snapshot", params, timeout=40)
-
-
-def settled(what, window=None, reads=4, interval=0.2, timeout=15):
-    """Waits until the window's snapshot (the main one by default) is the same image `reads` times in a row: the
-    surface came in and stopped moving. Best effort: a surface still moving at the deadline is shot anyway."""
-    probe = os.path.join(SCRATCH, "settle.png")
-
-    def image():
-        reply = snapshot(probe, window() if callable(window) else window)
-        if (reply or {}).get("error") or not os.path.exists(probe):
-            raise RuntimeError(f"no snapshot: {reply}")
-        with open(probe, "rb") as f:
-            digest = hashlib.sha256(f.read()).hexdigest()
-        os.remove(probe)
-        return digest
-
-    if wait_stable(image, what, timeout=timeout, interval=interval, reads=reads, raise_on_timeout=False) is None:
-        print(f"note: no snapshot of {what} in {timeout} s", flush=True)
-
-
-def window_with(word):
-    """The id of a visible window whose title has `word`, or None (playground_window, without its print)."""
-    return next((w["id"] for w in (rpc("debug.window_list") or {}).get("windows") or []
-                 if word in (w.get("title") or "").lower()), None)
 
 
 ONLY = set(filter(None, opts.only.split(",")))
@@ -150,7 +123,7 @@ print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     if not wait(lambda: os.path.exists(SOCKET) and not (rpc("debug.window_frame") or {}).get("error"), 180):
         sys.exit("the tagged app did not come up")
-    settled("the first window")
+    time.sleep(3)  # capture harness: the first window settles
     stop_all = {"stopped": True, "subagents": ["a1", "a3"], "errors": ["a2: its turn did not stop: acpmux refused the cancel"]}
     if wanted("keycaps"):
         # The playground opens in the app's appearance: open it again after each switch.
@@ -171,23 +144,19 @@ try:
     shoot("save", lambda: rpc("debug.dialog", {"open": "save", "scope": "window"}),
           lambda: rpc("debug.dialog", {"key": "escape"}))
     print("stage", rpc("debug.updater", {"action": "stage", "version": "1.0.0-nightly.3932981759301", "changes": 3}), flush=True)
-    settled("the update card")
+    time.sleep(2)  # capture harness: the card comes in
     shoot("update")
     rpc("debug.updater", {"action": "unstage"})
     if True:  # the cards with a close x: the Updated card (hovered, so its x shows) and a tip's notice card
         print("updated", rpc("debug.updater", {"action": "updated", "previous": "0.0.1"}), flush=True)
-        settled("the Updated card with its words", reads=6)
+        time.sleep(3)  # capture harness: the Updated card's page loads its words
         shoot("updated", lambda: rpc("debug.update_surfaces", {"action": "hover-updated"}))
         print("tip", rpc("debug.updater", {"action": "tip"}), flush=True)
-        settled("the notice card")
+        time.sleep(2)  # capture harness: the notice card comes in
         shoot("notice")
         rpc("debug.updater", {"action": "untip"})
     print("playground", rpc("debug.toast", {"perform": "debug.toastPlayground"}), flush=True)
-    # The playground window and its toasts come up: the window is listed, then its image stops changing.
-    if wait(lambda: window_with("playground"), 15):
-        settled("the playground window", window=lambda: window_with("playground"))
-    else:
-        safe_print("note: no playground window listed in 15 s", flush=True)
+    time.sleep(3)  # capture harness: the playground window and its toasts come up
     shoot("playground", window=playground_window)
     print("toasts", json.dumps(rpc("debug.toast"))[:600], flush=True)
 finally:

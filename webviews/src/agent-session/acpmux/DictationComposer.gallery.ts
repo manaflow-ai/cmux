@@ -8,7 +8,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
-import { setPreviewComposerLook } from "./composerLook";
+import { setComposerLook } from "./composerLook";
 import type { DictationUpdate } from "./dictationText";
 
 const finished = [
@@ -69,7 +69,7 @@ const finalizing: Play = async (ctx) => {
 const inCodex =
   (play: Play): Play =>
   async (ctx) => {
-    setPreviewComposerLook("codex");
+    setComposerLook("codex", { remember: false });
     await ctx.waitFor(() => ctx.document.querySelector('[data-composer-look="codex"]'));
     await play(ctx);
   };

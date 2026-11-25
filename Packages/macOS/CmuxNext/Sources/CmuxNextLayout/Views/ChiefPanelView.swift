@@ -28,18 +28,27 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         public var moved: @MainActor (ChiefPanelFrame) -> Void
         /// Stop the Chief's answer (Esc while it answers).
         public var stop: @MainActor () -> Void
+        /// The eye: turn "sees your screen" off or on.
+        public var toggleSeesScreen: @MainActor () -> Void = {}
+        /// The panel came on screen (opened, or back after Home).
+        public var opened: @MainActor () -> Void = {}
 
         /// - Parameters:
         ///   - toggleDock: Dock or Float.
         ///   - hide: Hide.
         ///   - moved: A drag or resize ended at this floating place.
         ///   - stop: Stop the Chief's answer; nothing by default.
+        ///   - toggleSeesScreen: The eye's click; nothing by default.
+        ///   - opened: The panel came on screen; nothing by default.
         public init(toggleDock: @escaping @MainActor () -> Void, hide: @escaping @MainActor () -> Void,
-                    moved: @escaping @MainActor (ChiefPanelFrame) -> Void, stop: @escaping @MainActor () -> Void = {}) {
+                    moved: @escaping @MainActor (ChiefPanelFrame) -> Void, stop: @escaping @MainActor () -> Void = {},
+                    toggleSeesScreen: @escaping @MainActor () -> Void = {}, opened: @escaping @MainActor () -> Void = {}) {
             self.toggleDock = toggleDock
             self.hide = hide
             self.moved = moved
             self.stop = stop
+            self.toggleSeesScreen = toggleSeesScreen
+            self.opened = opened
         }
     }
 
@@ -65,6 +74,10 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
     /// Where a press moves the panel (and, resting, a click opens it), in this view's coordinates (y down).
     public var gripRect: NSRect { bar.frame }
+    /// Whether the Chief gets a look at the screen when the panel opens (the eye).
+    public var seesScreen = true {
+        didSet { if seesScreen != oldValue { applyEye() } }
+    }
     /// Whether the panel's glass shows behind the chat.
     public var showsPanelGlass: Bool { !backdrop.isHidden }
     /// The glass plate under the message box (see-through styles), in this view's coordinates; nil without one.
@@ -84,6 +97,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     private let title: NSTextField
     private let dockButton = NSButton()
     private let hideButton = NSButton()
+    private let eyeButton = NSButton()
     /// The see-through styles' veil under the message box, so what is typed stays readable over any workspace.
     private let plate = NSView()
     /// The see-through styles' veil behind the bar and the chat's header (its name and picture): only there, so the
@@ -117,13 +131,13 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel(String(localized: "layout.chiefPanel", defaultValue: "Chief panel", bundle: .localizedModule))
+        setAccessibilityLabel(String(localized: "layout.chiefPanel", defaultValue: "Chief panel", bundle: .module))
         setAccessibilityIdentifier("window.chiefPanel")
         backdrop.translatesAutoresizingMaskIntoConstraints = true
         backdrop.autoresizingMask = [.width, .height]
         self.title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         self.title.textColor = .secondaryLabelColor
-        for (button, id) in [(dockButton, "window.chiefPanel.dock"), (hideButton, "window.chiefPanel.hide")] {
+        for (button, id) in [(dockButton, "window.chiefPanel.dock"), (hideButton, "window.chiefPanel.hide"), (eyeButton, "window.chiefPanel.seesScreen")] {
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
             button.imagePosition = .imageOnly
@@ -133,19 +147,21 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         }
         dockButton.action = #selector(toggleDockPressed)
         hideButton.action = #selector(hidePressed)
-        let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .localizedModule)
+        eyeButton.action = #selector(eyePressed)
+        applyEye()
+        let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .module)
         hideButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: hide)
         hideButton.themedToolTip = hide
-        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .localizedModule)
+        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .module)
         gripMark.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: grip)
         gripMark.contentTintColor = .tertiaryLabelColor
         gripMark.frameCenterRotation = 90
         bar.themedToolTip = grip
         chiefMark.image = NSImage(systemSymbolName: "bubble.left.fill",
-                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .localizedModule))
+                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .module))
         chiefMark.contentTintColor = .controlAccentColor
         chiefMark.symbolConfiguration = .init(scale: .large)
-        for view in [self.title, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
+        for view in [self.title, eyeButton, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
         body.wantsLayer = true
         for veil in [plate, header] {
             veil.wantsLayer = true
@@ -182,10 +198,12 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         !floating && bar.frame.contains(convert(windowPoint, from: nil)) && press == nil ? .movesWindow : .staysPut
     }
 
-    /// Follows the settings live: the style from `source`, its value now, then each change.
-    public func follow(_ source: @escaping @MainActor @Sendable () -> ChiefPanelStyle) {
+    /// Follows the settings live: the style from `source` and the eye from `seesScreen`, their values now, then each
+    /// change.
+    public func follow(_ source: @escaping @MainActor @Sendable () -> ChiefPanelStyle,
+                       seesScreen: @escaping @MainActor @Sendable () -> Bool = { true }) {
         styleTask?.cancel()
-        let (first, later) = ObservationStream.current { Look(style: source()) }
+        let (first, later) = ObservationStream.current { Look(style: source(), seesScreen: seesScreen()) }
         apply(first)
         styleTask = Task { [weak self] in
             for await next in later {
@@ -196,11 +214,17 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     }
 
     /// What the settings say: kept, so a direct change of ``style`` stands until the settings change.
-    private struct Look: Equatable, Sendable { var style: ChiefPanelStyle }
+    private struct Look: Equatable, Sendable { var style: ChiefPanelStyle; var seesScreen: Bool }
 
     private func apply(_ look: Look) {
         sourced = look
         style = look.style
+        seesScreen = look.seesScreen
+    }
+
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview != nil { actions.opened() }
     }
 
     /// Puts the panel on screen for the window whose content is `host`: floating, in its own window over every app
@@ -238,8 +262,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         self.floating = floating
         applyDockedWorkspaceChrome(floating: floating)
         layer?.masksToBounds = false
-        let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .localizedModule)
-            : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .localizedModule)
+        let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .module)
+            : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .module)
         dockButton.image = NSImage(systemSymbolName: floating ? "sidebar.left" : "macwindow.on.rectangle", accessibilityDescription: label)
         dockButton.themedToolTip = label
         applyShape()
@@ -450,6 +474,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         body.isHidden = chrome == .rest && style == .bubble
         title.isHidden = chrome != .bar
         dockButton.isHidden = chrome == .rest
+        eyeButton.isHidden = chrome == .rest
         hideButton.isHidden = chrome == .rest
         gripMark.isHidden = chrome != .rest || style == .bubble
         chiefMark.isHidden = !(chrome == .rest && style == .bubble)
@@ -474,6 +499,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
             bar.frame = NSRect(x: 0, y: 0, width: w, height: strip)
             hideButton.frame = NSRect(x: w - button - (chrome == .bar ? 6 : 4), y: (strip - button) / 2, width: button, height: button)
             dockButton.frame = hideButton.frame.offsetBy(dx: -button - 2, dy: 0)
+            eyeButton.frame = dockButton.frame.offsetBy(dx: -button - 2, dy: 0)
             title.sizeToFit()
             title.frame.origin = NSPoint(x: 12, y: (strip - title.frame.height) / 2)
             body.frame = NSRect(x: 0, y: strip, width: w, height: max(0, h - strip))
@@ -528,6 +554,17 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
 
     @objc private func toggleDockPressed() { actions.toggleDock() }
     @objc private func hidePressed() { actions.hide() }
+    @objc private func eyePressed() { actions.toggleSeesScreen() }
+
+    /// The eye's look: open while the Chief gets a look at the screen when the panel opens, crossed out when not.
+    private func applyEye() {
+        let label = seesScreen
+            ? String(localized: "layout.chiefPanel.seesScreen.on", defaultValue: "Chief Sees Your Screen When It Opens", bundle: .module)
+            : String(localized: "layout.chiefPanel.seesScreen.off", defaultValue: "Chief Does Not See Your Screen", bundle: .module)
+        eyeButton.image = NSImage(systemSymbolName: seesScreen ? "eye" : "eye.slash", accessibilityDescription: label)
+        eyeButton.contentTintColor = seesScreen ? .controlAccentColor : .secondaryLabelColor
+        eyeButton.themedToolTip = label
+    }
 
     /// The see-through plate's height: the message box and its margin.
     static let plateHeight: CGFloat = 64

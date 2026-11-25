@@ -24,10 +24,6 @@ export interface ConnectState {
   readonly configure_url?: string
 }
 
-/** The page provider redirects come back to: INTEGRATIONS_CALLBACK_ORIGIN when set (development), else DASHBOARD_ORIGIN. */
-export const integrationCallbackUrl = (env: Pick<Env, "DASHBOARD_ORIGIN" | "INTEGRATIONS_CALLBACK_ORIGIN">): string =>
-  `${(env.INTEGRATIONS_CALLBACK_ORIGIN || env.DASHBOARD_ORIGIN || "").replace(/\/$/, "")}/integrations/callback`
-
 const AUDIENCE = "cmux-integration-state"
 export const STATE_TTL_SECONDS = 15 * 60
 
@@ -37,8 +33,7 @@ const keys = (env: Env) => {
   return { priv: jwk, pub }
 }
 
-/** `expiresAt` (epoch seconds) keeps another state's expiry; without it the state lives STATE_TTL_SECONDS from now. */
-export const signState = async (env: Env, s: ConnectState, expiresAt?: number): Promise<string> => {
+export const signState = async (env: Env, s: ConnectState): Promise<string> => {
   const key = await importJWK(keys(env).priv, "ES256")
   return new SignJWT({ conn: s.conn, team: s.team, provider: s.provider, ...(s.return_to ? { ret: s.return_to } : {}), ...(s.installation ? { inst: s.installation } : {}), ...(s.repo ? { repo: s.repo } : {}), ...(s.configure_url ? { cfg: s.configure_url } : {}) })
     .setProtectedHeader({ alg: "ES256", typ: "JWT" })
@@ -46,44 +41,26 @@ export const signState = async (env: Env, s: ConnectState, expiresAt?: number): 
     .setAudience(AUDIENCE)
     .setSubject(s.user)
     .setIssuedAt()
-    .setExpirationTime(expiresAt ?? `${STATE_TTL_SECONDS}s`)
+    .setExpirationTime(`${STATE_TTL_SECONDS}s`)
     .sign(key)
 }
 
-export const verifyState = async (env: Env, token: string): Promise<ConnectState | undefined> => (await verified(env, token))?.state
-
-/**
- * `token` re-signed to name `installation`, for the redirect GitHub sends after a person saves an installation that
- * already existed: it carries the installation and no code, so the person goes on through GitHub's authorize page
- * and this state is what brings the installation back (github-authorize-route.ts). It expires when `token` does, so
- * re-signing never extends a connect. Undefined for a state that does not verify, another provider's state, or one
- * that already names a different installation.
- */
-export const stateNamingInstallation = async (env: Env, token: string, installation: number): Promise<string | undefined> => {
-  const v = await verified(env, token)
-  if (!v || v.expiresAt === undefined || v.state.provider !== "github") return undefined
-  if (!Number.isSafeInteger(installation) || installation < 1) return undefined
-  if (v.state.installation !== undefined && v.state.installation !== installation) return undefined
-  return signState(env, { ...v.state, installation }, v.expiresAt)
-}
-
-const verified = async (env: Env, token: string): Promise<{ readonly state: ConnectState; readonly expiresAt?: number } | undefined> => {
+export const verifyState = async (env: Env, token: string): Promise<ConnectState | undefined> => {
   try {
     const { payload } = await jwtVerify(token, await importJWK(keys(env).pub, "ES256"), { algorithms: ["ES256"], audience: AUDIENCE, issuer: `https://cmux-api/${env.ENVIRONMENT}` })
-    const { conn, team, provider, sub, ret, inst, repo, cfg, exp } = payload as Record<string, unknown>
+    const { conn, team, provider, sub, ret, inst, repo, cfg } = payload as Record<string, unknown>
     if (typeof conn !== "string" || typeof team !== "string" || typeof provider !== "string" || typeof sub !== "string") return undefined
     if (ret !== undefined && !isConnectReturnTo(ret)) return undefined
     if (inst !== undefined && !(typeof inst === "number" && Number.isSafeInteger(inst) && inst > 0)) return undefined
     if (repo !== undefined && !(typeof repo === "string" && /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repo))) return undefined
     if (cfg !== undefined && !(typeof cfg === "string" && GITHUB_CONFIGURE_URL.test(cfg))) return undefined
-    const state: ConnectState = {
+    return {
       conn, team, provider, user: sub,
       ...(ret === undefined ? {} : { return_to: ret }),
       ...(inst === undefined ? {} : { installation: inst }),
       ...(repo === undefined ? {} : { repo }),
       ...(cfg === undefined ? {} : { configure_url: cfg })
     }
-    return { state, ...(typeof exp === "number" ? { expiresAt: exp } : {}) }
   } catch {
     return undefined
   }

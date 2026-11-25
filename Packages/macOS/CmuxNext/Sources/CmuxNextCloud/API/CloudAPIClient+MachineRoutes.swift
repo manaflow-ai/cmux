@@ -1,4 +1,3 @@
-public import CMUXAuthCore
 public import Foundation
 
 /// A machine's exec and file routes: `/v1/cloud/machines/{id}/exec` and `/v1/cloud/machines/{id}/fs/...`
@@ -20,10 +19,9 @@ extension CloudAPIClient {
     public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
                                       teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
                                       appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil,
-                                      installToken: (@Sendable () async throws -> String)? = nil,
-                                      buildSpace: CMUXBuildSpaceState = .nightly) -> CloudAPIClient {
+                                      installToken: (@Sendable () async throws -> String)? = nil) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session,
-                                    appVersion: appVersion, buildSpace: buildSpace)
+                                    appVersion: appVersion)
         client.machineIO = machineIO
         client.installToken = installToken
         return client

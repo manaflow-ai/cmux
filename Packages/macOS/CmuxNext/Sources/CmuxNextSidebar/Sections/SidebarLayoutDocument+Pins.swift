@@ -23,14 +23,6 @@ extension SidebarLayoutDocument {
         section(Self.pinnedSectionID)?.items.contains { $0.ref == ref } ?? false
     }
 
-    /// Whether item `id` is a top row (not a pinned tile): its menu has no Remove from Top, it is dragged out instead.
-    /// Leo 2026-11-22 (ask-890db939a2): "why is there even a remove from top option. just move it yourself. you can
-    /// drag it anywhere you want."
-    public func isTopRow(_ id: LayoutItemID) -> Bool {
-        guard let (s, _) = locate(id) else { return false }
-        return sections[s].region == .top && sections[s].id != Self.pinnedSectionID
-    }
-
     /// Whether `ref` shows in the top region in any room (a tile or a top
     /// row), so the workspace list leaves it out.
     public func isOnTop(_ ref: LayoutItemRef) -> Bool {

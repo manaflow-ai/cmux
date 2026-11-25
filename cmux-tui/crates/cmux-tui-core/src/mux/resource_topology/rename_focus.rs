@@ -482,7 +482,7 @@ impl Mux {
                     && let Some((workspace, screen)) = state.screen_of(pane)
                     && let Some(screen) =
                         state.workspaces.get(workspace).and_then(|found| found.screens.get(screen))
-                    && screen.focus_changes_floating_panes(pane)
+                    && screen.floating_pane_is_behind(pane)
                 {
                     *raised_screen = Some(screen.id);
                 }

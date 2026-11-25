@@ -103,7 +103,6 @@ import bench_memory as bm  # noqa: E402
 import chat_open_frames as cof  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402
-from state_wait import wait_stable, wait_until  # noqa: E402
 
 SURFACES = ("terminal", "browser", "changes", "files", "new_tab", "subagent", "side_chat", "reopen_right")
 # A click on another agent's message's sender (the module doc): only when --surfaces names them.
@@ -388,17 +387,16 @@ def new_chat(binary, env, name, text):
     return session
 
 
-def wait_delivered(binary, env, home, chat, marker, run=None):
+def wait_delivered(binary, env, home, chat, marker):
     """Until the chat's log holds the message (an inbox record and its notice turn, or a queued turn from a peer),
-    then its turn's end, and the page's own draw of it (its readiness settles, when `run` shows the chat)."""
+    then its turn's end, and the page's own draw of it."""
     deadline = time.monotonic() + 90
     while marker.encode() not in chat_log(home, chat):
         if time.monotonic() > deadline:
             raise SenderError(f"the message {marker} never reached the chat's log in 90 s")
         time.sleep(0.5)  # test script: the outbox delivers it in the background
     subprocess.run([binary, "wait", chat, "--timeout", "60"], capture_output=True, timeout=90, env=env)
-    if run is not None:
-        page_settled(run, f"the chat page after the message {marker}")
+    time.sleep(2)  # test script: the page draws the new line
 
 
 class PeerSender:
@@ -457,7 +455,7 @@ class PeerSender:
         self.peer.stop()
 
 
-def seed_senders(home, chat, condition, peer, run=None):
+def seed_senders(home, chat, condition, peer):
     """Each wanted sender_* surface's message in `chat` (the condition's chat, open in the launched app), through
     the app's own acpmux daemon. Fills SENDERS; returns what each reached, for the condition's record."""
     SENDERS.clear()
@@ -503,51 +501,11 @@ def seed_senders(home, chat, condition, peer, run=None):
                 # `display_sender`).
                 run_cli(binary, env, "send", "--from", UNREACHED_SENDER, chat, text)
                 SENDERS[surface] = {"name": UNREACHED_SENDER}
-            wait_delivered(binary, env, home, chat, marker, run)
+            wait_delivered(binary, env, home, chat, marker)
         except (SenderError, OSError, RuntimeError, subprocess.SubprocessError) as error:
             SENDERS[surface] = {**SENDERS.get(surface, {}), "error": f"{type(error).__name__}: {str(error)[:500]}"}
             say(f"right-pane-open: {condition} {surface}: no message: {SENDERS[surface]['error']}")
     return {surface: dict(state) for surface, state in SENDERS.items()}
-
-
-# ---------------------------------------------------------------------------------------------
-# Settled: what each step waits on instead of a fixed pause.
-
-def page_readiness(run):
-    """The shown chat page's readiness fields that change while it reads and draws (not its clocks)."""
-    ready = run.rpc("debug.agent_pane", {"action": "readiness"}) or {}
-    return {k: ready.get(k) for k in ("error", "pane", "body_text_length", "transcript_rows", "rows")}
-
-
-def page_settled(run, what, timeout=15):
-    """Until the shown chat page's readiness (its text length and rows) reads the same about a second: its own
-    reads and draws are done. Best effort: a page still changing is logged."""
-    def read():
-        return json.dumps(page_readiness(run), sort_keys=True, default=str)
-    if wait_stable(read, what, timeout=timeout, interval=0.25, reads=4, raise_on_timeout=False) is None:
-        say(f"right-pane-open: {what} never settled in {timeout} s")
-
-
-def app_at_rest(run, what, timeout=15, reads=4):
-    """Until the topology and the shown page's readiness read the same several times in a row: a switch, open or
-    close (its layout and the page's reads) has ended. Best effort: logged."""
-    def read():
-        return json.dumps([(run.rpc("snapshot.get") or {}).get("topology"), page_readiness(run)], sort_keys=True, default=str)
-    if wait_stable(read, what, timeout=timeout, interval=0.15, reads=reads, raise_on_timeout=False) is None:
-        say(f"right-pane-open: {what} never settled in {timeout} s")
-
-
-def main_display_is_virtual():
-    """True once the system lists a main display at the virtual display's size (system_profiler)."""
-    width, height = STRESS.VDISPLAY_SIZE.split("x")
-    out = subprocess.run(["system_profiler", "SPDisplaysDataType", "-json"], capture_output=True, text=True, timeout=30).stdout
-    for gpu in json.loads(out or "{}").get("SPDisplaysDataType") or []:
-        for screen in gpu.get("spdisplays_ndrvs") or []:
-            main = str(screen.get("spdisplays_main", "")).endswith("yes")
-            size = str(screen.get("_spdisplays_resolution") or screen.get("_spdisplays_pixels") or "")
-            if main and f"{width} x {height}" in size:
-                return True
-    return False
 
 
 # ---------------------------------------------------------------------------------------------
@@ -650,7 +608,7 @@ class Chat:
         mine = next((p for p in panes if p.get("id") == self.pane), {})
         tabs = mine.get("tabs") or []
         self.tab = next((t.get("id") for t in tabs if t.get("kind") == "conversation"), tabs[0].get("id") if tabs else None)
-        page_settled(self.run, "the chat page's first reads")
+        time.sleep(1.5)  # test script: the page's own reads after its first content end before the first click
 
     def repane(self):
         """The pane that holds the chat's tab now: closing what an open added can fold the chat's pane into a new one
@@ -668,7 +626,7 @@ class Chat:
         self.repane()
         self.stress.show(self.workspace)
         self.stress.focus_pane(self.pane)
-        app_at_rest(self.run, "the app after showing the chat")
+        time.sleep(0.5)  # test script: the switch settles
 
     def tabs(self):
         return {t.get("id") for p in self.stress.panes(self.stress.workspace(self.workspace)) for t in p.get("tabs") or [] if t.get("id")}
@@ -691,9 +649,8 @@ class Chat:
                 break
             except STRESS.StressShapeError as error:
                 problem = str(error)[:600]
-                # Retry once the open's own focus move ended (the layout reads the same again).
-                app_at_rest(self.run, "the focus move before the retry", timeout=5, reads=3)
-        app_at_rest(self.run, "the app after the close")
+                time.sleep(0.5)  # test script: an open's own focus move ends before the retry
+        time.sleep(0.6)  # test script: the close's own motion ends before the next click
         panes = self.stress.panes(self.stress.workspace(self.workspace))
         if problem or left or len(panes) > 1:
             return {"focus": problem, "left_tabs": left, "panes": [{"id": p.get("id"), "tabs": [(t.get("id"), t.get("kind"), t.get("page"))
@@ -817,8 +774,7 @@ def open_and_close_right(run, chat, round_index, before):
         return f"open the subagent: {str(opened['error'])[:300]}"
     if not STRESS.wait(lambda: chat.tabs() - before, 15, step=0.1):
         return "the subagent's chat never opened"
-    # The subagent's chat drew its transcript (its page's reads and the layout settled) before it closes.
-    app_at_rest(run, "the subagent's chat after it opened")
+    time.sleep(2.5)  # test script: the subagent's chat draws its transcript before it closes, as a person reads it
     for tab in chat.tabs() - before:
         closed = chat.stress.action("closeTab", target=f"tab:{tab}", focus=False) or {}
         if closed.get("error"):
@@ -828,7 +784,8 @@ def open_and_close_right(run, chat, round_index, before):
         return "the subagent's chat never closed"
     if not STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) <= 1, 10, step=0.1):
         return "the subagent's pane never closed"
-    chat.show()  # waits until the app is at rest after the close, before the timed key
+    chat.show()
+    time.sleep(0.6)  # test script: the close's own motion ends before the timed key
     return None
 
 
@@ -849,7 +806,7 @@ def measure(run, chat, surface, label, round_index):
         # only once it is open, as a person opens it before clicking a name.
         expanded = run.rpc("debug.agent_pane", {"action": "click", "selector": INBOX_FOLDED, "pane": chat.pane}) or {}
         if not expanded.get("error"):
-            page_settled(run, "the inbox notice after it opened", timeout=5)
+            time.sleep(0.4)  # test script: the notice's own motion ends
     if surface == "reopen_right":
         problem = open_and_close_right(run, chat, round_index, before)
         if problem:
@@ -859,7 +816,7 @@ def measure(run, chat, surface, label, round_index):
         opened = run.rpc("debug.agent_pane", {"action": "click", "selector": ".acpmux-header-more", "pane": chat.pane}) or {}
         if opened.get("error"):
             return {"error": f"open the chat menu: {opened['error']}"}
-        app_at_rest(run, "the chat menu after it opened", timeout=5, reads=3)
+        time.sleep(0.4)  # test script: the menu's own motion ends
     reply, target = {}, None
     for target in clicks(surface, round_index):
         reply = strip(run, chat, target, label)
@@ -1070,9 +1027,7 @@ def main():
                 # Measured on the host's display; STRESS then says why its window does not fit.
                 results["display"] = {"vdisplay_hz": opts.vdisplay, "error": str(error)[:400]}
                 say(f"right-pane-open: VDISPLAY-FALLBACK {error}")
-            if display is not None and not wait_until(main_display_is_virtual, "the virtual display as the main display",
-                                                      timeout=15, interval=0.5, raise_on_timeout=False):
-                say("right-pane-open: the system never listed the virtual display as main in 15 s; going on")
+            time.sleep(2)  # test script: WindowServer settles the new main display before the app opens on it
         repo = make_repo(root)
         say("right-pane-open: seeding")
         home, chats, meta_keys = seed(root, repo)
@@ -1132,12 +1087,12 @@ def run_condition(condition, runs, home, chats, load, results, info, peer=None):
     set_tunables(run)
     if not results.get("app_version"):
         results["app_version"] = (run.app.identify() or {}).get("version")
-    app_at_rest(run, "the app's launch work", timeout=30, reads=5)
+    time.sleep(5)  # test script: let launch work end before the chat opens
     chat = Chat(run)
     chat.open(chats[condition])
     if any(s in SENDER_SURFACES for s in WANTED):
         # The sender_* messages, through the app's own daemon now that it runs (untimed); the chat shown again after.
-        info["senders"] = seed_senders(home, chats[condition], condition, peer, run)
+        info["senders"] = seed_senders(home, chats[condition], condition, peer)
         chat.show()
     if condition == "stress":
         stress = chat.stress
@@ -1149,7 +1104,7 @@ def run_condition(condition, runs, home, chats, load, results, info, peer=None):
         info["busy_terminals"] = len(getattr(stress, "busy", []))
         chat.show()
         load.start(run.sock)
-        time.sleep(opts.settle)  # sleep-ok: --settle, the load's chosen run time before the first open
+        time.sleep(opts.settle)  # test script: the load reaches steady state
     if condition == "restart":
         for _ in range(opts.restarts):
             run.quit()

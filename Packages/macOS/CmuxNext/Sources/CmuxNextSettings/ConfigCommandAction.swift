@@ -32,13 +32,11 @@ public struct ConfigCommandAction: Sendable, Hashable, Identifiable {
     /// Shell text typed into the terminal, followed by Return.
     public var command: String
     public var target: Target
-    /// The folder a new tab starts in; nil starts it where a new tab would.
-    public var cwd: String?
 
     public var id: String { actionID }
 
     public init(name: String, title: String, tooltip: String? = nil, icon: ConfigIcon? = nil,
-                command: String, target: Target = .newTabInCurrentPane, cwd: String? = nil) {
+                command: String, target: Target = .newTabInCurrentPane) {
         self.actionID = Self.actionID(forName: name)
         self.name = name
         self.title = title
@@ -46,7 +44,6 @@ public struct ConfigCommandAction: Sendable, Hashable, Identifiable {
         self.icon = icon
         self.command = command
         self.target = target
-        self.cwd = cwd
     }
 
     /// Prefix of every registry ID made from cmux.json actions.

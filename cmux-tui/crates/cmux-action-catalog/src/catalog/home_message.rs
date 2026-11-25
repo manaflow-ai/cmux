@@ -25,7 +25,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.messageAbout",
         group: GROUP,
-        title: t("HomeActions", "action.home.messageAbout", "Ask Chief About This…"),
+        title: t("HomeActions", "action.home.messageAbout", "Send Message…"),
         keywords: &["home", "send", "message", "chat", "imessage", "chief", "agent", "workspace", "tab", "about"],
         category: "window",
         symbol: "paperplane",

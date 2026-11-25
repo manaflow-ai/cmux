@@ -23,7 +23,7 @@ pub mod link;
 pub mod pair;
 pub mod patch;
 pub mod policy;
-pub(crate) mod requests;
+mod requests;
 
 use clap::Subcommand;
 use serde_json::{Value, json};

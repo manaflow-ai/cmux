@@ -135,26 +135,26 @@ final class TerminalFindBarView: NSView {
         case .empty:
             return ""
         case .noMatches:
-            return String(localized: "terminal.find.noMatches", defaultValue: "No matches", bundle: .localizedModule)
+            return String(localized: "terminal.find.noMatches", defaultValue: "No matches", bundle: .module)
         case .position(let index, let total):
-            return String(localized: "terminal.find.position", defaultValue: "\(index) of \(total)", bundle: .localizedModule)
+            return String(localized: "terminal.find.position", defaultValue: "\(index) of \(total)", bundle: .module)
         }
     }
 
     private static var placeholder: String {
-        String(localized: "terminal.find.placeholder", defaultValue: "Find", bundle: .localizedModule)
+        String(localized: "terminal.find.placeholder", defaultValue: "Find", bundle: .module)
     }
 
     private static var previousLabel: String {
-        String(localized: "terminal.find.previous", defaultValue: "Previous Match", bundle: .localizedModule)
+        String(localized: "terminal.find.previous", defaultValue: "Previous Match", bundle: .module)
     }
 
     private static var nextLabel: String {
-        String(localized: "terminal.find.next", defaultValue: "Next Match", bundle: .localizedModule)
+        String(localized: "terminal.find.next", defaultValue: "Next Match", bundle: .module)
     }
 
     private static var closeLabel: String {
-        String(localized: "terminal.find.close", defaultValue: "Close", bundle: .localizedModule)
+        String(localized: "terminal.find.close", defaultValue: "Close", bundle: .module)
     }
 }
 

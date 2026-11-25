@@ -22,7 +22,6 @@ pub fn bundle(dir: &Path) -> PathBuf {
     assert!(copied.is_ok_and(|s| s.success()), "copy {fw} from {cef:?}");
     let chmod = Command::new("/bin/chmod").arg("-R").arg("u+w").arg(&writable).status();
     assert!(chmod.is_ok_and(|s| s.success()), "chmod the framework copy");
-    // affected-reads: scripts/cmux-next/bundle-remote-browser-host.sh scripts/cmux-next/remote-browser-host-layout.sh
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let app = dir.join("cmux-remote-browser-host.app");
     let out = Command::new("/bin/bash")

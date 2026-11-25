@@ -34,15 +34,13 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
     public let toggled: Bool
     public let text: String?
     public let badge: String?
-    /// The content asks the native host to paint this control on its chrome glass surface.
-    public let glass: Bool
     public let menu: [PaneTabRowMenuItem]
     /// Rows shown by a right-click on this button, such as quick-action customization.
     public let contextMenu: [PaneTabRowMenuItem]
 
     public init(id: String, symbol: String, label: String, enabled: Bool = true, toggled: Bool = false,
                 badge: String? = nil, menu: [PaneTabRowMenuItem] = [], text: String? = nil,
-                contextMenu: [PaneTabRowMenuItem] = [], glass: Bool = false) {
+                contextMenu: [PaneTabRowMenuItem] = []) {
         self.id = id
         self.symbol = symbol
         self.label = label
@@ -50,7 +48,6 @@ public nonisolated struct PaneTabRowTool: Equatable, Sendable {
         self.toggled = toggled
         self.text = text
         self.badge = badge
-        self.glass = glass
         self.menu = menu
         self.contextMenu = contextMenu
     }

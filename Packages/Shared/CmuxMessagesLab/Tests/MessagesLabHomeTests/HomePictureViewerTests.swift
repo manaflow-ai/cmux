@@ -14,7 +14,9 @@ import UniformTypeIdentifiers
 @Suite(.serialized) @MainActor struct HomePictureViewerTests {
     init() {
         HomeMarkdownPolicy.install()
-        HomeTableRowProvider.reinstall()
+        CustomRows.unregister(HomeTableRowProvider.kind)
+        CustomRows.unregister(HomePlanRowProvider.kind)
+        HomeTableRowProvider.install()
     }
 
     static func folder() -> URL {

@@ -300,10 +300,7 @@ int32_t acpmux_page_driver_next_event(void *handle, AcpmuxClientBytes *out);
 int32_t acpmux_page_driver_taken(void *handle, uint64_t number);
 
 /*
- Opens a list subscription from `{ "sid": ..., "view": ... }` and returns `{ "sid": ... }`.
- A successful call returns `ACPMUX_CLIENT_OK`; an over-limit call returns
- `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), and an invalid page contract returns
- `ACPMUX_PAGE_ERR_REQUEST` (`list.request`).
+ Opens a list subscription from a JSON `Sub` and returns `{ "sid": ... }`.
 
  # Safety
  `handle` and `out` are owned pointers; `request..request+request_len` is readable.
@@ -311,9 +308,7 @@ int32_t acpmux_page_driver_taken(void *handle, uint64_t number);
 int32_t acpmux_page_driver_open(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
 
 /*
- Closes a page list subscription from `{ "sid": ... }`, or one question from
- `{ "sid": ..., "id": ... }`. A missing sid or question returns
- `ACPMUX_PAGE_ERR_SID` (`list.sid`).
+ Closes a page list subscription from `{ "sid": ... }`.
 
  # Safety
  `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -321,8 +316,7 @@ int32_t acpmux_page_driver_open(void *handle, const uint8_t *request, size_t req
 int32_t acpmux_page_driver_close(void *handle, const uint8_t *request, size_t request_len);
 
 /*
- Adds wanted keys from `{ "sid": ..., "keys": [...] }`. More than 4,096 keys
- or a request over 1 MiB returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`).
+ Adds wanted keys from `{ "sid": ..., "keys": [...] }`.
 
  # Safety
  `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -330,8 +324,7 @@ int32_t acpmux_page_driver_close(void *handle, const uint8_t *request, size_t re
 int32_t acpmux_page_driver_want(void *handle, const uint8_t *request, size_t request_len);
 
 /*
- Removes wanted keys from `{ "sid": ..., "keys": [...] }`. More than 4,096 keys
- or a request over 1 MiB returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`).
+ Removes wanted keys from `{ "sid": ..., "keys": [...] }`.
 
  # Safety
  `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -339,11 +332,7 @@ int32_t acpmux_page_driver_want(void *handle, const uint8_t *request, size_t req
 int32_t acpmux_page_driver_unwant(void *handle, const uint8_t *request, size_t request_len);
 
 /*
- Starts a bounded page question from a page request, returning `{ "id": ... }`.
- A busy sid returns `ACPMUX_PAGE_ERR_BUSY` (`list.busy`); row, question or
- request bounds return `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`); a missing sid
- returns `ACPMUX_PAGE_ERR_SID` (`list.sid`); and a malformed page contract
- returns `ACPMUX_PAGE_ERR_REQUEST` (`list.request`).
+ Starts a bounded page question from a `Page`, returning `{ "id": ... }`.
 
  # Safety
  `handle` and `out` are owned pointers; `request..request+request_len` is readable.
@@ -351,8 +340,7 @@ int32_t acpmux_page_driver_unwant(void *handle, const uint8_t *request, size_t r
 int32_t acpmux_page_driver_page(void *handle, const uint8_t *request, size_t request_len, AcpmuxClientBytes *out);
 
 /*
- Requests the next page of `{ "sid": ..., "id": ... }`; continuation remains in Rust.
- The same `list.busy`, `list.limit` and `list.sid` status meanings apply.
+ Requests the next page of `{ "id": ... }`; continuation remains in Rust.
 
  # Safety
  `handle` is null or a live page-driver handle; `request..request+request_len` is readable.

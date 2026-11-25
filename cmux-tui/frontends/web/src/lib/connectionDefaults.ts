@@ -5,9 +5,6 @@ interface LocationInput {
   hostname: string;
   search: string;
   hash: string;
-  pathname?: string;
-  protocol?: string;
-  host?: string;
 }
 
 interface StorageInput {
@@ -18,9 +15,6 @@ interface StorageInput {
 export interface InitialConnectionConfig {
   url: string;
   token: string;
-  /** The page came from the daemon's own listener (`/pages/<page>/`), so its
-   * WebSocket is the same origin and a token in the fragment connects at once. */
-  servedByDaemon: boolean;
 }
 
 function isLocalHostname(hostname: string): boolean {
@@ -29,14 +23,6 @@ function isLocalHostname(hostname: string): boolean {
 
 export function defaultWebSocketUrl(hostname: string): string {
   return isLocalHostname(hostname) ? LOCAL_WEBSOCKET_URL : `wss://${hostname}:8443`;
-}
-
-/** The daemon's listener serves page files at `/pages/<page>/` and accepts
- * the WebSocket upgrade on any path of the same origin (spec/transports.md,
- * "App listener and page files"). */
-export function daemonServedWebSocketUrl(location: LocationInput): string | null {
-  if (!location.pathname?.startsWith("/pages/") || !location.host) return null;
-  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/`;
 }
 
 export function initialConnectionConfig(
@@ -52,11 +38,9 @@ export function initialConnectionConfig(
   } catch {
     // Storage may be unavailable in privacy modes. The location default remains usable.
   }
-  const daemonUrl = daemonServedWebSocketUrl(location);
   return {
-    url: queryUrl || daemonUrl || rememberedUrl || defaultWebSocketUrl(location.hostname),
+    url: queryUrl || rememberedUrl || defaultWebSocketUrl(location.hostname),
     token: fragment.get("token")?.trim() || "",
-    servedByDaemon: daemonUrl !== null && !queryUrl,
   };
 }
 

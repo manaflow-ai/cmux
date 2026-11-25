@@ -19,9 +19,8 @@ final class NativeNewTabRowView: NSView {
     /// The detail label (tests read its frame).
     var detailField: NSTextField { detail }
     private(set) var selected = false
-    /// Runs the row, as a click on it does: with the click's event, or nil for an accessibility press (no event of its
-    /// own: `NSApp.currentEvent` then is an older, unrelated one).
-    var activate: @MainActor (NSEvent?) -> Void = { _ in }
+    /// Runs the row, as a click on it does.
+    var activate: @MainActor () -> Void = {}
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -48,12 +47,12 @@ final class NativeNewTabRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows `content`, tinted when `selected`. `images` is the page's decoded-favicon cache, keyed by data URL: the first
-    /// paint decodes once and later passes look up the fixed-size image, so typing never decodes a seen site again.
-    func show(_ content: NativeNewTabRowContent, selected: Bool, images: NSCache<NSString, NSImage>) {
+    /// Shows `content`, tinted when `selected`.
+    func show(_ content: NativeNewTabRowContent, selected: Bool) {
         if content != self.content {
             self.content = content
-            symbol.image = Self.image(for: content, cache: images)
+            symbol.image = NSImage.packOverride(forSymbol: content.symbol, pointSize: NSFont.systemFontSize)
+                ?? NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
             title.stringValue = content.title
             detail.stringValue = content.detail ?? ""
             detail.isHidden = content.detail == nil
@@ -70,26 +69,6 @@ final class NativeNewTabRowView: NSView {
         }
         self.selected = selected
         updateTint()
-    }
-
-    private static func image(for content: NativeNewTabRowContent, cache: NSCache<NSString, NSImage>) -> NSImage? {
-        if let icon = content.icon, let comma = icon.firstIndex(of: ",") {
-            let header = icon[..<comma]
-            guard header.hasSuffix(";base64") else { return placeholder(for: content.symbol) }
-            if let cached = cache.object(forKey: icon as NSString) { return cached }
-            let payload = String(icon[icon.index(after: comma)...])
-            if let data = Data(base64Encoded: payload), let image = NSImage(data: data) {
-                image.size = NSSize(width: 16, height: 16)
-                cache.setObject(image, forKey: icon as NSString)
-                return image
-            }
-        }
-        return placeholder(for: content.symbol)
-    }
-
-    private static func placeholder(for symbol: String) -> NSImage? {
-        NSImage.packOverride(forSymbol: symbol, pointSize: NSFont.systemFontSize)
-            ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
     }
 
     private func updateTint() {
@@ -151,11 +130,11 @@ final class NativeNewTabRowView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        activate(event)
+        activate()
     }
 
     override func accessibilityPerformPress() -> Bool {
-        activate(nil)
+        activate()
         return true
     }
 }

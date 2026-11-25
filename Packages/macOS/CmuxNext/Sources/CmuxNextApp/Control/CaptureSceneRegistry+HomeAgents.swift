@@ -185,7 +185,7 @@ extension CaptureSceneRegistry {
 
     /// The tab the window's focus resolves to (a terminal, page or chat).
     func focusedTab(_ controller: WindowController) -> String? {
-        controller.focus.state.resolved.tab
+        NotificationCenterService.contentTab(controller.focus.state.resolved)
     }
 
     /// Waits up to 3 s for the window's focus to reach `tab`.

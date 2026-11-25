@@ -6,7 +6,7 @@ unread FFI pin (base_red_excuse.py). The API serves the same bytes another way; 
 gets (a pinned sha256, a pinned SOURCE_SHA and checksum). A token (GH_TOKEN, else GITHUB_TOKEN) goes only to
 api.github.com and never on to the asset's signed storage redirect.
 
-Lives in scripts/ci because land-judge runs base_red_excuse.py from `git archive ... scripts/ci` alone; the
+Lives in scripts/ci because merge_hold runs base_red_excuse.py from `git archive ... scripts/ci` alone; the
 pre-push hook's copy of prepush-gate.py loads the copy install-git-hooks.sh puts beside it.
 """
 from __future__ import annotations

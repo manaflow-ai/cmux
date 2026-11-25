@@ -9,9 +9,6 @@ X-RateLimit-Resource/Used/Remaining/Reset headers, the script's file name, and `
 one App token group together and the Reset names its installation pool. It never holds another
 header, a body or a token. It makes no request, and nothing it does can raise into the
 caller. A sitecustomize this one shadows (Ubuntu's apport hook) still runs.
-
-`python3 -I` and `-E` ignore PYTHONPATH, so env.sh's python3 function runs this file itself first
-(isolated.py), with `_api_call_log_no_chain` set: Python already ran the real sitecustomize then.
 """
 import os
 import sys
@@ -24,9 +21,6 @@ def _install() -> None:
     import http.client
     import re
     import time
-
-    if getattr(http.client, "_api_call_log_installed", False):
-        return
 
     sink = os.environ.get("API_CALL_LOG_SINK", "")
     if not sink:
@@ -132,7 +126,6 @@ def _install() -> None:
     http.client.HTTPConnection.putrequest = putrequest
     http.client.HTTPConnection.putheader = putheader
     http.client.HTTPConnection.getresponse = getresponse
-    http.client._api_call_log_installed = True
 
 
 def _chain() -> None:
@@ -154,7 +147,6 @@ try:
 except Exception:  # noqa: BLE001 - logging only
     pass
 try:
-    if not globals().get("_api_call_log_no_chain"):
-        _chain()
+    _chain()
 except Exception:  # noqa: BLE001 - the shadowed hook's own failure stays as quiet as Python keeps it
     pass

@@ -40,7 +40,7 @@ diagnostics_timeout="${CMUX_NETWORK_DIAGNOSTICS_TIMEOUT_SECONDS:-60}"
 run_diagnostics &
 diagnostics_pid=$!
 (
-  sleep "$diagnostics_timeout"  # sleep-ok: the watchdog deadline itself
+  sleep "$diagnostics_timeout"
   if kill -0 "$diagnostics_pid" 2>/dev/null; then
     echo "::warning::network diagnostics exceeded ${diagnostics_timeout}s; terminating probes" >&2
     terminate_tree "$diagnostics_pid"

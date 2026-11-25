@@ -1,4 +1,3 @@
-public import CMUXAuthCore
 public import CmuxNextDaemon
 public import Foundation
 
@@ -19,8 +18,6 @@ public final class CloudMachineStatePush {
     let accessToken: @Sendable () async throws -> String
     let teamID: CloudAPIClient.TeamID
     let session: URLSession
-    /// A tagged dev build's cloud data space, sent on every socket's upgrade; none for nightly; a misconfigured dev build opens none.
-    let buildSpace: CMUXBuildSpaceState
     /// The local daemon's connection the frames go to (the Cloud app server's host).
     public var connection: @MainActor () -> DaemonConnection? = { nil }
     /// A machine's record from its push.
@@ -65,18 +62,9 @@ public final class CloudMachineStatePush {
 
     /// `session` must refuse redirects (``CloudOwnerAPIClient/transport`` does): one would carry the bearer elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
-                session: URLSession? = nil, buildSpace: CMUXBuildSpaceState = .nightly) {
-        (self.baseURL, self.accessToken, self.teamID, self.buildSpace) = (baseURL, accessToken, teamID, buildSpace)
+                session: URLSession? = nil) {
+        (self.baseURL, self.accessToken, self.teamID) = (baseURL, accessToken, teamID)
         self.session = session ?? CloudOwnerAPIClient.transport
-    }
-
-    /// One state socket's upgrade: the person's bearer, the cmux team and the build space, when there is one.
-    nonisolated static func upgradeRequest(url: URL, token: String, team: String?, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        try buildSpace.apply(to: &request)
-        return request
     }
 
     /// Whether `machine`'s state is pushed now (its socket is open and its last frame reached the Cloud app server).
@@ -149,9 +137,9 @@ public final class CloudMachineStatePush {
     /// One socket's life; true when it delivered at least one frame.
     private func connect(_ machine: String) async -> Bool {
         guard let url = url(machine), let token = try? await accessToken() else { return false }
-        let team = await teamID()
-        // A misconfigured dev build opens no socket (its refusal is CMUXBuildSpaceError).
-        guard let request = try? Self.upgradeRequest(url: url, token: token, team: team, buildSpace: buildSpace) else { return false }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         guard watches[machine] != nil, !Task.isCancelled else { return false }
         let task = session.webSocketTask(with: request)
         watches[machine]?.task = task
@@ -259,6 +247,6 @@ extension CloudAPIClient {
     public func statePush(baseURL: URL) -> CloudMachineStatePush? {
         guard !sendsStackSession else { return nil }
         let tokens = tokens
-        return CloudMachineStatePush(baseURL: baseURL, accessToken: { try await tokens().0 }, teamID: teamID, buildSpace: buildSpace)
+        return CloudMachineStatePush(baseURL: baseURL, accessToken: { try await tokens().0 }, teamID: teamID)
     }
 }

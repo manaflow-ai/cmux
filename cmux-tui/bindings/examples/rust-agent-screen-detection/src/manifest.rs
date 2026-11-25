@@ -219,12 +219,6 @@ pub struct Detection {
     pub visible_idle: bool,
     pub visible_blocker: bool,
     pub visible_working: bool,
-    /// The matched rule is the agent's idle chrome (`visible_idle`) and no
-    /// working rule of its manifest has a higher priority. A working rule
-    /// with a lower priority cannot win while this rule matches; one with
-    /// the same priority wins only when it is listed first and matches too.
-    /// The field is of the matched rule, not of the whole manifest.
-    pub idle_above_working: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -383,24 +377,16 @@ impl CompiledManifest {
                 visible_idle: false,
                 visible_blocker: false,
                 visible_working: false,
-                idle_above_working: false,
             };
         };
         let state = rule.state.map(ScreenState::from).unwrap_or(ScreenState::Unknown);
-        let visible_idle = rule.visible_idle && state == ScreenState::Idle;
-        // A tie counts as the idle rule's: output then still starts work.
-        let idle_above_working = visible_idle
-            && !self.manifest.rules.iter().any(|other| {
-                other.state == Some(ManifestState::Working) && other.priority > rule.priority
-            });
         Detection {
             state,
             skip_state_update: rule.skip_state_update,
             matched_rule: Some(rule.id.clone()),
-            visible_idle,
+            visible_idle: rule.visible_idle && state == ScreenState::Idle,
             visible_blocker: rule.visible_blocker && state == ScreenState::Blocked,
             visible_working: rule.visible_working && state == ScreenState::Working,
-            idle_above_working,
         }
     }
 

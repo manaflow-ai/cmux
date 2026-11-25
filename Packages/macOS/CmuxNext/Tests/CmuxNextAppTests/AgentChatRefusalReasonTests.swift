@@ -15,8 +15,7 @@ struct AgentChatRefusalReasonTests {
         "agentPane.toggleDisplaySettings", "agentPane.replayConversation", "agentPane.editInstructions",
         "agentPane.addProjectFiles", "agentPane.markUnread", "agentPane.moveToFloatingChat",
         "agentPane.continueAfterError", "agentPane.toggleMinimap", "agentPane.revealCwdInFinder",
-        "agentPane.openCwdInTerminal", "agentPane.openCwdInEditor", "agentPane.openCwdInApp", "agentPane.copyCwdPath",
-        "agentPane.createCheckpoint", "agentPane.setModel",
+        "agentPane.openCwdInTerminal", "agentPane.createCheckpoint", "agentPane.setModel",
     ]
 
     static func services() -> AppServices {
@@ -43,50 +42,18 @@ struct AgentChatRefusalReasonTests {
         }
         let reason = try #require(refusal, "\(id) ran with no chat")
         #expect(reason != MiscHandlerStrings.noAgentChat, "\(id) refused with Dictation's reason")
-        // With no pane at all, a tab action's no-pane reason ("Click a tab first, then try again.") is the honest one too.
+        // With no pane at all, a tab action's "No pane is focused." is the honest reason too.
         #expect(reason.contains(title) || reason == MiscHandlerStrings.noPane, "\(id): \"\(reason)\" does not name \(title)")
     }
 
-    /// Off a chat, a chat action is disabled where it runs: its shortcut or menu run does nothing,
-    /// never a toast that says to go focus a chat (Leo 2026-11-17: "just... stop showijg the toggle").
-    @Test(arguments: chatActions)
-    func aChatActionWithNoChatShowsNoToast(_ id: ActionID) {
+    /// Dictation's refusal is its own: it never takes a chat action's words.
+    @Test func dictationKeepsItsOwnReason() {
         let services = Self.services()
-        var loud: [String] = []
-        let previous = services.registry.refusalObserver
-        services.registry.refusalObserver = { reason, quiet in
-            if !quiet { loud.append(reason) }
-            previous?(reason, quiet)
-        }
-        defer { services.registry.refusalObserver = previous }
-        let shown = services.refusalHUD.shownCount
-        _ = services.registry.perform(id, invocation: Self.noChatRun())
-        #expect(loud.isEmpty, "\(id) asked for the refusal toast: \(loud)")
-        #expect(services.refusalHUD.shownCount == shown, "\(id) showed \(services.refusalHUD.message ?? "")")
-    }
-
-    /// The chat menu's rows are disabled where they cannot run (no chat, not started, remote, no
-    /// folder), from the same lookup their run uses.
-    @Test(arguments: chatActions.filter { !["agentPane.markUnread", "agentPane.createCheckpoint", "agentPane.setModel"].contains($0) })
-    func aChatMenuRowIsDisabledWithNoChat(_ id: ActionID) {
-        let services = Self.services()
-        #expect(!ActionTargetReasons.canPerform(id, invocation: Self.noChatRun(), in: services.registry), "\(id) is enabled with no chat")
-    }
-
-    /// Toggle Dictation (Ctrl-Cmd-V) off a chat or terminal, with nothing dictating, is disabled: the
-    /// key does nothing, where it used to toast "Dictation works in agent chats. Focus one first."
-    @Test func dictationOffAChatOrTerminalIsDisabledNotRefused() {
-        let services = Self.services()
-        var refusals: [String] = []
-        let previous = services.registry.refusalObserver
-        services.registry.refusalObserver = { reason, quiet in
-            refusals.append(reason)
-            previous?(reason, quiet)
-        }
-        defer { services.registry.refusalObserver = previous }
-        #expect(services.registry.unavailableReason(for: "palette.toggleDictation") != nil, "Dictation is offered with no chat or terminal")
-        #expect(!services.registry.perform("palette.toggleDictation", invocation: ActionInvocation(origin: .user)))
-        #expect(refusals.isEmpty, "Dictation refused: \(refusals)")
+        let reason = services.registry.capturingRefusal {
+            _ = services.registry.perform("palette.toggleDictation", invocation: Self.noChatRun())
+        } ?? ""
+        let borrowed = Self.chatActions.compactMap { services.registry.descriptor(for: $0)?.title }.filter { reason.contains($0) }
+        #expect(borrowed.isEmpty, "Dictation refused with \"\(reason)\"")
     }
 
     /// The refusals' table ships in CmuxNextActions' bundle: a Japanese lookup is a translation, not
@@ -152,7 +119,5 @@ struct AgentChatRefusalReasonTests {
         #expect(reason != services.registry.reason(.notStarted, for: id), "a started chat was refused as not started")
         #expect(reason != services.registry.reason(.noChat, for: id), "the chat was not found: \(reason)")
         #expect(reason == services.registry.reason(.noFolder, for: id), "\(reason)")
-        // The row is disabled on that chat, so the run never got as far as a toast.
-        #expect(!ActionTargetReasons.canPerform(id, invocation: invocation, in: services.registry), "Reveal Chat Folder is enabled on a chat with no folder")
     }
 }

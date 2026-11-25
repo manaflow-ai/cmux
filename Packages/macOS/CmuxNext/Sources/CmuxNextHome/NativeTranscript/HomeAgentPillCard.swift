@@ -46,7 +46,7 @@ final class HomeAgentPillCard {
             let button = ThemedDefaultButton(title: HomeAgentPillStrings.startNow, target: nil, action: #selector(HomeAgentPillAction.run))
             button.controlSize = .small
             button.keyHint = .return
-            button.setAccessibilityHelp(HomeAgentPillStrings.startNowHelp) // titled: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
+            button.themedToolTip = HomeAgentPillStrings.startNowHelp
             startNowButton = button
             rows.append(button)
         } else {

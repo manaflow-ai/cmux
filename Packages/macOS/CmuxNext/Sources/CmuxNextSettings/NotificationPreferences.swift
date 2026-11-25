@@ -26,8 +26,6 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public var dockBounce: DockBounceMode = Self.dockBounceDefault
     /// `notifications.showPreviews`: when a banner shows the agent's last message.
     public var showPreviews: NotificationPreviews = Self.showPreviewsDefault
-    /// `notifications.toast.style`: the style of every toast while none is picked in the Toast Playground (a theme hook).
-    public var toastStyle: CmuxToastStyle = Self.toastStyleDefault
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces = Set(Self.mutedWorkspacesDefault)
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]

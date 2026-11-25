@@ -9,8 +9,7 @@
 //! It never asks the login keychain (cx-hh0vu): a login Codex may keep there, a model provider
 //! without the OpenAI sign-in, a signed-out login and agent launches turned off answer `skipped`
 //! and start nothing; Codex runs with `cli_auth_credentials_store="file"`. Claude Code reports
-//! its limits only during a turn, so a Claude account answers the newest windows its chats here
-//! saved (`hub/account_usage.rs`), null when none did; nothing starts for it. No credential is
+//! its limits only during a turn, so a Claude account answers `skipped` too. No credential is
 //! read or returned here: the app-server reads its own login file.
 
 use std::collections::{BTreeMap, HashMap};
@@ -39,8 +38,6 @@ static LAST: LazyLock<Mutex<HashMap<PathBuf, (Instant, Value)>>> = LazyLock::new
 #[derive(Debug, PartialEq)]
 enum Target {
     Read(PathBuf),
-    /// A Claude login: in this folder, or the CLI's own (None).
-    Claude(Option<PathBuf>),
     Skip(&'static str),
 }
 
@@ -70,13 +67,6 @@ pub(super) async fn handle(
         .map_err(|e| RpcError::internal(e.to_string()))??;
     let home = match target {
         Target::Skip(why) => return Ok(json!({"id": id, "usageLimits": null, "skipped": why})),
-        Target::Claude(home) => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs() as i64);
-            let limits = hub.claude_account_usage(home.as_deref(), now).await;
-            return Ok(json!({"id": id, "usageLimits": limits}));
-        }
         Target::Read(home) => home,
     };
     let fresh = LAST.lock().ok().and_then(|last| {
@@ -98,7 +88,7 @@ pub(super) async fn handle(
 /// The login folder of account `id`, or why its usage is not read.
 fn target(dir: Option<&Path>, id: &str) -> Result<Target, RpcError> {
     if id == super::CLAUDE_LOGIN_ID {
-        return Ok(Target::Claude(None));
+        return Ok(Target::Skip("claude"));
     }
     let route = routes::find(dir, id).map_err(|e| crate::hub::route_error(&e))?;
     let builtin = id == routes::CODEX_LOGIN_ROUTE_ID;
@@ -109,9 +99,7 @@ fn target(dir: Option<&Path>, id: &str) -> Result<Target, RpcError> {
     }
     match route.file.families.as_slice() {
         [f] if f == "codex" => {}
-        [f] if f == "claude" => {
-            return Ok(Target::Claude(route.file.account_home.clone().map(PathBuf::from)));
-        }
+        [f] if f == "claude" => return Ok(Target::Skip("claude")),
         _ if builtin => {}
         _ => return Err(RpcError::invalid_params(format!("{id} is not an account"))),
     }

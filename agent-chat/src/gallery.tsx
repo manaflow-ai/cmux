@@ -4,7 +4,7 @@ import { CmdkMenu, type CmdkGroup } from "./components/CmdkMenu";
 import { QuestionCard } from "./components/QuestionCard";
 import { StatusRow } from "./components/StatusRow";
 import { ActivityIndicatorBlock, AgentMessageRow, Blocks, ToolBlock, TurnActions, type ToolBlockVariant } from "./components/Transcript";
-import { BarsIcon, Spinner, ProviderIcon } from "./components/icons";
+import { BarsIcon, PinwheelSpinner, ProviderIcon } from "./components/icons";
 import { HintTooltip } from "./components/Tooltips";
 import { useOverlayScrollbars } from "./hooks/useOverlayScrollbars";
 import type { OptionValue, SessionOption } from "./session";
@@ -102,7 +102,7 @@ function ComposerMock({ state }: { state: "idle" | "starting" | "draft" | "error
           setOpenOptionId={setOpenOptionId}
           trailing={(
             <button className="send" type="button" aria-label="Start" disabled={state === "starting"}>
-              {state === "starting" ? <Spinner size={14} /> : <span aria-hidden>↑</span>}
+              {state === "starting" ? <PinwheelSpinner size={14} /> : <span aria-hidden>↑</span>}
             </button>
           )}
         />

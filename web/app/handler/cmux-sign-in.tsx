@@ -32,7 +32,7 @@ import {
   signUpPendingHref,
   type RememberedAccount,
 } from "./sign-in-entry";
-import { Spinner as SharedSpinner } from "../components/spinner";
+import { SignInSpinner } from "./sign-in-spinner";
 
 export type CmuxSignInMessages = {
   signInTitle: string;
@@ -291,7 +291,7 @@ function FieldError({ id, text }: { id: string; text: string | null }) {
 }
 
 function Spinner() {
-  return <SharedSpinner className="h-3.5 w-3.5 text-muted" />;
+  return <SignInSpinner />;
 }
 
 /** A button's label while it works: the spinner shows, the name stays for screen readers. */

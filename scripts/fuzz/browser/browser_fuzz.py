@@ -225,7 +225,7 @@ class LocalSite:
         if path == "/page":
             self.send(h, 200, page(f"fuzz page {q.get('id', '')}", "<p id=alive>alive</p><a href='/page?id=link'>next</a>"))
         elif path == "/slow":
-            time.sleep(min(int(q.get("ms", "0") or 0), 10_000) / 1000)  # sleep-ok: the slow page's own delay
+            time.sleep(min(int(q.get("ms", "0") or 0), 10_000) / 1000)
             self.send(h, 200, page("fuzz slow"))
         elif path == "/big":
             kb = min(int(q.get("kb", "1") or 1), 16_384)
@@ -382,10 +382,7 @@ class Session:
         # Leave Home (a first launch) for a workspace with a pane, as downloads-live.py does.
         self.action("workspace.selectFirst", index=-1)
         self.action("newTab", index=-1, focus=True)
-        # The app's launch work ends (its stalls are not this run's): the topology and the hang log stop changing.
-        self.settle(lambda: json.dumps([rpc(self.sock, "snapshot.get", {}, 20)[0],
-                                        rpc(self.sock, "debug.hangs", {"after": self.cursor, "limit": 200}, 20)[0]],
-                                       sort_keys=True, default=str), "the app's launch work", 30, 1.0)
+        time.sleep(2)  # the app's launch work ends; its stalls are not this run's
         self.hang_cursor()
 
     def end_probe(self):
@@ -669,7 +666,7 @@ class Session:
             tab = self.slot(op, index)
             self.counts["devtools"] += 1
             self.pane_action("toggleBrowserDeveloperTools", tab, index)
-            time.sleep(int(op.get("hold_ms", 0)) / 1000)  # sleep-ok: the op's generated hold, a fuzz input
+            time.sleep(int(op.get("hold_ms", 0)) / 1000)
             self.pane_action("toggleBrowserDeveloperTools", tab, index)
         elif name == "download":
             if self.has["debug.downloads"]:
@@ -684,9 +681,7 @@ class Session:
             self.action("tab.focus", index=index, target=f"tab:{tab}", focus=True)
             self.call("browser.page.navigate", {"tab": tab, "url": self.site.origin + "/oom"}, index=index)
             if not self.has["debug.browser.page_status"]:
-                # No sad-tab read in this build: wait for the page to stop answering (its renderer ended).
-                if not self.wait_for(lambda: not self.page_answers(tab), 30, 0.25):
-                    self.notes.append(f"op {index}: the out-of-memory page still answers after 30 s (no verdict)")
+                time.sleep(5)
             elif not self.wait_gone(tab, index, 90):
                 self.notes.append(f"op {index}: the out-of-memory page did not end its renderer in 90 s (no verdict)")
             else:
@@ -698,13 +693,10 @@ class Session:
     def finish(self, op: dict, index: int, url_tab: str | None, answered_ok: bool, opens_before: int):
         """The oracles every op ends with."""
         name = op["op"]
-        time.sleep(int(op.get("settle_ms", 0)) / 1000)  # sleep-ok: the op's generated settle time, a fuzz input
+        time.sleep(int(op.get("settle_ms", 0)) / 1000)
         if url_tab and url_tab in self.live() and name in ("open", "navigate", "back", "forward", "reload", "omnibar"):
             if any(p in (op.get("url") or "") for p in ("/meta", "/script-nav")):
-                # The page's own navigation runs after its load: wait until the tab left the /meta or /script-nav page.
-                if not self.wait_for(lambda: (self.state(url_tab, index).get("title") or "") not in ("fuzz meta", "fuzz script-nav"),
-                                     10, 0.1):
-                    self.notes.append(f"op {index}: the page's own navigation did not leave {op.get('url')} in 10 s")
+                time.sleep(1.5)  # the page's own navigation runs after its load
             self.check_url(url_tab, op, index, answered_ok)
         self.check_alive(index)
         self.check_stalls(op, index)
@@ -787,29 +779,6 @@ class Session:
         if problem:
             raise Failure("download_path", f"{name[:120]!r}: {problem}", index, {"row": row})
 
-    def wait_for(self, check, seconds: float, step: float = 0.25):
-        """`check()`'s first truthy value within `seconds`, else None."""
-        deadline = time.monotonic() + seconds
-        while True:
-            value = check()
-            if value or time.monotonic() >= deadline:
-                return value or None
-            time.sleep(step)
-
-    def settle(self, read, what: str, seconds: float, quiet: float) -> bool:
-        """Until `read()` has not changed for `quiet` s, at most `seconds`; past that notes `what` never settled."""
-        deadline = time.monotonic() + seconds
-        last, since = read(), time.monotonic()
-        while time.monotonic() < deadline:
-            time.sleep(0.1)
-            value = read()
-            if value != last:
-                last, since = value, time.monotonic()
-            elif time.monotonic() - since >= quiet:
-                return True
-        self.notes.append(f"{what} never settled in {seconds:g} s")
-        return False
-
     def wait_gone(self, tab: str, index: int, seconds: float) -> dict | None:
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
@@ -856,9 +825,7 @@ class Session:
         if not created:
             self.notes.append(f"op {index}: openBrowser.chromium made no tab for chrome://crash ({reply.get('error')})")
             return
-        if not self.wait_for(lambda: rpc(self.sock, "browser.page.eval", {"tab": created[0], "script": "document.title"}, 8)[0]
-                             .get("value") == "fuzz page crash", 30, 0.25):
-            self.notes.append(f"op {index}: the tab for chrome://crash did not load its page in 30 s")
+        time.sleep(1.0)  # the page loads
         if self.type_in_omnibar(created[0], "chrome://crash", index):
             self.expect_sad_tab(created[0], index, "chrome://crash typed in the omnibar", seconds=20)
 

@@ -35,14 +35,11 @@ nonisolated enum ContextMenuEssentials {
         // Chief's chat about this workspace.
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
         // Leo 2026-10-20: "like Chrome"). Duplicate remains in More so the workspace menu stays
-        // within its row cap after the top-level Copy folder.
-        // Archive Workspace (Archive or Unarchive for the row) sits in the closing section just above
-        // Close Workspace, as the reference chat apps end their row menus with Archive (#48536: it
-        // was only under More, so people did not find it).
+        // within its twelve-row cap after the top-level Copy folder.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
                                   .action("workspace.newBelow"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
-                            close: ["workspace.toggleArchive", "closeWorkspace"], beforeMore: copyFolder),
+                            close: ["closeWorkspace"], beforeMore: copyFolder),
         // New Tab to the Right and the group rows stay at the top (Lawrence 2026-10-14, "my groups
         // UI is lost"; scripts/cmux-next/check-group-menus.py), then the frequent tab actions (Leo
         // 2026-10-23: keep the obviously useful rows), then Copy ▸ and More. Moves, Rename and
@@ -70,10 +67,7 @@ nonisolated enum ContextMenuEssentials {
         .workspaceRow: Rows(top: [.choices("palette.workspaceColor"), .action("workspace.newBelow"), .action("groupSelectedWorkspaces"), .separator,
                                   .action("workspace.duplicate"), .folder(.move, []), .action("palette.toggleWorkspacePin"),
                                   .action("workspace.toggleAudioMute"), .separator],
-                            // Archive opens the closing section here too, as on one row (#48595): every selected
-                            // row takes the right-clicked row's new state (`workspace.toggleArchive`). Leo, 2026-11-21:
-                            // "there's no right click archive chat in the left bit."
-                            close: ["workspace.toggleArchive", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],
+                            close: ["closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],
                             tail: ["reopenClosedWorkspace"]),
     ]
 

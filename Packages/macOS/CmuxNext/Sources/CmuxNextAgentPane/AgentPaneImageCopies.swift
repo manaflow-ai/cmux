@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextCompat
 import CryptoKit
 import Foundation
 
@@ -84,7 +83,8 @@ nonisolated enum AgentPaneImageCopies {
 
     /// The default folder: `Agent Images` in this app's caches.
     static func defaultFolder() -> URL {
-        let caches = NextSupport.cachesDirectory()
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("Agent Images", isDirectory: true)
     }

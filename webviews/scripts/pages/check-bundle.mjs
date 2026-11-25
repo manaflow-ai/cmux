@@ -39,13 +39,15 @@ const expectedPages = new Set([
   "feed",
   "files",
   "github",
-  "glass-parity",
   "group-editor",
   "history",
   "home-channels",
+  "home-messages",
   "icon-picker",
+  "import-history",
   "keybindings",
   "machines",
+  "mobile-pairing",
   "onboarding",
   "passwords",
   "server-cards",
@@ -147,7 +149,7 @@ try {
     const openStart = performance.now();
     let openMs = null;
     try {
-      const route = name === "server-cards" ? "#/server-panel" : "";
+      const route = name === "server-cards" ? "#/pair-invite" : "";
       await page.goto(`http://${name}.pages.test${mode === "daemon" ? `/pages/${name}/` : "/"}?mock${route}`, {
         waitUntil: "load",
         timeout: 30_000,

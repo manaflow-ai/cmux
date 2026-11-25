@@ -36,7 +36,7 @@ import Testing
         // On: the toggle lit (its fill kept under the glyph) and the Unread × chip under the search row, both shown.
         let on = try staged(section.looks[1])
         #expect(on.home.unreadOnly && on.home.unreadToggle.isOn && on.home.unreadToggle.hover.state.lit)
-        #expect(!on.home.filterChip.isHidden && on.home.filterChip.label == CmuxSidebarView.unreadTitle)
+        #expect(!on.home.filterChip.isHidden && on.home.filterChip.title == CmuxSidebarView.unreadTitle)
         let chip = frame(on.home.filterChip, in: on.root), search = frame(on.home.searchCapsule, in: on.root)
         #expect(chip.maxY <= search.minY + 0.5, "the chip sits under the search row: \(chip) vs \(search)")
         #expect(on.shown.contains(chip) && on.shown.contains(frame(on.home.unreadToggle, in: on.root)))

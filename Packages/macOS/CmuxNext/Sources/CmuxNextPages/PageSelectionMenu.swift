@@ -40,11 +40,11 @@ public struct PageSelectionMenu {
 
     enum Strings {
         static var quoteInReply: String {
-            String(localized: "pages.selectionMenu.quoteInReply", defaultValue: "Quote in Reply", bundle: .localizedModule)
+            String(localized: "pages.selectionMenu.quoteInReply", defaultValue: "Quote in Reply", bundle: .module)
         }
 
         static var searchTheWeb: String {
-            String(localized: "pages.selectionMenu.searchTheWeb", defaultValue: "Search the Web", bundle: .localizedModule)
+            String(localized: "pages.selectionMenu.searchTheWeb", defaultValue: "Search the Web", bundle: .module)
         }
     }
 }

@@ -128,7 +128,7 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     static var closeLabel: String {
-        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .localizedModule)
+        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .module)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).
@@ -157,11 +157,10 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
+        menuProvider?() ?? super.menu(for: event)
     }
 
-    /// Every card's padding and corner (``Metrics/cardPadding``, ``Metrics/cardCornerRadius``; #49579).
-    private static var padding: CGFloat { Metrics.cardPadding }
+    private static var padding: CGFloat { Metrics.space3 }
     /// The header's height at least: the artwork never shrinks below it.
     private static let headerMinimum: CGFloat = 44
     private static let controlSide: CGFloat = 24
@@ -169,8 +168,8 @@ final class SidebarNowPlayingCardView: NSView {
 
     /// The site, title and artist lines' height for `nowPlaying`.
     private static func textHeight(site: Bool, artist: Bool) -> CGFloat {
-        let caption = ceil(Typography.cardBody.boundingRectForFont.height)
-        let title = ceil(Typography.cardTitle.boundingRectForFont.height)
+        let caption = ceil(Typography.caption.boundingRectForFont.height)
+        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height)
         return (site ? caption + Metrics.space1 : 0) + title + (artist ? caption : 0)
     }
 
@@ -185,10 +184,10 @@ final class SidebarNowPlayingCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.cardCornerRadius
-        siteLabel.font = Typography.cardBody
-        titleLabel.font = Typography.cardTitle
-        artistLabel.font = Typography.cardBody
+        surface.cornerRadius = Metrics.surfaceCornerRadius
+        siteLabel.font = Typography.caption
+        titleLabel.font = Typography.bodyEmphasized
+        artistLabel.font = Typography.caption
         let site = !siteLabel.isHidden, artist = !artistLabel.isHidden
         let header = max(Self.headerMinimum, Self.textHeight(site: site, artist: artist))
         // The artwork fills the top right corner, as tall as the header with its padding, and
@@ -201,8 +200,8 @@ final class SidebarNowPlayingCardView: NSView {
         artworkFade.frame = artworkView.bounds
         CATransaction.commit()
         let textWidth = max(0, b.width - 2 * pad - art / 2)
-        let caption = ceil(Typography.cardBody.boundingRectForFont.height)
-        let title = ceil(Typography.cardTitle.boundingRectForFont.height)
+        let caption = ceil(Typography.caption.boundingRectForFont.height)
+        let title = ceil(Typography.bodyEmphasized.boundingRectForFont.height)
         var y = pad + max(0, (header - Self.textHeight(site: site, artist: artist)) / 2)
         if site {
             siteLabel.frame = NSRect(x: pad, y: y, width: textWidth, height: caption)

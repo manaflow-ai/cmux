@@ -14,7 +14,7 @@ import UIKit
 /// through `feed`. A key is shown at the first presented Ghostty frame after
 /// its echo was parsed, or, with prediction, at the Core Animation commit that
 /// put its predicted glyph on screen. "Before" is the same surface with
-/// prediction off. Rows: 0, 100 and 300 ms round trips, 0 % and 2 % loss.
+/// prediction off.
 @MainActor
 @Suite(.serialized) struct TerminalPredictionLatencyTests {
     /// A line editor on the far side of the link.
@@ -53,29 +53,17 @@ import UIKit
             return last
         }
 
-        /// The newest delivery each way: each waits for the one before it, so
-        /// packets held behind a loss (one arrival time) keep their order, as
-        /// one TCP stream does. Tasks sleeping to one deadline resume in any order.
-        private var upChain: Task<Void, Never>?
-        private var downChain: Task<Void, Never>?
-
         /// One write Ghostty encoded (one key).
         func receive(_ bytes: Data) {
             let index = sentKeys
             sentKeys += 1
             let up = arrival(after: &lastUp)
-            let previousUp = upChain
-            upChain = Task { @MainActor in
-                await previousUp?.value
+            Task { @MainActor in
                 try? await Task.sleep(until: up, clock: .continuous) // test: the emulated link
                 let echo = self.answer(Array(bytes))
                 let down = self.arrival(after: &self.lastDown)
-                let previousDown = self.downChain
-                self.downChain = Task { @MainActor in
-                    await previousDown?.value
-                    try? await Task.sleep(until: down, clock: .continuous) // test: the emulated link
-                    self.surface.feed(Data(echo), completion: { [weak self] in self?.echoParsed[index] = .now })
-                }
+                try? await Task.sleep(until: down, clock: .continuous) // test: the emulated link
+                self.surface.feed(Data(echo), completion: { [weak self] in self?.echoParsed[index] = .now })
             }
         }
 
@@ -116,12 +104,8 @@ import UIKit
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
     }
 
-    /// Latencies in milliseconds, one per echoed key; `firstAtPrompt` gets
-    /// those of the keys typed first at the prompt a Return brought back.
-    static func run(
-        roundTripMs: Int, loss: Double, predict: Bool, seed: UInt64,
-        diagnostics: inout [String], firstAtPrompt: inout [Double]
-    ) async throws -> [Double] {
+    /// Latencies in milliseconds, one per echoed key.
+    static func run(roundTripMs: Int, loss: Double, predict: Bool, seed: UInt64, diagnostics: inout [String]) async throws -> [Double] {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.isHidden = false
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
@@ -182,7 +166,6 @@ import UIKit
             let echo = try #require(echoShown[index], "key \(index) never showed")
             let shown = min(echo, predictedAt[index] ?? echo)
             latencies.append(milliseconds(typed[index].duration(to: shown)))
-            if index > 0, keys[index - 1] == "\r" { firstAtPrompt.append(latencies.last ?? 0) }
         }
         if predict {
             diagnostics.append("PREDICTION-DIAG rtt=\(roundTripMs)ms loss=\(Int(loss * 100))% predicted=\(predictedAt.count) "
@@ -200,19 +183,17 @@ import UIKit
         return sorted[Int((Double(sorted.count - 1) * fraction).rounded())]
     }
 
-    @Test(arguments: [0, 100, 300])
+    @Test(arguments: [50, 150, 300])
     func keystrokeToGlyph(roundTripMs: Int) async throws {
         var report: [String] = []
         defer { Attachment.record(report.joined(separator: "\n"), named: "prediction-latency-\(roundTripMs)ms.txt") }
-        for loss in [0.0, 0.02] {
+        for loss in [0.0, 0.02, 0.05] {
             var before: [Double] = []
             var after: [Double] = []
             var predicted: [Double] = []
-            var firstOff: [Double] = []
-            var firstOn: [Double] = []
             for seed in UInt64(1)...1 {
-                before += try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: false, seed: seed, diagnostics: &report, firstAtPrompt: &firstOff)
-                let run = try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: true, seed: seed, diagnostics: &report, firstAtPrompt: &firstOn)
+                before += try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: false, seed: seed, diagnostics: &report)
+                let run = try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: true, seed: seed, diagnostics: &report)
                 after += run
                 predicted += run.filter { $0 < Double(roundTripMs) / 2 }
             }
@@ -221,33 +202,19 @@ import UIKit
                 + "p50 \(fmt(Self.percentile(before, 0.5)))->\(fmt(Self.percentile(after, 0.5))) "
                 + "p95 \(fmt(Self.percentile(before, 0.95)))->\(fmt(Self.percentile(after, 0.95))) "
                 + "max \(fmt(before.max() ?? 0))->\(fmt(after.max() ?? 0)) ms "
-                + "shown-before-echo \(predicted.count)/\(after.count) p50 \(predicted.isEmpty ? "-" : fmt(Self.percentile(predicted, 0.5))) ms "
-                + "first-key-at-prompt \(firstOff.map(fmt).joined(separator: ","))->\(firstOn.map(fmt).joined(separator: ",")) ms")
+                + "shown-before-echo \(predicted.count)/\(after.count) p50 \(predicted.isEmpty ? "-" : fmt(Self.percentile(predicted, 0.5))) ms")
             print(report.last ?? "")
             let seen = Comment(rawValue: report.suffix(4).joined(separator: " | "))
-            // On a link with no lag to hide (0 ms) nothing is drawn, so the two
-            // runs differ only by simulator noise. Elsewhere prediction never
-            // makes a key slower (5 % and one 120 Hz frame cover run-to-run
-            // jitter). Where it engages, the glyph is on screen within a frame
-            // or two of the key, whatever the round trip; how many keys it
-            // engages for is the shared engine's policy (the Rust latency
-            // harness reports it).
-            if roundTripMs == 0 {
-                #expect(predicted.isEmpty, seen)
-            } else {
-                #expect(Self.percentile(after, 0.5) <= Self.percentile(before, 0.5) * 1.05 + 8.4, seen)
-                #expect(Self.percentile(after, 0.95) <= Self.percentile(before, 0.95) * 1.05 + 8.4, seen)
-            }
-            if roundTripMs >= 100, loss == 0 {
+            // Prediction never makes a key slower (5 % covers run-to-run
+            // jitter where it does not engage). Where it engages, the
+            // glyph is on screen within a frame or two of the key, whatever
+            // the round trip; how many keys it engages for is the shared
+            // engine's policy (the prediction latency harness reports it).
+            #expect(Self.percentile(after, 0.5) <= Self.percentile(before, 0.5) * 1.05, seen)
+            #expect(Self.percentile(after, 0.95) <= Self.percentile(before, 0.95) * 1.05, seen)
+            if roundTripMs >= 150, loss == 0 {
                 #expect(!predicted.isEmpty, seen)
                 if !predicted.isEmpty { #expect(Self.percentile(predicted, 0.95) < 34, seen) }
-            }
-            // The first key of a command, typed at the prompt the remote just
-            // printed, is on screen within one 60 Hz frame of the press
-            // however far away the remote is.
-            if roundTripMs >= 100 {
-                #expect(!firstOn.isEmpty, seen)
-                #expect(firstOn.allSatisfy { $0 <= 16.7 }, seen)
             }
         }
     }

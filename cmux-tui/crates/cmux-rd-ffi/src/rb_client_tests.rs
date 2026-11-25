@@ -10,13 +10,10 @@ use crate::{
 const CLIENT: &str = include_str!("../../../../schemas/remote-tab/client.json");
 
 /// Applies `input` and returns (code, outcome JSON).
-///
-/// # Safety
-/// `client` is a live client from `cmux_rb_client_new` with no other call on it.
-unsafe fn apply(client: *mut crate::CmuxRbClient, input: &str) -> (i32, Value) {
+fn apply(client: *mut crate::CmuxRbClient, input: &str) -> (i32, Value) {
     let mut ptr: *const u8 = std::ptr::null();
     let mut len = 0usize;
-    // SAFETY: a live client by this function's contract; a readable input and writable out params.
+    // SAFETY: a live client, a readable input and writable out params.
     let code =
         unsafe { cmux_rb_client_apply(client, input.as_ptr(), input.len(), &mut ptr, &mut len) };
     if code != CMUX_RD_OK {
@@ -35,8 +32,7 @@ fn the_vectors_replay_through_the_c_abi() {
         assert!(!client.is_null());
         for (i, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
             let at = format!("{} step {i}", case["name"]);
-            // SAFETY: a live client from cmux_rb_client_new, used only here.
-            let (code, outcome) = unsafe { apply(client, &step["input"].to_string()) };
+            let (code, outcome) = apply(client, &step["input"].to_string());
             assert_eq!(code, CMUX_RD_OK, "{at}");
             let expect = &step["expect"];
             assert_eq!(outcome["effects"], expect["effects"], "{at}: effects");
@@ -52,12 +48,9 @@ fn the_vectors_replay_through_the_c_abi() {
 fn input_that_is_not_a_client_input_is_invalid_and_changes_nothing() {
     let client = cmux_rb_client_new();
     let show = json!({"op": "host", "message": {"t": "rb.menu.cancel", "token": 1}}).to_string();
-    // SAFETY: a live client from cmux_rb_client_new, used only here.
-    assert_eq!(unsafe { apply(client, "{\"op\":\"nope\"}") }.0, CMUX_RD_ERR_INVALID);
-    // SAFETY: as above.
-    assert_eq!(unsafe { apply(client, "not json") }.0, CMUX_RD_ERR_INVALID);
-    // SAFETY: as above.
-    let (code, outcome) = unsafe { apply(client, &show) };
+    assert_eq!(apply(client, "{\"op\":\"nope\"}").0, CMUX_RD_ERR_INVALID);
+    assert_eq!(apply(client, "not json").0, CMUX_RD_ERR_INVALID);
+    let (code, outcome) = apply(client, &show);
     assert_eq!(code, CMUX_RD_OK);
     assert_eq!(outcome, json!({"effects": [], "note": "stale_cancel", "reject": null}));
     // SAFETY: as above.

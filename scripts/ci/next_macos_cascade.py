@@ -88,11 +88,8 @@ for an hour, read from a snapshot up to six hours old). The stall rule alone
 cannot tell a dead label from a busy one, and a label whose queue was cleared
 reads as free: on 2026-10-30 blacksmith-12vcpu-macos-26 had started nothing for
 about a day. A dead label takes no slot, no overflow and no retry_runner, and a
-feed's compile counts it full (fresh_stalled()). While another label shows
-life that is enough; with every label showing nothing, an idle label looks the
-same, so only one holding a job left waiting past the stall wait is dead
-(simple_pool_picker.stuck_queue()), and with both so stuck every job stays on
-the owned route.
+feed's compile counts it full (fresh_stalled()), while another label shows
+life; with every label dead the snapshot says nothing to choose by.
 
 Only owned Macs participate in this cascade. Before it existed, fast-tier and
 swift-canary overflowed to an external macOS runner while Blacksmith was full or
@@ -579,9 +576,8 @@ def queued_full(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozens
 
 def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
     """The LABELS the snapshot (fresh or not) shows dead (simple_pool_picker.dead_macos_26(), blacksmith_dead():
-    nothing running and no job started on it for an hour, from a snapshot up to six hours old). With every label
-    showing nothing, only those holding a job left waiting (simple_pool_picker.stuck_queue()): an idle label looks
-    dead too."""
+    nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
+    shows every one dead: with no label showing life it says nothing to choose by."""
     return frozenset(_picker_rule.dead_macos_26(snapshot, now)) & frozenset(LABELS)
 
 
@@ -921,27 +917,6 @@ def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool 
     return (promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):] + rest[len(owned):]
 
 
-FLEET_SPILL_SWITCH = "CI_FAST_TIER_FLEET_SPILL"
-
-
-def fleet_spill(env: Mapping[str, str], owned: Sequence[str], saturated: bool,
-                reserved: Sequence[str]) -> tuple[str, ...]:
-    """The FLEET_CLIENT_JOBS that take the fleet gateway while Blacksmith macOS is off (place()).
-
-    With the switch off no Blacksmith label takes a job, so a cascade job no idle mini took waits on its owned
-    label: 2026-11-23 09-11Z the fast tier queued 46 to 65 min on glaeda-side-std-xcode-26.6 (173 jobs queued
-    there, every one of its 31 slots busy) while the gateway had idle runners. `saturated` (the owned runners
-    were read live and none was idle for it) lists such a job for its build-fleet client instead;
-    side_lane_placement.fleet_gateway() still keeps it only with an idle gateway runner of its own, and a fleet
-    verdict `queued` hands it back to the owned route. vars.CI_FAST_TIER_FLEET_SPILL `0` turns this off.
-    """
-    if not saturated or (env.get(FLEET_SPILL_SWITCH) or "").strip() == "0":
-        return ()
-    requested = set((env.get("FLEET_CLIENT_JOBS") or "").split())
-    jobs = (env.get("JOBS") or "").split()
-    return tuple(job for job in jobs if job in requested and job not in owned and job not in reserved)
-
-
 def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
           waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False,
           saturated: bool = False, route_wait: float | None = None) -> Placement:
@@ -967,14 +942,10 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         return Placement(empty, "", skipped(env))
     if off:
         placement = _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
-        spill = fleet_spill(env, owned, saturated, placement.fleet_jobs)
-        why = f"{blacksmith_off_why(env)}, so every job stays on its owned label. {placement.why}"
-        if spill:
-            why += (f"; no idle mini took {', '.join(spill)}, so it is reserved for the fleet gateway "
-                    f"(vars.{FLEET_SPILL_SWITCH} `0` turns this off)")
         return dataclasses.replace(placement, retry_runner="", retry_jobs=(),
                                    fresh_stall=tuple(dict.fromkeys((*off, *placement.fresh_stall))),
-                                   fleet_jobs=tuple(dict.fromkeys((*placement.fleet_jobs, *spill))), why=why)
+                                   why=f"{blacksmith_off_why(env)}, so every job stays on its owned label. "
+                                       f"{placement.why}")
     return _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
 
 

@@ -1,15 +1,13 @@
-import React, { memo } from "react";
-import { useStableCallback } from "./stableCallback";
+import React from "react";
 
-import { HomeAge, HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
+import { HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
 import { useT } from "./i18n";
 
 import { type WatchedAsk } from "./needsYou/model";
 import type { AttentionTab } from "./needsYou/attentionTabs";
 import { activityTime, type AcpmuxSessionEntry, projectLabel } from "./sessionList";
-import { HOME_LABELS, homeLists } from "./homeListsModel";
+import { HOME_LABELS, homeLists, age } from "./homeListsModel";
 import { pressToOpen } from "../../ui/pressToOpen";
-import { WithFacts } from "./chips/FactsHoverCard";
 /// The lists under a new chat's composer. Each row opens its session. Renders
 /// nothing when neither list has a row, so the home is the hero and composer alone.
 export function HomeLists({
@@ -39,8 +37,6 @@ export function HomeLists({
 }) {
   const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const t = useT();
-  // One select for every row, calling the latest `onSelect`: a parent's new closure draws no row.
-  const select = useStableCallback((sessionId: string) => onSelect(sessionId));
   if (waiting.length === 0 && review.length === 0) return null;
   return (
     <div className="acpmux-home">
@@ -66,10 +62,10 @@ export function HomeLists({
             <HomeRow
               key={session.sessionId}
               session={session}
-              mark={PULL_REQUEST_MARK}
+              mark={<PullRequestIcon />}
               title={session.pullRequest!.title}
               detail={`#${session.pullRequest!.number}`}
-              onSelect={select}
+              onSelect={onSelect}
             />
           ))}
         </HomeList>
@@ -87,8 +83,7 @@ function HomeList({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-/// One chat. Its own component, drawn again only when its session or its words change.
-const HomeRow = memo(function HomeRow({
+function HomeRow({
   session,
   mark,
   title,
@@ -101,29 +96,32 @@ const HomeRow = memo(function HomeRow({
   detail?: string;
   onSelect: (sessionId: string) => void;
 }) {
+  const t = useT();
   const project = session.cwd ? projectLabel(session.cwd) : undefined;
-  const at = activityTime(session);
+  const when = age(activityTime(session), Date.now(), t);
   return (
     <li>
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
         {mark}
-        <span className="acpmux-home-title">{title ?? session.displayTitle}</span>
-        {detail && <span className="acpmux-home-detail">{detail}</span>}
-        {project && (
-          <WithFacts facts={[{ value: session.cwd ?? "", code: true }]}>
-            {(facts) => (
-              <span {...facts} className="acpmux-home-meta acpmux-home-project">
-                {project}
-              </span>
-            )}
-          </WithFacts>
+        <span className="acpmux-home-title" title={title ?? session.displayTitle}>
+          {title ?? session.displayTitle}
+        </span>
+        {detail && (
+          <span className="acpmux-home-detail" title={detail}>
+            {detail}
+          </span>
         )}
-        {at !== undefined && <HomeAge at={at} />}
+        {project && (
+          <span className="acpmux-home-meta acpmux-home-project" title={session.cwd}>
+            {project}
+          </span>
+        )}
+        {when && <span className="acpmux-home-meta">{when}</span>}
         <ChevronIcon />
       </button>
     </li>
   );
-});
+}
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
@@ -157,5 +155,3 @@ const ChevronIcon = () => (
     <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
   </Icon>
 );
-/// The review list's mark, one element for every row and draw.
-const PULL_REQUEST_MARK = <PullRequestIcon />;

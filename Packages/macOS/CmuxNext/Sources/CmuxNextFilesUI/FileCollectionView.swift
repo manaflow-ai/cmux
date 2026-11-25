@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextDesign
 
 /// The icon layout's collection view: hands unused keys to the pane, opens
 /// tiles on double-click and asks the pane for context menus.
@@ -28,6 +27,6 @@ final class FileCollectionView: NSCollectionView {
             selectionIndexPaths = [path]
             delegate?.collectionView?(self, didSelectItemsAt: [path])
         }
-        return NSMenu.withoutSystemItems(menuProvider?(path?.item))
+        return menuProvider?(path?.item)
     }
 }

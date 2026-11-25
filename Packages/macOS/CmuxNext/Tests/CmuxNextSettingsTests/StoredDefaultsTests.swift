@@ -181,16 +181,14 @@ import Testing
     /// shared file and the running NIGHTLY's updater flipped from on to deferred two seconds after
     /// that build launched (NIGHTLY updater log, 2026-11-08T08:05:19.567Z DEV launch, 08:05:21.615Z
     /// "automatic downloads deferred (setting false ...)").
-    /// `updates.downloadAutomatically` is on by default again, so a pick of on stores nothing; the
-    /// test uses `updates.installOnQuit`, whose former default (on) still differs from its default.
     @Test func thePassRunsOncePerFileNotOncePerBuild() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
         let nightly = try await controller(#"{ "diff": { "layout": "auto" } }"#)
         #expect(try await nightly.forgetStoredDefaults(marker: try marker()) != nil)
 
-        // The person turns Install Updates When Quitting on (it was the default once) after the pass.
-        try await nightly.setSetting(at: UpdatesSettings.installOnQuitPath, to: .bool(true), by: .user)
-        #expect(try await nightly.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
+        // The person turns Automatic Updates on (it was the default once) after the pass.
+        try await nightly.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(true), by: .user)
+        #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
 
         // A DEV build launches on the same file with its own UserDefaults.
         let dev = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
@@ -199,7 +197,7 @@ import Testing
         let devMarker = try marker()
         #expect(try await dev.forgetStoredDefaults(marker: devMarker) == nil)
         #expect(devMarker.bool(forKey: SettingsController.storedDefaultsForgottenKey), "the build records it too")
-        #expect(try await dev.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
+        #expect(try await dev.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
     }
 
     /// A pass that found nothing to drop still counts as run for the file.
@@ -209,31 +207,24 @@ import Testing
         let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
         #expect(report.dropped.isEmpty)
 
-        try await settings.file.set(.bool(true), at: UpdatesSettings.installOnQuitPath)
+        try await settings.file.set(.bool(true), at: UpdatesSettings.downloadAutomaticallyPath)
         #expect(try await settings.forgetStoredDefaults(marker: try marker()) == nil)
-        #expect(try await settings.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
     }
 
-    /// Automatic Updates was an opt-in from Leo 2026-10-27 to 2026-11-07, so a stored `true` was the
-    /// person's pick (Lawrence 2026-11-08: "i keep enabling auto updates but it keeps getting toggled
-    /// off"). It is on by default again (Leo 2026-11-07: "Yeah, let's do that, man"), so a stored
-    /// `true` is a copy of the default and goes, Automatic Updates stays on, and a stored `false`
-    /// (never a default since the flip) is the person's pick and stays.
-    @Test func thePassKeepsAutomaticUpdatesOn() async throws {
+    /// Automatic Updates is an opt-in (off on every channel since Leo 2026-10-27), so a stored `true`
+    /// is the person's pick, never a stale copy: the pass keeps it on a file it has not seen yet
+    /// (a new install's first launch, an older cmux-next.json copied in). Lawrence 2026-11-08: "i keep
+    /// enabling auto updates but it keeps getting toggled off": each fresh build's pass dropped it
+    /// as a copy of the former default `true`, and the running NIGHTLY turned automatic downloads off.
+    @Test func thePassKeepsAutomaticUpdatesTurnedOn() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
-        let on = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
-        _ = try #require(try await on.forgetStoredDefaults(marker: try marker()))
-        #expect(on.snapshot.updates.downloadAutomatically)
-    }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
 
-    /// The other half: a person who turned Automatic Updates off keeps it off through the pass.
-    @Test func thePassKeepsAutomaticUpdatesTurnedOff() async throws {
-        defer { try? FileManager.default.removeItem(at: home) }
-        let off = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
-        let report = try #require(try await off.forgetStoredDefaults(marker: try marker()))
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
         #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
-        #expect(try await off.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
-        #expect(!off.snapshot.updates.downloadAutomatically)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
     /// Writes the record an earlier build's pass left beside the file, with `dropped`.
@@ -251,9 +242,7 @@ import Testing
         try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true), "diff.layout": .string("unified")])
 
         await settings.runLaunchMigrations(marker: try marker())
-        // On by default since Leo 2026-11-07, so the dropped `true` is the default: Automatic Updates
-        // is on and the key stays unset, following the default.
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
         #expect(settings.snapshot.updates.downloadAutomatically)
         #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
         #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))

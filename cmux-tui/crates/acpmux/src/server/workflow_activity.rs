@@ -138,7 +138,6 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
                     .is_some(),
             )?;
         }
-        let cancellation = hub.workflow_runs.runner_cancellation(id, generation);
         drop(guard);
         loop {
             let changed = pending.changed.notified();
@@ -154,12 +153,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
                     return Ok(json!({"activityId":activity,"outcome":outcome}));
                 }
             }
-            tokio::select! {
-                _ = changed => {}
-                _ = cancellation.cancelled() => {
-                    return Err(internal("workflow runner stopped while waiting for activities"));
-                }
-            }
+            changed.await;
         }
     }
     if action != "start" {

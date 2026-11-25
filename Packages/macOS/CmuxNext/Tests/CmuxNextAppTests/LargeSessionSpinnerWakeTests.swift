@@ -6,7 +6,7 @@ import Testing
 
 /// Which observations a change wakes in the `large` session (plans/cmux-next/main-thread-scheduling.md 1.5), checked by
 /// its effect with `ObservationWakes`. No GUI timing: what a change wakes does not depend on the host. Each case takes
-/// a ``SessionFixtureSize``: `CMUX_TEST_SESSION_SIZES=real` runs it on 826 workspaces.
+/// a ``SessionFixtureSize``: `CMUX_TEST_SESSION_SIZES=real` runs it on the person's 826 workspaces.
 @MainActor @Suite(.serialized)
 struct LargeSessionSpinnerWakeTests {
     private static let spinner = Array("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")

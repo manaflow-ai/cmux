@@ -176,8 +176,6 @@ pub(super) fn human_key_rank(key: &str) -> usize {
         "index" => 6,
         "focused" => 7,
         "running" => 8,
-        // Who made the row and why (`created-by-detail-v1`), before the long EXTRA blob.
-        "created_by" => 9,
-        _ => 10,
+        _ => 9,
     }
 }

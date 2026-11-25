@@ -74,7 +74,7 @@ fn a_cancelled_pull_stops_emits_one_cancelled_event_and_leaves_no_file() {
         &host,
         "1",
         "cloud.file.pull",
-        json!({ "machine": "vm_alpha01", "localPath": target, "path": "/home/cmux/notes.txt" }),
+        json!({ "machine": "vm-alpha01", "localPath": target, "path": "/home/cmux/notes.txt" }),
         Some("p-1"),
     );
     let (_, started) = until_result(&mut host, "1");
@@ -118,7 +118,7 @@ fn a_cancel_of_an_ended_transfer_answers_ended_and_emits_nothing() {
         &host,
         "1",
         "cloud.file.push",
-        json!({ "machine": "vm_alpha01", "localPath": local, "path": "/home/cmux/upload.txt" }),
+        json!({ "machine": "vm-alpha01", "localPath": local, "path": "/home/cmux/upload.txt" }),
         Some("p-1"),
     );
     let (_, started) = until_result(&mut host, "1");

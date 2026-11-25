@@ -15,14 +15,11 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     /// Bundle files the scene's images come from, when this Mac has them.
     public let bundleDirectory: URL?
     weak var client: AppsClient?
-    /// Who opened it: `user` for an overlay the person opened, nil (no origin) for every other view.
-    let origin: AppOrigin?
     /// Extra members of the mount's context (a hover card's `target`), passed to the export.
     let extraContext: [String: AppJSON]
 
     init(id: String, appID: String, implementation: AppImplementation, isPreview: Bool, surface: String, bundleDirectory: URL?,
-         client: AppsClient, extraContext: [String: AppJSON] = [:], origin: AppOrigin? = nil) {
-        self.origin = origin
+         client: AppsClient, extraContext: [String: AppJSON] = [:]) {
         self.extraContext = extraContext
         self.id = id
         self.appID = appID
@@ -61,10 +58,10 @@ extension AppsClient {
     /// not installed (`context.preview = true`: no grants, sample data).
     /// `context` adds members to the mount's context (a hover card's `target`).
     public func mount(_ app: String, implementation: AppImplementation, surface: String, preview: Bool = false,
-                      context: [String: AppJSON] = [:], origin: AppOrigin? = nil) -> AppMount {
+                      context: [String: AppJSON] = [:]) -> AppMount {
         let mount = AppMount(id: "mnt-\(keyPrefix)-\(nextMount)", appID: app,
                              implementation: implementation, isPreview: preview, surface: surface,
-                             bundleDirectory: bundleDirectory(for: app), client: self, extraContext: context, origin: origin)
+                             bundleDirectory: bundleDirectory(for: app), client: self, extraContext: context)
         nextMount += 1
         mounts[mount.id] = mount
         send(mount)
@@ -78,7 +75,7 @@ extension AppsClient {
     }
 
     /// Runs `operation` after every earlier mount, unmount and user event.
-    func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
+    private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
         let previous = tail
         // task-owner: one transport call chained after the previous one (mount, unmount and event order)
         tail = Task { [transport] in
@@ -150,16 +147,9 @@ extension AppsClient {
             return
         }
         if !keepingScene || mount.model.status != .ready { mount.model.reset() }
-        // A new mount starts with no failures (a restarted supervisor never says `stale: false`).
-        mount.model.staleReason = nil
         enqueue { [weak self] transport in
             do throws(AppsTransportError) {
-                if let origin = mount.origin {
-                    try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id,
-                                              context: mount.context, origin: origin)
-                } else {
-                    try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)
-                }
+                try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)
             } catch {
                 guard self?.mounts[mount.id] != nil, !error.connectionLost else { return }
                 mount.model.status = .failed(error.message)

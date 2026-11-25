@@ -381,9 +381,7 @@ extension ConversationViewController {
             })
         }
         actions.append(UIAction(title: String(localized: "conversation.sendLater.sendNow", defaultValue: "Send Message", bundle: .module), image: UIImage(systemName: "arrow.up.circle")) { [weak self] _ in
-            guard let self else { return }
-            let send: () -> Void = { [weak self] in self?.store.sendScheduledNow(rowID: rowID) }
-            if self.sendGateAllows(retry: send) { send() }
+            self?.store.sendScheduledNow(rowID: rowID)
         })
         actions.append(UIAction(title: String(localized: "conversation.sendLater.editTime", defaultValue: "Edit Time", bundle: .module), image: UIImage(systemName: "clock")) { [weak self] _ in
             guard let self, let date = self.store.message(rowID: rowID)?.scheduledAt else { return }

@@ -337,7 +337,7 @@ async fn git_state_of_a_purged_chat_is_forgotten() {
 
 #[test]
 fn git_state_the_schema_documents_the_live_branch_and_its_record() {
-    let schema: Value = serde_json::from_str(&acpmux::schema::SCHEMA.inflate()).unwrap();
+    let schema: Value = serde_json::from_str(acpmux::schema::SCHEMA).unwrap();
     let types = &schema["types"];
     assert!(types["SessionSummary"]["gitBranch"].is_string(), "SessionSummary has no gitBranch");
     let kinds = types["muxEventKinds"].as_array().unwrap();

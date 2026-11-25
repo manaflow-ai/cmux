@@ -3,7 +3,6 @@
 // prompt (sendMenuModel.ts). It is the house context menu (ui/ContextMenu), so in the app the host
 // draws it natively with the same rows and shortcut text, and Shift-F10 or the context-menu key on
 // a focused Send opens it too. Only Send has the menu: Stop has none.
-import { keycapLegend } from "../../../ui/keycapLegend";
 import {
   cloneElement,
   useEffect,
@@ -59,7 +58,7 @@ export function SendMenu({
             <span className="ui-menu-shortcut acpmux-send-menu-caps" aria-hidden="true">
               {glyphs.map((glyph) => (
                 <kbd key={glyph} className="acpmux-keycap">
-                  {keycapLegend(glyph)}
+                  {glyph}
                 </kbd>
               ))}
             </span>

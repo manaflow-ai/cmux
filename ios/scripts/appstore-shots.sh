@@ -114,14 +114,7 @@ print(max(runs, key=lambda r: r.get("createdAt", ""))["databaseId"] if runs else
   done
   [ -n "$run_id" ] || { echo "could not resolve dispatched run" >&2; exit 1; }
   echo "watching run $run_id (https://github.com/$REPO/actions/runs/$run_id)"
-  # glaeda-gh's daemon is the host's one GitHub poller (no calls of our own while it waits); with no
-  # glaeda-gh, its daemon down (3) or one too old for the arguments (64), gh run watch does it.
-  rc=3
-  if command -v glaeda-gh >/dev/null 2>&1; then
-    glaeda-gh wait run "$REPO/$run_id" --timeout 21600 && rc=0 || rc=$?
-  fi
-  case $rc in 3|64) gh run watch --repo "$REPO" "$run_id" --exit-status && rc=0 || rc=$? ;; esac
-  [ "$rc" -eq 0 ] || {
+  gh run watch --repo "$REPO" "$run_id" --exit-status || {
     echo "capture run failed; logs: gh run view --repo $REPO $run_id --log-failed" >&2
     exit 1
   }

@@ -19,16 +19,11 @@ let package = Package(
     dependencies: [
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
-        // The cloud build space a dev build's requests carry (`CMUXBuildSpace`, `X-Cmux-Build-Space`).
-        .package(path: "../CMUXAuthCore"),
     ],
     targets: [
         .target(
             name: "CmuxHomeCore",
-            dependencies: [
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-            ],
+            dependencies: [.product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).
@@ -39,10 +34,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHomeCoreTests",
-            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport", .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-                           .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
-            // MessagePreviewTests reads it by path, as the Rust port's tests do: not a bundle resource.
-            exclude: ["MessagePreviewCases.json"],
+            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport", .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

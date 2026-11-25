@@ -2,9 +2,7 @@
 //! the session's `max_datagram`, then parity shards of the same size. A frame
 //! of one shard without parity is not padded.
 
-use cmux_rd_proto::{
-    DatagramHeader, DatagramKind, FrameBody, HEADER_LEN, MAX_FRAME_SHARDS, fec_blocks,
-};
+use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, HEADER_LEN, MAX_FRAME_SHARDS};
 
 use crate::fec::{self, FecError, MAX_SHARDS};
 
@@ -16,8 +14,6 @@ pub struct Packetizer {
     next_transport_seq: u16,
     /// Shards go out as upstream media (rd change C4).
     upstream: bool,
-    /// The viewer takes frames over one FEC block in several blocks (cap `fec.blocks`).
-    fec_blocks: bool,
 }
 
 /// The datagrams of one frame, ready to send in order.
@@ -43,13 +39,7 @@ impl Packetizer {
     /// `max_datagram` comes from the link (1152 or 1332 bytes); tests may use
     /// smaller values, never below 64.
     pub fn new(stream: u16, max_datagram: usize) -> Self {
-        Self {
-            stream,
-            max_datagram: max_datagram.max(64),
-            next_transport_seq: 0,
-            upstream: false,
-            fec_blocks: false,
-        }
+        Self { stream, max_datagram: max_datagram.max(64), next_transport_seq: 0, upstream: false }
     }
 
     /// Payload bytes per shard.
@@ -78,13 +68,6 @@ impl Packetizer {
         self.upstream = upstream;
     }
 
-    /// Frames over one FEC block keep their parity, split across interleaved
-    /// blocks: only when the viewer offered cap `fec.blocks` (an older viewer
-    /// refuses such headers).
-    pub fn set_fec_blocks(&mut self, on: bool) {
-        self.fec_blocks = on;
-    }
-
     /// Splits `body` into data shards plus `parity` parity shards.
     pub fn packetize(
         &mut self,
@@ -99,20 +82,9 @@ impl Packetizer {
         if data_shards > MAX_FRAME_SHARDS as usize {
             return Err(PacketizeError::FrameTooLarge);
         }
-        // A frame larger than one FEC block (a big keyframe) is split across interleaved
-        // blocks, each with at least one parity shard, when the viewer takes them (design
-        // D6); else it keeps the parity that fits its one block (none past 254 data
-        // shards) and NACKs and recovery cover the rest.
-        let parity = if data_shards + parity <= MAX_SHARDS || parity == 0 {
-            parity
-        } else if self.fec_blocks {
-            let parity = parity.min(data_shards).min(MAX_FRAME_SHARDS as usize);
-            let blocks = fec_blocks(data_shards as u16, parity as u16);
-            parity.max(blocks).min(data_shards)
-        } else {
-            MAX_SHARDS.saturating_sub(data_shards)
-        };
-        let blocks = if parity == 0 { 1 } else { fec_blocks(data_shards as u16, parity as u16) };
+        // A frame larger than one FEC block (a big keyframe) goes without parity; NACKs
+        // and recovery cover its losses.
+        let parity = if data_shards + parity > MAX_SHARDS { 0 } else { parity };
         let mut shards: Vec<Vec<u8>> = bytes.chunks(shard_len).map(<[u8]>::to_vec).collect();
         if shards.is_empty() {
             shards.push(Vec::new());
@@ -129,7 +101,7 @@ impl Packetizer {
             Vec::new()
         } else {
             let refs: Vec<&[u8]> = shards.iter().map(Vec::as_slice).collect();
-            fec::encode_blocks(&refs, parity, blocks).map_err(PacketizeError::Fec)?
+            fec::encode(&refs, parity).map_err(PacketizeError::Fec)?
         };
         let count = data_shards as u16;
         let fec_count = parity as u16;
@@ -173,10 +145,7 @@ impl Packetizer {
 
 /// Parity shards for a frame of `data_shards` shards at a measured loss rate
 /// (0.0 to 1.0): none on a clean path, then 10 % to 50 % of the data shards,
-/// at least one shard for keyframes and refinement frames on a lossy path. A
-/// frame over one FEC block keeps its share: [`Packetizer::packetize`] splits it
-/// across interleaved blocks when the viewer takes them (cap `fec.blocks`), else
-/// cuts it to what one block holds.
+/// at least one shard for keyframes and refinement frames on a lossy path.
 pub fn parity_for(data_shards: usize, loss: f64, important: bool) -> usize {
     if loss <= 0.001 {
         return 0;
@@ -184,5 +153,5 @@ pub fn parity_for(data_shards: usize, loss: f64, important: bool) -> usize {
     let ratio = (loss * 3.0).clamp(0.10, 0.50);
     let n = (data_shards as f64 * ratio).ceil() as usize;
     let n = if important { n.max(1) } else { n };
-    n.min(MAX_FRAME_SHARDS as usize)
+    n.min(MAX_SHARDS.saturating_sub(data_shards))
 }

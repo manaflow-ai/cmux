@@ -32,9 +32,7 @@ final class BookmarkBarItemView: NSView {
         label.truncatesLastVisibleLine = true
         addSubview(icon)
         addSubview(label)
-        // A bookmark that shows its title has no tooltip (a1315's cut 2); one drawn as its icon alone is named by it.
-        themedToolTip = node.displayTitle.isEmpty ? node.url?.absoluteString : nil
-        setAccessibilityHelp(node.url?.absoluteString)
+        themedToolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" } ?? node.displayTitle
         setAccessibilityElement(true)
         setAccessibilityRole(node.isFolder ? .menuButton : .button)
         setAccessibilityLabel(node.displayTitle)
@@ -112,7 +110,7 @@ final class BookmarkBarItemView: NSView {
         onClick?(self, event)
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(onContextMenu?(self)) }
+    override func menu(for event: NSEvent) -> NSMenu? { onContextMenu?(self) }
 
     override func accessibilityPerformPress() -> Bool {
         guard let event = NSApp.currentEvent else { return false }

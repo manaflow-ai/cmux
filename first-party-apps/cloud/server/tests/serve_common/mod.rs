@@ -131,7 +131,7 @@ impl Host {
             if line["type"] == "relay.session" {
                 let status = self.cloud.session().expect("fake session");
                 self.send(&json!({ "type": "relay.session", "id": line["id"],
-                    "signed_in": status.signed_in, "team": status.team, "backend": status.backend }));
+                    "signed_in": status.signed_in, "team": status.team }));
                 continue;
             }
             if line["type"] == "relay.carrier" {
@@ -150,9 +150,6 @@ impl Host {
                     params: line["params"].clone(),
                     idempotency_key: line["idempotency_key"].as_str().map(str::to_owned),
                     origin: None,
-                    expected_backend: line["expected_backend"].as_str().map(str::to_owned),
-                    expected_team: line["expected_team"].as_str().map(str::to_owned),
-                    expected_revision: line["expected_revision"].as_str().map(str::to_owned),
                 };
                 let answer = relay_result(&line["id"], self.cloud.call(&call).expect("fake reply"));
                 self.send(&answer);

@@ -154,11 +154,6 @@ impl Mux {
             transaction,
         });
         let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
-        // An agent's batch is an agent's layout change as its single width or ratio command is: the views it can make
-        // smaller are marked before the commit (a view's report can arrive before the commit returns). The plan
-        // finds a refused value or an unchanged layout only inside the commit, so those two ends give the marks back.
-        let agent_layout =
-            self.mark_agent_layout_change(actor, ResourceOperation::PaneViewportWidthSet);
         let commit = match self.resource_set_layout_sizes(
             selectors,
             values.to_vec(),
@@ -167,13 +162,8 @@ impl Mux {
             &fingerprint,
         ) {
             Ok(commit) => commit,
+            Err(error) if error.is::<resource_topology::LayoutSizesUnchanged>() => return Ok(()),
             Err(error) => {
-                if let Some(marks) = &agent_layout {
-                    self.drop_agent_layout_marks(marks);
-                }
-                if error.is::<resource_topology::LayoutSizesUnchanged>() {
-                    return Ok(());
-                }
                 return Err(error.downcast::<LayoutSizesError>().unwrap_or_else(|error| {
                     self.emit(MuxEvent::Status(format!(
                         "could not persist layout sizes: {error:#}"
@@ -182,9 +172,6 @@ impl Mux {
                 }));
             }
         };
-        if let Some(marks) = &agent_layout {
-            self.narrow_agent_layout_marks(marks, &commit.result);
-        }
         // The echo names the request's transaction as its decimal form.
         let echo = Some(Arc::<str>::from(transaction.to_string()));
         if let Some(screen) = commit

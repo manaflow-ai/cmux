@@ -119,7 +119,6 @@ fn pending_socket() -> SlotAttachment {
         parked: None,
         last_seen_ms: 0,
         pending_handover: false,
-        inline: Default::default(),
     }
 }
 
@@ -361,7 +360,6 @@ impl World {
             }),
             last_seen_ms: 0,
             pending_handover: false,
-            inline: Default::default(),
         });
     }
 

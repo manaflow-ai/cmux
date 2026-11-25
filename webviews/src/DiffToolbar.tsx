@@ -3,11 +3,9 @@
 // models (what each control shows and does) are in toolbar-model.ts.
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useInPlaceGlassBlur } from "./ui/glass/pageGlassBlur";
 import { useScrollEdges } from "./ui/scrollEdges";
 import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
-import { diffStatParts } from "./file-tree-stats";
 import { Icon, type IconName } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
 import {
@@ -50,12 +48,7 @@ function useAnchoredPopover(open: boolean, anchorRef: React.RefObject<HTMLElemen
       const fitted = Math.min(width, window.innerWidth - VIEWPORT_MARGIN * 2);
       const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - fitted - VIEWPORT_MARGIN));
       const top = rect.bottom + POPOVER_GAP;
-      setStyle({
-        top,
-        left,
-        width: fitted,
-        maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN),
-      });
+      setStyle({ top, left, width: fitted, maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN) });
     };
     reposition();
     window.addEventListener("resize", reposition);
@@ -151,7 +144,6 @@ export function SourceMenu({
     if (!entry.checked) onSelect(entry.target);
   };
   const selectedText = model.selected ? entryText(model.selected) : label("diffTarget");
-  const stats = additions == null || deletions == null ? null : diffStatParts({ added: additions, deleted: deletions });
   return (
     <div id="source-menu" className="source-pill">
       <button
@@ -179,13 +171,12 @@ export function SourceMenu({
           <span className="source-pill-additions">+0</span>
           <span className="source-pill-deletions">-0</span>
         </span>
-      ) : stats ? (
-        // Only the counts that are not zero, as the file headers and the files list show them.
+      ) : (
         <span className="source-pill-stats" aria-label={label("diffStats")}>
-          {stats.added ? <span className="source-pill-additions">{stats.added}</span> : null}
-          {stats.deleted ? <span className="source-pill-deletions">{stats.deleted}</span> : null}
+          <span className="source-pill-additions">+{additions}</span>
+          <span className="source-pill-deletions">-{deletions}</span>
         </span>
-      ) : null}
+      )}
       {open && style
         ? createPortal(
             <div
@@ -386,7 +377,7 @@ export function JumpToFilePalette({
           setOpen(true);
         }}
       >
-        <Icon name="files" />
+        <Icon name="chevronDown" />
       </button>
       {open && style
         ? createPortal(
@@ -510,13 +501,6 @@ export function FloatingToolbar({
 }) {
   const [focusIndex, setFocusIndex] = useState(0);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  // Drawn in place, not portalled: it blurs the file list and diff under it itself (pageGlassBlur.ts).
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  useInPlaceGlassBlur(menuRef, menuOpen);
-  const setMenu = useCallback((node: HTMLDivElement | null) => {
-    menuRef.current = node;
-    focusFirstMenuItem(node);
-  }, []);
   const closeMenu = () => {
     onCloseMenu();
     document.getElementById("options-button")?.focus();
@@ -525,7 +509,7 @@ export function FloatingToolbar({
     <div id="diff-pill" className="diff-pill-anchor">
       {menuOpen ? (
         <div
-          ref={setMenu}
+          ref={focusFirstMenuItem}
           id="options-menu"
           className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"

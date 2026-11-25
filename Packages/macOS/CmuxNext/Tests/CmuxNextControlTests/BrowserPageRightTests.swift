@@ -223,52 +223,12 @@ import Testing
         #expect(executor.last?.arguments["profile"]?.json == "agent")
     }
 
-    /// Home with no column right of the chat, and the person's workspace: a terminal tab they work in.
-    static func noColumnSnapshot(focusOnWork: Bool) -> ControlSnapshot {
-        var snapshot = Self.homeSnapshot(rightColumn: false)
-        let shell = ControlTabInfo(id: "tab_shell", surface: "40", kind: "terminal", title: "zsh")
-        let work = ControlPaneInfo(id: "pane_work", handle: "41", selectedTabID: "tab_shell", tabs: [shell])
-        var workspace = ControlWorkspaceInfo(id: "work-key", handle: "42", name: "Work",
-                                             screens: [ControlScreenInfo(id: "screen_work", handle: "43", panes: [work])])
-        workspace.resourceID = "ws_work"
-        snapshot.topology.workspaces.append(workspace)
-        snapshot.topology.focus = focusOnWork ? ControlFocus(paneID: "pane_work", tabID: "tab_shell")
-            : ControlFocus(paneID: Self.dockPane, tabID: "tab_chat")
-        return snapshot
-    }
-
-    @Test func withNoColumnRightOfTheChatTheTabOpensBesideThePersonsCurrentTab() async throws {
-        let (router, executor) = install(Self.noColumnSnapshot(focusOnWork: true))
-        let opened = try await right(router, ["agent": "Chief", "url": "https://github.com/login"]).get()
-        let run = try #require(executor.last)
-        #expect(run.target?.id == "tab_shell", "beside the person's current tab")
-        #expect(run.focus == false)
-        #expect(run.background == true, "never over the page the person works on")
-        #expect(opened["tab"] == "tab_new1")
-        #expect(opened["pane"] == "pane_work")
-        #expect(opened["workspace"] == "ws_work")
-        #expect(opened["created"] == true)
-        // Later calls find the agent's own tab there, without opening another.
-        let again = try await right(router, ["agent": "Chief", "verb": "browser.page.click"]).get()
-        #expect(again["tab"] == "tab_new1")
-        #expect(again["created"] == false)
-        #expect(executor.count == 1)
-    }
-
-    @Test func withNoColumnAndThePersonInTheHomeChatANewColumnOpensRightOfIt() async throws {
-        let (router, executor) = install(Self.noColumnSnapshot(focusOnWork: false))
-        _ = try await right(router, ["agent": "Chief", "url": "https://github.com/login"]).get()
-        let run = try #require(executor.last)
-        #expect(run.newColumnBeside == true, "never a tab in the chat's dock")
-        #expect(run.callerHomeChat == true)
-        #expect(run.focus == false)
-    }
-
-    @Test func withNoColumnTheAgentNeverTakesThePersonsTab() async throws {
-        let (router, executor) = install(Self.noColumnSnapshot(focusOnWork: true))
-        let opened = try await right(router, ["agent": "Chief", "verb": "browser.page.click"]).get()
-        #expect(opened["created"] == true)
-        #expect(executor.count == 1)
+    @Test func withNoColumnRightOfTheChatNothingOpensInTheDock() async {
+        let (router, executor) = install(Self.homeSnapshot(rightColumn: false))
+        let refused = await right(router, ["agent": "Chief", "url": "https://cmux.com/"])
+        #expect(refused.failure?.code == "not_found")
+        #expect(refused.failure?.data?["dock_pane"] == .string(Self.dockPane))
+        #expect(executor.count == 0)
     }
 
     @Test func releaseHandsTheTabToTheNextAgent() async throws {

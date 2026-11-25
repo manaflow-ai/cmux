@@ -15,10 +15,7 @@ never launches or quits the app.
 Usage: split-no-flicker-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--runs N]
 Exit status 0 when every check passes.
 """
-import argparse, json, os, socket, sys, time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
+import argparse, json, socket, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
@@ -77,10 +74,7 @@ def split(modifiers, panes):
     rpc("debug.layout_counters", {"reset": True})
     print("split:", rpc("debug.key", {"key": "d", "modifiers": modifiers}), flush=True)
     wait(lambda: len(strips()) == panes, 10)
-    # The daemon pane replaced the provisional one: the strips and the pane-count record stop changing.
-    if wait_stable(lambda: (strips(), (rpc("debug.layout_counters") or {}).get("pane_count_changes")),
-                   "the split's strips", timeout=10, interval=0.25, reads=4, raise_on_timeout=False) is None:
-        print("the strips still changed 10 s after the split", flush=True)
+    time.sleep(1.5)  # test harness: the daemon pane has replaced the provisional one
     return (rpc("debug.layout_counters") or {}).get("pane_count_changes")
 
 

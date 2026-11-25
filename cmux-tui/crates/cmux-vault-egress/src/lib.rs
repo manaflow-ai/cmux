@@ -27,7 +27,6 @@
 //! name and the host, never a value.
 
 mod ca;
-pub mod happy;
 mod proxy;
 mod substitute;
 

@@ -38,15 +38,11 @@ pub(super) const CANCEL_WAIT: Duration = Duration::from_secs(3);
 pub(super) const EXIT_CANCELLED: i32 = 130;
 
 /// `cmux script types`: the generated app global, then the script additions.
-/// The app global is the one compressed copy in the binary
-/// (`cmux_app_manifest::capabilities::APP_TYPES`).
-pub(super) fn types() -> String {
-    format!(
-        "{}\n{}",
-        cmux_app_manifest::capabilities::APP_TYPES.get(),
-        include_str!("../../../cmux-app-host/js/script-globals.d.ts"),
-    )
-}
+pub(super) const TYPES: &str = concat!(
+    include_str!("../../../cmux-app-host/generated/cmux-app.d.ts"),
+    "\n",
+    include_str!("../../../cmux-app-host/js/script-globals.d.ts"),
+);
 
 /// Codes after which the daemon has ended the cell's session.
 const SESSION_ENDED: [&str; 5] =
@@ -597,7 +593,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             return 0;
         }
         Action::Types => {
-            print!("{}", types());
+            print!("{TYPES}");
             return 0;
         }
         Action::Run { source, args, timeout_ms } => match load(&source, read_stdin) {

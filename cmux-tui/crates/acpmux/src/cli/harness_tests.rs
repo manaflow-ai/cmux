@@ -20,7 +20,6 @@ fn options(env: &'static [(&'static str, &'static str)]) -> DoctorOptions {
             env.iter().find(|(k, _)| *k == var).map(|(_, v)| (*v).to_owned())
         }),
         lookup_keychain: Box::new(|_, _| Err("not found".into())),
-        extra_env: Default::default(),
     }
 }
 

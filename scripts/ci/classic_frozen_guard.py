@@ -6,10 +6,6 @@ main whose diff touches one of them fails unless it carries the label `classic-m
 pull request into feat-cmux-next passes: it may change or delete classic paths (FROZEN_INTO). A rule's scope (`all`
 or `main`) is what reads skip on each branch. NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
 
-A teammate's own pull request passes without the label: one whose author is a User account other than teamleaderleo
-(not a bot), so not an agent's; the frozen paths it changes are printed as notices. Leo, 2026-11-21: "and the whole
-label ceremony we need to make sure that doesnt block teammates and whatnot".
-
 Leo, 2026-11-14, on a feat-cmux-next PR this refused: "if it's on the next branch, classic cloud is irrelevant. it's
 only relevant on main rn".
 
@@ -30,7 +26,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / ".github" / "classic-frozen.txt"
 LABEL = "classic-migration"
-LEO = "teamleaderleo"
 SCOPES = ("all", "main")
 # The bases a pull request that changes a frozen path is held from (Leo, 2026-11-14: "if it's on the next branch,
 # classic cloud is irrelevant. it's only relevant on main rn").
@@ -91,29 +86,10 @@ def frozen(rules: list[dict], base: str, paths: list[str]) -> list[tuple[str, di
     return hits
 
 
-def teammate(author: str | None, author_type: str | None) -> bool:
-    """Whether a pull request is a teammate's own: a User author other than teamleaderleo (whose token the agents
-    share) and no bot. An unknown author or type is not: the label still applies."""
-    login = str(author or "").strip()
-    return bool(login) and author_type == "User" and not login.lower().endswith("[bot]") and login.lower() != LEO
-
-
 def check(rules: list[dict], base: str, labels: list[str], paths: list[str],
-          expected_files: int | None = None, listed_records: int | None = None, author: str | None = None,
-          author_type: str | None = None) -> tuple[int, list[str]]:
+          expected_files: int | None = None, listed_records: int | None = None) -> tuple[int, list[str]]:
     """(exit code, annotation lines). A listing shorter than the PR's changed-file count may hide a frozen path past
-    GitHub's 3,000-file end, so it fails too unless the label is on. A base outside FROZEN_INTO always passes. A
-    teammate's own pull request (teammate()) always passes, what it found shown as notices."""
-    code, lines = _check(rules, base, labels, paths, expected_files, listed_records)
-    if code and teammate(author, author_type):
-        return 0, [f"::notice::{author}'s own pull request: no `{LABEL}` label needed, the label only holds agents' "
-                   "pull requests (Leo, 2026-11-21: \"and the whole label ceremony we need to make sure that doesnt "
-                   "block teammates and whatnot\")."] + [line.replace("::error::", "::notice::", 1) for line in lines]
-    return code, lines
-
-
-def _check(rules: list[dict], base: str, labels: list[str], paths: list[str],
-           expected_files: int | None = None, listed_records: int | None = None) -> tuple[int, list[str]]:
+    GitHub's 3,000-file end, so it fails too unless the label is on. A base outside FROZEN_INTO always passes."""
     if base not in FROZEN_INTO:
         return 0, [f"::notice::Into {base}, classic-frozen paths may change: only a pull request into "
                    f"{' or '.join(FROZEN_INTO)} is held (.github/classic-frozen.txt)."]
@@ -146,8 +122,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--expected-files", type=int, default=None, help="the pull request's changed_files")
     parser.add_argument("--listed-records", type=int, default=None, help="file records the listing returned")
-    parser.add_argument("--author", default=None, help="the pull request author's login")
-    parser.add_argument("--author-type", default=None, help="the author's account type (User, Bot)")
     args = parser.parse_args(argv)
     try:
         rules = load(args.manifest)
@@ -160,8 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, TypeError) as exc:
         print(f"::error::Could not read the pull request's labels: {exc}")
         return 1
-    code, lines = check(rules, args.base, labels, paths, args.expected_files, args.listed_records, args.author,
-                        args.author_type)
+    code, lines = check(rules, args.base, labels, paths, args.expected_files, args.listed_records)
     for line in lines:
         print(line)
     return code

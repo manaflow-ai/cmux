@@ -48,14 +48,14 @@ enum WorkspaceGroupUndo {
     /// The title History gives a deleted group's closed-history item.
     static func historyTitle(_ name: String) -> String {
         let name = name.isEmpty ? ConfirmationStrings.unnamedGroup : name
-        return String(format: String(localized: "workspaceGroup.closedHistoryTitle", defaultValue: "Group “%@”", table: "Handlers", bundle: .module.inAppLanguage), name)
+        return String(format: String(localized: "workspaceGroup.closedHistoryTitle", defaultValue: "Group “%@”", table: "Handlers", bundle: .module), name)
     }
 
     static func ungroupedToast(_ name: String) -> String {
-        String(format: String(localized: "workspaceGroup.ungroupedToast", defaultValue: "Ungrouped “%@”", table: "Handlers", bundle: .module.inAppLanguage), name)
+        String(format: String(localized: "workspaceGroup.ungroupedToast", defaultValue: "Ungrouped “%@”", table: "Handlers", bundle: .module), name)
     }
 
     static func deletedToast(_ name: String) -> String {
-        String(format: String(localized: "workspaceGroup.deletedToast", defaultValue: "Group “%@” deleted", table: "Handlers", bundle: .module.inAppLanguage), name)
+        String(format: String(localized: "workspaceGroup.deletedToast", defaultValue: "Group “%@” deleted", table: "Handlers", bundle: .module), name)
     }
 }

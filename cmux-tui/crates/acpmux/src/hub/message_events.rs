@@ -127,16 +127,13 @@ pub(super) fn recover_message_events_after(
             let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
                 return true;
             };
-            let held = record.msg.get("surgeHeld") == Some(&Value::Bool(true));
-            collect_message_contexts(&provenance, &session.id, held, &mut pending);
+            collect_message_contexts(&provenance, &session.id, &mut pending);
             true
         },
     );
     let mut written = scanned.is_ok();
-    for (message, held) in pending {
-        if !held {
-            written &= append_or_repair(hub, &session.id, &message, None);
-        }
+    for message in pending {
+        written &= append_or_repair(hub, &session.id, &message, None);
         if message.record_sender_copy && message.sender_session != session.id {
             written &= append_or_repair(hub, &message.sender_session, &message, Some(&session.id));
         }
@@ -151,19 +148,18 @@ pub(super) fn recover_message_events_after(
 fn collect_message_contexts(
     provenance: &Value,
     session_id: &str,
-    held: bool,
-    pending: &mut Vec<(MessageContext, bool)>,
+    pending: &mut Vec<MessageContext>,
 ) {
     if addressed_elsewhere(provenance, session_id) {
         return;
     }
     if let Some(message) = message_context_from_provenance(provenance) {
-        pending.push((message, held));
+        pending.push(message);
     }
     if let Some(messages) = provenance.get("messages").and_then(Value::as_array) {
         for message in messages {
             if let Some(nested) = message.get("provenance") {
-                collect_message_contexts(nested, session_id, held, pending);
+                collect_message_contexts(nested, session_id, pending);
             }
         }
     }
@@ -243,11 +239,7 @@ pub(super) fn message_context(
     let mut sender = if let Some(sender) = opts.message_sender.as_ref() {
         sender.clone()
     } else {
-        let mut sender = json!({"name": name, "sessionId": sender_session, "host": host_label()});
-        if let Some(given) = crate::prompt_provenance::display_name_of(opts.provenance.as_ref()) {
-            sender.set("displayName", json!(given));
-        }
-        sender
+        json!({"name": name, "sessionId": sender_session, "host": host_label()})
     };
     if let Some(label) = crate::prompt_provenance::declared_label(opts.provenance.as_ref()) {
         sender.set("label", json!(label));
@@ -334,11 +326,8 @@ pub(super) fn record_message_context(
     hub: &Arc<Hub>,
     target_session: &str,
     message: &MessageContext,
-    receipt: &Value,
 ) {
-    if receipt.get("surgeHeld") != Some(&Value::Bool(true)) {
-        append_or_repair(hub, target_session, message, None);
-    }
+    append_or_repair(hub, target_session, message, None);
     if message.record_sender_copy && message.sender_session != target_session {
         append_or_repair(hub, &message.sender_session, message, Some(target_session));
     }
@@ -698,7 +687,7 @@ mod message_recovery_tests {
         // invoking prompt delivery.
         hub.message_projection_failures.lock().unwrap().insert(sender.id.clone());
         let mut events = hub.subscribe();
-        record_message_context(&hub, &receiver_id, &message, &Value::Null);
+        record_message_context(&hub, &receiver_id, &message);
         assert_eq!(message_count(&hub, &receiver_id), 1);
         assert_eq!(message_count(&hub, &sender_id), 0);
         tokio::time::timeout(std::time::Duration::from_secs(4), async {

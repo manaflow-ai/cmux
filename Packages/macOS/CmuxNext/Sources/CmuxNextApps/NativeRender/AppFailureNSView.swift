@@ -36,7 +36,7 @@ final class AppFailureNSView: NSView {
         raw.focusRingType = .none
         reloadButton.target = self
         reloadButton.action = #selector(reload)
-        reloadButton.setAccessibilityHelp(AppsStrings.reloadHelp) // titled: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
+        reloadButton.themedToolTip = AppsStrings.reloadHelp
         copyButton.target = self
         copyButton.action = #selector(copyError)
         detailsButton.target = self

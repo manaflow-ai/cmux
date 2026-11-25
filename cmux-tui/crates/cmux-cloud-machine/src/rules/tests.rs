@@ -91,10 +91,9 @@ fn a_plan_entry_carries_what_is_known() {
     );
     let mut mine = Machine::new("vm_m", Status::Running);
     mine.created_by = Some("user-a".into());
-    mine.size = Some(crate::record::Size { storage_mb: Some(16_384), ..Default::default() });
     assert_eq!(
         Value::Object(start_chat_plan_entry(&mine, true, Some(2))),
-        json!({"id": "vm_m", "title": "vm_m", "status": "running", "connected": true, "created_by": "user-a", "chats": 2, "disk_mb": 16384})
+        json!({"id": "vm_m", "title": "vm_m", "status": "running", "connected": true, "created_by": "user-a", "chats": 2})
     );
 }
 

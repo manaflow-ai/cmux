@@ -88,7 +88,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "callerProtocol",
     "callerSession",
     "cancelToken",
-    "chunkDeltas",
     "class",
     "cliHost",
     "compression",
@@ -110,7 +109,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "harness",
     "harnessFrom",
     "host",
-    "ifNameTaken",
     "inlineParts",
     "interrupt",
     "localAppToken",
@@ -125,7 +123,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "parent",
     "peer",
     "peerHops",
-    "peerRowBatches",
     "personDecision",
     "personKey",
     "personStop",
@@ -140,9 +137,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
-    "restricted",
     "route",
-    "sessionChangedDelta",
     "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
@@ -168,14 +163,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
 ];
 
 keyed! {
-    /// `_acpmux/account/sign_in`.
-    AccountSignInParams: ["account", "family", "name", "sessionId"];
-    /// `_acpmux/account/sign_in.finish`.
-    AccountSignInFinishParams: ["loginId", "code", "sessionId"];
-    /// `_acpmux/account/sign_in.cancel`.
-    AccountSignInCancelParams: ["loginId", "sessionId"];
-    /// `_acpmux/account/switch` and `_acpmux/account/remove`.
-    AccountIdParams: ["account"];
     /// `_acpmux/agent_hold`.
     AgentHoldParams: ["sessionId", "held"];
     /// `_acpmux/agent_login/api_key`.
@@ -194,18 +181,12 @@ keyed! {
     ArchiveParams: ["sessionId", "archived"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
-    /// `_acpmux/turn_shots`.
-    TurnShotsParams: ["sessionId", "turnId"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/memory_resolve`.
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
-    /// `_acpmux/agent_home`.
-    AgentHomeParams: ["sessionId"];
-    /// `_acpmux/agent_home_resolve`.
-    AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
@@ -244,8 +225,6 @@ keyed! {
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
     ModelsParams: ["refresh", "probe", "localOnly"];
-    /// `_acpmux/move_targets`.
-    MoveTargetsParams: ["source", "sourceKind"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.
@@ -257,19 +236,13 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials"];
+    PrewarmParams: ["harness", "cwd", "release"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
+    ProcessListParams: ["sessionId", "cursor", "limit"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
-    /// `_acpmux/prompts_delete`.
-    PromptsDeleteParams: ["name"];
-    /// `_acpmux/prompts_list`.
-    PromptsListParams: [];
-    /// `_acpmux/prompts_save`.
-    PromptsSaveParams: ["name", "text"];
     /// `_acpmux/queue_approve`.
     QueueApproveParams: ["sessionId", "promptId", "turnId", "revision"];
     /// `_acpmux/queue_decline`.
@@ -302,16 +275,6 @@ keyed! {
     SetToolsParams: ["sessionId", "id", "enabled"];
     /// `_acpmux/side`.
     SideParams: ["sessionId", "chat"];
-    /// `_acpmux/stash_drop`.
-    StashDropParams: ["chat", "id"];
-    /// `_acpmux/stash_get`.
-    StashGetParams: ["chat", "id"];
-    /// `_acpmux/stash_list`.
-    StashListParams: ["chat"];
-    /// `_acpmux/stash_move`.
-    StashMoveParams: ["chat", "to"];
-    /// `_acpmux/stash_push`.
-    StashPushParams: ["chat", "text", "attachments", "replaces"];
     /// `_acpmux/start_mode`.
     StartModeParams: ["harness", "preset", "cwd"];
     /// `_acpmux/status`.

@@ -5,12 +5,10 @@
 # GhosttyKit download that stops it right after the check: a fetchable pointer passes; a pointer the fork lacks, a
 # host mirror older than the pointer, and an unreachable remote each exit 3 with a TSW line naming which.
 set -euo pipefail
-# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../tab-switch.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/tab-switch-submodule-refs.XXXXXX")"
-git_fixture_trap_exit 'rm -rf -- "$tmp"'
+trap 'rm -rf -- "$tmp"' EXIT
 
 home="$tmp/home"
 mkdir -p "$home"
@@ -22,18 +20,18 @@ git config --global init.defaultBranch main
 
 # The fork: serves any commit by id (as GitHub does) and partial clones.
 fork="$tmp/fork.git"
-git_fixture_init "$tmp/fork-work"
+git init -q "$tmp/fork-work"
 git -C "$tmp/fork-work" commit -q --allow-empty -m one
 pushed="$(git -C "$tmp/fork-work" rev-parse HEAD)"
 git -C "$tmp/fork-work" commit -q --allow-empty -m two
 newer="$(git -C "$tmp/fork-work" rev-parse HEAD)"
-git_fixture_clone --bare "$tmp/fork-work" "$fork"
+git clone -q --bare "$tmp/fork-work" "$fork"
 git -C "$fork" config uploadpack.allowAnySHA1InWant true
 git -C "$fork" config uploadpack.allowFilter true
 unpushed=0123456789abcdef0123456789abcdef01234567
 # A mirror that stopped before the newer commit.
 mirror="$tmp/mirror.git"
-git_fixture_clone --bare "$tmp/fork-work" "$mirror"
+git clone -q --bare "$tmp/fork-work" "$mirror"
 git -C "$mirror" update-ref refs/heads/main "$pushed"
 git -C "$mirror" reflog expire --expire=now --all
 git -C "$mirror" gc -q --prune=now

@@ -290,29 +290,3 @@ fn a_restart_after_a_failed_kept_image_sync_makes_its_entry_again() {
          whose folder sync failed: no step re-made it"
     );
 }
-
-/// v2's book checkpoint asks for its chat's log durable through the place it read
-/// (`Store::sync_log_through`). A line appended after that place, still in its sync, must not
-/// hold the answer: the next turn's lines arrive during the book's checkpoint, and the actor
-/// draws nothing of that turn until the checkpoint returns (the agent-turn bench, back to back:
-/// the pane's change 3 to 5 ms after the reply, against 1.1 ms with a pause between turns).
-#[test]
-fn a_sync_through_a_seq_does_not_wait_for_the_lines_after_it() {
-    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let journal = SimStorage::new(207);
-    let store = open(home.path(), &journal);
-    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
-    store.sync_log_through(CHAT, 1).unwrap_or_else(|e| panic!("{e:#}"));
-    journal.set_sync_delay(Duration::from_millis(1000));
-    store.append(CHAT, &record(2, "user_message")).unwrap_or_else(|e| panic!("{e:#}"));
-    let started = std::time::Instant::now();
-    let synced = store.sync_log_through(CHAT, 1);
-    let took = started.elapsed();
-    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    journal.set_sync_delay(Duration::ZERO);
-    synced.unwrap_or_else(|e| panic!("{e:#}"));
-    assert!(
-        took < Duration::from_millis(500),
-        "the sync through seq 1 waited {took:?} for seq 2's sync (1000 ms)"
-    );
-}

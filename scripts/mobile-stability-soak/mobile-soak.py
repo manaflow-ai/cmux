@@ -215,7 +215,8 @@ def launch_app_with_attach_ticket(ticket):
         },
     ).strip()
     log(f"app_launch ticket_workspace={ticket['workspace_id'][:8]} output={launch_output}")
-    assert_attached_ui(ticket, grace_seconds=attach_settle_seconds)
+    time.sleep(attach_settle_seconds)
+    assert_attached_ui(ticket)
 
 
 def reattach_app_with_attach_ticket(ticket):
@@ -230,7 +231,8 @@ def reattach_app_with_attach_ticket(ticket):
         cwd=Path("/"),
     ).strip()
     log(f"app_openurl ticket_workspace={ticket['workspace_id'][:8]} output={output}")
-    assert_attached_ui(ticket, grace_seconds=attach_settle_seconds)
+    time.sleep(attach_settle_seconds)
+    assert_attached_ui(ticket)
 
 
 def simulator_accessibility_snapshot():
@@ -293,10 +295,7 @@ def capture_attachment_fallback_screenshot():
     return copied
 
 
-def assert_attached_ui(ticket, grace_seconds=0.0):
-    """Until the simulator shows a mobile workspace or terminal surface (15 s past GRACE_SECONDS). A sign-in or
-    open-in blocker fails it only once the GRACE_SECONDS after the launch or openurl passed (the attach may still
-    be replacing it)."""
+def assert_attached_ui(ticket):
     blockers = [
         "Open in “cmux DEV",
         "Sign in with Apple",
@@ -306,8 +305,7 @@ def assert_attached_ui(ticket, grace_seconds=0.0):
         "signin.apple",
         "signin.google",
     ]
-    started = time.monotonic()
-    deadline = started + grace_seconds + 15
+    deadline = time.monotonic() + 15
     last_snapshot = ""
     saw_snapshot_unavailable = False
     while time.monotonic() < deadline:
@@ -318,9 +316,6 @@ def assert_attached_ui(ticket, grace_seconds=0.0):
             time.sleep(0.5)
             continue
         visible_blockers = [blocker for blocker in blockers if blocker in snapshot]
-        if visible_blockers and time.monotonic() - started < grace_seconds:
-            time.sleep(0.5)  # harness: within the grace the attach may still replace the blocker
-            continue
         if visible_blockers:
             raise RuntimeError(f"simulator UI is not attached to terminal; visible blockers={visible_blockers}")
 
@@ -550,26 +545,7 @@ def send_color_probe(ticket, terminal_id, iteration):
             "terminal_id": terminal_id,
             "text": command,
         })
-        # The host's terminal shows every bar before the simulator is screenshotted (its own retries below cover
-        # the client's render); COLOR_SETTLE_SECONDS scales the bound.
-        settle_deadline = time.monotonic() + max(10.0, 5 * color_settle_seconds)
-        while True:
-            echoed = framed_rpc(ticket, "mobile.terminal.snapshot", {
-                "workspace_id": ticket["workspace_id"],
-                "terminal_id": terminal_id,
-                "client_id": client_id,
-                "viewport_columns": 54,
-                "viewport_rows": 42,
-                "max_scrollback_rows": 120,
-            })
-            # A bar's own row is LABEL_XXX... alone (the typed command's echo holds the labels inside escapes).
-            rows = [line.strip() for line in visible_lines(echoed)]
-            if all(any(re.fullmatch(rf"{label}_X+", row) for row in rows) for label in COLOR_PROBE_LABELS):
-                break
-            if time.monotonic() >= settle_deadline:
-                log(f"color_probe iteration={iteration} the host terminal never showed every bar; screenshotting anyway")
-                break
-            time.sleep(0.1)
+        time.sleep(color_settle_seconds)
         shot = soak_root / f"{client_id}-color-{iteration}.png"
         last_error = None
         counts = ""

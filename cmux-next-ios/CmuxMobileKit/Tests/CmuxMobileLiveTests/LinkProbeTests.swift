@@ -62,26 +62,30 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
     /// for 4 to 9 s each time.
     @Test func aBusyLinkWithALatePongIsKept() async throws {
         let dialer = BusyDialer()
-        let clock = LinkTestClock()
-        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock, beat: .off) { _ in "token" }
-        defer { controller.send(.target(nil)); clock.stop() }
+        let controller = LinkController(transport: .wireGuard, dialer: dialer) { _ in "token" }
+        defer { controller.send(.target(nil)) }
         controller.endpoint = { mac in
             LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: mac)
         }
-        let driver = LinkClockDriver(clock: clock, controller: controller)
         controller.send(.target(.init(macID: "m1", name: "Mac", isOnline: true)))
-        try await pollUntil { controller.phase.isConnected }
-        try await driver.settle()
+        for _ in 0..<200 where !controller.phase.isConnected {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(controller.phase.isConnected)
         // A foreground probe (2 s) and a presence probe (1.5 s), as after a signaling reset.
         controller.send(.foreground)
         controller.send(.macSignaled)
-        try await driver.settle()
-        // Hints can coalesce with the link-up probe; then the heartbeat probes on its beat.
-        try await driver.run(until: clock.now.advanced(by: .seconds(10))) { (dialer.first?.probeCount ?? 0) >= 2 }
+        // Hints can coalesce with the initial probe. Wait for an actual second
+        // probe instead of giving the 2.5 s heartbeat only 200 ms of scheduling
+        // slack on a simulator running the whole suite in parallel.
+        let deadline = ContinuousClock.now + .seconds(20)
+        while (dialer.first?.probeCount ?? 0) < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         try #require((dialer.first?.probeCount ?? 0) >= 2)
-        // Past the probe deadline and grace after the last probe started: a ping-only probe
-        // would close the link; traffic-only success must not.
-        try await driver.run(until: clock.now.advanced(by: LinkController.probeTimeout + LinkController.probeGrace + .milliseconds(200)))
+        // Past the probe deadline and grace after observing it start: a
+        // ping-only probe would close the link; traffic-only success must not.
+        try await Task.sleep(for: LinkController.probeTimeout + LinkController.probeGrace + .milliseconds(200))
         #expect(controller.phase.isConnected, "\(controller.phase)")
         #expect(dialer.dials == 1)
         #expect(dialer.first?.isClosed == false)

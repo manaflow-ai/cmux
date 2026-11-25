@@ -1,0 +1,152 @@
+{
+  "paths": [
+    "Sources/TerminalLinkOpenCoordinator.swift",
+    "Sources/Ghostty*",
+    "Sources/*Terminal*Link*",
+    "Packages/macOS/CmuxTerminalCore/*",
+    "Packages/macOS/CmuxGit/*"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "GitLab remote",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/gitlab/.git/objects /tmp/cmux-ref-tour/gitlab/.git/refs/heads && cd /tmp/cmux-ref-tour/gitlab && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = git@gitlab.com:manaflow-ai/cmux-reference-fixture.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo '#847 #847 #847 #847 #847 #847 #847 #847 '; done\n",
+        "focus": true
+      },
+      "save": "gitlab"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "key": "b",
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "tree": "01-gitlab-remote-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "01-gitlab-remote-after-cmd-click"
+    },
+    {
+      "tree": "01-gitlab-remote-after-cmd-click"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Bare ref",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/bare/.git/objects /tmp/cmux-ref-tour/bare/.git/refs/heads && cd /tmp/cmux-ref-tour/bare && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo '#15221 #15221 #15221 #15221 #15221 #15221 #15221 #15221 '; done\n",
+        "focus": true
+      },
+      "save": "bare"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "tree": "02-bare-ref-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "02-bare-ref-after-cmd-click"
+    },
+    {
+      "tree": "02-bare-ref-after-cmd-click"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Slug ref, no repository",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/plain && cd /tmp/cmux-ref-tour/plain && clear; for i in $(seq 60); do echo 'manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 manaflow-ai/cmux#847 '; done\n",
+        "focus": true
+      },
+      "save": "plain"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "tree": "03-slug-ref-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "03-slug-ref-after-cmd-click"
+    },
+    {
+      "tree": "03-slug-ref-after-cmd-click"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Commit ref",
+        "initial_input": "mkdir -p /tmp/cmux-ref-tour/commit/.git/objects /tmp/cmux-ref-tour/commit/.git/refs/heads && cd /tmp/cmux-ref-tour/commit && printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = false\\n[remote \"origin\"]\\n\\turl = https://github.com/manaflow-ai/cmux.git\\n\\tfetch = +refs/heads/*:refs/remotes/origin/*\\n' > .git/config && printf 'ref: refs/heads/main\\n' > .git/HEAD && clear; for i in $(seq 60); do echo '9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f 9eb402dbb8f '; done\n",
+        "focus": true
+      },
+      "save": "commit"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "tree": "04-commit-ref-terminal"
+    },
+    {
+      "clickAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "04-commit-ref-after-cmd-click"
+    },
+    {
+      "tree": "04-commit-ref-after-cmd-click"
+    }
+  ]
+}

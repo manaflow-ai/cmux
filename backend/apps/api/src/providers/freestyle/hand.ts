@@ -2,7 +2,6 @@ import type { Env } from "../../env.ts"
 import type { MadeMachine, SandboxProvider } from "../../hand-providers.ts"
 import { freestyleCustomer } from "./customer.ts"
 import { freestyleIdleSeconds } from "../../auto-pause.ts"
-import { BACKGROUND_AFTER, settleBackground } from "./background.ts"
 
 const TIMEOUT_MS = 20_000
 /** Freestyle's idle pause of a hand sandbox, only with CLOUD_IDLE_PAUSE on (auto-pause.ts); otherwise -1, never. */
@@ -11,8 +10,8 @@ const IDLE_SECONDS = 1800
 const freestyleBase = (env: Env) => (env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh").replace(/\/+$/, "")
 /** The hands-only Freestyle key (HAND_FREESTYLE_API_KEY): no other code reads it, and hand sandboxes use no other key. */
 const freestyleHeaders = (env: Env) => ({ authorization: `Bearer ${env.HAND_FREESTYLE_API_KEY}`, "content-type": "application/json" })
-const freestyle = (env: Env, method: string, path: string, body?: unknown, ms = TIMEOUT_MS, extra: Readonly<Record<string, string>> = {}) =>
-  fetch(`${freestyleBase(env)}${path}`, { method, headers: { ...extra, ...freestyleHeaders(env) }, redirect: "manual", signal: AbortSignal.timeout(ms), ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).catch(() => null)
+const freestyle = (env: Env, method: string, path: string, body?: unknown, ms = TIMEOUT_MS) =>
+  fetch(`${freestyleBase(env)}${path}`, { method, headers: freestyleHeaders(env), redirect: "manual", signal: AbortSignal.timeout(ms), ...(body === undefined ? {} : { body: JSON.stringify(body) }) }).catch(() => null)
 
 /** Hand sandboxes on Freestyle (hand-providers.ts): only HAND_FREESTYLE_API_KEY and HAND_SANDBOX_SNAPSHOT. */
 export const freestyleHands: SandboxProvider = {
@@ -34,11 +33,7 @@ export const freestyleHands: SandboxProvider = {
     return res?.ok && id ? { id } : null
   },
   async exec(env, id, command, timeoutMs) {
-    // The install runs up to 150 s; held open past about 125 s, the provider's edge cuts the call (background.ts).
-    const deadlineAt = Date.now() + timeoutMs + 10_000
-    const sent = await freestyle(env, "POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs, linuxUser: "root" }, timeoutMs + 10_000, BACKGROUND_AFTER)
-    const auth = { authorization: `Bearer ${env.HAND_FREESTYLE_API_KEY}` }
-    const res = sent && (await settleBackground(sent, freestyleBase(env), auth, deadlineAt).then((s) => s.res, () => null))
+    const res = await freestyle(env, "POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs, linuxUser: "root" }, timeoutMs + 10_000)
     const ran = (await res?.json().catch(() => null)) as { statusCode?: number | null } | null
     return res?.ok && typeof ran?.statusCode === "number" ? ran.statusCode : null
   },

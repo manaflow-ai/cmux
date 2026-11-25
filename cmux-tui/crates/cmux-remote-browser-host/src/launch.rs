@@ -95,7 +95,7 @@ pub fn loopback_only(addr: SocketAddr) -> Result<SocketAddr, &'static str> {
 /// The result of [`admit`]: the viewer's hello and the deframer that holds the
 /// bytes it sent after it, or why the viewer was turned away.
 pub enum Admission {
-    Admitted { hello: Box<Control>, deframer: StreamDeframer },
+    Admitted { hello: Control, deframer: StreamDeframer },
     Refused(String),
 }
 
@@ -132,7 +132,7 @@ pub fn admit_within(
 /// The result of [`admit_with`]: an [`Admission`] that also carries what the
 /// hello check returned (on a shared host, the tab the viewer opens).
 pub enum Gate<K> {
-    Admitted { hello: Box<Control>, deframer: StreamDeframer, key: K },
+    Admitted { hello: Control, deframer: StreamDeframer, key: K },
     Refused(String),
 }
 
@@ -178,7 +178,7 @@ pub fn admit_with<K>(
         None => Err("the first frame is not an rd control message"),
     };
     match checked {
-        Ok((hello, key)) => Ok(Gate::Admitted { hello: Box::new(hello), deframer, key }),
+        Ok((hello, key)) => Ok(Gate::Admitted { hello, deframer, key }),
         Err(reason) => {
             write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
             Ok(Gate::Refused(format!("refused: {reason}")))
@@ -291,7 +291,7 @@ fn accept_loop<K: Send + 'static>(
             waiters.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
             match outcome {
                 Ok(Gate::Admitted { hello, deframer, key }) => {
-                    deliver(Admitted { stream, hello: *hello, deframer }, key);
+                    deliver(Admitted { stream, hello, deframer }, key);
                 }
                 Ok(Gate::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
                 Err(e) => eprintln!("serve: session failed: {e}"),

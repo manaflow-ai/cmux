@@ -166,7 +166,7 @@ final class CookieImportConsentPanel {
             stack.bottomAnchor.constraint(equalTo: body.bottomAnchor),
             stack.widthAnchor.constraint(equalToConstant: 460),
         ])
-        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
+        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Metrics.surfaceCornerRadius)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
         glass.setAccessibilityLabel(CookieImportStrings.title)
         return glass

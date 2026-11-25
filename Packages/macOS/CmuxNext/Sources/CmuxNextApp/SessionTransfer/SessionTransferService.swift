@@ -310,37 +310,37 @@ final class SessionTransferService {
     nonisolated static func message(for error: Error) -> String {
         switch error {
         case Failure.noSessions:
-            String(localized: "sessionTransfer.error.noSessions", defaultValue: "No sessions are available to move from another cmux build.", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.noSessions", defaultValue: "No sessions are available to move from another cmux build.", bundle: .module)
         case Failure.missingAgentID:
-            String(localized: "sessionTransfer.error.missingAgentID", defaultValue: "The selected agent has no resumable session ID.", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.missingAgentID", defaultValue: "The selected agent has no resumable session ID.", bundle: .module)
         case Failure.agentNotOpened:
-            String(localized: "sessionTransfer.error.agentNotOpened", defaultValue: "The agent chat did not open in cmux-next, so the source was left as it was.", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.agentNotOpened", defaultValue: "The agent chat did not open in cmux-next, so the source was left as it was.", bundle: .module)
         case Failure.unavailable:
-            String(localized: "sessionTransfer.error.unavailable", defaultValue: "Session transfer is unavailable while cmux is starting.", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.unavailable", defaultValue: "Session transfer is unavailable while cmux is starting.", bundle: .module)
         case Failure.peerRefused:
             String(localized: "sessionTransfer.error.peerRefused",
                    defaultValue: "The other cmux build only accepts connections from its own terminals. Set its socket control mode to Automation, then try again.",
-                   bundle: .module.inAppLanguage)
+                   bundle: .module)
         case Failure.chatInChats:
             String(localized: "sessionTransfer.error.chatInChats",
-                   defaultValue: "The agent chat moved to this build but its tab did not open yet. Open it from Chats.", bundle: .module.inAppLanguage)
+                   defaultValue: "The agent chat moved to this build but its tab did not open yet. Open it from Chats.", bundle: .module)
         case Failure.sourceAgentsStopped:
             String(localized: "sessionTransfer.error.sourceAgentsStopped",
-                   defaultValue: "The other build's agent service is not running. Open that build's chat once, then try again.", bundle: .module.inAppLanguage)
+                   defaultValue: "The other build's agent service is not running. Open that build's chat once, then try again.", bundle: .module)
         case Failure.chatFolderMissing(let folder):
             String(localized: "sessionTransfer.error.chatFolderMissing",
                    defaultValue: "This chat works in \(folder), which isn't on this Mac, so it stayed in the other build. Create that folder here, then move the chat again.",
-                   bundle: .module.inAppLanguage)
+                   bundle: .module)
         case Failure.chatNotMoved(let reason):
-            String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.chatNotMoved", defaultValue: "The agent chat did not move: \(reason)", bundle: .module)
         case Failure.terminalBusy(let reason):
             reason
         case Failure.invalidSurfaces:
-            String(localized: "sessionTransfer.error.invalidSurfaces", defaultValue: "The source build returned invalid session identifiers.", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.invalidSurfaces", defaultValue: "The source build returned invalid session identifiers.", bundle: .module)
         case let failure as ControlPeerClient.Failure:
             failure.description
         default:
-            String(localized: "sessionTransfer.error.failed", defaultValue: "Could not move sessions from the other cmux build.", bundle: .module.inAppLanguage)
+            String(localized: "sessionTransfer.error.failed", defaultValue: "Could not move sessions from the other cmux build.", bundle: .module)
         }
     }
 

@@ -82,11 +82,7 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
     public var installed: ChannelBuild? { builds.first(where: \.isInstalled) }
 
     /// The tracks shown today, one per ring, slowest first (Stable, Nightly, Canary, Dev).
-    /// The Nightly track is every build the appcast offers this Mac's ring plus the older builds
-    /// the feed's build index still lists (the appcast keeps only its newest items), each with its
-    /// canary verdict or pull. The appcast decides which builds exist: a build it offers whose
-    /// notes are not published yet is listed (no commit, no titles) and switchable, so the list
-    /// never trails what the updater installs. Dev takes
+    /// The Nightly track is the feed's build index, each build with its canary verdict. Dev takes
     /// every build CI publishes (`cmux-next-dev` first, then `cmux-next` once promoted), so its
     /// track is the same index; Stable and Canary have no builds until CI publishes them.
     /// - Parameters:
@@ -99,25 +95,16 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
     ///   - limit: how many recent builds a track shows.
     ///   - feedItems: this app's own feed. The Dev track also lists its builds the index lacks: the
     ///     published DEV app's tip feed has no notes index, so its builds come only from there.
-    ///   - tipFeed: `feedItems` is the DEV app's tip feed, whose builds are not nightlies: the
-    ///     Nightly track stays the index alone.
     public static func tracks(index: [ReleaseNotesIndexEntry], verdicts: [String: String], pulled: [PulledBuild],
                               installedBuild: String, keptBuilds: Set<String>, followed: UpdateRing,
-                              limit: Int = 10, feedItems: [AppcastItem] = [], tipFeed: Bool = false) -> [ChannelTrack] {
+                              limit: Int = 10, feedItems: [AppcastItem] = []) -> [ChannelTrack] {
         let pulledByBuild = Dictionary(pulled.map { ($0.build, $0) }, uniquingKeysWith: { first, _ in first })
-        let fromIndex = index.prefix(max(0, limit)).map { entry in
+        let nightly = index.prefix(max(0, limit)).map { entry in
             ChannelBuild(build: entry.build, shortVersion: entry.shortVersion, date: entry.date, commit: entry.head,
                          health: pulledByBuild[entry.build] != nil ? .pulled : health(verdict: verdicts[entry.build]),
                          pulledReason: pulledByBuild[entry.build]?.reason,
                          isInstalled: entry.build == installedBuild, isKept: keptBuilds.contains(entry.build))
         }
-        let ahead = tipFeed ? [] : nightlyFeedOnly(feedItems, index: index, followed: followed).map { item in
-            ChannelBuild(build: item.version, shortVersion: item.displayVersion, date: item.date.map(day) ?? "",
-                         health: pulledByBuild[item.version] != nil ? .pulled : health(verdict: verdicts[item.version]),
-                         pulledReason: pulledByBuild[item.version]?.reason,
-                         isInstalled: item.version == installedBuild, isKept: keptBuilds.contains(item.version))
-        }
-        let nightly = (fromIndex + ahead).sorted { KeptVersionStore.isNewer($0.build, than: $1.build) }.prefix(max(0, limit))
         let indexed = Set(index.map(\.build))
         let fromFeed = feedItems.filter { !indexed.contains($0.version) && pulledByBuild[$0.version] == nil }.map { item in
             ChannelBuild(build: item.version, shortVersion: item.displayVersion, date: item.date.map(day) ?? "",
@@ -128,19 +115,6 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
             ChannelTrack(ring: ring, builds: ring == .nightly ? Array(nightly) : ring == .dev ? Array(dev) : [],
                          isFollowed: ring == followed,
                          releaseURL: ring == .nightly ? URL(string: "\(ChannelBuild.repository)/releases/tag/nightly-next") : nil)
-        }
-    }
-
-    /// The appcast's items the Nightly track lists that the notes index lacks: each one the
-    /// updater offers on the Nightly ring or the followed one, whichever is faster (the rings are a
-    /// ladder), so the running build is never missing from its own list.
-    static func nightlyFeedOnly(_ feedItems: [AppcastItem], index: [ReleaseNotesIndexEntry], followed: UpdateRing) -> [AppcastItem] {
-        let indexed = Set(index.map(\.build))
-        let accepted = UpdateRing.nightly.acceptedSparkleChannels.union(followed.acceptedSparkleChannels)
-        var seen = Set<String>()
-        return feedItems.filter { item in
-            !item.version.isEmpty && !indexed.contains(item.version) && item.isOffered(allowing: accepted)
-                && seen.insert(item.version).inserted
         }
     }
 

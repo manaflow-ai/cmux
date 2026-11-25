@@ -22,7 +22,7 @@ final class MacTranscriptTableView: NSTableView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        NSMenu.systemFree(interaction?.contextMenu(for: event, in: self))
+        interaction?.contextMenu(for: event, in: self)
     }
 
     /// Bubble text takes clicks itself (selection, drag-out); a table only

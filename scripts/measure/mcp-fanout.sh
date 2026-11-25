@@ -66,12 +66,7 @@ fi
 if [[ -d "$app" ]]; then
   bin="$app/Contents/Resources/bin/acpmux"
   plist="$app/Contents/Info.plist"
-  version=? build=?
-  if [[ -f "$plist" ]]; then
-    version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$plist" 2>/dev/null || echo ?)"
-    build="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$plist" 2>/dev/null || echo ?)"
-  fi
-  echo "MCP-FANOUT-APP $(basename "$app") version=$version build=$build"
+  echo "MCP-FANOUT-APP $(basename "$app") version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$plist" 2>/dev/null || echo ?) build=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$plist" 2>/dev/null || echo ?)"
 elif [[ -x "$app" ]]; then
   bin="$app"  # an acpmux binary itself (a local dry run)
 else

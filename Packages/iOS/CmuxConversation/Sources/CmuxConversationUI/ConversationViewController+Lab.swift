@@ -63,18 +63,12 @@ extension ConversationViewController {
             }
             return "ok"
         case "longpress", "doubletap":
-            // A simulated hold lands in the middle of the visible message text.
+            // The long-press menu or the double-tap tapback bar on a message.
             guard let message = labMessage(matching: argument),
                   let indexPath = indexPath(for: message.rowID),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
                   let model = cell.model else { return "error no row" }
-            if verb == "longpress", let label = cell.selectableLabel {
-                let middle = CGPoint(x: label.bounds.midX, y: label.bounds.midY)
-                beginTextSelection(rowID: model.rowID, at: label.convert(middle, to: collectionView))
-                textSelection?.finishHold()
-            } else {
-                presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
-            }
+            presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
             return "ok"
         case "notunsent":
             // Taps the newest "(!) Not Unsent" notice.

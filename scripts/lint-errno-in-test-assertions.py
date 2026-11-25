@@ -50,7 +50,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # ios/ paths through its run-every-group fallback.
 TEST_ROOTS = (
     "Packages/**/Tests/",  # macOS, iOS and shared package tests
-    "Packages/iOS/CmuxMobileBilling/StoreKitTests/",  # BillingStoreKitTests (#46776), outside Tests/
     "ios/CmuxiOS/Tests/",
     "ios/cmuxUITests/",  # the cmuxUITests target of ios/cmux-ios.xcodeproj
     "cmux-next-ios/CmuxMobileKit/Tests/",

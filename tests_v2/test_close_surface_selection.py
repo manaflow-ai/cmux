@@ -13,12 +13,13 @@ Usage:
 
 import os
 import sys
+import time
 from typing import List, Optional, Tuple
 
 # Add the directory containing cmux.py to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cmux import cmux, wait_until
+from cmux import cmux
 
 
 class TestResult:
@@ -44,10 +45,14 @@ def _focused(surfaces: List[SurfaceTuple]) -> Optional[SurfaceTuple]:
 
 
 def _wait_focused_index(client: cmux, index: int, timeout: float = 4.0) -> bool:
-    def at_index() -> bool:
-        focused = _focused(client.list_surfaces())
-        return focused is not None and focused[0] == index
-    return bool(wait_until(at_index, timeout))
+    start = time.time()
+    while time.time() - start < timeout:
+        surfaces = client.list_surfaces()
+        focused = _focused(surfaces)
+        if focused is not None and focused[0] == index:
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def _wait_focused(
@@ -64,24 +69,24 @@ def _wait_focused(
     The post-close focus reselection is applied asynchronously, so we poll the real
     signal (the focused surface) instead of sleeping a fixed amount and reading once.
     """
-    last: List[Optional[SurfaceTuple]] = [None]
-
-    def matches() -> bool:
-        focused = last[0] = _focused(client.list_surfaces())
-        return focused is not None and (surface_id is None or focused[1] == surface_id) and (
-            index is None or focused[0] == index
-        )
-
-    wait_until(matches, timeout)
-    return last[0]
+    start = time.time()
+    focused: Optional[SurfaceTuple] = None
+    while time.time() - start < timeout:
+        focused = _focused(client.list_surfaces())
+        if focused is not None:
+            if (surface_id is None or focused[1] == surface_id) and (
+                index is None or focused[0] == index
+            ):
+                return focused
+        time.sleep(0.05)
+    return focused
 
 
 def _ensure_surfaces(client: cmux, count: int) -> None:
     surfaces = client.list_surfaces()
     while len(surfaces) < count:
-        have = len(surfaces)
         client.new_surface(panel_type="terminal")
-        wait_until(lambda: len(client.list_surfaces()) > have, 3.0)
+        time.sleep(0.15)
         surfaces = client.list_surfaces()
 
 
@@ -91,8 +96,9 @@ def test_close_middle_keeps_index(client: cmux) -> TestResult:
         # Isolate from developer state: use a fresh workspace.
         ws_id = client.new_workspace()
         client.select_workspace(ws_id)
-        wait_until(lambda: client.current_workspace() == ws_id, 3.0)
+        time.sleep(0.25)
         client.activate_app()
+        time.sleep(0.15)
 
         _ensure_surfaces(client, 3)
 
@@ -134,8 +140,9 @@ def test_close_last_selects_previous(client: cmux) -> TestResult:
     try:
         ws_id = client.new_workspace()
         client.select_workspace(ws_id)
-        wait_until(lambda: client.current_workspace() == ws_id, 3.0)
+        time.sleep(0.25)
         client.activate_app()
+        time.sleep(0.15)
 
         _ensure_surfaces(client, 3)
 

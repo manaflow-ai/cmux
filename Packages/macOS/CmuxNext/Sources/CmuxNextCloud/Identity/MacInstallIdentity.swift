@@ -1,4 +1,3 @@
-public import CMUXAuthCore
 public import CmuxInstallAuthCore
 import CryptoKit
 public import Foundation
@@ -27,7 +26,6 @@ public actor MacInstallIdentity {
     private let transport: any InstallAuthTransport
     private let deviceName: String
     private let clientVersion: String?
-    private let buildSpace: CMUXBuildSpaceState
     private var client: InstallAuthClient?
     private var user: String?
     private var generation: UInt64 = 0
@@ -38,15 +36,11 @@ public actor MacInstallIdentity {
     private var bindWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
-    /// `buildSpace`: the build's cloud data space (``CloudConfiguration/buildSpace``): a tagged dev build's header is
-    /// in ``requestHeaders``; a misconfigured dev build mints no install token (``installToken()`` throws).
-    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?,
-                buildSpace: CMUXBuildSpaceState = .nightly) {
+    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
         self.clientVersion = clientVersion
-        self.buildSpace = buildSpace
     }
 
     /// The user signed in: binds them and registers (or reuses) the install
@@ -58,12 +52,8 @@ public actor MacInstallIdentity {
     }
 
     /// The headers every install-token request carries (the client
-    /// version, so the owner can refuse a too-old app, and a tagged dev
-    /// build's `X-Cmux-Build-Space`). A misconfigured dev build has no header here, and never gets a token to send
-    /// with these: ``installToken()`` refuses first.
-    public nonisolated var requestHeaders: [String: String] {
-        InstallAuthClient.headers(clientVersion: clientVersion).merging(buildSpace.space?.headers ?? [:]) { $1 }
-    }
+    /// version, so the owner can refuse a too-old app).
+    public nonisolated var requestHeaders: [String: String] { InstallAuthClient.headers(clientVersion: clientVersion) }
 
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when
@@ -73,17 +63,8 @@ public actor MacInstallIdentity {
         return CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)?.team
     }
 
-    /// The backend team of ``installToken()`` (``team(ofToken:)``): the install's own team, where the app makes its Cloud
-    /// machines. Nil when there is no token or it names no team.
-    public func installTeam() async -> String? {
-        (try? await installToken()).flatMap(Self.team(ofToken:))
-    }
-
-    /// A valid install token for the signed-in user. A misconfigured dev build gets none (``CMUXBuildSpaceError``):
-    /// a token already held would otherwise reach nightly's data through every install-token caller (the relay,
-    /// the feed, `cmux link`, the host replica).
+    /// A valid install token for the signed-in user.
     public func installToken() async throws -> String {
-        try buildSpace.check()
         guard let client else { throw Failure.signedOut }
         return try await client.installToken()
     }
@@ -122,7 +103,6 @@ public actor MacInstallIdentity {
     /// A fresh token for one backend team, using this install's existing signer and grant.
     /// The personal client stays bound to its own scope; team refusals never rotate its key.
     public func installToken(team: String) async throws -> String {
-        try buildSpace.check()
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation
         _ = try await client.installToken()

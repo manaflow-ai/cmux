@@ -76,15 +76,13 @@ public actor PaletteSearcher {
         now: Date,
         showsRecent: Bool,
         keepsSectionOrder: Bool = false,
-        ranksPrefixFirst: Bool = false,
-        sectionNames: [[String]]? = nil
+        ranksPrefixFirst: Bool = false
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
         defer { endCall() }
         if Task.isCancelled { return (generation, []) }
         apply(entries: entries, version: version)
         return rank(query: query, generation: generation, sectionOrders: sectionOrders, frecency: frecency, now: now,
-                    showsRecent: showsRecent, keepsSectionOrder: keepsSectionOrder, ranksPrefixFirst: ranksPrefixFirst,
-                    sectionNames: sectionNames)
+                    showsRecent: showsRecent, keepsSectionOrder: keepsSectionOrder, ranksPrefixFirst: ranksPrefixFirst)
     }
 
     public func search(
@@ -99,8 +97,7 @@ public actor PaletteSearcher {
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
         defer { endCall() }
         return rank(query: query, generation: generation, sectionOrders: sectionOrders, frecency: frecency, now: now,
-                    showsRecent: showsRecent, keepsSectionOrder: keepsSectionOrder, ranksPrefixFirst: ranksPrefixFirst,
-                    sectionNames: nil)
+                    showsRecent: showsRecent, keepsSectionOrder: keepsSectionOrder, ranksPrefixFirst: ranksPrefixFirst)
     }
 
     /// Ranks the empty query of `entries` (installed in the bridge once per `version`) off the
@@ -136,8 +133,7 @@ public actor PaletteSearcher {
         now: Date,
         showsRecent: Bool,
         keepsSectionOrder: Bool,
-        ranksPrefixFirst: Bool,
-        sectionNames: [[String]]?
+        ranksPrefixFirst: Bool
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
         let sections: [PaletteRankedSection]
         do {
@@ -152,8 +148,7 @@ public actor PaletteSearcher {
                 showsRecent: showsRecent,
                 keepsSectionOrder: keepsSectionOrder,
                 ranksPrefixFirst: ranksPrefixFirst,
-                settings: rankSettings.withLock { $0 },
-                sectionNames: sectionNames
+                settings: rankSettings.withLock { $0 }
             )
         } catch {
             return (generation, [])

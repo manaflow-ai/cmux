@@ -77,7 +77,7 @@ nonisolated enum CloudGitHubSetup {
     static func reason(_ app: CloudGitHubApp) -> Fallback? {
         switch app {
         case .ready: nil
-        case .notConnected, .needsReauth, .linking, .error: .notConnected
+        case .notConnected: .notConnected
         case .notConfigured: .notConfigured
         case .unknown: .unknown
         }

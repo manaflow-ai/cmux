@@ -30,7 +30,7 @@ final class PageInfoSiteNameView: NSView {
             widthAnchor.constraint(lessThanOrEqualToConstant: fullWidth),
             widthAnchor.constraint(equalToConstant: fullWidth).prioritized(.defaultHigh),
         ])
-        setAccessibilityLabel(name) // it shows the name: no tooltip (a1315's cut 2)
+        themedToolTip = name
     }
 
     @available(*, unavailable)

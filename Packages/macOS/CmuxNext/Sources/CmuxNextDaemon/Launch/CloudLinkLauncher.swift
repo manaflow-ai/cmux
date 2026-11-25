@@ -129,9 +129,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
 
     /// The variables the link may get from the app's environment; nothing
     /// else (no `CMUX_NEXT_*`, no `DYLD_*`, no credentials) reaches it.
-    /// `CMUX_BUILD_SPACE` is the build's cloud space: the link's hub pairing and heartbeats go to this build's
-    /// cloud data, never nightly's (cmux-tui `cmux-build-space`).
-    static let inheritedKeys = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", DaemonLauncher.buildSpaceKey]
+    static let inheritedKeys = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
 
     /// The link's environment: the allow-listed variables of `base`, the
     /// state root and the fixed runtime base.
@@ -139,7 +137,6 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         var environment = base.filter { Self.inheritedKeys.contains($0.key) }
         if let stateRoot { environment["CMUX_TUI_STATE_DIR"] = stateRoot.path }
         environment["TMPDIR"] = runtimeBase.path
-        DaemonLauncher.applyRuntimeScope(to: &environment)
         return environment
     }
 

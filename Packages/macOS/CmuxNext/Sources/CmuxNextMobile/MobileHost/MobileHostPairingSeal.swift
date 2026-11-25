@@ -104,29 +104,15 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     }
 
     /// Runs `call` against the data-protection Keychain, and again against the login Keychain when
-    /// this build has no entitlement for the first. A read does not say so: without the entitlement
-    /// macOS 26 and 27 answer `SecItemCopyMatching` with errSecItemNotFound, and only writes and deletes
-    /// with errSecMissingEntitlement. So a call that finds nothing asks once more, with a delete of an
-    /// item that never exists (``dataProtectionUnavailable()``). Waiting for the read to say it left an
-    /// unentitled build's digest unread at every launch: its paired phones were never trusted after a
-    /// relaunch (2026-11-18). The login call runs with Keychain UI off
+    /// this build has no entitlement for the first. The login call runs with Keychain UI off
     /// (``LoginKeychain/withoutUI(_:)``): the `LAContext` does not reach the login Keychain, and an
     /// item an earlier build of this bundle id made under another signature would otherwise prompt
     /// for the login keychain password.
     private func perform<T>(_ call: ([String: Any]) -> (status: OSStatus, value: T)) -> (status: OSStatus, value: T) {
         let noPrompt = [kSecUseAuthenticationContext as String: Self.noPrompt()]
         let result = call(Self.query(service: service).merging(noPrompt) { $1 })
-        guard result.status == errSecMissingEntitlement || (result.status == errSecItemNotFound && dataProtectionUnavailable())
-        else { return result }
+        guard result.status == errSecMissingEntitlement else { return result }
         return loginKeychain.withoutUI { call(Self.loginQuery(service: service).merging(noPrompt) { $1 }) }
-    }
-
-    /// This build may not use the data-protection Keychain: a delete of an item no build ever makes
-    /// answers errSecMissingEntitlement (an entitled build gets errSecItemNotFound and nothing changes).
-    private func dataProtectionUnavailable() -> Bool {
-        let probe = Self.query(service: service).merging([kSecAttrAccount as String: "entitlement-probe",
-                                                          kSecUseAuthenticationContext as String: Self.noPrompt()]) { $1 }
-        return keychain.delete(probe) == errSecMissingEntitlement
     }
 
     public func digest() -> Data? {

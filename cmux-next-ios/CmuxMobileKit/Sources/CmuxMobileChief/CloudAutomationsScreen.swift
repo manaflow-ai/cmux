@@ -202,7 +202,7 @@ struct CloudAutomationDetail: View {
                         }
                     }
                     if !row.task.isEmpty {
-                        Section("Does") { InPlaceSelectionLabel(row.task) }
+                        Section("Does") { Text(row.task).font(theme.type.body).textSelection(.enabled) }
                     }
                     Section {
                         CloudAutomationActions(model: model, row: row, deleting: $deleting)

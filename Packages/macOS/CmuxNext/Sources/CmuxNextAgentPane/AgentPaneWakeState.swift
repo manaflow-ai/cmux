@@ -117,21 +117,6 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
             && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty && folds?.isEmpty != false
     }
 
-    /// It holds only where the transcript rested: a released idle chat opening again may take the
-    /// prewarmed spare page (``AgentPaneSpareAdoption``), whose adopt event carries that place (``place``).
-    public var holdsOnlyPlace: Bool {
-        var rest = self
-        (rest.scrollAnchor, rest.atLatest) = (nil, nil)
-        return rest.isEmpty
-    }
-
-    /// Where the transcript rested, as the spare's adopt event takes it: `.some(nil)` at its latest
-    /// message, nil when unknown (the tab's kept place stands).
-    public var place: AgentPaneScrollAnchor?? {
-        if let scrollAnchor { return .some(scrollAnchor) }
-        return atLatest == true ? .some(nil) : nil
-    }
-
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
     /// or the answer is malformed.
     init(page value: Any?) {

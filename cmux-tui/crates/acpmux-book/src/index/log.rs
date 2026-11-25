@@ -421,12 +421,7 @@ pub fn replay_log_from(
                     .unwrap_or(index)
                     .advance_seq(seq);
             }
-            // Owned: the old index is dropped here, so each persistent map's
-            // nodes change in place instead of copying their path per row
-            // (11k rows, fleet Linux: replay 88 ms -> about 20 ms).
-            codec::LogRecord::Row(record) => {
-                index = index.apply_summary_owned(seq, record.summary);
-            }
+            codec::LogRecord::Row(record) => index = index.apply_summary(seq, record.summary),
             codec::LogRecord::Mark(_) => {}
         }
     }

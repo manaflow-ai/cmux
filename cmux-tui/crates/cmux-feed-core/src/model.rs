@@ -103,8 +103,7 @@ pub struct Item {
     /// The owner after a move (`cloud`); `None` while owned here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<String>,
-    /// Notices this item stands for (1 plus every coalesced notice; a program's echo of its
-    /// agent's notice is the same one, `reduce.rs` `is_terminal_echo`).
+    /// Notices this item stands for (1 plus every coalesced notice).
     pub count: u32,
 }
 

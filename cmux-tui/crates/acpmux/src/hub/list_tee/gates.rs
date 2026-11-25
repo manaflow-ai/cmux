@@ -560,7 +560,6 @@ fn hub_book_session(n: usize, state: &str) -> crate::mesh::BookSession {
         harness: "claude".into(),
         state: state.into(),
         last_seen_at: 5,
-        ..Default::default()
     }
 }
 

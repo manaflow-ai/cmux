@@ -3,8 +3,7 @@ import CmuxNextActions
 /// The catalog's palette order (`ActionDescriptor.paletteTier`, `paletteFamilies`;
 /// plans/cmux-next/palette-ranking.md 5.4): no row is dropped. A family's members fold into one
 /// row on the empty query and still match a typed query; daily rows lead their section, niche
-/// rows close it. A bound row that cannot run here is not listed (`RegistryPaletteProvider`); only
-/// an unbound debug row lists disabled, last.
+/// rows close it, and rows the focused pane cannot run come last, dimmed with the reason.
 extension RegistryPaletteProvider {
     /// Ahead of or behind an equal match while typing: less than a match tier, so a better
     /// match of a niche row still wins.

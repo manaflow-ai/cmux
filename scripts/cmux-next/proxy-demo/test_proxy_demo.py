@@ -136,24 +136,12 @@ class DevServerTests(unittest.TestCase):
                 events = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
                 events.request("GET", "/events")
                 stream = events.getresponse()
-                # The watcher and the stream each take their baseline on their own thread, with nothing to read
-                # back: change the file until the reload arrives, rather than guessing when both are ready.
-                got_reload = threading.Event()
-
-                def touch() -> None:
-                    n = 0
-                    while not got_reload.is_set() and n < 100:
-                        n += 1
-                        (root / "app.js").write_text(f"console.log({n})")
-                        got_reload.wait(0.05)
-                threading.Thread(target=touch, daemon=True).start()
+                time.sleep(0.2)
+                (root / "app.js").write_text("console.log(1)")
                 deadline = time.time() + 5
                 buf = b""
-                try:
-                    while b"event: reload" not in buf and time.time() < deadline:
-                        buf += stream.fp.readline()
-                finally:
-                    got_reload.set()
+                while b"event: reload" not in buf and time.time() < deadline:
+                    buf += stream.fp.readline()
                 self.assertIn(b"event: reload", buf)
             finally:
                 httpd.shutdown()

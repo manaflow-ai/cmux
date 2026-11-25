@@ -105,10 +105,10 @@ struct ArtifactsSheet: View {
                             .monospacedDigit()
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .cmuxMobilePressBackground(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
+                            .background(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
                             .contentShape(.capsule)
                     }
-                    .buttonStyle(.cmuxPressFillInLabel)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("artifacts.filter.\(item.rawValue.lowercased())")
                 }

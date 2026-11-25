@@ -1,7 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "action.customize.library.reset": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة تعيين مكتبة التخصيص"}},"bs":{"stringUnit":{"state":"needs_review","value":"Resetuj biblioteku prilagođavanja"}},"da":{"stringUnit":{"state":"needs_review","value":"Nulstil tilpasningsbibliotek"}},"de":{"stringUnit":{"state":"needs_review","value":"Anpassungsbibliothek zurücksetzen"}},"en":{"stringUnit":{"state":"translated","value":"Reset Customization Library"}},"es":{"stringUnit":{"state":"needs_review","value":"Restablecer biblioteca de personalización"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réinitialiser la bibliothèque de personnalisation"}},"it":{"stringUnit":{"state":"needs_review","value":"Reimposta libreria di personalizzazione"}},"ja":{"stringUnit":{"state":"needs_review","value":"カスタマイズライブラリをリセット"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់បណ្ណាល័យប្ដូរតាមបំណងឡើងវិញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"사용자화 라이브러리 재설정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbakestill tilpasningsbiblioteket"}},"pl":{"stringUnit":{"state":"needs_review","value":"Resetuj bibliotekę dostosowań"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Redefinir biblioteca de personalização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сбросить библиотеку настроек"}},"th":{"stringUnit":{"state":"needs_review","value":"รีเซ็ตคลังการปรับแต่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Özelleştirme Kitaplığını Sıfırla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скинути бібліотеку налаштувань"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đặt lại thư viện tùy chỉnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重置自定义库"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重設自訂資料庫"}}}},
     "action.palette.clearSearchHistory": {
       "extractionState": "manual",
       "localizations": {
@@ -166,127 +165,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief"
+            "value": "Home"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "الرئيسية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Početna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Hjem"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Home"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Inicio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Accueil"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Home"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "ホーム"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "ទំព័រដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "홈"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Hjem"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Strona główna"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Início"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Главная"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "หน้าแรก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Ana Sayfa"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Головна"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Trang chủ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "主页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "主頁"
           }
         }
       }

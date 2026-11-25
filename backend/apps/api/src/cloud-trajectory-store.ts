@@ -1,6 +1,5 @@
-import { envForObject } from "./build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 
 /**
  * ACP chat trajectories kept outside the Cloud VM (#25584). One TrajectoryDO per team and machine
@@ -304,8 +303,7 @@ export class TrajectoryStore {
 /** The Durable Object around a TrajectoryStore: RPC only, no fetch. */
 export class TrajectoryDO extends DurableObject<Env> {
   private readonly store: TrajectoryStore
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.store = new TrajectoryStore(ctx.storage.sql)
   }

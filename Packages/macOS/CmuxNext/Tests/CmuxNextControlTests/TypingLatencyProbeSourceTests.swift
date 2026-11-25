@@ -19,23 +19,6 @@ import Testing
         FileManager.default.temporaryDirectory.appendingPathComponent("typing-probe-\(UUID().uuidString).csv").path
     }
 
-    /// `debug.key` opens its sample before the key router (cmux#45273) and withdraws it when the key goes through the
-    /// app's sendEvent, which opens its own: the withdrawn sample writes no row, complete or not.
-    @Test func aWithdrawnSampleWritesNoRow() throws {
-        let path = csvPath()
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        let probe = TypingLatencyProbe(path: path)
-        probe.keyDown(eventTimestamp: 0)
-        probe.withdraw()
-        probe.keyDown(eventTimestamp: 0)
-        probe.closeAtCommit()
-        probe.mark(.dispatchEnd)
-        probe.mark(.commit)
-        let written = try rows(path, probe)
-        try #require(written.count == 1, "the withdrawn sample was written")
-        #expect(written[0][1] == "1", "the app's own sample is complete")
-    }
-
     @Test func aBusyNeighborsEchoDoesNotCloseThePress() throws {
         let path = csvPath()
         defer { try? FileManager.default.removeItem(atPath: path) }

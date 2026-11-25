@@ -31,9 +31,8 @@ enum FileSidebarRow: Equatable {
             home.path: "house",
         ]
         var rows: [FileSidebarRow] = [.header(FilesStrings.favorites)]
-        let names = FolderDisplayName(home: home)
         for url in sidebar.favorites {
-            let name = names.name(of: url)
+            let name = FileManager.default.displayName(atPath: url.path)
             rows.append(.favorite(url, name: name, symbol: symbols[url.standardizedFileURL.path] ?? "folder"))
         }
         rows.append(.header(FilesStrings.locations))

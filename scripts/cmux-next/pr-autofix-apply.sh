@@ -65,22 +65,19 @@ if git -C "$repo" apply --summary "$patch" | grep -qE 'mode change|create mode 1
   echo "refused: the patch changes a file mode, adds a symlink or renames a file" >&2
   exit 1
 fi
-# Bot-only outputs (#21946, RFD 0045 and 0048: the defaults snapshot, the CI target graph,
-# the web docs copies of the catalog and the schema): the
-# repair rewrites them, but only the base autofix commits them, after a merge. The
-# ownership table beside this script names them (generated_outputs.py bot-only).
-patched="$(git -C "$repo" apply --numstat "$patch" | cut -f3-)"
-bot_only="$(printf '%s\n' "$patched" | python3 -I "$(dirname "$0")/generated_outputs.py" bot-only)"
+# The defaults snapshot is bot-only (#21946): the repair rewrites it, but only
+# the base autofix commits it, after a merge.
+bot_only=(schemas/defaults/cmux-next.json)
 refused=0 files=() bot_excludes=()
-while IFS= read -r rel; do
+while IFS=$'\t' read -r _ _ rel; do
   [[ -n "$rel" ]] || continue
-  if grep -qxF -- "$rel" <<<"$bot_only"; then
+  if [[ " ${bot_only[*]} " == *" $rel "* ]]; then
     echo "dropped: $rel (bot-only: the base autofix writes it after a merge)"
     bot_excludes+=(--exclude="$rel")
     continue
   fi
   if allowed "$rel"; then files+=("$rel"); else echo "refused: $rel is not an autofix output" >&2; refused=1; fi
-done <<<"$patched"
+done < <(git -C "$repo" apply --numstat "$patch")
 (( refused )) && exit 1
 (( ${#files[@]} )) || exit 0
 excludes=(${bot_excludes[@]+"${bot_excludes[@]}"})

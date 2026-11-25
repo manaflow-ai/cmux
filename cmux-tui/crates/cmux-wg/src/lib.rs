@@ -42,9 +42,6 @@ mod net;
 mod pacing;
 mod probe_schedule;
 mod probing;
-mod send_gate;
-#[cfg(test)]
-mod send_gate_tests;
 mod single_path;
 mod stream;
 #[cfg(test)]

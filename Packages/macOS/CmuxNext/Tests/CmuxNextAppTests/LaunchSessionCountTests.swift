@@ -6,7 +6,7 @@ import CmuxNextSidebar
 import Foundation
 import Testing
 
-/// LAUNCH 800 (2026-11-10): a relaunch with a large session (826 workspaces) must show the focused workspace,
+/// LAUNCH 800 (2026-11-10): a relaunch with the person's session (826 workspaces) must show the focused workspace,
 /// ready for a key, as fast as a relaunch with 60. So the launch path must do no work per HIDDEN workspace on the main
 /// thread: the shown workspace first, the rest lazily (CLAUDE.md "Copy Chrome's performance model": Chromium's
 /// `SessionRestore` shows the selected tab at once and only schedules every other tab; "Go past Chrome": a hidden

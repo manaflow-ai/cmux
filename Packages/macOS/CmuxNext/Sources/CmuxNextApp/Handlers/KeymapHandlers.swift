@@ -60,7 +60,7 @@ enum KeymapHandlers {
 
 enum KeymapStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Keymap", bundle: .module.inAppLanguage)
+        String(localized: key, defaultValue: value, table: "Keymap", bundle: .module)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {

@@ -116,32 +116,6 @@ struct MachineIconTests {
         #expect(SidebarMapping.machineIcon("star.fill", device: "macmini") == .symbol("star.fill"))
     }
 
-    /// Leo, 2026-10-22: "but default group header can put cloud icon or mac mini icon or laptop icon".
-    /// A machine's header with no icon of the person's own draws the device it is: a Cloud machine
-    /// the cloud, whatever its VM reports; a Mac mini or a MacBook the symbol its daemon named.
-    @Test func aMachinesHeaderDrawsTheCloudMacMiniOrLaptopItIs() {
-        #expect(SidebarMapping.deviceSymbol(kind: .cloud, reported: nil) == "cloud")
-        #expect(SidebarMapping.deviceSymbol(kind: .cloud, reported: "server.rack") == "cloud", "a Cloud VM calls itself a Linux server")
-        #expect(SidebarMapping.deviceSymbol(kind: .ssh, reported: "macmini") == "macmini")
-        #expect(SidebarMapping.deviceSymbol(kind: .local, reported: "macbook.gen2") == "macbook.gen2")
-        #expect(SidebarMapping.deviceSymbol(kind: .server, reported: nil) == nil, "a daemon that says nothing draws as before")
-
-        let services = Self.services()
-        _ = Self.cloudMachine(services, id: "vm-cloud-icon")
-        let header = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, profile: .defaultProfile).lazy.compactMap(\.machine)
-            .first { $0.id.rawValue == "vm-cloud-icon" }
-        #expect(header?.icon == .symbol("cloud"), "a Cloud machine's header draws the cloud")
-
-        let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("vm-cloud-icon"), name: "Icon VM", kind: .cloud, icon: header?.icon)
-        let section = SidebarSection(kind: .machine(machine), nodes: [])
-        let row = SidebarRow(key: .section(section.id), y: 0, height: 28, section: section.id, group: nil, siblingIndex: 0,
-                             parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil,
-                             titlesProjects: false)
-        let view = SectionHeaderRowView(key: row.key)
-        view.configure(section, row: row)
-        #expect(view.showsMachineIcon, "the drawn header shows the cloud before the name")
-    }
-
     /// The header draws a set icon before the name and nothing extra without one; the lone
     /// machine's "Projects" header is the list's title, not the machine's, and draws none.
     @Test func theSectionHeaderDrawsTheIconOnlyWhenTheMachineHasOne() {
@@ -211,9 +185,7 @@ struct MachineIconTests {
         // ungroups the host's rows (close: "Close, delete, forget, ungroup").
         #expect(ContextMenuCatalog.shared.entries(for: .machineSection)
             == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")]),
-                .separator, .action("machine.reconnect"), .action("macScreen.shareThisMac"),
-                .action("machine.viewScreen"), .separator, .action("customize.open"),
-                .separator, .action("remote.removeGroup")])
+                .separator, .action("machine.reconnect"), .separator, .action("remote.removeGroup")])
     }
 
     /// Every machine header's right-click menu offers Set Icon, aimed at that machine, beside its

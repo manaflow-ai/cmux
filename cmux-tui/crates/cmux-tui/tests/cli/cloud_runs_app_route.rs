@@ -295,11 +295,11 @@ fn classic_cloud() -> (String, Arc<Mutex<Vec<String>>>) {
     (origin, lines)
 }
 
-/// Classic Cloud's Runs are deleted on the branch: an incognito send's create, which classic Cloud
-/// ran, is refused under a signed-in app, with or without the classic session an older app still
-/// sends, and nothing goes to `/api/runs`.
+/// #39022 review at 855beb0d (audit 1): an incognito send's create, which classic Cloud runs, went
+/// there without the account check every daemon create makes. It goes only while the app is still
+/// on the account the send was made under; after a switch nothing is sent.
 #[test]
-fn an_incognito_run_is_refused_and_never_goes_to_classic_cloud() {
+fn an_incognito_run_goes_to_classic_cloud_only_under_the_account_it_was_sent_in() {
     let base = unique_temp_dir("runs-incognito");
     let runtime = cmux_tui_core::platform::runtime_dir_for_base(&base);
     fs::create_dir_all(&runtime).unwrap();
@@ -344,9 +344,10 @@ fn an_incognito_run_is_refused_and_never_goes_to_classic_cloud() {
 
     let switched = create("k-switched", "team_2");
     assert_eq!(switched["ok"], false, "{switched}");
-    assert!(switched.to_string().contains("run_incognito_unavailable"), "{switched}");
+    assert!(switched.to_string().contains("run_account_changed"), "{switched}");
+    assert!(classic.lock().unwrap().is_empty(), "nothing sent after a switch");
 
-    // No classic session sent: refused, never started as a daemon Run.
+    // No classic session sent (not the app's): refused, never started as a daemon Run.
     let bare = cloud_api(
         &socket,
         &home,
@@ -361,12 +362,14 @@ fn an_incognito_run_is_refused_and_never_goes_to_classic_cloud() {
         }),
     );
     assert!(bare.to_string().contains("run_incognito_unavailable"), "{bare}");
+    assert!(classic.lock().unwrap().is_empty(), "nothing sent without the classic session");
 
-    // With the classic session an older app sends: refused the same way.
     let created = create("k-same", "team_1");
-    assert_eq!(created["ok"], false, "{created}\n{}", daemon.stderr_tail());
-    assert!(created.to_string().contains("run_incognito_unavailable"), "{created}");
-    assert!(classic.lock().unwrap().is_empty(), "nothing went to classic Cloud");
+    assert_eq!(created["ok"], true, "{created}\n{}", daemon.stderr_tail());
+    assert_eq!(created["body"]["id"], "r-private", "{created}");
+    let lines = classic.lock().unwrap().clone();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("POST /api/runs "), "{lines:?}");
     drop(daemon);
     let _ = fs::remove_dir_all(&base);
 }

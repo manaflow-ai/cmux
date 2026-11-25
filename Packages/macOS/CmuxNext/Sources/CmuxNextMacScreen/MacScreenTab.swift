@@ -33,22 +33,21 @@ public final class MacScreenTab {
     func showHome(_ home: NSView) {
         clear()
         self.home = home
-        view.fill(with: home, focus: { [weak home] in home })
+        view.fill(with: home, focus: home)
     }
 
     /// Shows `pane` (a record whose Mac is read), ending what showed before.
     func install(_ pane: MacScreenPane) {
         clear()
         self.pane = pane
-        // Asked each time: the pane's target changes with its state (a card's button, the strip's, the screen).
-        view.fill(with: pane.view, focus: { [weak pane] in pane?.focusTarget })
+        view.fill(with: pane.view, focus: pane.focusTarget)
         if view.isShown { pane.resume() }
     }
 
     /// Nothing yet.
     func showLoading() {
         clear()
-        view.fill(with: nil, focus: { nil })
+        view.fill(with: nil, focus: nil)
     }
 
     func rename(_ name: String) { pane?.model.name = name }
@@ -72,8 +71,7 @@ public final class MacScreenTabView: NSView {
     public var onVisibilityChange: ((Bool) -> Void)?
     public private(set) var isShown = false
     private weak var content: NSView?
-    /// The view that takes the keyboard, resolved when asked (nil: the tab view itself).
-    private var keyTarget: @MainActor () -> NSView? = { nil }
+    private weak var keyTarget: NSView?
 
     public init() {
         super.init(frame: .zero)
@@ -83,11 +81,11 @@ public final class MacScreenTabView: NSView {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// The view that takes the keyboard when the tab is focused.
-    public var focusTarget: NSView { keyTarget() ?? self }
+    public var focusTarget: NSView { keyTarget ?? self }
 
     public override var acceptsFirstResponder: Bool { true }
 
-    func fill(with view: NSView?, focus: @escaping @MainActor () -> NSView?) {
+    func fill(with view: NSView?, focus: NSView?) {
         let hadKeyboard = window.map { window in
             (window.firstResponder as? NSView).map { $0 === self || $0.isDescendant(of: self) } ?? false
         } ?? false

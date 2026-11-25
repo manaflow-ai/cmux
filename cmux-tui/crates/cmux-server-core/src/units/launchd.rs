@@ -122,41 +122,6 @@ pub fn launch_agent_plist(layout: &Layout) -> Result<String, UnitError> {
     headless_plist(layout, None)
 }
 
-/// `~/Library/LaunchAgents/com.cmux.server.plist` for the session service:
-/// `<binary> daemon start --session <session>` (with the reap grace,
-/// `session::SESSION_REAP_GRACE_SECONDS`), kept alive by launchd, with
-/// its output in `<state>/logs/server.log`. Runs while the user is logged in.
-pub fn session_launch_agent_plist(
-    layout: &Layout,
-    binary: &str,
-    session: &str,
-) -> Result<String, UnitError> {
-    if layout.platform != Platform::MacOs
-        || layout.mode != InstallMode::User
-        || !matches!(layout.service, ServiceKind::LaunchAgent { .. })
-    {
-        return Err(UnitError::WrongLayout);
-    }
-    if !super::session::valid_session_name(session) {
-        return Err(UnitError::BadSession);
-    }
-    if !binary.starts_with('/') {
-        return Err(UnitError::UnsafePath("binary"));
-    }
-    let log = layout.logs().join("server.log").to_string();
-    let argv = super::session::session_argv(binary, session);
-    let mut root = BTreeMap::new();
-    root.insert("Label", Value::Str(LAUNCHD_LABEL.to_owned()));
-    root.insert("ProgramArguments", Value::Array(argv.into_iter().map(Value::Str).collect()));
-    root.insert("RunAtLoad", Value::Bool(true));
-    root.insert("KeepAlive", Value::Bool(true));
-    root.insert("ProcessType", Value::Str("Standard".to_owned()));
-    root.insert("ThrottleInterval", Value::Int(10));
-    root.insert("StandardOutPath", Value::Str(log.clone()));
-    root.insert("StandardErrorPath", Value::Str(log));
-    document(root)
-}
-
 /// `/Library/LaunchDaemons/com.cmux.server.plist`: starts at boot without a
 /// login and runs as `user` (the installing user for a user-mode layout, the
 /// service user for a system-mode layout). Installed by the

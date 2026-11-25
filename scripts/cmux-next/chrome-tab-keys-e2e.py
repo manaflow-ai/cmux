@@ -44,8 +44,6 @@ parser.add_argument("--keys", help="only these key labels, comma separated (e.g.
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
 
 NEXT, PREV = "nextSidebarTab", "prevSidebarTab"
 KEYS = [
@@ -145,9 +143,7 @@ def run(action, args=None):
 def settle(before):
     """The selection once it stops changing (a key may move it a turn late)."""
     wait(lambda: selected() != before or None, 2)
-    # A late second move: the selection held for 0.3 s (4 reads 0.1 s apart).
-    wait_stable(selected, "the sidebar selection after the key", timeout=5, interval=0.1, reads=4,
-                raise_on_timeout=False)
+    time.sleep(0.3)  # test harness: let a late second move show
     return selected()
 
 
@@ -204,13 +200,6 @@ def show(title):
     return selected() == title
 
 
-def shown_tab():
-    """The focused pane's shown tab (debug.surfaces)."""
-    panes = [p for w in (rpc("debug.surfaces") or {}).get("windows") or [] for p in w.get("panes") or []]
-    focused = next((p for p in panes if p.get("focused")), None) or {}
-    return focused.get("selected_tab") or focused.get("shown_tab")
-
-
 def context_keys():
     """The key window's context keys (`context.keys`): surfaceKind, terminal.copyMode, ..."""
     return (rpc("context.keys") or {}).get("keys") or {}
@@ -263,38 +252,27 @@ def create(surface):
         # The New Tab page becomes a chat; its composer has the keyboard.
         wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 10)
         print("new_chat", rpc("debug.agent_pane", {"action": "new_chat"}), flush=True)
-        # The page swaps to the chat: the New Tab field is gone and the router sees the chat page.
-        if not wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is not True
-                    and "agentpage" in str(focus_kind()).lower(), 15, 0.1):
-            print("new_chat: the page did not swap to the chat in 15 s", flush=True)
+        time.sleep(2)  # test harness: the page swaps to the chat
     if made and surface == "page":
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print("openBrowser", run("openBrowser", {"url": f"http://127.0.0.1:{server.server_address[1]}/"}), flush=True)
         wait(lambda: context_keys().get("surfaceKind") == "page" or None, 15)
-        # The page's title ("keys <pid>") renames the workspace.
-        if not wait(lambda: f"keys {os.getpid()}" in str(selected()), 10, 0.1):
-            print(f"page: the workspace never took the page's title (selected {selected()!r})", flush=True)
+        time.sleep(1)  # test harness: the page's title renames the workspace
         made = [selected()]
     if made and surface == "settings":
         print("openSettings", run("openSettings"), flush=True)
         wait(lambda: context_keys().get("surfaceKind") == "settings" or None, 10)
-        # The tab's title may rename the workspace: the selection's title once it holds.
-        wait_stable(selected, "the settings workspace's title", timeout=5, interval=0.1, reads=5,
-                    raise_on_timeout=False)
+        time.sleep(1)  # test harness: the tab's title may rename the workspace
         made = [selected()]
     if made and surface.endswith("2"):
         # A second tab in the pane: a key that switches the pane's tabs instead of the
         # sidebar item no longer looks right.
-        first_tab = shown_tab()
         print(f"{surface} second tab", run("newSurface"), flush=True)
-        # The tab opens and the focused pane shows it.
-        if not wait(lambda: shown_tab() not in (None, first_tab), 10, 0.1):
-            print(f"{surface}: the second tab never showed in the focused pane", flush=True)
+        time.sleep(2)  # test harness: the tab opens and takes the keyboard
         if surface == "newtab2":
             run("prevSurface")  # back to the New Tab page, the pane's first tab
-            if not wait(lambda: shown_tab() == first_tab, 10, 0.1):
-                print(f"{surface}: prevSurface never showed the first tab again", flush=True)
+            time.sleep(1)  # test harness
     return made[0] if made else None
 
 

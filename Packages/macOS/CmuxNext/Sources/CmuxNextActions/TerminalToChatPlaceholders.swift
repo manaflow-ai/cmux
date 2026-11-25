@@ -12,7 +12,7 @@ public struct TerminalToChatPlaceholders {
     public static let ids: [ActionID] = ["terminal.fixLastCommand", "terminal.sendLastOutputToChat", "terminal.sendSelectionToChat"]
 
     static var reason: String {
-        String(localized: "terminalToChat.unavailable", defaultValue: "This build of cmux can't send terminal text to a chat yet.", bundle: .localizedModule)
+        String(localized: "terminalToChat.unavailable", defaultValue: "This build of cmux can't send terminal text to a chat yet.", bundle: .module)
     }
 
     public static func bind(into registry: ActionRegistry) {

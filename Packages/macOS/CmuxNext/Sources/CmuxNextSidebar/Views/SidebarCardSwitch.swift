@@ -15,7 +15,7 @@ final class SidebarCardSwitch: NSView {
         control.controlSize = .mini
         control.target = self
         control.action = #selector(flipped)
-        label.font = Typography.cardBody
+        label.font = Typography.caption
         label.lineBreakMode = .byClipping
         addSubview(label)
         addSubview(control)
@@ -50,7 +50,7 @@ final class SidebarCardSwitch: NSView {
 
     /// The title's width in its font, plus a point each side so it never truncates.
     private var titleWidth: CGFloat {
-        ceil((label.stringValue as NSString).size(withAttributes: [.font: label.font ?? Typography.cardBody]).width) + 2
+        ceil((label.stringValue as NSString).size(withAttributes: [.font: label.font ?? Typography.caption]).width) + 2
     }
 
     override var fittingSize: NSSize {

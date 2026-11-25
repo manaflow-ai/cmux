@@ -47,64 +47,6 @@ import Testing
         #expect(catchers.panelsMade == 1)
     }
 
-    /// A switch away and back passes through updates with no page window (`active` false: the old workspace's pages
-    /// hide before the new one's show). Those closed every spare, so each switch made a new window for every divider:
-    /// 6 for one switch away and back over 3 panes in Leo's NIGHTLY (2026-11-22 04:14:49Z, #49788). After the switch,
-    /// the only panels that take the mouse sit on the shown dividers.
-    @Test func aSwitchAwayAndBackThroughNoPagesMakesNoNewPanelAndLeavesNoneOffItsDivider() throws {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 500), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.orderFrontRegardless()
-        let page = Self.page(over: window)
-        defer { window.removeChildWindow(page); page.close() }
-        let catchers = DividerMouseCatchers(window: window)
-        defer { catchers.teardown() }
-        func area(_ id: String, x: CGFloat) -> LayoutMouseArea {
-            LayoutMouseArea(id: id, rect: CGRect(x: x, y: 0, width: 8, height: 400), resizesColumns: true)
-        }
-        let home = [area("sidebar", x: 160), area("left|middle", x: 360), area("middle|right", x: 700)]
-        catchers.update(home, active: true)
-        let made = catchers.panelsMade
-        #expect(made == 3)
-        for _ in 0 ..< 3 {
-            // Away: the pages hide, then the other workspace (one divider) shows.
-            catchers.update([], active: false)
-            catchers.update([area("other", x: 450)], active: true)
-            // Back: its pages hide, then this workspace's three dividers show again.
-            catchers.update([], active: false)
-            catchers.update(home, active: true)
-        }
-        #expect(catchers.panelsMade == made,
-                "3 switches away and back made \(catchers.panelsMade - made) new catcher window(s)")
-        let wanted = home.map { window.convertToScreen($0.rect) }
-        let taking = catchers.mouseTakingFrames
-        #expect(taking.count == home.count, "\(taking.count) panels take the mouse for \(home.count) dividers: \(taking)")
-        let stray = taking.filter { !wanted.contains($0) }
-        #expect(stray.isEmpty, "a catcher panel takes the mouse off every shown divider: \(stray)")
-    }
-
-    /// The teardown closes the parked spares too (they now outlive an update with no page window).
-    @Test func theTeardownClosesTheSpares() throws {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.orderFrontRegardless()
-        let page = Self.page(over: window)
-        defer { window.removeChildWindow(page); page.close() }
-        let catchers = DividerMouseCatchers(window: window)
-        let a = LayoutMouseArea(id: "a", rect: CGRect(x: 200, y: 0, width: 8, height: 400), resizesColumns: true)
-        catchers.update([a], active: true)
-        catchers.update([], active: false)
-        #expect((window.childWindows ?? []).contains { $0 is DividerMousePanel }, "the spare stays parked in the window")
-        catchers.teardown()
-        #expect(!(window.childWindows ?? []).contains { $0 is DividerMousePanel }, "the teardown left a catcher panel")
-    }
-
     /// A divider that leaves while another stays: its panel is parked in the window with no size and no mouse.
     @Test func aParkedPanelTakesNoMouse() throws {
         _ = NSApplication.shared

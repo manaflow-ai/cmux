@@ -51,8 +51,7 @@ SLUG="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$SLUG"
 # Fail closed: an unreadable CFBundleIdentifier must not skip validation and
 # install an arbitrary app under this tag's identity.
-APP_BUNDLE_ID=""
-[[ -f "$APP/Info.plist" ]] && APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
+APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || true)"
 if [[ -z "$APP_BUNDLE_ID" ]]; then
   echo "error: could not read CFBundleIdentifier from $APP/Info.plist" >&2
   exit 1

@@ -101,12 +101,10 @@ pub enum Need {
 pub fn need_for(service: &str) -> Option<Need> {
     Some(match service {
         "echo" | "version" | "machine" => Need::Paired,
-        "file" | "file-preview" | "needs-you" | "appearance" | "appearance-wallpaper" | "tabs" => {
+        "file" | "file-preview" | "needs-you" | "appearance" | "appearance-wallpaper" => {
             Need::Grant(Grant::View)
         }
-        // Answering a pairing request waiting here (`pair_requests.rs`) is answering for the
-        // person, as `acpmux` answers agents.
-        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" | "pair-requests" => {
+        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => {
             Need::Grant(Grant::Control)
         }
         // Cloud chats ride the Mac's own Cloud session: a phone's lane only.

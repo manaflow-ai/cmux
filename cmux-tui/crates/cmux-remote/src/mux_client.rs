@@ -19,7 +19,7 @@ use cmux_remote_protocol::Service;
 use serde_json::Value;
 use tokio::sync::Mutex;
 
-use crate::bridge::{BridgeError, await_opened, mux_control_open_metadata};
+use crate::bridge::{BridgeError, await_opened};
 use crate::mux_codec::{
     MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, MuxLineAssembler, encode_line,
     mux_line_payload_len,
@@ -48,7 +48,7 @@ impl std::fmt::Debug for MuxLineClient {
 impl MuxLineClient {
     /// Open the mux control service and wait until every lane is ready.
     pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
-        let stream = multiplexer.open(Service::MuxControl, mux_control_open_metadata()).await?;
+        let stream = multiplexer.open(Service::MuxControl, Default::default()).await?;
         let opened = match await_opened(&stream).await {
             Ok(opened) => opened,
             Err(error) => {
@@ -61,8 +61,7 @@ impl MuxLineClient {
             next_message: AtomicU64::new(1),
             receiver: Mutex::new(Receiver {
                 initial: opened.buffered,
-                assembler: MuxLineAssembler::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES)
-                    .accepting_zlib(opened.features.mux_line_zlib_v1),
+                assembler: MuxLineAssembler::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES),
                 closed: false,
             }),
         })

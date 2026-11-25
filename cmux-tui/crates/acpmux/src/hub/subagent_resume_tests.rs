@@ -44,7 +44,6 @@ fn by_person() -> RetryBy {
         trust_gate: false,
         full_access_device: None,
         from: None,
-        person: true,
     }
 }
 

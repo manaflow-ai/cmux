@@ -20,9 +20,9 @@ public struct AgentPaneFilePicker {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
         panel.resolvesAliases = true
-        panel.prompt = String(localized: "agentPane.addFiles.prompt", defaultValue: "Add", bundle: .localizedModule)
+        panel.prompt = String(localized: "agentPane.addFiles.prompt", defaultValue: "Add", bundle: .module)
         panel.message = String(localized: "agentPane.addFiles.message",
-                               defaultValue: "Every chat in this folder reads the files you add.", bundle: .localizedModule)
+                               defaultValue: "Every chat in this folder reads the files you add.", bundle: .module)
         return await sheet(panel, on: window)
     }
 
@@ -34,7 +34,7 @@ public struct AgentPaneFilePicker {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
         panel.resolvesAliases = true
-        panel.prompt = String(localized: "agentPane.attach.prompt", defaultValue: "Attach", bundle: .localizedModule)
+        panel.prompt = String(localized: "agentPane.attach.prompt", defaultValue: "Attach", bundle: .module)
         return await sheet(panel, on: window)
     }
 

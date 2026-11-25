@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 fn connect() -> Request {
-    Request::new("cloud.machine.connect", json!({ "machine": "vm_alpha01" })).key("c-1")
+    Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-1")
 }
 
 #[test]
@@ -31,9 +31,9 @@ fn a_connect_asks_the_app_for_its_carrier_socket_and_streams_go_there() {
     );
     let up = s.handle(&connect()).map(|r| r["state"].clone());
     assert_eq!(up.as_ref().ok(), Some(&json!("up")), "{up:?}");
-    assert_eq!(s.control_plane().carrier_asks, ["vm_alpha01"], "one ask, naming the machine");
+    assert_eq!(s.control_plane().carrier_asks, ["vm-alpha01"], "one ask, naming the machine");
     let command = spawner.log().commands[0].clone();
-    assert_eq!(command.upstream, carrier_socket_of("vm_alpha01"));
+    assert_eq!(command.upstream, carrier_socket_of("vm-alpha01"));
     // A connect over the up link asks nothing more.
     let again = s.handle(&connect()).map(|r| r["state"].clone());
     assert_eq!(again.as_ref().ok(), Some(&json!("up")), "{again:?}");
@@ -61,7 +61,7 @@ fn each_carrier_refusal_is_a_typed_connect_error_and_nothing_spawns() {
         let error = s.handle(&connect()).expect_err("refused");
         assert_eq!(error.code, ours, "{code} {message}: {error:?}");
         assert_eq!(error.retryable, retryable, "{code} {message}: {error:?}");
-        assert!(error.message.contains("vm_alpha01"), "{}", error.message);
+        assert!(error.message.contains("vm-alpha01"), "{}", error.message);
         assert_eq!(spawner.spawns(), 0, "{code}: no link without the app's socket");
     }
 }
@@ -75,15 +75,15 @@ fn a_file_op_goes_to_the_apps_carrier_socket() {
     let mut rig = edge_common::rig(&["vm-get", "connect-info-fs"]);
     let push = Request::new(
         "cloud.file.push",
-        json!({"machine": "vm_alpha01", "localPath": local, "path": "/home/cmux/upload.txt"}),
+        json!({"machine": "vm-alpha01", "localPath": local, "path": "/home/cmux/upload.txt"}),
     )
     .key("p-1")
     .origin(Origin::User);
     rig.server.handle(&push).expect("push");
     rig.server.wait_transfers();
     let job = rig.transfer.log().jobs[0].clone();
-    assert_eq!(job.target.socket, carrier_socket_of("vm_alpha01"));
-    assert_eq!(rig.server.control_plane().carrier_asks, ["vm_alpha01"]);
+    assert_eq!(job.target.socket, carrier_socket_of("vm-alpha01"));
+    assert_eq!(rig.server.control_plane().carrier_asks, ["vm-alpha01"]);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -129,7 +129,7 @@ fn the_real_carrier_carries_a_stream_over_the_socket_the_app_answered() {
     assert_eq!(answer, "echo {\"cmd\":\"identify\",\"id\":1}\n");
     drop(stream);
     s.handle(
-        &Request::new("cloud.machine.disconnect", json!({ "machine": "vm_alpha01" })).key("d-1"),
+        &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })).key("d-1"),
     )
     .expect("disconnect");
     std::fs::remove_dir_all(dir).unwrap();

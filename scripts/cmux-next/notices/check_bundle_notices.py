@@ -10,8 +10,7 @@ an entry of the map, and every requirement of each matching entry must hold:
   first-party      Contents/Resources/LICENSE is a non-empty file
   section:<id>     Contents/Resources/THIRD_PARTY_LICENSES.md has the marker
                    `<!-- notices-section: <id> -->`
-  file:<path>      <app>/<path> is a non-empty file (a <path> ending in .gz
-                   must decompress to non-empty text)
+  file:<path>      <app>/<path> is a non-empty file
   ghostty-license-tree:<path>
                    <app>/<path> is a Ghostty dependency license tree that
                    verify-ghostty-license-bundle.py accepts, for the Ghostty
@@ -20,8 +19,7 @@ an entry of the map, and every requirement of each matching entry must hold:
                    revision in the tree's own SOURCE-MANIFEST.json)
   rust-std         every `/rustc/<commit>/` path inside the Mach-O names a
                    rustc that toolchains.json reviews, and that rustc's
-                   COPYRIGHT-library.html is bundled unchanged (gzip-compressed,
-                   compared decompressed) under
+                   COPYRIGHT-library.html is bundled unchanged under
                    Contents/Resources/toolchain-licenses (toolchain_notices.py)
   zig-std          every reviewed Zig LICENSE is bundled unchanged there
 An entry with `copy_of: <path>` covers binaries that may be a copy of the
@@ -41,7 +39,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -283,16 +280,7 @@ def check(
 
 
 def _non_empty(path: Path) -> bool:
-    """A non-empty file; a `.gz` one (a notice shipped gzip-compressed, like
-    CEF's CREDITS.html.gz) must decompress whole to non-empty text."""
-    if not (path.is_file() and path.stat().st_size > 0):
-        return False
-    if path.suffix != ".gz":
-        return True
-    try:
-        return len(gzip.decompress(path.read_bytes())) > 0
-    except (OSError, EOFError):
-        return False
+    return path.is_file() and path.stat().st_size > 0
 
 
 def main(argv: list[str]) -> int:

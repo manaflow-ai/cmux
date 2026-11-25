@@ -95,37 +95,6 @@ struct RemoteViewFitGeometryTests {
         #expect(geometry.clampedStreamPixel(at: CGPoint(x: 249, y: 199)) == (99, 99))
     }
 
-    /// `video.scaled`: a picture at 3/4 of the stream size (the host's resolution ladder) sits in
-    /// the same rect and maps a pane point to the same stream pixel as a full-size picture.
-    @Test func smallerPictureKeepsStreamPixels() {
-        let stream = CGSize(width: 2000, height: 1000)
-        let bounds = CGRect(x: 0, y: 0, width: 400, height: 400)
-        let full = RemoteViewGeometry(streamPixels: stream, picturePixels: stream, bounds: bounds, backingScale: 2, scaling: .fit)
-        let scaled = RemoteViewGeometry(streamPixels: stream, picturePixels: CGSize(width: 1500, height: 750), bounds: bounds,
-                                        backingScale: 2, scaling: .fit)
-        #expect(scaled.imageRect == full.imageRect)
-        for point in [CGPoint(x: 200, y: 200), CGPoint(x: 37, y: 141), CGPoint(x: 399, y: 299)] {
-            let a = full.streamPixel(at: point)
-            let b = scaled.streamPixel(at: point)
-            #expect(a?.x == b?.x && a?.y == b?.y)
-        }
-        #expect(scaled.streamPixel(at: CGPoint(x: 200, y: 200))?.x == 1000)
-        #expect(scaled.panePoint(forStreamPixel: 1000, 500) == CGPoint(x: 200, y: 200))
-        // No welcome size yet: the picture's own size, as before.
-        let early = RemoteViewGeometry(streamPixels: .zero, picturePixels: CGSize(width: 1500, height: 750), bounds: bounds,
-                                       backingScale: 2, scaling: .fit)
-        #expect(early.framePixels == CGSize(width: 1500, height: 750))
-    }
-
-    /// Only a picture shown one pixel per device pixel is drawn unfiltered.
-    @Test func oneToOneOnlyAtFullSize() {
-        let stream = CGSize(width: 800, height: 400)
-        let geometry = RemoteViewGeometry(streamPixels: stream, picturePixels: CGSize(width: 600, height: 300),
-                                          bounds: CGRect(x: 0, y: 0, width: 400, height: 200), backingScale: 2, scaling: .fit)
-        #expect(geometry.showsOneToOne(picturePixels: stream))
-        #expect(!geometry.showsOneToOne(picturePixels: CGSize(width: 600, height: 300)))
-    }
-
     @Test func nativeIsUnchanged() {
         let geometry = RemoteViewGeometry(framePixels: CGSize(width: 800, height: 600), bounds: CGRect(x: 0, y: 0, width: 400, height: 300),
                                           backingScale: 2)

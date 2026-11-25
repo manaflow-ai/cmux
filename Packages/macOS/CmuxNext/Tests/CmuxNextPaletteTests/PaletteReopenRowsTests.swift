@@ -41,26 +41,6 @@ struct PaletteReopenRowsTests {
 
     @Test func aReopenRebuildsOnlyTheRowThatChanged() throws {
         let registry = ActionRegistry.standard()
-        let first = Flag()
-        try #require(registry.bind("newWindow") {})
-        ActionTargetTitles.setPaletteTitle("newWindow", in: registry) { first.on ? "New Window" : "New Window Again" }
-        let palette = Self.palette(registry)
-        defer { palette.closeForTest() }
-        let (_, before) = try Self.open(palette)
-        #expect(before.first { $0.actionID == "newWindow" }?.title == "New Window")
-        first.on = false
-        let (second, after) = try Self.open(palette)
-        #expect(second.builtRows == 1, "one row changed; the reopen built \(second.builtRows)")
-        let row = try #require(after.first { $0.actionID == "newWindow" }, "the changed row left the list")
-        #expect(row.title == "New Window Again", "the changed row shows its old state")
-        let sameRows = Set(after.map { $0.id }) == Set(before.map { $0.id })
-        #expect(sameRows, "the reopen lists other rows")
-    }
-
-    /// A row that stops running leaves the next open's list (Leo 2026-11-17: "just... stop showijg the toggle on
-    /// gui") and is listed again, from the kept row, once it runs.
-    @Test func aRowThatStopsRunningLeavesTheReopenAndComesBack() throws {
-        let registry = ActionRegistry.standard()
         let canOpen = Flag()
         try #require(registry.bind("newWindow", isEnabled: { canOpen.on }) {})
         let palette = Self.palette(registry)
@@ -69,12 +49,16 @@ struct PaletteReopenRowsTests {
         #expect(before.first { $0.actionID == "newWindow" }?.isEnabled == true)
         canOpen.on = false
         let (second, after) = try Self.open(palette)
-        #expect(second.builtRows == 0, "no listed row changed; the reopen built \(second.builtRows)")
-        #expect(!after.contains { $0.actionID == "newWindow" }, "a row that cannot run is listed")
-        canOpen.on = true
-        let (third, again) = try Self.open(palette)
-        #expect(third.builtRows == 0, "the row came back built again")
-        #expect(again.first { $0.actionID == "newWindow" }?.isEnabled == true, "the row that runs again is not listed")
+        #expect(second.builtRows == 1, "one row changed; the reopen built \(second.builtRows)")
+        let row = try #require(after.first { $0.actionID == "newWindow" }, "the changed row left the list")
+        #expect(!row.isEnabled, "the changed row shows its old state")
+        // An action row that cannot run lists after every action row that can (`RegistryPaletteProvider.arranged`); the
+        // root's family rows come after the sorted rows (`curatedRootItems`).
+        let index = try #require(after.firstIndex { $0.actionID == "newWindow" })
+        let enabledAfter = after[index...].contains { $0.isEnabled && $0.actionID != nil }
+        #expect(!enabledAfter, "the disabled row lists before an enabled one")
+        let sameRows = Set(after.map { $0.id }) == Set(before.map { $0.id })
+        #expect(sameRows, "the reopen lists other rows")
     }
 
     /// The overrides each open served, in the order they ran.

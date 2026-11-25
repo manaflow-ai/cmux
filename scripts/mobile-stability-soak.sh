@@ -138,16 +138,14 @@ do
   screen -S "$session" -X quit >/dev/null 2>&1 || true
 done
 
-# cleanup_tagged_soak_processes [--list]: stops this tag's soak processes (with --list: prints their pids).
 cleanup_tagged_soak_processes() {
-  local pid command list="${1:-}"
-  soak_process_act() { if [[ "$list" == --list ]]; then echo "$1"; else kill "$1" >/dev/null 2>&1 || true; fi; }
+  local pid command
   while IFS= read -r line; do
     pid="${line%% *}"
     command="${line#* }"
     [[ "$pid" =~ ^[0-9]+$ ]] || continue
     if [[ "$command" == *"mobile-stability-soak"* && "$command" == *"CMUX_TAG='$tag'"* ]]; then
-      soak_process_act "$pid"
+      kill "$pid" >/dev/null 2>&1 || true
     fi
   done < <(ps -axo pid=,command=)
 
@@ -155,23 +153,18 @@ cleanup_tagged_soak_processes() {
     [[ -n "$sim_id" ]] || continue
     while IFS= read -r pid; do
       [[ "$pid" =~ ^[0-9]+$ ]] || continue
-      soak_process_act "$pid"
+      kill "$pid" >/dev/null 2>&1 || true
     done < <(ps -axo pid=,command= | awk -v sim="$sim_id" 'index($0, "cmux.app/cmux") && index($0, "/Devices/" sim "/") { print $1 }')
 
     while IFS= read -r pid; do
       [[ "$pid" =~ ^[0-9]+$ ]] || continue
-      soak_process_act "$pid"
-    done < <(ps -axo pid=,command= | awk -v sim="$sim_id" '/xcodebuildmcp/ && /ui-automation snapshot-ui/ && index($0, sim) && $2 !~ /(^|\/)awk$/ { print $1 }')
+      kill "$pid" >/dev/null 2>&1 || true
+    done < <(ps -axo pid=,command= | awk -v sim="$sim_id" '/xcodebuildmcp/ && /ui-automation snapshot-ui/ && index($0, sim) { print $1 }')
   done
 }
 
 cleanup_tagged_soak_processes
-# The stopped processes exit (up to 10 s); whatever is left gets a second stop. (The awk above skips its own
-# line, whose arguments name the same words.)
-for _ in $(seq 1 100); do
-  [[ -z "$(cleanup_tagged_soak_processes --list)" ]] && break
-  sleep 0.1
-done
+sleep 1
 cleanup_tagged_soak_processes
 
 app="$HOME/Library/Developer/Xcode/DerivedData/cmux-${tag}/Build/Products/Debug/cmux DEV ${tag}.app"

@@ -155,12 +155,8 @@ the left, `HomeHostView` on the right), never in the window sidebar.
   Invite by Email; `home.rate_limited` says to wait.
 - Invite to cmux-next: `HomeOp.invite` (cloud: `dm.open` with the address).
   A verified-domain team invite is not in the backend yet (no `org.invite`).
-- New Chief: UserDO `chief.create` for a Claude Chief (the default);
-  `chief.profile.create` on this Mac's Chief owner for UniiChat, Codex and
-  Muse, or for a Claude Chief when the person picks "Make it on this Mac"
-  in the New Chief sheet, then the person's DM with it (`conversation-create`).
-- Archive Chief: UserDO `chief.archive` for a cloud Chief, through
-  `FeedService.call` (the API Worker as the signed-in user, origin
+- New Chief and Archive Chief: UserDO `chief.create` / `chief.archive`
+  through `FeedService.call` (the API Worker as the signed-in user, origin
   `FeedService.apiBaseURL`; `CMUX_NEXT_FEED_API_URL` overrides it), because
   the daemon's cloud proxy forwards only conversation ops. An archived
   Chief's conversation leaves the list.

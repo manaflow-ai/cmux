@@ -1,11 +1,10 @@
-import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import type { AssistantMessage } from "@earendil-works/pi-ai"
 import { createRegistry, GenerationTask, Harness, hook, InboxDoc, section, ToolTask } from "@earendil-works/pi-durable"
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
-import type { Env, RawEnv } from "../env.ts"
+import type { Env } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, postReply, readConversation, runChanged, typing } from "../chief-brain/brain-io.ts"
 import { postMessage } from "./post.ts"
@@ -133,8 +132,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.harness)
 
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SCHEMA_D]) this.sql.exec(q)
     for (const [t, c, def] of COLUMNS_D) if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${t})`).toArray().some((r) => r.name === c)) this.sql.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`)

@@ -43,7 +43,6 @@ TREE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 FAKE_AGENT = os.path.join(TREE, "cmux-tui/crates/acpmux/tests/fake_agent.py")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown, pty_count  # noqa: E402
-from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 
 def say(*parts):
@@ -241,12 +240,6 @@ def report(terminal, body, tail=""):
     write(terminal, f"printf '\\033]7501;{body}\\033\\\\'{tail}\n")
 
 
-def shows_prompt(terminal, seconds=10):
-    """The terminal's screen has text (the shell drew its first prompt)."""
-    if not wait(lambda: cli("terminal", terminal, "screen", "read").stdout.strip(), seconds):
-        say(f"terminal {terminal}: no prompt on screen after {seconds} s")
-
-
 def snapshot(name):
     path = os.path.join(OUT, f"{name}.png")
     window = focused_window_key()
@@ -352,7 +345,7 @@ class Run:
         renamed = cli("workspace", "current", "rename", name)
         if not wait(lambda: workspace_named(name), 10):
             say(f"[{self.set}] rename to {name} not seen:", (renamed.stdout + renamed.stderr).strip()[:200])
-        shows_prompt(new[0])
+        time.sleep(1.0)  # the shell draws its first prompt (harness wait)
         return new[0]
 
     def new_tab(self):
@@ -364,7 +357,7 @@ class Run:
             say(f"[{self.set}] newSurface beside {tab}:", json.dumps(made)[:300])
         new = wait(lambda: sorted(set(terminals()) - before), 30)
         if new:
-            shows_prompt(new[0])
+            time.sleep(1.0)  # first prompt (harness wait)
         return new[0] if new else None
 
     def osc_workspaces(self):
@@ -450,7 +443,13 @@ class Run:
         if not new_chat:
             self.check(f"{name}: fake chat opened", False, "chat.new refused or not the fake harness")
             return p, ws, None
-        def chat_session():
+        time.sleep(2)  # the page shows the new chat (harness wait)
+        rpc("debug.mouse", {"pane": p, "action": "click"})
+        time.sleep(0.3)
+        sent = rpc("debug.agent_pane", {"action": "send_prompt", "pane": p, "text": prompt}, timeout=60)
+        say(f"[{self.set}] {name}: send_prompt", json.dumps(sent)[:400])
+
+        def session():
             st = rpc("debug.agent_pane", {"action": "chat_state", "pane": p}, timeout=40)
             res = st.get("result") if isinstance(st, dict) else None
             if isinstance(res, str):
@@ -460,17 +459,7 @@ class Run:
                     res = None
             res = res if isinstance(res, dict) else (st if isinstance(st, dict) else {})
             return res.get("sessionId")
-        # The page shows the new chat.
-        if not wait(lambda: chat_session() == new_chat.get("sessionId"), 15, 0.25):
-            say(f"[{self.set}] {name}: the page never showed chat {new_chat.get('sessionId')}")
-        rpc("debug.mouse", {"pane": p, "action": "click"})
-        # The click took: the agent pane has focus.
-        if not wait(lambda: focused_pane() == p, 5, 0.1):
-            say(f"[{self.set}] {name}: the click did not focus pane {p}")
-        sent = rpc("debug.agent_pane", {"action": "send_prompt", "pane": p, "text": prompt}, timeout=60)
-        say(f"[{self.set}] {name}: send_prompt", json.dumps(sent)[:400])
-
-        sid = wait(chat_session, 30, 0.5)
+        sid = wait(session, 30, 0.5)
         return p, ws, sid
 
     def acp_chats(self):
@@ -506,11 +495,7 @@ class Run:
                 rpc("action.run", {"action": "hibernateTab", "target": f"tab:{tab.get('id')}", "origin": "script"})), 10, 1)
             hib = rpc("action.run", {"action": "hibernateTab", "target": f"tab:{tab.get('id')}", "origin": "script"})
             say(f"[{self.set}] hibernate agent tab {tab.get('id')}:", json.dumps(hib)[:300])
-        # The page unloads: every agent tab is in debug.surfaces' hibernated list.
-        ids = {tab.get("id") for tab in before_tabs}
-        if ids and not wait(lambda: ids <= set(((rpc("debug.surfaces") or {}).get("hibernation") or {}).get("hibernated") or []),
-                            10, 0.25):
-            say(f"[{self.set}] acp done: agent tabs not hibernated after 10 s:", sorted(ids))
+        time.sleep(2)  # the page unloads (harness wait)
         before = self.sessions().get(sid_done, {})
         say(f"[{self.set}] acp done before release: attached?", json.dumps(before)[:600])
         def release():  # the gate's reader is the fake agent; never block on a FIFO without one
@@ -583,12 +568,7 @@ class Run:
                 went = rpc("action.run", {"action": "goToWorkspace", "target": f"workspace:{tab_ws}", "origin": "script"})
             self.check("tabs workspace shown", wait(lambda: focused_workspace() == tab_ws, 10),
                        {"workspace": tab_ws, "reply": str(went)[:200]})
-            # The redraw settles: the sidebar rows (read next) hold still.
-            try:
-                wait_stable(lambda: json.dumps(rpc("debug.sidebar_rows"), sort_keys=True), "the sidebar rows", timeout=10,
-                            interval=0.1, reads=4)
-            except StateWaitTimeout as error:
-                say(f"[{self.set}] {error}")
+            time.sleep(2)  # settle the redraw (harness wait)
             self.check_records()
             self.check_banners()
             rows_report = rpc("debug.sidebar_rows")

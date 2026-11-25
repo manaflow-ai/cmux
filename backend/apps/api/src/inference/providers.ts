@@ -2,7 +2,7 @@ import type { Env } from "../env.ts"
 import type { ProviderId } from "./catalog.ts"
 
 /**
- * Provider adapters of the model router (open-source models, and Gemini on our own Vertex AI). Vercel AI Gateway, OpenRouter,
+ * Provider adapters of the model router (open-source models only). Vercel AI Gateway, OpenRouter,
  * Fireworks, Baseten, DeepInfra, Azure AI Foundry, OpenAI, Particle and our own endpoint speak OpenAI chat/completions, so their
  * adapter is a base URL, a key and a few body fields. Workers AI is reached through the Worker's
  * AI binding (no key) and is translated in workers-ai.ts.
@@ -65,12 +65,6 @@ export const providerTarget = (env: Env, provider: ProviderId): ProviderTarget |
     case "particle":
       // Particle's OpenAI-compatible API (docs.particle.ai). Only particle-ai/particle-1 routes here (catalog.ts).
       return openai("https://api.particle.ai/v1/chat/completions", env.INFERENCE_PARTICLE_KEY)
-    case "vertex":
-      // Gemini on our own GCP (Vertex AI's OpenAI-compatible endpoint) through the dashboard's Vertex relay,
-      // which holds no Google key: it trades its Vercel OIDC token for a short-lived service-account token
-      // (Workload Identity Federation). The Worker sends the shared relay key. `labels` tags every call for
-      // the GCP bill (Vertex takes them at the top level of the body).
-      return env.INFERENCE_VERTEX_RELAY_URL ? openai(env.INFERENCE_VERTEX_RELAY_URL, env.INFERENCE_VERCEL_RELAY_KEY, { labels: { cmux_service: "model-router", cmux_env: env.ENVIRONMENT } }) : undefined
     case "custom":
       // Our own OpenAI-compatible endpoint (a self-hosted model server, or any other router).
       return env.INFERENCE_CUSTOM_URL ? openai(env.INFERENCE_CUSTOM_URL, env.INFERENCE_CUSTOM_KEY) : undefined
@@ -91,12 +85,8 @@ export const parseUsage = (usage: unknown): UpstreamUsage | undefined => {
   if (!usage || typeof usage !== "object") return undefined
   const u = usage as Record<string, unknown>
   const input = num(u.prompt_tokens)
-  const completion = num(u.completion_tokens)
-  if (input === undefined || completion === undefined) return undefined
-  // Vertex (Gemini) leaves reasoning tokens out of completion_tokens but in total_tokens, and bills them
-  // as output; OpenAI-style providers count them inside completion_tokens (total = prompt + completion).
-  const total = num(u.total_tokens)
-  const output = total !== undefined && total - input > completion ? total - input : completion
+  const output = num(u.completion_tokens)
+  if (input === undefined || output === undefined) return undefined
   const cost = num(u.cost) ?? num(u.estimated_cost)
   return cost === undefined ? { input, output } : { input, output, costUsd: cost }
 }

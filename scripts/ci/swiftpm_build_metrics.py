@@ -288,33 +288,9 @@ def retryable(return_code: int, undefined: list[str], crashed: bool) -> bool:
     return return_code == 1 and bool(undefined) and not crashed
 
 
-def cpu_budget() -> int | None:
-    """The cores this job may compile with: CMUX_CI_CPU_BUDGET, which the mini's runner hook (glaeda) and a fleet
-    worker set to the cores they admitted the job with. Anything but a positive count is no budget."""
-    value = os.environ.get("CMUX_CI_CPU_BUDGET", "")
-    return int(value) if value.isdigit() and int(value) > 0 else None
-
-
-def with_cpu_budget(command: list[str], budget: int | None) -> list[str]:
-    """`swift build` or `swift test` with --jobs of the budget, unless the command already sets its jobs.
-
-    Uncapped, SwiftPM starts one compile task per core of the host whatever it shares the host with: on
-    2026-11-23 two generated-files builds held cmuxs-mac-mini-6 (14 cores) at a load of 261 beside jobs
-    capped at 3 to 6. swift-test-debug-info.sh passes the same --jobs for the suite steps.
-    """
-    if budget is None or command[:1] != ["swift"] or command[1:2] not in (["build"], ["test"]):
-        return command
-    if any(word in ("--jobs", "-j") or word.startswith(("--jobs=", "-j=")) for word in command[2:]):
-        return command
-    return [*command, "--jobs", str(budget)]
-
-
 def run_build(role: str, directory: Path, command: list[str]) -> int:
     setup_start = time.monotonic()
     package = Path.cwd()
-    # The receipt keeps the command as written (and so the build's identity); the run adds the job's --jobs.
-    budget = cpu_budget()
-    capped = with_cpu_budget(command, budget)
     root_text = command_output("git", "rev-parse", "--show-toplevel")
     root = Path(root_text) if root_text else package
     source = observe(lambda: source_identity(root), {"error": "source identity unavailable"})
@@ -327,7 +303,7 @@ def run_build(role: str, directory: Path, command: list[str]) -> int:
     }
     build_environment = {name: os.environ[name] for name in BUILD_ENV if name in os.environ}
     record = {
-        "schema": SCHEMA, "role": role, "command": command, "cpu_budget": budget,
+        "schema": SCHEMA, "role": role, "command": command,
         "source": source, "toolchain": toolchain,
         "build_environment_sha256": digest(build_environment),
         "build_environment_names": sorted(build_environment),
@@ -352,7 +328,7 @@ def run_build(role: str, directory: Path, command: list[str]) -> int:
     try:
         while True:
             attempts += 1
-            return_code, undefined, crashed, log = run_command(capped, log, events)
+            return_code, undefined, crashed, log = run_command(command, log, events)
             retry["crashed"] = retry["crashed"] or crashed
             if attempts > 1 or not retryable(return_code, undefined, crashed):
                 break

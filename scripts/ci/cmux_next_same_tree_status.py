@@ -214,6 +214,7 @@ def post(api: notify.Api, args: argparse.Namespace, state: str, description: str
     if target_url:
         body["target_url"] = target_url
     started, backoffs, others = now(), 0, 0
+    sleep(POST_WAITS[0])
     while True:
         try:
             code = api.post(f"repos/{args.repo}/statuses/{args.status_sha}", body)

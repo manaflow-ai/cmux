@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextWakeups
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -64,32 +63,6 @@ import CmuxNextWakeupsTestSupport
 
         try await rig.idle()
         #expect(rig.spare.tab != nil && rig.spare.tab !== second, "the next idle moment made the next spare")
-    }
-
-    /// The idle moment is one with no input from the person. A terminal that prints (an agent at work, a build) and an
-    /// animation are no input: with them counted, a busy app never had an idle moment, so no spare was made and each
-    /// new WebKit tab built its view on the key's turn (`switch.content` 18-33 ms, `webkit_new` at 02a1e67612f2).
-    @Test func terminalOutputAndAnimationFramesDuringTheWaitAreNoInput() async throws {
-        let clock = ManualClock(), activities = ExpectedActivity()
-        let spare = WebKitSpareTab(policy: .init(), clock: clock, activities: activities, activity: nil, isTrackingMenu: { false }, memoryPressure: nil)
-        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), spareTab: spare)
-        defer { spare.drop() }
-        spare.noteLikely()
-        try await clock.waitForSleeper()
-        activities.note(.terminalOutput)
-        activities.note(.animationFrame)
-        clock.advance(by: WebKitSpareTab.Policy().idleInput)
-        for _ in 0..<200 where spare.tab == nil { await Task.yield() }
-        #expect(spare.tab != nil, "terminal output or an animation frame put the spare off: \(spare.state)")
-        let tab = engine.makeWebKitTab()
-        defer { tab.close() }
-        #expect(spare.taken == 1, "the new tab built its own view")
-        // The person's input still puts it off.
-        try await clock.waitForSleeper()
-        activities.note(.input)
-        clock.advance(by: WebKitSpareTab.Policy().idleInput)
-        for _ in 0..<50 { await Task.yield() }
-        #expect(spare.tab == nil, "a spare was built right after input")
     }
 
     @Test func inputDuringTheWaitPutsTheSpareOffToALaterIdleMoment() async throws {

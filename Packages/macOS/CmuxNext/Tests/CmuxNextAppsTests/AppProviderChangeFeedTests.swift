@@ -1,7 +1,3 @@
-#if canImport(EventKit)
-import EventKit
-#endif
-import Foundation
 @testable import CmuxNextApps
 import Observation
 import Testing
@@ -46,22 +42,4 @@ import Testing
         #expect(await heardSecond.next() == "agent_chat")
         feed.attach(nil)
     }
-
-    #if canImport(EventKit)
-    /// A calendar widget re-read every 5 minutes; now EventKit's change notice reaches it as
-    /// `system_calendar.changed` (and the daemon drops its cached reads).
-    @Test func anEventKitChangeIsSentAsTheSystemCalendarFamily() async {
-        let center = NotificationCenter()
-        let changes = SystemCalendarChanges(center: center)
-        let feed = AppProviderChangeFeed.systemCalendar(changes)
-        let (send, sent) = Self.recorder()
-        var heard = sent.makeAsyncIterator()
-        feed.attach(send)
-        #expect(await heard.next() == "system_calendar")
-        center.post(name: .EKEventStoreChanged, object: nil)
-        #expect(await heard.next() == "system_calendar", "an EKEventStoreChanged is sent")
-        #expect(changes.revision == 1)
-        feed.attach(nil)
-    }
-    #endif
 }

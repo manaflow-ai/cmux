@@ -88,20 +88,24 @@ public final class TerminalFindController {
         }
     }
 
-    /// Selects the next or previous match. A closed bar opens instead: with
-    /// the last query, else as Find does (with `seed`, the selection).
+    /// Selects the next or previous match. Opens the bar with the last
+    /// query when it was closed.
     ///
-    /// - Parameters:
-    ///   - seed: The query a bar opening with no last query starts with.
-    ///   - takeFocus: Whether opening the bar may take the keyboard
-    ///     (see ``open(seed:takeFocus:)``).
-    public func navigate(_ direction: TerminalFindDirection, seed: @autoclosure () -> String? = nil, takeFocus: Bool = true) {
-        guard isPresented else { return open(seed: query.isEmpty ? seed() : nil, takeFocus: takeFocus) }
-        guard !query.isEmpty else { return }
+    /// - Parameter takeFocus: Whether reopening the bar may take the keyboard
+    ///   (see ``open(seed:takeFocus:)``).
+    /// - Returns: False when there is no query to step through.
+    @discardableResult
+    public func navigate(_ direction: TerminalFindDirection, takeFocus: Bool = true) -> Bool {
+        guard !query.isEmpty else { return false }
+        guard isPresented else {
+            open(takeFocus: takeFocus)
+            return true
+        }
         // The user is stepping now; a pending reveal would skip a match.
         revealPending = false
         revealSent = false
         target?.navigateSearch(direction)
+        return true
     }
 
     /// Hides the bar and ends the search, removing every highlight. For

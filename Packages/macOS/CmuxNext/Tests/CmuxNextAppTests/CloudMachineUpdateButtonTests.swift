@@ -1,5 +1,4 @@
 import CmuxNextCloud
-import CmuxNextCloudUI
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane

@@ -14,7 +14,6 @@ Usage: picker-e2e.py --tag <tag> [--out DIR]
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
-from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -71,18 +70,11 @@ def key(name, modifiers=None, target="palette"):
     if target:
         params["target"] = target
     reply = rpc("debug.key", params) or {}
+    time.sleep(0.15)  # test harness: let the palette's search and listing land
     if target == "palette":
-        # The palette's search and listing land after the key: wait for its report to settle.
-        settled = settle_palette()
         LAST.clear()
-        LAST.update(settled if settled and not settled.get("error") else reply)
+        LAST.update(reply)
     return reply
-
-
-def settle_palette(timeout=5):
-    """The palette's report once it stops changing, read with a no-op key (forward delete at the end of the query)."""
-    return wait_stable(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {},
-                       "the palette's listing", timeout=timeout, interval=0.05, raise_on_timeout=False)
 
 
 def type_text(text):
@@ -145,11 +137,7 @@ def open_palette_action(title):
     wait("the palette opens", palette_open, 10)
     type_text(title)
     key("return")
-    # The picker's first listing: its report settles.
-    settled = settle_palette(timeout=10)
-    if settled and not settled.get("error"):
-        LAST.clear()
-        LAST.update(settled)
+    time.sleep(0.5)  # test harness: the picker's first listing
 
 
 def make_fixture():
@@ -173,8 +161,7 @@ try:
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=FIXTURE)
     safe_print(f"launched pid {app.pid}", flush=True)
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
-    # The first workspace settles: its surfaces stop changing.
-    wait_stable(lambda: rpc("debug.surfaces"), "the first workspace's surfaces", timeout=15, interval=0.2)
+    time.sleep(2)  # test harness: let the first workspace settle
 
     # 1. Each viewer action is in the palette.
     for title in ["Open Diff Viewer", "Open Diff Viewer in Folder", "Open Markdown File", "Open File"]:
@@ -243,13 +230,8 @@ try:
 finally:
     if app and app.poll() is None:
         safe_print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
-        # The quit sheet, if any: wait until it asks or the app has exited (best-effort; no sheet is fine).
-        def quit_sheet():
-            if app.poll() is not None:
-                return {"exited": True}
-            reply = rpc("debug.quit") or {}
-            return reply if reply.get("asking") else None
-        sheet = wait_until(quit_sheet, "the quit sheet or the app's exit", timeout=5, raise_on_timeout=False) or {}
+        time.sleep(1)  # test harness: the quit sheet, if any
+        sheet = rpc("debug.quit") or {}
         if sheet.get("asking"):
             safe_print(f"debug.quit press: {rpc('debug.quit', {'press': 'end-everything'})}", flush=True)
         try:

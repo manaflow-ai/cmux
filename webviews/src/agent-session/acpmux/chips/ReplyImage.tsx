@@ -20,8 +20,6 @@ import { useContext, useEffect, useState, type CSSProperties, type ReactNode } f
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
-import { useUnsettledHeight } from "../conversation/unsettledHeights";
-import { useViewportReach } from "../useNearViewport";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 
@@ -38,7 +36,6 @@ import {
   remoteImageHost,
   loadsWithoutClick,
   started,
-  declined,
   loaded,
   clicked,
   waiting,
@@ -61,13 +58,11 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
     void callChipHost("image.load", asked ? { src, auto: true } : { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
-        declined.delete(src);
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data });
       } else if (asked) {
         // `started` keeps it, so it is not asked again by itself; a click loads it as any other.
-        declined.add(src);
         setState({ kind: "idle" });
       } else {
         started.delete(src);
@@ -120,34 +115,23 @@ export function OpenableImage({
   // is a narrow column, not a centred column in a wide box: from its first paint when its size is known
   // (its data URL's header, or the size it drew at before), else once it loads. Until then it keeps the
   // fixed frame, so a slow image holds its place.
-  // A reply image (not a thumbnail) takes its box from its width and height attributes, known the
-  // same way, so it too is drawn at its own height before it decodes.
-  const [natural, setNatural] = useState(() => knownImageSize(src));
-  // A thumbnail whose size is not known yet, or a reply image (its height is the image's) not loaded
-  // yet, takes another height once it loads: an opening chat waits for it (unsettledHeights.ts).
-  // A lazy image a screen or more away (or in a hidden pane) loads only once the reader comes near it,
-  // so nothing waits on it then.
-  const [ended, setEnded] = useState(false);
-  const [element, setElement] = useState<HTMLImageElement | null>(null);
-  const reach = useViewportReach(element);
-  useUnsettledHeight(!ended && !natural && reach !== "far");
+  const [natural, setNatural] = useState(() => (thumb ? knownImageSize(src) : undefined));
   const image = (
     <img
-      ref={setElement}
       className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
-      width={!thumb ? natural?.width : undefined}
-      height={!thumb ? natural?.height : undefined}
       alt={alt}
       loading="lazy"
-      onLoad={(event) => {
-        setEnded(true);
-        const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
-        if (!(width > 0 && height > 0)) return;
-        rememberImageSize({ src }, { width, height });
-        setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
-      }}
-      onError={() => setEnded(true)}
+      onLoad={
+        thumb
+          ? (event) => {
+              const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+              if (!(width > 0 && height > 0)) return;
+              rememberImageSize({ src }, { width, height });
+              setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
+            }
+          : undefined
+      }
       // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
       // second, visibly different frame.
       decoding="sync"
@@ -253,9 +237,6 @@ function LocalImage({
   const outsideLoads = policy.outsideRoots === "open";
   const loadable = answered && !denied && (place !== "outside" || outsideLoads) && place !== "missing";
   const { state } = useImageLoad(src, loadable);
-  // Waiting on the host (its answer about the file, then the file itself), the image draws in a
-  // frame of another shape than its own: an opening chat waits for it (unsettledHeights.ts).
-  useUnsettledHeight(!denied && (!answered || (loadable && (state.kind === "idle" || state.kind === "loading"))));
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   if (place === "missing" && hideMissing) return null;
@@ -308,11 +289,7 @@ function RemoteImage({
   const t = useT();
   const policy = useReplyPolicy();
   const clickFree = loadsWithoutClick(src, policy);
-  const auto = policy.remoteImages === "always" || clickFree;
-  const { state, load } = useImageLoad(src, auto, clickFree);
-  // A web image that loads by itself is on its way: an opening chat waits for it, as for a file.
-  // One the host declined to load without a click waits for its click: nothing waits on it.
-  useUnsettledHeight(auto && (state.kind === "loading" || (state.kind === "idle" && !declined.has(src))));
+  const { state, load } = useImageLoad(src, policy.remoteImages === "always" || clickFree, clickFree);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (

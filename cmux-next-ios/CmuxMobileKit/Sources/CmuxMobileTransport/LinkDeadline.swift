@@ -5,7 +5,7 @@ import Foundation
 public enum LinkDeadline {
     public static func run<Value: Sendable>(
         timeout: Duration,
-        timeoutError: LinkError = LinkError(code: "reply_timeout", message: "reply timed out"),
+        timeoutError: LinkError = LinkError(code: "reply_timeout", message: "The Mac didn't answer. Retry."),
         operation: @escaping @Sendable () async throws -> Value,
         onCancel: @escaping @Sendable () async -> Void = {},
         onDiscard: @escaping @Sendable (Value) async -> Void = { _ in }

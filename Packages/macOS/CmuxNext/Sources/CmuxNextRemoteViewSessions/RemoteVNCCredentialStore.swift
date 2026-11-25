@@ -50,19 +50,16 @@ nonisolated struct RemoteVNCCredentialStore {
         guard let data = try? JSONEncoder().encode(Stored(username: credentials.username, password: credentials.password)) else { return }
         let query = baseQuery(endpoint)
         let update = [kSecValueData as String: data]
-        // No UI: a refused update is not errSecItemNotFound, so it never adds a second item.
-        loginKeychain.withoutUI {
-            if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
-                var add = query
-                add[kSecValueData as String] = data
-                add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-                SecItemAdd(add as CFDictionary, nil)
-            }
+        if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            SecItemAdd(add as CFDictionary, nil)
         }
     }
 
     func remove(for endpoint: VNCEndpoint) {
-        _ = loginKeychain.withoutUI { SecItemDelete(baseQuery(endpoint) as CFDictionary) }
+        SecItemDelete(baseQuery(endpoint) as CFDictionary)
     }
 
     private func baseQuery(_ endpoint: VNCEndpoint) -> [String: Any] {

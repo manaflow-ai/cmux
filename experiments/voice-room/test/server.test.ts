@@ -16,7 +16,6 @@ const fakeModel: Complete = async (request) => {
   return { text: request.system.startsWith("You listen") ? tasks : "summary", inputTokens: 500, outputTokens: 40 };
 };
 const dataDir = mkdtempSync(join(tmpdir(), "voice-room-test-"));
-let roomNow = 1_000_000;
 const room = startRoom({
   port: 0,
   dataDir,
@@ -28,7 +27,6 @@ const room = startRoom({
   digestDelayMs: 60_000,
   digestMaxDelayMs: 60_000,
   publicDir: join(import.meta.dir, "../public"),
-  now: () => roomNow,
 });
 const base = `http://127.0.0.1:${room.server.port}`;
 afterAll(() => room.server.stop(true));
@@ -62,19 +60,6 @@ describe("Voice Room server", () => {
     await post("/api/pause", { on: false });
     const state = (await fetch(`${base}/api/state`).then((r) => r.json())) as { entries: Array<{ text: string }> };
     expect(state.entries.some((entry) => entry.text === "this is private")).toBe(false);
-  });
-
-  test("cost per hour counts active room time, not a paused room", async () => {
-    roomNow += 30 * 60_000;
-    const beforePause = room.usage();
-    expect(beforePause.activeSeconds).toBe(1_800);
-    await post("/api/pause", { on: true });
-    roomNow += 30 * 60_000;
-    const paused = room.usage();
-    expect(paused.activeSeconds).toBe(beforePause.activeSeconds);
-    await post("/api/pause", { on: false });
-    roomNow += 30 * 60_000;
-    expect(room.usage().activeSeconds).toBe(3_600);
   });
 
   test("two browsers join, see each other, and signals relay between them", async () => {

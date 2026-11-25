@@ -368,7 +368,7 @@ impl FarEnd for RescueFar {
         OpenRequest {
             kind: kind.into(),
             terminal: terminal.into(),
-            target: "vm_alpha01".into(),
+            target: "vm-alpha01".into(),
             open_token: OpenToken("open-token-test".into()),
             command: None,
             cwd: None,

@@ -25,7 +25,7 @@ struct HomeHeaderDensityTests {
         #expect(m.chipFontSize == 12 && m.chipGlyphSize == 9 && m.emptyTextStep == 0)
         let h = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true, metrics: m)
         #expect(h == HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true))
-        #expect(h.filter.height == 30 && h.search.height == m.searchHeight && m.searchHeight == 36 && h.filterChip.height == 24)
+        #expect(h.filter.height == 30 && h.search.height == 30 && h.filterChip.height == 24)
         #expect(h.listTop == HomeSidebarHeaderLayout.band + 24 + 6)
     }
 
@@ -36,7 +36,7 @@ struct HomeHeaderDensityTests {
         #expect(big.chipFontSize > small.chipFontSize && big.chipGlyphSize > small.chipGlyphSize && big.emptyTextStep > 0)
         let h = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true, metrics: big)
         let before = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true, metrics: small)
-        #expect(h.filter.height == big.side && h.search.height == big.searchHeight && h.filterChip.height == big.chipHeight)
+        #expect(h.filter.height == big.side && h.search.height == big.side && h.filterChip.height == big.chipHeight)
         #expect(h.filter.height > before.filter.height && h.filterChip.height > before.filterChip.height)
         #expect(h.listTop > before.listTop)
         // The bigger row still fits in the band, and on one row.

@@ -17,7 +17,7 @@ final class PaletteContentView: NSView {
     let searchBar = PaletteSearchBar()
     private let stage = FlippedView()
     /// The panel's material: glass, or opaque under Reduce Transparency.
-    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius, tone: .neutralGlass(.transient))
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
     private let body = FlippedView()
     private let topRule = NSView()
     private let bottomRule = NSView()
@@ -170,9 +170,7 @@ final class PaletteContentView: NSView {
         )
         footer.update(
             pageTitle: model.prefixHints ?? model.pageTitle,
-            // The scope hints ("@ Tabs  # Workspaces …") draw without the page's ⌘ icon, which read as a key held
-            // with them (Leo 2026-11-22: "not even properly depicting the keys"), and keep its room for the hints.
-            pageSymbol: model.prefixHints == nil ? model.pageSymbol : "",
+            pageSymbol: model.pageSymbol,
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,
             closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil },

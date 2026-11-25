@@ -56,18 +56,6 @@ fn fixture(
     drops: usize,
     made_before_drop: &'static [usize],
 ) -> (tokio::task::JoinHandle<()>, Arc<Mutex<Seen>>) {
-    fixture_keeping(dir, drops, made_before_drop, false)
-}
-
-/// [`fixture`], and with `keeps_keys` a daemon that keeps create keys as acpmux's does
-/// (`hub/create_key.rs`): it lists `createKey` at initialize, and a create whose key made a
-/// session answers with that session.
-fn fixture_keeping(
-    dir: &Path,
-    drops: usize,
-    made_before_drop: &'static [usize],
-    keeps_keys: bool,
-) -> (tokio::task::JoinHandle<()>, Arc<Mutex<Seen>>) {
     let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
     let seen = Arc::new(Mutex::new(Seen::default()));
     let state = seen.clone();
@@ -87,9 +75,6 @@ fn fixture_keeping(
                         let mut seen = state.lock().unwrap();
                         seen.methods.push(method.clone());
                         match method.as_str() {
-                            "initialize" if keeps_keys => {
-                                Ok(json!({"_meta": {"acpmux": {"features": ["createKey"]}}}))
-                            }
                             "initialize" => Ok(json!({})),
                             "_acpmux/sessions" => {
                                 Ok(json!({"sessions": seen.sessions, "nextCursor": null}))
@@ -107,16 +92,6 @@ fn fixture_keeping(
                             "session/new" => {
                                 seen.creates += 1;
                                 let n = seen.creates;
-                                let create_key = &msg["params"]["_meta"]["acpmux"]["createKey"];
-                                if keeps_keys
-                                    && create_key.is_string()
-                                    && let Some(made) = seen
-                                        .sessions
-                                        .iter()
-                                        .find(|s| &s["createKey"] == create_key)
-                                {
-                                    Ok(made.clone())
-                                } else {
                                 let name = msg["params"]["_meta"]["acpmux"]["name"]
                                     .as_str()
                                     .unwrap_or_default()
@@ -128,7 +103,6 @@ fn fixture_keeping(
                                     "cwd": msg["params"]["cwd"],
                                     "turnCount": 0,
                                     "_meta": {"acpmux": {"name": name, "parent": null}},
-                                    "createKey": create_key,
                                 });
                                 if n > drops || made_before_drop.contains(&n) {
                                     seen.sessions.push(session.clone());
@@ -138,7 +112,6 @@ fn fixture_keeping(
                                     return;
                                 }
                                 Ok(session)
-                                }
                             }
                             _ => Ok(json!({})),
                         }
@@ -273,37 +246,4 @@ async fn ensure_whose_daemon_restarts_mid_create_finds_the_session_it_made() {
     assert_eq!(seen.sessions.len(), 1, "{:?}", seen.sessions);
     let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(printed["name"], "lane", "{}", text(&out));
-}
-
-/// A Linux lane VM, 2026-11-21 09:58:45Z: `acpmux machine self-update` restarted the daemon
-/// while a packing benchmark's unnamed `acpmux new -d --json` waited for its reply, and the
-/// benchmark died on `daemon_closed`. A daemon that keeps create keys gets the create again,
-/// with the same key: the launch succeeds with the one session the first create made.
-#[tokio::test]
-async fn an_unnamed_launch_whose_daemon_restarts_mid_create_gets_the_session_it_made() {
-    let _ = HERMETIC;
-    // The create made its session before the close, or the close came first: one either way.
-    const MADE: &[usize] = &[1];
-    for (tag, made) in [("kmade", MADE), ("klost", &[][..])] {
-        let dir = scratch(tag);
-        let (server, seen) = fixture_keeping(&dir, 1, made, true);
-        let out = run_cli(&dir, &["--json", "new", "-d", "-m", "fake", "--machine", "local"]).await;
-        server.abort();
-        let _ = server.await;
-        let seen = seen.lock().unwrap();
-        fs::remove_dir_all(&dir).unwrap();
-        assert!(
-            out.status.success(),
-            "{tag}: the launch failed instead of sending its create again: {}\nrequests: {:?}",
-            text(&out),
-            seen.methods
-        );
-        assert_eq!(seen.creates, 2, "{tag}: session/new requests: {:?}", seen.methods);
-        assert_eq!(seen.sessions.len(), 1, "{tag}: {:?}", seen.sessions);
-        let keys: Vec<&Value> = seen.sessions.iter().map(|s| &s["createKey"]).collect();
-        assert!(keys.iter().all(|k| k.is_string()), "{tag}: a create sent no key: {keys:?}");
-        let printed: Value = serde_json::from_slice(&out.stdout)
-            .unwrap_or_else(|e| panic!("{tag}: stdout is no JSON ({e}): {}", text(&out)));
-        assert_eq!(printed["sessionId"], seen.sessions[0]["sessionId"], "{tag}: {}", text(&out));
-    }
 }

@@ -47,21 +47,7 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-    # A running cmux.exe can be renamed but not replaced: set it aside, and
-    # sweep the set-aside copies no longer running.
-    Get-ChildItem -LiteralPath $BinDir -Filter "cmux.*.old.exe" -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-    $Aside = $null
-    if (Test-Path -LiteralPath $Destination) {
-        $Aside = Join-Path $BinDir ("cmux.{0}.old.exe" -f [System.Guid]::NewGuid().ToString("N"))
-        Move-Item -Force -LiteralPath $Destination -Destination $Aside
-    }
-    try {
-        Move-Item -Force $Temporary $Destination
-    } catch {
-        if ($Aside) { Move-Item -Force -LiteralPath $Aside -Destination $Destination -ErrorAction SilentlyContinue }
-        throw
-    }
+    Move-Item -Force $Temporary $Destination
 } finally {
     if (Test-Path $Temporary) {
         Remove-Item -Force $Temporary

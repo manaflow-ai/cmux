@@ -34,13 +34,7 @@ Only the home fires. A store that holds an automation that left keeps a tombston
 `cmux automation teleport NAME --to cloud|home|ssh:HOST`, the page's "Move to…" menu, the
 `automation_teleport` MCP tool and the Chief's automation tool are one operation. The destination
 grammar is the Chief teleport's (`backend/apps/api/src/chief-brain/brain-teleport.ts`,
-`destinationError`: `home`, `ssh:<host>[:<dir>]`), plus `cloud`. A fourth destination, `exec:PROGRAM`, hands
-the move to a program on this machine that imports the automation somewhere else (`/bin/sh -c
-PROGRAM`, 120 s at most): the spec (`export_spec`'s JSON) on its stdin; exit 0 with `{"id": …}` on
-stdout confirms the move and the source becomes a tombstone naming that id; exit 2 refuses it (nothing
-was made, the fence goes, the program's stderr reaches the person); any other exit, a timeout, or
-exit 0 with no id leaves the outcome unknown, so the fence stays and a re-run sends the same handoff
-id, which the program must treat as its idempotency key. The handoff id has the same shape
+`destinationError`: `home`, `ssh:<host>[:<dir>]`), plus `cloud`. The handoff id has the same shape
 (`tp_<32 hex>`). Session teleport (a964) has no shared code on feat-cmux-next yet; when it lands it
 uses the same three steps.
 

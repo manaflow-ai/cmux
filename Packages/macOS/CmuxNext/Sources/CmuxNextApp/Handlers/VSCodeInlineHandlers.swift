@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextVSCodeServer
@@ -104,10 +103,16 @@ enum VSCodeInlineHandlers {
         return tab
     }
 
-    /// The installed VS Code app: by bundle id, else the usual install places ; Insiders last.
+    /// The installed VS Code app: by bundle id, else the usual install places; Insiders last.
     private static func installedVSCode() throws -> URL {
-        let names = ["com.microsoft.VSCode", "Visual Studio Code", "Code", "com.microsoft.VSCodeInsiders"]
-        guard let url = names.lazy.compactMap(EditorCatalog.application(named:)).first else { throw ActionFailure(message: VSCodeInlineStrings.notInstalled) }
-        return url
+        let workspace = NSWorkspace.shared
+        if let url = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") { return url }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        for path in ["/Applications/Visual Studio Code.app", "\(home)/Applications/Visual Studio Code.app", "/Applications/Code.app"]
+            where FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        if let url = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCodeInsiders") { return url }
+        throw ActionFailure(message: VSCodeInlineStrings.notInstalled)
     }
 }

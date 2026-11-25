@@ -90,7 +90,7 @@ impl Who {
 }
 
 /// The host's user, as the owner's name.
-pub(crate) fn owner_name() -> &'static str {
+fn owner_name() -> &'static str {
     static NAME: OnceLock<String> = OnceLock::new();
     NAME.get_or_init(|| {
         ["USER", "LOGNAME"]

@@ -278,8 +278,7 @@ async fn a_notice_to_a_full_mailbox_or_a_failed_chat_is_dropped_and_loses_nothin
     let book = home.book(&chat(0));
     wait_for("the last line saved", Duration::from_secs(120), || cursor(&book) == Some(seq + 1))
         .await;
-    assert!(handle.wait_ready().await, "the actor is ready after the gate opens");
-    assert_eq!(handle.failures(), 0);
+    assert!(handle.ready() && handle.failures() == 0);
     assert!(tee.registry().evict(&chat(0)));
     assert_eq!(cursor(&book), Some(seq + 1), "every line the notices told of is in the book");
 

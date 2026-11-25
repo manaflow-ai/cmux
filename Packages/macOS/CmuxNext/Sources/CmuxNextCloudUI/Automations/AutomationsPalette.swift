@@ -40,7 +40,7 @@ public struct AutomationsPalette: Sendable, Equatable {
         switch result {
         case .succeeded: success
         case .failed: danger
-        case .running, .needsYou: attention
+        case .running: attention
         case .skipped, .none: tertiary
         }
     }

@@ -63,13 +63,7 @@ def base_reds(repo: str, before: str, base: str, token: str) -> set[str] | None:
     # unfiltered first page of 100 often left this job out ("no checks job").
     query = urllib.parse.urlencode({"check_name": CHECKS_JOB, "filter": "latest", "per_page": 100})
     payload = json.loads(api(base, token, f"/repos/{repo}/commits/{before}/check-runs?{query}"))
-    # Since the checks job moved off feat-cmux-next pushes into the base tier
-    # dispatch, a tip carries a skipped checks run from its push run beside the
-    # real one; "latest" can name the skipped one, whose log is gone (404, base
-    # tier run 44986369912). Read the newest run that actually ran.
-    runs = [r for r in payload.get("check_runs", [])
-            if str(r.get("name", "")) == CHECKS_JOB and r.get("conclusion") != "skipped"]
-    runs.sort(key=lambda r: r.get("started_at") or "", reverse=True)
+    runs = [r for r in payload.get("check_runs", []) if str(r.get("name", "")) == CHECKS_JOB]
     if not runs:
         raise RuntimeError("previous tip has no cmux-next checks job")
     # A push can start before the previous tip's checks job has finished.  Leo's

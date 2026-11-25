@@ -1537,15 +1537,3 @@ async fn a_restore_that_dates_its_chat_moves_it_in_the_kept_order() {
     assert_eq!(session.read_meta(|m| m.updated_at), now + 2_000_000_000, "the restore dated it");
     assert_eq!(hub.kept_order_for_test(), sorted(&hub), "the kept order after the restore");
 }
-
-/// A restore's file path is the chat's own uploads folder's, as the platform spells it: on
-/// Windows that is drive-qualified, and its `Prefix` component is not a reason to refuse it.
-#[test]
-fn an_upload_path_in_the_chats_folder_is_accepted_as_the_platform_spells_it() {
-    let dir = super::file_uploads::session_dir("chat-1").unwrap();
-    let file = dir.join("a.txt");
-    let file = file.to_str().unwrap();
-    assert_eq!(super::journal_restore::upload_path("chat-1", file), Some(dir.join("a.txt")));
-    assert!(super::journal_restore::upload_path("chat-1", dir.to_str().unwrap()).is_none());
-    assert!(super::journal_restore::upload_path("chat-2", file).is_none());
-}

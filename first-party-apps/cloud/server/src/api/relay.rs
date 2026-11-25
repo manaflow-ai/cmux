@@ -465,7 +465,6 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
         let answer = self.exchange(json!({ "type": "relay.session" }))?;
         Ok(SessionStatus {
             signed_in: answer["signed_in"].as_bool().unwrap_or(false),
-            backend: answer["backend"].as_str().map(str::to_owned),
             team: answer["team"].as_str().map(str::to_owned),
         })
     }

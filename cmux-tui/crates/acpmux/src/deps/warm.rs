@@ -96,9 +96,9 @@ fn restore_into(plan: &Plan, archive_path: &Path, codec: Codec) -> std::io::Resu
         let from = stage.path().join(rel);
         let to = plan.root.join(rel);
         // An empty folder (left by a tool or a sync) is replaced; one with files is never touched.
-        let _ = crate::home_fs::remove_dir(&to);
+        let _ = std::fs::remove_dir(&to);
         if from.exists() && !to.exists() {
-            crate::home_fs::rename(&from, &to)?;
+            std::fs::rename(&from, &to)?;
         }
     }
     Ok(())

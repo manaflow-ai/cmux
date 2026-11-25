@@ -16,7 +16,9 @@ import UniformTypeIdentifiers
 
     init() {
         HomeMarkdownPolicy.install()
-        HomeTableRowProvider.reinstall()
+        CustomRows.unregister(HomeTableRowProvider.kind)
+        CustomRows.unregister(HomePlanRowProvider.kind)
+        HomeTableRowProvider.install()
     }
 
     static func rows() async throws -> [RowSpec] {

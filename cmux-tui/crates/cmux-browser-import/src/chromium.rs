@@ -5,9 +5,7 @@
 //! `ChromiumExtensionsReader.swift`).
 
 use crate::json::{self, Object};
-use crate::model::{
-    Bookmark, Extension, HistoryEntry, InstalledExtension, ReadError, SearchEngine, Tab,
-};
+use crate::model::{Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};
 use crate::pickle::{self, Pickle};
 use crate::place::Place;
 use crate::sqlite;
@@ -299,18 +297,18 @@ const BUILT_INS: [&str; 8] = [
 /// EXTERNAL_PREF_DOWNLOAD (6). EXTERNAL_POLICY_DOWNLOAD (7) is policy, left out.
 const STORE_LOCATIONS: [i64; 2] = [1, 6];
 
-/// Chromium `Manifest::Location` values of a folder loaded in place: UNPACKED (4, Load Unpacked)
-/// and COMMAND_LINE (8, `--load-extension`). Their `path` is the folder, outside the profile.
-const UNPACKED_LOCATIONS: [i64; 2] = [4, 8];
-
 struct Manifest<'a> {
     json: Object,
     folder: Place<'a>,
 }
 
-/// `extensions.settings` of `Preferences` then `Secure Preferences`, merged per id and field
-/// (Secure Preferences wins).
-fn extension_settings(profile: &Place<'_>) -> BTreeMap<String, Object> {
+/// The Chrome Web Store extensions of a profile, by name. Sources, merged per id:
+/// `Preferences` then `Secure Preferences` (`extensions.settings.<id>`) and the unpacked copies
+/// under `Extensions/<id>/<version>/manifest.json` (the name resolving `__MSG_x__` through
+/// `_locales/<default_locale>/messages.json`). Component, policy, default-installed, unpacked
+/// extensions and themes are left out: they cannot be reinstalled from the store.
+pub fn extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<Extension> {
+    let profile = profile.into();
     let mut settings: BTreeMap<String, Object> = BTreeMap::new();
     for name in ["Preferences", "Secure Preferences"] {
         let Some(root) = profile.join(name).read().ok().and_then(|d| json::object_or_none(&d))
@@ -330,28 +328,6 @@ fn extension_settings(profile: &Place<'_>) -> BTreeMap<String, Object> {
             }
         }
     }
-    settings
-}
-
-/// An unpacked extension's folder: its settings' `path` when that is absolute (a store install's
-/// is `<id>/<version>`, relative to `Extensions`).
-fn unpacked_folder(entry: &Object) -> Option<String> {
-    let location = json::int(entry.get("location"))?;
-    if !UNPACKED_LOCATIONS.contains(&location) {
-        return None;
-    }
-    json::non_empty(entry.get("path")).filter(|p| p.starts_with('/')).map(str::to_owned)
-}
-
-/// The extensions a profile can bring, by name: Chrome Web Store installs (reinstalled from the
-/// store) and unpacked ones (their folder is copied). Sources, merged per id: `Preferences` then
-/// `Secure Preferences` (`extensions.settings.<id>`) and the unpacked copies under
-/// `Extensions/<id>/<version>/manifest.json` (the name resolving `__MSG_x__` through
-/// `_locales/<default_locale>/messages.json`). Component, policy, default-installed and
-/// off-store extensions and themes are left out: neither the store nor a folder brings them.
-pub fn extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<Extension> {
-    let profile = profile.into();
-    let settings = extension_settings(&profile);
     let installed = profile.join("Extensions");
     let mut ids: Vec<String> = settings.keys().cloned().collect();
     ids.extend(installed.names());
@@ -363,10 +339,8 @@ pub fn extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<Extension> {
         .filter(|id| Extension::is_valid_id(id) && !BUILT_INS.contains(&id.as_str()))
         .filter_map(|id| {
             let entry = settings.get(&id).unwrap_or(&empty);
-            let unpacked_path = unpacked_folder(entry);
             if let Some(location) = json::int(entry.get("location"))
                 && !STORE_LOCATIONS.contains(&location)
-                && unpacked_path.is_none()
             {
                 return None;
             }
@@ -375,9 +349,7 @@ pub fn extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<Extension> {
             {
                 return None;
             }
-            // An unpacked folder is outside the profile: its settings' copy of the manifest names it.
-            let manifest =
-                if unpacked_path.is_some() { None } else { latest_manifest(&installed.join(&id)) };
+            let manifest = latest_manifest(&installed.join(&id));
             let pref_manifest = json::object(entry.get("manifest"));
             let name = display_name(manifest.as_ref(), pref_manifest)?;
             let field = |key: &str| {
@@ -389,54 +361,24 @@ pub fn extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<Extension> {
             if field("theme").is_some() {
                 return None; // Themes are not extensions.
             }
-            let from_store = unpacked_path.is_none()
-                && json::boolean(entry.get("from_webstore"))
-                    .or_else(|| {
-                        json::string(manifest.as_ref().and_then(|m| m.json.get("update_url")))
-                            .map(|u| u.contains("google.com"))
-                    })
-                    .unwrap_or(true);
-            if !from_store && unpacked_path.is_none() {
-                return None; // An off-store package: no store page and no folder to copy.
-            }
+            let from_store = json::boolean(entry.get("from_webstore"))
+                .or_else(|| {
+                    json::string(manifest.as_ref().and_then(|m| m.json.get("update_url")))
+                        .map(|u| u.contains("google.com"))
+                })
+                .unwrap_or(true);
             let state = json::int(entry.get("state"));
             let disabled =
                 state == Some(0) || json::int(entry.get("disable_reasons")).unwrap_or(0) != 0;
             let version = json::string(manifest.as_ref().and_then(|m| m.json.get("version")))
                 .or_else(|| json::string(pref_manifest.and_then(|p| p.get("version"))))
                 .map(str::to_owned);
-            Some(Extension {
-                id,
-                name,
-                version,
-                enabled: !disabled,
-                from_web_store: from_store,
-                unpacked_path,
-            })
+            Some(Extension { id, name, version, enabled: !disabled, from_web_store: from_store })
         })
+        .filter(|e| e.from_web_store)
         .collect();
     result.sort_by_key(|e| e.name.to_lowercase());
     result
-}
-
-/// Every extension a profile has, from anywhere (cmux's own Chromium profile, before an import
-/// installs into it): the ids in its settings and its `Extensions` folder, with an unpacked
-/// one's folder. Sorted by id.
-pub fn installed_extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<InstalledExtension> {
-    let profile = profile.into();
-    let settings = extension_settings(&profile);
-    let mut found: BTreeMap<String, Option<String>> = BTreeMap::new();
-    for (id, entry) in &settings {
-        if Extension::is_valid_id(id) {
-            found.insert(id.clone(), unpacked_folder(entry));
-        }
-    }
-    for id in profile.join("Extensions").names() {
-        if Extension::is_valid_id(&id) {
-            found.entry(id).or_insert(None);
-        }
-    }
-    found.into_iter().map(|(id, path)| InstalledExtension { id, path }).collect()
 }
 
 /// The manifest in the highest version folder that has a readable one.

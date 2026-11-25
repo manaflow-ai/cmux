@@ -28,7 +28,7 @@ extension LiveCoordinator: SignOutSession {}
 /// the phone its Macs already allowed, with no new prompt.
 ///
 /// It drops what the account's data shows: the Feed's items, the workspace
-/// snapshots, the Home rows and chats kept to show at once; and it puts the account's
+/// snapshots, Chief messages not yet sent, the Home rows and chats kept to show at once; and it puts the account's
 /// preferences away under its id. Pushes stop before the session ends
 /// (`willSignOut`), so a signed-out phone gets no notifications.
 @MainActor
@@ -38,7 +38,7 @@ public struct AccountSignOut {
     public var feedArchive: (String) -> FeedArchive
     public var readMarks: (String) -> FeedReadMarks
     public var preferences: AccountPreferences
-    public var discardChiefTranscripts: @MainActor () -> Void
+    public var discardChiefOutbox: @MainActor () -> Void
     /// The lists and chats kept so they show at once (each Mac's Home rows, its Agent Chats
     /// list, every agent chat's newest messages): none of them stays for the next account.
     public var discardKeptChats: @MainActor () -> Void
@@ -47,7 +47,9 @@ public struct AccountSignOut {
                 feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
                 readMarks: @escaping (String) -> FeedReadMarks = FeedReadMarks.forAccount,
                 preferences: AccountPreferences = .standard,
-                discardChiefTranscripts: @escaping @MainActor () -> Void = {
+                discardChiefOutbox: @escaping @MainActor () -> Void = {
+                    ChiefSession.shared.discardOutbox()
+                    ChiefSession.cloud.discardOutbox()
                     // Every kept Chief conversation goes, and neither session shows one.
                     ChiefSession.shared.discardTranscripts()
                     ChiefSession.cloud.discardTranscripts()
@@ -62,7 +64,7 @@ public struct AccountSignOut {
         self.feedArchive = feedArchive
         self.readMarks = readMarks
         self.preferences = preferences
-        self.discardChiefTranscripts = discardChiefTranscripts
+        self.discardChiefOutbox = discardChiefOutbox
         self.discardKeptChats = discardKeptChats
     }
 
@@ -97,7 +99,7 @@ public struct AccountSignOut {
             }
         }
         snapshots.removeAll()
-        discardChiefTranscripts()
+        discardChiefOutbox()
         discardKeptChats()
     }
 }

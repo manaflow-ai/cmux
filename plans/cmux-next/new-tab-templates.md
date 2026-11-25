@@ -4,13 +4,6 @@ Lawrence and Leo, 2026-10-09: the New Tab page is customizable, so a user can de
 
 ## Templates
 
-**2026-11-18: cmux ships only `minimal`, `classic` and `terminal`.** Leo: "The templates should be like
-the customixastikms api you can build them i don't think they should ship as is". Cards, Default,
-Threads and Console are now templates a person builds and edits: `skills/cmux-customization/templates/newtab-cards`,
-`newtab-calm`, `newtab-threads` and `newtab-console`, whole New Tab pages on `cmux.newtab/1`, picked with
-`tabs.newTabApp`. A saved retired id (and the older `composer`) loads as Minimal. The table below is the
-history.
-
 Names approved by the chief (2026-10-09). The UI copy uses only these neutral names; no other product's names, marks or assets.
 
 | id | name | page |

@@ -32,8 +32,7 @@ struct AgentChatMuteTests {
     }
 
     @Test func muteSetsTheChatsAcpmuxTagAndUnmuteRemovesIt() async throws {
-        // A titled chat, as acpmux lists one: since #46657 a session the watch lists with no fact makes no record.
-        let acpmux = try TaggingAcpmux(sessions: ["s1": [:]], fields: ["s1": ["title": "Mute me"]])
+        let acpmux = try TaggingAcpmux(sessions: ["s1": [:]])
         let turns = AgentTurnStateStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
         feed.start(localHost: Self.host)
@@ -54,7 +53,7 @@ struct AgentChatMuteTests {
     }
 
     @Test func aChatMutedElsewhereReadsMutedAndAnotherMacsChatIsLeftAlone() async throws {
-        let acpmux = try TaggingAcpmux(sessions: ["s2": ["notifications": "muted"], "s3": [:]], fields: ["s3": ["title": "Left alone"]])
+        let acpmux = try TaggingAcpmux(sessions: ["s2": ["notifications": "muted"], "s3": [:]])
         let turns = AgentTurnStateStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
         feed.start(localHost: Self.host)

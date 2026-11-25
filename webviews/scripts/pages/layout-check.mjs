@@ -70,13 +70,13 @@ const VIEWS = [
   {
     name: "apps-split",
     path: "/apps/?mock#/discover?layout=split&app=cmux.github-prs",
-    ready: ".apps-listing-name",
+    ready: ".apps-detail-name",
     fit: ".apps-split *",
   },
   {
     name: "apps-detail",
     path: "/apps/?mock#/discover?app=acme.caffeinate",
-    ready: ".apps-listing-name",
+    ready: ".apps-detail-name",
     fit: ".apps-detail-body *",
   },
   {

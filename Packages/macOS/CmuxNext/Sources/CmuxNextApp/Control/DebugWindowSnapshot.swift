@@ -158,7 +158,7 @@ enum DebugWindowSnapshot {
                     failed += 1
                 }
             }
-            let pages = await AppWindowImage.pageLayers(in: window, services: services, skip: base.method == .composited && params["chromium_pages"]?.boolValue == false)
+            let pages = await AppWindowImage.pageLayers(in: window, services: services)
             layers += pages.layers
             let pagesFailed = pages.failed
             var floatingCount = together?.floating ?? 0

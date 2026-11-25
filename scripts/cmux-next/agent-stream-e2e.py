@@ -15,7 +15,6 @@ Usage: agent-stream-e2e.py --tag <tag> --variant before=/dir/with/index.html --v
 import argparse, glob, json, os, socket, statistics, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -95,18 +94,11 @@ def run_variant(name, directory):
     try:
         if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120, 0.5):
             sys.exit(f"{name}: the tagged app did not come up")
-        # The launch window settled (its surfaces stop changing) before the shortcut is pressed.
-        wait_stable(lambda: (rpc("debug.surfaces") or {}).get("windows"), f"{name}: the launch window", timeout=15,
-                    interval=0.2, raise_on_timeout=False)
+        time.sleep(2)
         rpc("debug.key", {"key": "i", "modifiers": ["cmd", "shift"]})
         if not wait(lambda: "error" not in (rpc("debug.agent_pane", {"action": "pid"}) or {"error": 1}), 60, 0.5):
             sys.exit(f"{name}: no agent tab")
-        # The chat page loaded (document ready) and its readiness report holding still before the streams.
-        readiness = lambda: rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}
-        if not wait(lambda: readiness().get("document_ready"), 30, 0.25):
-            safe_print(f"{name}: the agent page never reported document_ready in 30 s", flush=True)
-        wait_stable(readiness, f"{name}: the agent page's readiness", timeout=15, interval=0.2,
-                    raise_on_timeout=False)
+        time.sleep(3)
         safe_print(f"{name}: full rate {rpc('debug.agent_pane', {'action': 'full_rate', 'enabled': True})}", flush=True)
         for run in range(opts.runs):
             result = rpc("debug.agent_pane", {"action": "stream", "rows": opts.rows, "seconds": opts.seconds,

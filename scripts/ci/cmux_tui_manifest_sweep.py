@@ -17,15 +17,9 @@ published) and whose manifest answers 404 has its newest feat-cmux-next push
 run re-run, if that run has completed. The re-run finds the tree published and
 writes the manifest from it (adopt-commit-manifest). A run still in progress is
 left for the next push's sweep, so nothing here waits (cx-urd.26: no runner
-minutes spent waiting on owners). A run the coalesce job skipped (base-coalesce.yml: its
-tree-preflight job was skipped) built no tree by design and would only be skipped again, or
-build one it need not, so it is never re-run; its commit resolves through the readers'
-fallback to the newest published tree. Only commits whose workflow has the
+minutes spent waiting on owners). Only commits whose workflow has the
 adopt-commit-manifest job are re-run: an older commit's re-run runs that
-commit's workflow, which would rebuild on macOS or write nothing. The re-run is
-that job's alone when it ran (cmux_tui_tree_handoff.rerun_manifest), not the
-whole run's: a whole-run re-run of a feat-cmux-next push also re-ran this sweep,
-its channel pointers and its nightly-next request.
+commit's workflow, which would rebuild on macOS or write nothing.
 
 usage: cmux_tui_manifest_sweep.py --repo OWNER/NAME [--window N] [--tip-branch B]
 Needs GH_TOKEN with actions: write; GH_TOKEN_SPARE as cmux_tui_tree_handoff.py.
@@ -69,7 +63,6 @@ def sweep(
     status: Callable[[str], int],
     find_run: Callable[[str], Mapping[str, Any] | None],
     rerun: Callable[[int], bool],
-    coalesced: Callable[[int], bool] = lambda run_id: False,
 ) -> tuple[list[str], list[str]]:
     """(the commits whose run was re-run, the problems that fail the step)."""
     rerun_commits: list[str] = []
@@ -95,24 +88,12 @@ def sweep(
             level = "notice" if run.get("status") != "completed" else "warning"
             print(f"::{level} title=commit manifest missing::{rev[:12]}: tree published, manifest missing; run {run['id']} not re-run: {why}")
             continue
-        if coalesced(int(run["id"])):
-            print(f"{rev[:12]}: tree published, manifest missing; run {run['id']} was coalesced (tree-preflight skipped), not re-run")
-            continue
         if rerun(int(run["id"])):
             print(f"{rev[:12]}: tree published, manifest missing; re-ran run {run['id']} ({why}), which writes it")
             rerun_commits.append(rev)
         else:
             problems.append(f"could not re-run run {run['id']} of {rev[:12]}")
     return rerun_commits, problems
-
-
-def is_coalesced(jobs: Iterable[Mapping[str, Any]]) -> bool:
-    """A coalesced run: its coalesce job (a reusable workflow's job, named 'coalesce / coalesce') ran and its
-    tree-preflight job was skipped."""
-    by_name = {str(job.get("name")): job.get("conclusion") for job in jobs}
-    preflight = by_name.get("cmux-tui tree preflight")
-    coalesce = [c for n, c in by_name.items() if n == "coalesce" or n.startswith("coalesce /")]
-    return preflight == "skipped" and "success" in coalesce
 
 
 def git_revs(window: int, tip_branch: str) -> list[str]:
@@ -156,22 +137,14 @@ def main(argv: list[str]) -> int:
         return max(runs, key=lambda run: int(run["id"])) if runs else None
 
     def rerun(run_id: int) -> bool:
-        result, what = handoff.rerun_manifest(args.repo, run_id)
-        print(f"run {run_id}: re-ran {what}")
+        result = handoff._gh("run", "rerun", str(run_id), "--repo", args.repo)
         if result.returncode != 0:
             print(f"::warning::could not re-run run {run_id}: {result.stderr.strip()}")
         return result.returncode == 0
 
-    def coalesced(run_id: int) -> bool:
-        """The run's tree-preflight job was skipped while its coalesce job succeeded (a later push of a window)."""
-        result = handoff._gh("api", f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
-        if result.returncode != 0:
-            raise RuntimeError(f"could not list the jobs of run {run_id}: {result.stderr.strip()}")
-        return is_coalesced(json.loads(result.stdout).get("jobs") or [])
-
     try:
         rerun_commits, problems = sweep(git_revs(args.window, args.tip_branch), adopts=adopts,
-                                        status=cdn_status, find_run=find_run, rerun=rerun, coalesced=coalesced)
+                                        status=cdn_status, find_run=find_run, rerun=rerun)
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(f"::error title=manifest sweep failed::{error}")
         return 1

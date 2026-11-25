@@ -17,23 +17,17 @@
 //! - `rotate FOLDER [--every INTERVAL]`: the pictures of a folder in turn.
 //! - `location LAT,LON|auto`: where the sun is reckoned from.
 //! - `off`: no picture.
-//! - `back`: the background shown before this one (twice comes back).
-//! - `recent [N]`: the recent backgrounds, newest first; with N, show the Nth.
 
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use cmux_config::Schema;
 use cmux_config::domains::Domains;
-use cmux_config::schema::{
-    Kind, accepts, effective_value, is_background, previous_background, recents_of,
-};
-use cmux_config::{FileRead, State};
-use cmux_tui_core::resource::ResourceOperation;
+use cmux_config::schema::{Kind, accepts};
+use cmux_config::{FileRead, State, Target};
 use serde_json::{Map, Value, json};
 
-use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
-use super::{GlobalArgs, OutputMode, Surface};
+use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
 cmux wallpaper: the picture behind the window, and how it changes by itself.
@@ -48,11 +42,8 @@ cmux wallpaper: the picture behind the window, and how it changes by itself.
   cmux wallpaper rotate FOLDER [--every 15m|30m|1h|daily|N]   the folder's pictures in turn (N minutes)
   cmux wallpaper location LAT,LON|auto               where sunrise and sunset are reckoned (auto: the time zone)
   cmux wallpaper off                                 no picture
-  cmux wallpaper back                                the background shown before this one (again: back)
-  cmux wallpaper recent [N]                          recent backgrounds, newest first; N shows the Nth
-BACKGROUND: an image or movie path, a YouTube video address (or youtube:<video id>), a folder,
-  none, daily (shuffle paintings), desktop (your desktop picture), a painting id, or a macOS
-  wallpaper name such as Sonoma.
+BACKGROUND: an image or movie path, a folder, none, daily (shuffle paintings), desktop
+  (your desktop picture), a painting id, or a macOS wallpaper name such as Sonoma.
 Examples:
   cmux wallpaper follow-appearance --light ~/Pictures/day.jpg --dark ~/Pictures/night.jpg
   cmux wallpaper schedule 07:00=~/Pictures/day.jpg sunset=~/Pictures/night.jpg
@@ -66,8 +57,7 @@ pub(super) const SCHEDULE: &str = "appearance.backgroundSchedule";
 pub(super) const DYNAMIC: &str = "appearance.backgroundDynamic";
 pub(super) const LOCATION: &str = "appearance.backgroundLocation";
 pub(super) const ROTATION: &str = "appearance.backgroundRotation";
-pub(super) const RECENTS: &str = "appearance.backgroundRecents";
-const KEYS: [&str; 8] = [BACKGROUND, LIGHT, DARK, SCHEDULE, DYNAMIC, LOCATION, ROTATION, RECENTS];
+const KEYS: [&str; 7] = [BACKGROUND, LIGHT, DARK, SCHEDULE, DYNAMIC, LOCATION, ROTATION];
 
 /// Where macOS keeps its wallpapers.
 const SYSTEM_PICTURES: &str = "/System/Library/Desktop Pictures";
@@ -77,34 +67,13 @@ const SUN_EVENTS: [&str; 5] = ["sunrise", "sunset", "dawn", "dusk", "noon"];
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Request {
     Show,
-    Set {
-        background: String,
-    },
-    FollowAppearance {
-        light: Option<String>,
-        dark: Option<String>,
-    },
-    Schedule {
-        entries: Vec<(String, String)>,
-        clear: bool,
-    },
-    MacosDynamic {
-        name: Option<String>,
-        follow: String,
-    },
-    Rotate {
-        folder: String,
-        every: Option<String>,
-    },
-    Location {
-        value: String,
-    },
+    Set { background: String },
+    FollowAppearance { light: Option<String>, dark: Option<String> },
+    Schedule { entries: Vec<(String, String)>, clear: bool },
+    MacosDynamic { name: Option<String>, follow: String },
+    Rotate { folder: String, every: Option<String> },
+    Location { value: String },
     Off,
-    /// Leo: "it was cumbersome back then to switch back."
-    Back,
-    Recent {
-        index: Option<usize>,
-    },
 }
 
 /// `cmux [global options] wallpaper ...`.
@@ -202,16 +171,6 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         ("rotate", [folder]) => Request::Rotate { folder: folder.clone(), every },
         ("location", [value]) => Request::Location { value: value.clone() },
         ("off", []) => Request::Off,
-        ("back", []) => Request::Back,
-        ("recent", []) => Request::Recent { index: None },
-        ("recent", [n]) => match n.parse::<usize>() {
-            Ok(index) if index > 0 => Request::Recent { index: Some(index) },
-            _ => {
-                return Err(format!(
-                    "cmux wallpaper recent {n}: N is a number from `cmux wallpaper recent` (1 is the newest)"
-                ));
-            }
-        },
         _ => return Err(usage()),
     })
 }
@@ -226,7 +185,7 @@ pub(super) struct Env {
 }
 
 impl Env {
-    pub(super) fn current() -> Env {
+    fn current() -> Env {
         Env {
             home: std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default(),
             cwd: std::env::current_dir().unwrap_or_default(),
@@ -296,9 +255,8 @@ pub(super) enum Use {
 }
 
 /// The settings id for a background word: `none`, `daily`, `desktop`, a
-/// painting id, a YouTube address (`youtube:`), a path (`file:`, `system:`
-/// under the macOS wallpapers, `folder:` for a folder), an id with its
-/// prefix, a macOS wallpaper name, or a bare YouTube video id.
+/// painting id, a path (`file:`, `system:` under the macOS wallpapers,
+/// `folder:` for a folder), an id with its prefix, or a macOS wallpaper name.
 pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, String> {
     let word = arg.trim();
     let lower = word.to_ascii_lowercase();
@@ -324,14 +282,6 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
         }
         _ => {}
     }
-    // A YouTube address or `youtube:` id: its canonical id (cmux_config::youtube). Another
-    // site's address is refused by name, never read as a path.
-    let web = ["http://", "https://"].iter().any(|scheme| lower.starts_with(scheme));
-    if web || cmux_config::youtube::claims_youtube(word) {
-        return cmux_config::youtube::YouTubeWallpaper::from_input(word)
-            .map(|wallpaper| wallpaper.id())
-            .map_err(|error| format!("{arg}: {error}"));
-    }
     for prefix in ["system:", "file:", "folder:"] {
         if let Some(path) = word.strip_prefix(prefix) {
             if prefix == "folder:" && usage == Use::Fixed {
@@ -355,10 +305,6 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
     if let Some(picture) = find_system_picture(&env.pictures, word, false)? {
         return Ok(format!("system:{}", picture.path.display()));
     }
-    // Last, a bare YouTube video id (11 letters, digits, - or _, a capital or digit among them).
-    if cmux_config::youtube::looks_like_video_id(word) {
-        return Ok(format!("{}{word}", cmux_config::youtube::PREFIX));
-    }
     let paintings = painting_ids();
     let listed = if paintings.is_empty() {
         String::new()
@@ -366,7 +312,7 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
         format!("; painting ids: {}", paintings.join(", "))
     };
     Err(format!(
-        "{arg:?} is not a file, folder, painting, YouTube video or macOS wallpaper: pass a path (~/Pictures/x.jpg), a YouTube address, none, daily, desktop, or a macOS wallpaper name (`cmux wallpaper use-macos-dynamic` lists the dynamic ones){listed}"
+        "{arg:?} is not a file, folder, painting or macOS wallpaper: pass a path (~/Pictures/x.jpg), none, daily, desktop, or a macOS wallpaper name (`cmux wallpaper use-macos-dynamic` lists the dynamic ones){listed}"
     ))
 }
 
@@ -616,10 +562,7 @@ pub(super) fn find_system_picture(
 /// The edits and summary for a write request. `Show` and the listing are not writes.
 pub(super) fn plan(request: &Request, env: &Env) -> Result<Plan, String> {
     Ok(match request {
-        Request::Show
-        | Request::MacosDynamic { name: None, .. }
-        | Request::Back
-        | Request::Recent { .. } => {
+        Request::Show | Request::MacosDynamic { name: None, .. } => {
             return Err("not a write".into());
         }
         Request::Off => Plan {
@@ -754,49 +697,6 @@ pub(super) fn plan(request: &Request, env: &Env) -> Result<Plan, String> {
     })
 }
 
-/// The recent backgrounds `back` and `recent N` pick from, newest first:
-/// the recorded list without the one shown now (and without junk), so
-/// `recent 1` is what `back` shows.
-pub(super) fn recent_choices(current: &str, recents: &[String]) -> Vec<String> {
-    recents.iter().filter(|item| item.as_str() != current && is_background(item)).cloned().collect()
-}
-
-/// The write for `back` or `recent N`, from the configured background and
-/// its recents (the settings write records the one replaced, so a second
-/// `back` comes back). A picture chosen this way is static, as the app's
-/// picker writes it: `appearance.backgroundDynamic` `time` is reset with it.
-pub(super) fn plan_recent(
-    request: &Request,
-    current: &str,
-    recents: &[String],
-    dynamic: Option<&str>,
-) -> Result<Plan, String> {
-    let id = match request {
-        Request::Back => previous_background(current, recents).ok_or_else(|| {
-            "no earlier background yet: after a change (`cmux wallpaper set ...`), `cmux wallpaper back` swaps between the two".to_string()
-        })?,
-        Request::Recent { index: Some(index) } => {
-            let choices = recent_choices(current, recents);
-            choices.get(index - 1).cloned().ok_or_else(|| match choices.len() {
-                0 => "no recent backgrounds yet: they are kept as the background changes".to_string(),
-                count => format!(
-                    "cmux wallpaper recent {index}: there are {count} (run `cmux wallpaper recent` to list them)"
-                ),
-            })?
-        }
-        _ => return Err("not a recent background".into()),
-    };
-    let mode = mode_of(&id, None);
-    Ok(Plan {
-        mode,
-        summary: format!("wallpaper: {} (appearance.background = {id})", mode_words(mode)),
-        edits: [Edit::Set(BACKGROUND, json!(id))]
-            .into_iter()
-            .chain((dynamic == Some("time")).then_some(Edit::Reset(DYNAMIC)))
-            .collect(),
-    })
-}
-
 fn stem(path: &Path) -> String {
     path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -883,11 +783,7 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
     match &request {
         Request::Show => return show(global),
         Request::MacosDynamic { name: None, .. } => return list_dynamic(global, &env),
-        Request::Recent { index: None } => return list_recent(global),
         _ => {}
-    }
-    if matches!(request, Request::Back | Request::Recent { .. }) {
-        return run_recent(global, &request);
     }
     let plan = match plan(&request, &env).and_then(|plan| validate(&plan.edits).map(|()| plan)) {
         Ok(plan) => plan,
@@ -909,10 +805,6 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
         }
         return code;
     }
-    print_done(global, &plan)
-}
-
-fn print_done(global: &GlobalArgs, plan: &Plan) -> i32 {
     if is_json(global) {
         let set: Map<String, Value> = plan
             .edits
@@ -931,65 +823,6 @@ fn print_done(global: &GlobalArgs, plan: &Plan) -> i32 {
     }
     println!("{}", plan.summary);
     0
-}
-
-/// `back` and `recent N`: read the background and its recents from the settings owner, then
-/// write at that revision (`if_revision`), so a change made between the read and the write is
-/// never overwritten. On a conflict it reads and plans once more.
-fn run_recent(global: &GlobalArgs, request: &Request) -> i32 {
-    let mut tries = 0;
-    loop {
-        tries += 1;
-        let settings = configured(global);
-        let Some(revision) = settings.revision else {
-            return fail(
-                global,
-                "transport.unavailable",
-                "cmux is not running: `cmux wallpaper back` and `recent` go through its settings"
-                    .into(),
-            );
-        };
-        let values = &settings.values;
-        let current = values.get(BACKGROUND).and_then(Value::as_str).unwrap_or("none");
-        let planned = plan_recent(
-            request,
-            current,
-            &recents_of(values.get(RECENTS)),
-            values.get(DYNAMIC).and_then(Value::as_str),
-        )
-        .and_then(|plan| validate(&plan.edits).map(|()| plan));
-        let plan = match planned {
-            Ok(plan) => plan,
-            Err(message) => return fail(global, "validation.invalid", message),
-        };
-        match write_at(global, &plan.edits, revision) {
-            Ok(()) => return print_done(global, &plan),
-            Err(error) if tries == 1 && is_conflict(&error) => continue,
-            Err(error) => return super::wire::print_local_error(&error, global.output, 1),
-        }
-    }
-}
-
-pub(super) fn is_conflict(error: &Value) -> bool {
-    error.get("code").and_then(Value::as_str) == Some("revision.conflict")
-}
-
-/// One `settings.edit` of `edits`, refused unless the settings are still at `revision`.
-fn write_at(global: &GlobalArgs, edits: &[Edit], revision: u64) -> Result<(), Value> {
-    let failure = |message: String| json!({ "code": "internal", "message": message });
-    let edits = Value::Array(edits.iter().map(Edit::to_json).collect());
-    let words = ["settings".to_string(), "edit".to_string(), edits.to_string()];
-    let mut plan = match super::command::parse(&words, Surface::CmuxTui) {
-        Ok(CommandPlan::Protocol(plan)) => *plan,
-        Ok(_) => return Err(failure("settings edit is not a request".into())),
-        Err(error) => return Err(json!({ "code": "usage.invalid", "message": error.0 })),
-    };
-    if let Some(params) = plan.params.as_object_mut() {
-        params.insert("if_revision".into(), Value::String(revision.to_string()));
-    }
-    plan.idempotency_key =
-        Some(super::wire::random_idempotency_key().map_err(|error| failure(error.0))?);
-    super::mcp::agent_resource(global, plan).map(|_| ())
 }
 
 fn list_dynamic(global: &GlobalArgs, env: &Env) -> i32 {
@@ -1017,79 +850,9 @@ fn list_dynamic(global: &GlobalArgs, env: &Env) -> i32 {
     0
 }
 
-fn list_recent(global: &GlobalArgs) -> i32 {
-    let settings = configured(global).values;
-    let current = settings.get(BACKGROUND).and_then(Value::as_str).unwrap_or("none");
-    let choices = recent_choices(current, &recents_of(settings.get(RECENTS)));
-    if is_json(global) {
-        return super::wire::print_local_success(
-            &json!({ "current": current, "recent": choices }),
-            global.output,
-        );
-    }
-    println!("now: {current}");
-    if choices.is_empty() {
-        println!("no recent backgrounds yet: they are kept as the background changes");
-        return 0;
-    }
-    println!("Recent backgrounds (cmux wallpaper recent N; back is 1):");
-    for (index, id) in choices.iter().enumerate() {
-        println!("  {:>2}  {id}", index + 1);
-    }
-    0
-}
-
-/// The keys as cmux shows them, with the settings revision they were read at.
-pub(super) struct Configured {
-    pub values: Map<String, Value>,
-    pub revision: Option<u64>,
-}
-
-/// The configured keys as the settings owner holds them: each key's effective value (the theme
-/// file, the user's file, team defaults and managed preferences over the schema default; a key
-/// this build lacks is null), at the owner's revision. With no owner to ask, the file as this
-/// CLI reads it, with no revision.
-fn configured(global: &GlobalArgs) -> Configured {
-    let plan = RequestPlan {
-        operation: WireOperation::Typed(ResourceOperation::SettingsSnapshot),
-        params: json!({ "machine": "current", "session": "current" }),
-        idempotency_key: None,
-        stream: false,
-        resolve: Vec::new(),
-        view: ResponseView::Full,
-        filter: Default::default(),
-    };
-    match super::mcp::agent_resource(global, plan) {
-        Ok(snapshot) => from_snapshot(&snapshot),
-        Err(_) => Configured { values: from_file(), revision: None },
-    }
-}
-
-/// [`Configured`] from a `settings.snapshot` reply.
-pub(super) fn from_snapshot(snapshot: &Value) -> Configured {
-    let revision = match snapshot.get("revision") {
-        Some(Value::Number(number)) => number.as_u64(),
-        Some(Value::String(text)) => text.parse().ok(),
-        _ => None,
-    };
-    let effective = snapshot.get("effective").cloned().unwrap_or_else(|| json!({}));
-    Configured { values: values_in(&effective), revision }
-}
-
-fn values_in(effective: &Value) -> Map<String, Value> {
-    let schema = Schema::embedded();
-    KEYS.iter()
-        .map(|key| {
-            let value = schema
-                .row(key)
-                .and_then(|row| effective_value(row, effective, &Domains::default()))
-                .unwrap_or(Value::Null);
-            ((*key).to_string(), value)
-        })
-        .collect()
-}
-
-fn from_file() -> Map<String, Value> {
+/// The configured keys, read as the settings owner reads the file (an
+/// unset key is its default; a key this build lacks is null).
+fn configured() -> Map<String, Value> {
     let path = cmux_config::config_path();
     let file = match std::fs::read_to_string(&path) {
         Ok(text) => FileRead::Text(text),
@@ -1103,7 +866,13 @@ fn from_file() -> Map<String, Value> {
         Default::default(),
         0,
     );
-    values_in(&state.effective().root)
+    KEYS.iter()
+        .map(|key| {
+            let view = state.get(&Target::Key((*key).to_string()));
+            let value = view.row.and_then(|row| row.value).unwrap_or(Value::Null);
+            ((*key).to_string(), value)
+        })
+        .collect()
 }
 
 /// The keys `mode` reads, for the human `show`.
@@ -1138,7 +907,7 @@ fn app_now(global: &GlobalArgs) -> Value {
 }
 
 fn show(global: &GlobalArgs) -> i32 {
-    let settings = configured(global).values;
+    let settings = configured();
     let background = settings.get(BACKGROUND).and_then(Value::as_str).unwrap_or("none");
     let mode = mode_of(background, settings.get(DYNAMIC).and_then(Value::as_str));
     let now = app_now(global);

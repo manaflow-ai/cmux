@@ -4,9 +4,9 @@ package import Foundation
 package nonisolated struct ScreenStrings {
     package nonisolated init() {}
     /// The bundle that holds `Resources/Screens.xcstrings` (this module's), for tests.
-    package static var bundle: Bundle { .localizedModule }
+    package static var bundle: Bundle { .module }
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Screens", bundle: .localizedModule)
+        String(localized: key, defaultValue: value, table: "Screens", bundle: .module)
     }
 
     /// Title of the n-th (1-based) screen that has no name.

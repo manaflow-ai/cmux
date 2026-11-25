@@ -1,12 +1,9 @@
-import { envForObject } from "./build-space.ts"
 import type { Domain, OwnerFrame, Principal } from "@cmux/ownership"
 import { mux } from "@cmux/home-core"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
-import { chiefRecordFresh, liveFrame, runChanged } from "./chief-brain/brain-io.ts"
-import { closeWake, machineWakeAt, openWake, placedMachine, stepWake, wakeCloud, type WakeRow, type WakeView, WAKING_LINE } from "./mux-machine-wake.ts"
 import { type BrainRoute, dueWakes, durableOn, nextDeliveryAt, nextWaiting, pendWake, sendWake, settleWake, type Wake } from "./mux-wake-delivery.ts"
 
 /**
@@ -15,8 +12,7 @@ import { type BrainRoute, dueWakes, durableOn, nextDeliveryAt, nextWaiting, pend
  * host subscribes to `mux:<agent>` and acks with mux.ack; ConversationDO outboxes send mux.wake.
  */
 export class MuxDO extends OwnerDO<mux.MuxHead> {
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, withAdmit("cloud:MuxDO", mux.muxDomain as Domain<mux.MuxHead>), "mux", publicActor, {
       rowMode: { snapshotTable: mux.TABLE_WAKE, snapshotTail: 200 }
     })
@@ -74,7 +70,6 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
    * repeated wake idempotently. The queue row itself stays until the brain (or a brain host) acks it.
    */
   protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
-    this.machineAfterOp(op, frames)
     if (op !== "mux.wake" || this.env.CHIEF_BRAIN_ENABLED !== "1") return
     const result = frames.find((f) => f.t === "result") as { value?: mux.WakeItem | null; replayed?: boolean } | undefined
     const head = this.boundEngine?.currentState
@@ -87,44 +82,6 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     this.scheduleAlarm()
     // An older wake of this conversation is still undelivered: this one goes after it, from the alarm.
     if (now) this.ctx.waitUntil(this.deliver(wake))
-  }
-
-  /**
-   * Wake on message (mux-machine-wake.ts, RFD 0037): a new wake of a Chief run on its own Cloud machine
-   * (`brain_place.machine`) resumes that machine when it is paused; the host's ack (no wake left) ends the
-   * sender's "Waking" line. The wake row itself waits here for the host either way.
-   */
-  private machineAfterOp(op: string, frames: ReadonlyArray<OwnerFrame>) {
-    const head = this.boundEngine?.currentState
-    // Every Chief binds as brain "cloud"; a placed one is told apart by its record's brain_place (the hosted brain
-    // refuses it, chief_placed), read here after the commit and reused for 10 s (chiefRecordFresh).
-    if (!head?.agent || !head.owner_user) return
-    if (op === "mux.ack") {
-      if (head.pending === 0 && machineWakeAt(this.ctx.storage.sql) !== null) this.ctx.waitUntil(this.machineStep())
-      return
-    }
-    if (op !== "mux.wake") return
-    const result = frames.find((f) => f.t === "result") as { value?: mux.WakeItem | null; replayed?: boolean } | undefined
-    const item = result?.value
-    if (!item || result?.replayed) return
-    const { agent, owner_user: owner } = head
-    this.ctx.waitUntil((async () => {
-      const place = placedMachine((await chiefRecordFresh(this.env, owner, agent).catch(() => null))?.brain_place)
-      if (!place) return
-      openWake(this.ctx.storage.sql, place, item.conversation, Date.now())
-      await this.machineStep()
-    })())
-  }
-
-  private machineStep(): Promise<void> {
-    const head = this.boundEngine?.currentState
-    if (!head?.agent || !head.owner_user) return Promise.resolve(void closeWake(this.ctx.storage.sql))
-    const agent = head.agent
-    const view: WakeView = {
-      waking: (row: WakeRow, now: number) => liveFrame(this.env, row.conversation, agent, { type: "run.activity", conversation: row.conversation, run: row.run, line: WAKING_LINE, since: row.since, at: now }),
-      ended: (row: WakeRow, now: number) => runChanged(this.env, row.conversation, agent, { id: row.run, conversation: row.conversation, author: agent, answers: [], status: "done", started_at: row.since, ended_at: now, step_count: 0, last_step_seq: 0, model: "", harness: "chief-machine", session: { kind: "machine", id: row.run, host: "cloud" } }, [])
-    }
-    return stepWake(this.ctx.storage.sql, wakeCloud(this.env), view, agent, head.owner_user, head.pending, Date.now()).finally(() => this.scheduleAlarm())
   }
 
   /** The brain this Chief's wakes go to: its brain_impl when this deployment runs it, else P. */
@@ -161,8 +118,6 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
 
   /** The alarm sends the undelivered wakes that are due (mux-wake-delivery.ts). */
   protected override async onWake(now: number): Promise<void> {
-    const at = machineWakeAt(this.ctx.storage.sql)
-    if (at !== null && at <= now) await this.machineStep()
     const head = this.boundEngine?.currentState
     const due = dueWakes(this.ctx.storage.sql, now)
     if (!head?.agent || !head.owner_user || head.brain !== "cloud" || this.env.CHIEF_BRAIN_ENABLED !== "1") {
@@ -178,8 +133,7 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
 
   /** The next undelivered wake's due time shares the one alarm with the outbox drain. */
   protected override nextWakeAt(_state: mux.MuxHead, _now: number): number | null {
-    const times = [nextDeliveryAt(this.ctx.storage.sql), machineWakeAt(this.ctx.storage.sql)].filter((t): t is number => t !== null)
-    return times.length ? Math.min(...times) : null
+    return nextDeliveryAt(this.ctx.storage.sql)
   }
 
   /** mux.queue: the head (cursors and pending counts); wake rows come with the snapshot. */

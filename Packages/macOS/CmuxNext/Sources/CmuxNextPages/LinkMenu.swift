@@ -286,55 +286,55 @@ public struct LinkMenu {
 
     enum Strings {
         static var openInCmuxBrowser: String {
-            String(localized: "links.menu.openInCmuxBrowser", defaultValue: "Open in cmux Browser", bundle: .localizedModule)
+            String(localized: "links.menu.openInCmuxBrowser", defaultValue: "Open in cmux Browser", bundle: .module)
         }
 
         static var openInNewCmuxTab: String {
-            String(localized: "links.menu.openInNewCmuxTab", defaultValue: "Open in New cmux Browser Tab", bundle: .localizedModule)
+            String(localized: "links.menu.openInNewCmuxTab", defaultValue: "Open in New cmux Browser Tab", bundle: .module)
         }
 
         static var openInDefaultBrowser: String {
-            String(localized: "links.menu.openInDefaultBrowser", defaultValue: "Open in Default Browser", bundle: .localizedModule)
+            String(localized: "links.menu.openInDefaultBrowser", defaultValue: "Open in Default Browser", bundle: .module)
         }
 
         static var openOnGitHub: String {
-            String(localized: "links.menu.openOnGitHub", defaultValue: "Open on github.com", bundle: .localizedModule)
+            String(localized: "links.menu.openOnGitHub", defaultValue: "Open on github.com", bundle: .module)
         }
 
         static var openInGitHubPage: String {
-            String(localized: "links.menu.openInGitHubPage", defaultValue: "Open in cmux GitHub Page", bundle: .localizedModule)
+            String(localized: "links.menu.openInGitHubPage", defaultValue: "Open in cmux GitHub Page", bundle: .module)
         }
 
         static var openIn: String {
-            String(localized: "links.menu.openIn", defaultValue: "Open In", bundle: .localizedModule)
+            String(localized: "links.menu.openIn", defaultValue: "Open In", bundle: .module)
         }
 
         static var copyLink: String {
-            String(localized: "links.menu.copyLink", defaultValue: "Copy Link", bundle: .localizedModule)
+            String(localized: "links.menu.copyLink", defaultValue: "Copy Link", bundle: .module)
         }
 
         static var open: String {
-            String(localized: "links.menu.open", defaultValue: "Open", bundle: .localizedModule)
+            String(localized: "links.menu.open", defaultValue: "Open", bundle: .module)
         }
 
         static var openInTextEditor: String {
-            String(localized: "links.menu.openInTextEditor", defaultValue: "Open in Text Editor", bundle: .localizedModule)
+            String(localized: "links.menu.openInTextEditor", defaultValue: "Open in Text Editor", bundle: .module)
         }
 
         static var openWith: String {
-            String(localized: "links.menu.openWith", defaultValue: "Open With", bundle: .localizedModule)
+            String(localized: "links.menu.openWith", defaultValue: "Open With", bundle: .module)
         }
 
         static var other: String {
-            String(localized: "links.menu.other", defaultValue: "Other…", bundle: .localizedModule)
+            String(localized: "links.menu.other", defaultValue: "Other…", bundle: .module)
         }
 
         static var revealInFinder: String {
-            String(localized: "links.menu.revealInFinder", defaultValue: "Reveal in Finder", bundle: .localizedModule)
+            String(localized: "links.menu.revealInFinder", defaultValue: "Reveal in Finder", bundle: .module)
         }
 
         static var copyPath: String {
-            String(localized: "links.menu.copyPath", defaultValue: "Copy Path", bundle: .localizedModule)
+            String(localized: "links.menu.copyPath", defaultValue: "Copy Path", bundle: .module)
         }
     }
 }

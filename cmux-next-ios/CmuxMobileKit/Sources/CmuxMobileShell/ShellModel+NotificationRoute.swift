@@ -81,7 +81,7 @@ extension ShellModel {
         // settle for the Feed. Wait instead; ShellView tries again once the link is
         // attached (and on each tree change), and the
         // route's budget still ends the wait.
-        if route.mac != nil, live == nil, !mockMode, !reviewDemo, auth.isSignedIn, !NotificationRouter.shared.isExpired() {
+        if route.mac != nil, live == nil, !mockMode, auth.isSignedIn, !NotificationRouter.shared.isExpired() {
             tab = .feed
             return false
         }

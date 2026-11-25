@@ -12,7 +12,6 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
-from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -62,14 +61,6 @@ def wait(predicate, seconds, step=0.5):
     return None
 
 
-def shows_home():
-    return any(w.get("shows_home") and w.get("home_view_installed") for w in (rpc("debug.home") or {}).get("windows") or [])
-
-
-def texts():
-    return (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
-
-
 app = None
 os.makedirs(opts.out, exist_ok=True)
 try:
@@ -86,26 +77,16 @@ try:
         sys.exit("the tagged app did not come up")
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
-    # A window shows the installed Home view before the fixture opens over it.
-    if not wait_until(shows_home, "a window showing the installed Home view", timeout=30, raise_on_timeout=False):
-        safe_print("no window shows the installed Home view yet; opening the fixture anyway", flush=True)
+    time.sleep(2)
     safe_print("fixture:", rpc("debug.home_native_fixture.open", {"new": True}), flush=True)
-    # The fixture's transcript is laid out: its texts are there and stop changing.
-    fixture_texts = wait_until(texts, "the fixture transcript's texts", timeout=30, raise_on_timeout=False)
-    fixture_texts = wait_stable(texts, "the fixture transcript", timeout=15, raise_on_timeout=False) or fixture_texts
-    if not fixture_texts:
-        safe_print("the fixture transcript shows no texts; snapshotting anyway", flush=True)
+    time.sleep(4)
     safe_print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}.png")}), flush=True)
-    time.sleep(2)  # sleep-ok: the second snapshot is a later frame on purpose (the transcript holds still over 2 s)
+    time.sleep(2)
     safe_print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}-2.png")}), flush=True)
     # Close the fixture tab: the home workspace's Chief tab shows.
     rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "1", "modifiers": ["cmd"]})
-    # The Chief tab shows: a window shows Home, the fixture's texts are gone, and what shows stops changing.
-    if not wait_until(lambda: shows_home() and texts() != fixture_texts, "the Chief tab in place of the fixture",
-                      timeout=30, raise_on_timeout=False):
-        safe_print("the Chief tab did not replace the fixture; snapshotting anyway", flush=True)
-    wait_stable(texts, "the Chief tab's transcript", timeout=10, raise_on_timeout=False)
+    time.sleep(5)
     safe_print("home:", json.dumps(rpc("debug.home"))[:400], flush=True)
     safe_print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-chief-{opts.tag}.png")}), flush=True)
 finally:

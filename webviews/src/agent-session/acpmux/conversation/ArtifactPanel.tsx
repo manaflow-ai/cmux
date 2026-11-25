@@ -150,7 +150,7 @@ export function ArtifactPanel({
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
         {pinned && (
-          <span className="acpmux-artifact-source">
+          <span className="acpmux-artifact-source" title={sourceTitle}>
             {t("sidebar.pinned")}
             {sourceTitle ? ` · ${sourceTitle}` : ""}
           </span>

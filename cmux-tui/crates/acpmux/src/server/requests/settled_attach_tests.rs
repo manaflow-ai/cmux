@@ -167,28 +167,3 @@ async fn before_a_restart_reads_the_log_the_queue_is_the_views() {
     assert_eq!(reply["session"]["queued"], 2);
     assert_eq!(reply["session"]["queue"].as_array().unwrap().len(), 2);
 }
-
-/// A view far behind the log (more logged since than a few pages hold) is not read forward to:
-/// the open answers as without it, from the log's end, and writes a new view. Its forward read
-/// cost every record since, of any kind: on Leo's daemon an hours-old view read a 5.8 GB chat's
-/// later segments on each open (2026-11-18).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_view_far_behind_the_log_answers_as_a_plain_open() {
-    let dir = std::env::temp_dir().join(format!("acpmux-settled-stale-{}", uuid::Uuid::now_v7()));
-    let hub = hub(&dir.join("sessions"));
-    turn(&hub, 1);
-    let s = hub.resolve(ID).unwrap();
-    let key = crate::hub::settled_view::SettledKey::of_attach(&open(true)).unwrap();
-    assert!(hub.write_settled_view(&s, &key));
-    let gap = super::settled_attach::settled_gap_records(key.limit);
-    // Turns of three records each, past the gap.
-    for n in 2..=(gap / 3 + 3) {
-        turn(&hub, n);
-    }
-    let last = s.meta().last_seq;
-    let (_, reply) = attach(&hub, open(true)).await;
-    assert_eq!(reply["settled"], Value::Null, "the stale view is not answered");
-    assert_eq!(reply["lastSeq"], last);
-    assert_eq!(seqs(&reply).last().copied(), Some(last), "the page is the newest");
-    view_written(&hub, last).await;
-}

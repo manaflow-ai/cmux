@@ -13,7 +13,6 @@ after setting `appearance.appTheme` to a light, then a dark Ghostty theme. Socke
 import argparse, json, os, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
-from state_wait import wait_stable  # noqa: E402
 
 p = argparse.ArgumentParser()
 p.add_argument("--app", required=True)
@@ -95,9 +94,7 @@ try:
     if not wait(up, 120):
         sys.exit("tagged app did not come up")
     safe_print(f"socket {SOCKET}", flush=True)
-    # First frame and restore settle before the action: the window's surfaces hold still.
-    wait_stable(lambda: rpc("debug.surfaces").get("windows"), "the restored window's surfaces", timeout=15,
-                interval=0.2, raise_on_timeout=False)
+    time.sleep(2)  # first frame and restore settle before the action (harness, not app code)
     ran = rpc("action.run", {"id": "automations.show", "focus": True})
     check("automations.show runs", "error" not in ran or not ran.get("error"), json.dumps(ran)[:200])
     shown = wait(lambda: "page:automations" in json.dumps(rpc("debug.focus")) or "automations" in json.dumps(rpc("snapshot.get")), 15)

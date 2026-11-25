@@ -125,22 +125,13 @@ public struct WindowPlacement {
         return window
     }
 
-    /// The screen a window opened from `parent` belongs on: its parent's, else the launch display
-    /// (`LaunchDisplay`, #51115), else the main screen.
+    /// The screen a window opened from `parent` belongs on.
     public static func targetScreen(parent: NSWindow?) -> NSScreen? {
         let screens = NSScreen.screens
         let parentScreen = parent?.screen.flatMap { screen in screens.firstIndex { $0 === screen } }
-        let launchScreen = LaunchDisplay.current?.screenIndex(builtIn: screens.map(LaunchDisplay.isBuiltIn))
         let mainScreen = NSScreen.main.flatMap { main in screens.firstIndex { $0 === main } }
-        let index = screenIndex(test: testScreen, parent: ownerScreen(parent: parentScreen, launch: launchScreen, main: mainScreen), count: screens.count)
+        let index = screenIndex(test: testScreen, parent: parentScreen ?? mainScreen ?? 0, count: screens.count)
         return index.map { screens[$0] }
-    }
-
-    /// The screen index a window with no test screen belongs on: its parent's, else the launch
-    /// display's (an inactive app has no main window, and `NSScreen.main` is then the person's
-    /// display, #51115), else the main screen's, else the first.
-    public nonisolated static func ownerScreen(parent: Int?, launch: Int?, main: Int?) -> Int {
-        parent ?? launch ?? main ?? 0
     }
 
     /// Lets Auto Layout resize the window to its content first (a window
@@ -152,9 +143,8 @@ public struct WindowPlacement {
 
     /// Places `window` for `parent` (unless it is already on screen) and
     /// orders it in: key and front normally; under no-activate front on
-    /// the test screen or behind everything, never key. `intent` `.bringForward`
-    /// (a window automation opened) orders it in front of the app's windows without the keys.
-    public static func present(_ window: NSWindow, parent: NSWindow? = nil, intent: WindowActivation.Intent = .present) {
+    /// the test screen or behind everything, never key.
+    public static func present(_ window: NSWindow, parent: NSWindow? = nil) {
         let parent = parent ?? defaultParent()
         if !window.isVisible, let screen = targetScreen(parent: parent) {
             fitToContent(window)
@@ -170,6 +160,6 @@ public struct WindowPlacement {
             }
             window.setFrame(frame, display: false)
         }
-        WindowActivation.show(window, intent)
+        WindowActivation.show(window, .present)
     }
 }

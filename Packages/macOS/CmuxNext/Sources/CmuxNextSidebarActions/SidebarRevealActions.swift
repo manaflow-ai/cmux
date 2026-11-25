@@ -59,6 +59,6 @@ public struct SidebarRevealActions {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "SidebarReveal", bundle: .localizedModule)
+        String(localized: key, defaultValue: value, table: "SidebarReveal", bundle: .module)
     }
 }

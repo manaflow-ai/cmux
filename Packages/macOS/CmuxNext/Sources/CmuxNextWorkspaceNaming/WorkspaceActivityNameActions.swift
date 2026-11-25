@@ -31,12 +31,12 @@ extension WorkspaceActivityName {
         /// What the person reads.
         public var text: String {
             switch self {
-            case .noWorkspace: String(localized: "workspaceNaming.nameFromActivity.noWorkspace", defaultValue: "No workspace to name.", bundle: .localizedModule)
-            case .nothingToNameFrom: String(localized: "workspaceNaming.nameFromActivity.nothing", defaultValue: "This workspace has no activity to name it from.", bundle: .localizedModule)
-            case .noAgents: String(localized: "workspaceNaming.nameFromActivity.noAgents", defaultValue: "Name from Activity needs the agent service, which is not running.", bundle: .localizedModule)
-            case .noName: String(localized: "workspaceNaming.nameFromActivity.noName", defaultValue: "The model did not suggest a name.", bundle: .localizedModule)
-            case .oldDaemon: String(localized: "workspaceNaming.nameFromActivity.oldDaemon", defaultValue: "This workspace's machine runs an older cmux that cannot protect a rename made meanwhile.", bundle: .localizedModule)
-            case let .failed(detail): String(localized: "workspaceNaming.nameFromActivity.failed", defaultValue: "Could not name the workspace: \(detail)", bundle: .localizedModule)
+            case .noWorkspace: String(localized: "workspaceNaming.nameFromActivity.noWorkspace", defaultValue: "No workspace to name.", bundle: .module)
+            case .nothingToNameFrom: String(localized: "workspaceNaming.nameFromActivity.nothing", defaultValue: "This workspace has no activity to name it from.", bundle: .module)
+            case .noAgents: String(localized: "workspaceNaming.nameFromActivity.noAgents", defaultValue: "Name from Activity needs the agent service, which is not running.", bundle: .module)
+            case .noName: String(localized: "workspaceNaming.nameFromActivity.noName", defaultValue: "The model did not suggest a name.", bundle: .module)
+            case .oldDaemon: String(localized: "workspaceNaming.nameFromActivity.oldDaemon", defaultValue: "This workspace's machine runs an older cmux that cannot protect a rename made meanwhile.", bundle: .module)
+            case let .failed(detail): String(localized: "workspaceNaming.nameFromActivity.failed", defaultValue: "Could not name the workspace: \(detail)", bundle: .module)
             }
         }
     }

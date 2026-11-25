@@ -2,7 +2,6 @@ import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import { deeplinks } from "./deeplinks";
-import { toolWords } from "../toolMentions";
 
 // cmux deeplinks in the draft (Leo, 2026-11-03: "hm i wonder if those should be rendered the
 // deeplinks within the composer too..."): finds each cmux app link (`cmux://workspace/ws_…`,
@@ -28,15 +27,10 @@ function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: n
   // A leaf (a line break, a placed attachment) is one position: one character that ends a link.
   const text = block.textBetween(0, block.content.size, undefined, "￼");
   const found = deeplinks(text);
-  // `@computer-use` and `@browser-use` too: the titles plugin draws each as its tool's badge (toolMentions.ts).
-  // Not in inline code, where the send reads it as literal text too (toolMentionsIn).
-  const code = doc.type.schema.marks.inlineCode;
-  // Read in the textblock itself, never from the document's root: a paste of many paragraphs stays linear.
-  const tools = toolWords(text).filter((tool) => !code || !block.rangeHasMark(tool.start, tool.end, code));
-  if (!found.length && !tools.length) return next;
-  return next.add(doc, [
-    ...tools.map((tool) => Decoration.inline(start + tool.start, start + tool.end, {}, { deeplink: tool.href })),
-    ...found.map((link) =>
+  if (!found.length) return next;
+  return next.add(
+    doc,
+    found.map((link) =>
       Decoration.inline(
         start + link.start,
         start + link.end,
@@ -47,7 +41,7 @@ function redecorate(set: DecorationSet, doc: ProseNode, block: ProseNode, pos: n
         { deeplink: link.href },
       ),
     ),
-  ]);
+  );
 }
 
 /// Runs `visit` on each textblock (not code) that `from...to` touches.

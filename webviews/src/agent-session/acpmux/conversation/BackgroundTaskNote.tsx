@@ -32,7 +32,6 @@ import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import { commandRead } from "../session-info/commandRules";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { spanDuration } from "./turns";
-import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The longest a click waits for the registry before the note opens with what it has.
 export const OPEN_HOLD_MS = 1500;
@@ -153,13 +152,9 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             </>
           )}
           {named ? (
-            <WithFacts facts={[{ value: task.command, code: true }]}>
-              {(facts) => (
-                <span {...facts} className="cv-bgtask__title">
-                  {named}
-                </span>
-              )}
-            </WithFacts>
+            <span className="cv-bgtask__title" title={task.command}>
+              {named}
+            </span>
           ) : (
             <code className="cv-bgtask__command">{task.command || command}</code>
           )}

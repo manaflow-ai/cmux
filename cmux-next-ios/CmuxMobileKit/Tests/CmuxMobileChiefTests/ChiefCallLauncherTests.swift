@@ -10,7 +10,7 @@ import Testing
     }
 
     static func chief(_ id: String) -> ChiefSession {
-        ChiefSession(backend: ChiefOfflineBackend(), identity: ChiefIdentity(chiefID: id))
+        ChiefSession(backend: ChiefOfflineBackend(), identity: ChiefIdentity(chiefID: id), outbox: ChiefOutbox(file: nil))
     }
 
     @Test func aCallGoesToTheChiefNamed() {

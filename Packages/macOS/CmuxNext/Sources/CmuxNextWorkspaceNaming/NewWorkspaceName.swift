@@ -60,7 +60,7 @@ public nonisolated struct NewWorkspaceName {
         case .terminal, .remoteTerminal:
             // The title's text: the daemon already took an agent's spinner glyphs (`⠐ Fix the bug`) off it.
             if let title = clean(tab.title), !isBareShell(title), !isPlaceholder(title) { return title }
-            let directory = tab.cwd.map { ($0 as NSString).lastPathComponent }
+            let directory = tab.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
             return clean(directory == "/" ? nil : directory)
         }
     }

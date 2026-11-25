@@ -149,11 +149,9 @@ struct PaletteSubjectPickerTests {
     @Test func targetContextDoesNotBypassGlobalAvailability() throws {
         let registry = ActionRegistry.standard(), targets = Targets()
         registry.bind("cloudOpenDesktop", unavailable: { "Account is unavailable" }, invoke: { _ in })
-        let provider = RegistryPaletteProvider(registry: registry)
-        provider.targets = targets
-        // Not listed at all (Leo 2026-11-17: "just... stop showijg the toggle on gui"); the CLI still hears why.
-        #expect(!provider.makeItems().contains { $0.actionID == "cloudOpenDesktop" })
-        #expect(registry.unavailableReason(for: "cloudOpenDesktop") == "Account is unavailable")
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
+        #expect(!item.isEnabled)
+        #expect(item.subtitle == "Account is unavailable")
     }
 
     @Test func creationWithNoSubjectKeepsItsExistingMeaning() throws {

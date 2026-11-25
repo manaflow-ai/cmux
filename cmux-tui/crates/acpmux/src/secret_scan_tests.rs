@@ -27,7 +27,7 @@ fn assert_masked(text: &str, secrets: &[&str], expected: &str) {
 
 #[test]
 fn every_vendored_gitleaks_rule_compiles() {
-    let config: Config = toml::from_str(&GITLEAKS.inflate()).expect("gitleaks.toml parses");
+    let config: Config = toml::from_str(GITLEAKS).expect("gitleaks.toml parses");
     let compiled: Vec<&str> = RULES.rules.iter().map(|r| r.id.as_str()).collect();
     let dropped: Vec<&str> = config
         .rules
@@ -199,7 +199,7 @@ fn a_secret_that_starts_with_a_sigil_is_masked() {
 
 #[test]
 fn every_vendored_allowlist_regex_compiles() {
-    let config: Config = toml::from_str(&GITLEAKS.inflate()).expect("gitleaks.toml parses");
+    let config: Config = toml::from_str(GITLEAKS).expect("gitleaks.toml parses");
     let lists =
         std::iter::once(&config.allowlist).chain(config.rules.iter().flat_map(|r| &r.allowlists));
     let broken: Vec<&str> = lists

@@ -3,11 +3,11 @@ import CmuxNextCompat
 public import Darwin
 public import Foundation
 
-/// A signed helper app that holds its own macOS grants (Screen Recording, Accessibility):
-/// copied out of this app's bundle
-/// (``SignedHelperStaging``: macOS 26 checks Screen Recording for a helper inside an app
+/// A signed helper app that holds its own macOS grants (Screen Recording, Accessibility), the
+/// way the Computer Use helper v2 does: copied out of this app's bundle
+/// (``ComputerUseHelperStaging``: macOS 26 checks Screen Recording for a helper inside an app
 /// bundle as the outermost app) and started with responsibility disclaimed
-/// (``systemDisclaim``), so macOS checks, prompts for and lists the helper by its own
+/// (``DisclaimedHelperSpawner``), so macOS checks, prompts for and lists the helper by its own
 /// name, never cmux. A grant then restarts at most the helper, never this app.
 /// Used by the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md).
 public nonisolated struct SignedHelperLaunch: Sendable {
@@ -18,20 +18,14 @@ public nonisolated struct SignedHelperLaunch: Sendable {
         case spawn(Int32)
     }
 
-    private let staging: SignedHelperStaging
+    private let staging: ComputerUseHelperStaging
 
-    /// The Screen Sharing helper's copy, at one fixed path per helper bundle id for every build.
-    public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
-                                     helperBundleID: String? = nil) -> SignedHelperLaunch {
-        SignedHelperLaunch(staging: .screenSharing(bundleID: bundleID, helperBundleID: helperBundleID))
+    /// The Screen Sharing helper's copy, one per app build (`bundleID`'s scope).
+    public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> SignedHelperLaunch {
+        SignedHelperLaunch(staging: .screenSharing(bundleID: bundleID))
     }
 
-    /// The CFBundleIdentifier of the helper bundle at `app`; nil when unreadable.
-    public static func bundleIdentifier(of app: URL) -> String? {
-        SignedHelperStaging.bundleIdentifier(app)
-    }
-
-    init(staging: SignedHelperStaging) {
+    init(staging: ComputerUseHelperStaging) {
         self.staging = staging
     }
 
@@ -46,7 +40,7 @@ public nonisolated struct SignedHelperLaunch: Sendable {
     /// no other descriptor reaches it. The environment is this process's. The caller reaps it
     /// (``reap(_:)``) or waits for it.
     public static func spawn(executable: URL, arguments: [String], stdin: Int32, stdout: Int32, stderr: Int32) throws -> pid_t {
-        guard let disclaim = Self.systemDisclaim else { throw Failure.disclaimUnavailable }
+        guard let disclaim = DisclaimedHelperSpawner.systemDisclaim else { throw Failure.disclaimUnavailable }
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
         posix_spawn_file_actions_init(&actions)
@@ -76,20 +70,6 @@ public nonisolated struct SignedHelperLaunch: Sendable {
 
     /// Reaps `pid` off the caller's thread when it exits, so it never stays a zombie.
     public static func reap(_ pid: pid_t) {
-        let thread = Thread {
-            var status: Int32 = 0
-            while waitpid(pid, &status, 0) < 0, errno == EINTR {}
-        }
-        thread.name = "signed-helper-reap"
-        thread.start()
+        DisclaimedHelperSpawner.reap(pid)
     }
-
-    typealias DisclaimFunction = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
-
-    /// libsystem's `responsibility_spawnattrs_setdisclaim`, resolved once; nil when missing.
-    static let systemDisclaim: DisclaimFunction? = {
-        // RTLD_DEFAULT
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") else { return nil }
-        return unsafeBitCast(symbol, to: DisclaimFunction.self)
-    }()
 }

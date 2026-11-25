@@ -72,18 +72,6 @@ impl Carry {
         self.owed += 1;
     }
 
-    /// A turn no carry of this process left is owed its prompt (`resume_cut.rs`): a number of its
-    /// own, so the reader holds for it once.
-    pub(super) fn owe_new(&mut self) {
-        self.seq += 1;
-        self.owed += 1;
-    }
-
-    /// What `carry_owed` holds now: the turns owed their prompt, and the newest carry's number.
-    pub(super) fn owed_now(&self) -> (usize, u64) {
-        (self.owed, self.seq)
-    }
-
     /// Answers were lost (`fail_pending`): each carried turn whose prompt has not come yet ends
     /// with `message` when it comes, never as a success.
     pub(super) fn fail_owed(&mut self, message: &str) {

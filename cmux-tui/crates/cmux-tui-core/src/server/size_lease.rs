@@ -1,9 +1,8 @@
-//! The size lease (`size-lease-v2`, or the older `size-lease-v1`): a
-//! connection that lists the capability in `set-client-info` keeps each
-//! terminal size it reports only while it refreshes it. Every
-//! `resize-surface` (the same size is a refresh and never resizes the
-//! terminal) and every sized `attach-surface` renews the lease of that
-//! terminal for [`SIZE_LEASE_V2`] (or [`SIZE_LEASE_V1`]); when a lease ends unrenewed the daemon
+//! The size lease (`size-lease-v1`): a connection that lists the capability
+//! in `set-client-info` keeps each terminal size it reports only while it
+//! refreshes it. Every `resize-surface` (the same size is a refresh and never
+//! resizes the terminal) and every sized `attach-surface` renews the lease of
+//! that terminal for [`SIZE_LEASE`]; when a lease ends unrenewed the daemon
 //! releases the size as `release-surface-size` would. The view stays
 //! attached and stops counting, so the grid follows the other views at once
 //! (no departed-view hold), and the view's next report claims a size again.
@@ -32,60 +31,35 @@ use std::sync::Weak;
 use std::time::Duration;
 use std::time::Instant;
 
-/// Listed by the daemon in `identify` and by a client in `set-client-info`:
-/// the 45 s lease of phones that refresh every 15 s.
+/// Listed by the daemon in `identify` and by a client in `set-client-info`.
 pub const SIZE_LEASE_CAPABILITY: &str = "size-lease-v1";
-/// Listed the same way: the short lease of phones that refresh every 2 s. A
-/// client that lists both gets this one.
-pub const SIZE_LEASE_V2_CAPABILITY: &str = "size-lease-v2";
 
-/// How long a `size-lease-v1` size counts without a refresh. Its phones
-/// refresh every 15 s, so two missed refreshes still keep it.
-const SIZE_LEASE_V1: Duration = Duration::from_secs(45);
-/// How long a `size-lease-v2` size counts without a refresh. Its phones
-/// refresh every 2 s, so three missed refreshes still keep it, and a phone
-/// that went away without a release (suspended before the release left, a
-/// dead link, a crash) gives the Mac its grid back within 8 s.
-const SIZE_LEASE_V2: Duration = Duration::from_secs(8);
+/// How long a reported size counts without a refresh. A phone refreshes
+/// every 15 s, so two missed refreshes still keep it.
+const SIZE_LEASE: Duration = Duration::from_secs(45);
 /// Debug builds only: the lease in milliseconds, read once.
 #[cfg(debug_assertions)]
 const SIZE_LEASE_ENV: &str = "CMUX_TUI_TEST_SIZE_LEASE_MS";
 
-/// The lease `client` opted into, if any.
-fn lease_of(mux: &Mux, client: u64) -> Option<Duration> {
-    if mux.control_clients.supports_capability(client, SIZE_LEASE_V2_CAPABILITY) {
-        Some(size_lease(SIZE_LEASE_V2))
-    } else if mux.control_clients.supports_capability(client, SIZE_LEASE_CAPABILITY) {
-        Some(size_lease(SIZE_LEASE_V1))
-    } else {
-        None
-    }
-}
-
-/// `lease`, or in debug builds the test override (it applies to both leases).
-fn size_lease(lease: Duration) -> Duration {
+fn size_lease() -> Duration {
     #[cfg(debug_assertions)]
     {
-        static OVERRIDE: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
-        OVERRIDE
-            .get_or_init(|| {
-                std::env::var(SIZE_LEASE_ENV)
-                    .ok()
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .filter(|ms| *ms > 0)
-                    .map(Duration::from_millis)
-            })
-            .unwrap_or(lease)
+        static LEASE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+        *LEASE.get_or_init(|| {
+            std::env::var(SIZE_LEASE_ENV)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|ms| *ms > 0)
+                .map_or(SIZE_LEASE, Duration::from_millis)
+        })
     }
     #[cfg(not(debug_assertions))]
-    lease
+    SIZE_LEASE
 }
 
 #[derive(Clone, Copy)]
 struct Lease {
     until: Instant,
-    /// The lease's length (for the expiry log).
-    length: Duration,
     /// When its connection left without releasing (the departed-view hold
     /// that departure set ends with the lease).
     left_at: Option<Instant>,
@@ -107,7 +81,7 @@ pub(crate) struct SizeLeases {
 /// What an expired lease does.
 enum Expired {
     /// The connection is still here: release its size.
-    Release(u64, SurfaceId, Duration),
+    Release(u64, SurfaceId),
     /// It left at this instant: end the hold its departure set.
     EndHold(SurfaceId, Instant),
 }
@@ -118,9 +92,9 @@ impl SizeLeases {
     }
 
     /// Renews the lease; true when the worker must be started.
-    fn renew(&self, client: u64, surface: SurfaceId, until: Instant, length: Duration) -> bool {
+    fn renew(&self, client: u64, surface: SurfaceId, until: Instant) -> bool {
         let mut state = self.lock();
-        state.leases.insert((client, surface), Lease { until, length, left_at: None });
+        state.leases.insert((client, surface), Lease { until, left_at: None });
         self.changed.notify_all();
         !std::mem::replace(&mut state.worker, true)
     }
@@ -156,7 +130,7 @@ impl SizeLeases {
                 state.leases.remove(&(client, surface));
                 match lease.left_at {
                     Some(left_at) => Expired::EndHold(surface, left_at),
-                    None => Expired::Release(client, surface, lease.length),
+                    None => Expired::Release(client, surface),
                 }
             })
             .collect()
@@ -194,9 +168,11 @@ impl SizeLeases {
 /// `client` is about to report a size of `surface`: renew its lease, when
 /// it opted in.
 pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) {
-    let Some(lease) = lease_of(mux, client) else { return };
-    let until = Instant::now() + lease;
-    if !mux.control_clients.size_leases.renew(client, surface, until, lease) {
+    if !mux.control_clients.supports_capability(client, SIZE_LEASE_CAPABILITY) {
+        return;
+    }
+    let until = Instant::now() + size_lease();
+    if !mux.control_clients.size_leases.renew(client, surface, until) {
         return; // The worker is running and reads the new deadline.
     }
     // The worker holds the leases, never the Mux, while it waits: a daemon
@@ -236,12 +212,13 @@ fn expire(mux: &Arc<Mux>) {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         for expired in mux.control_clients.size_leases.take_expired(Instant::now()) {
             match expired {
-                Expired::Release(client, surface, length) => {
+                Expired::Release(client, surface) => {
                     if !mux.control_clients.contains(client) {
                         continue;
                     }
                     eprintln!(
-                        "cmux-tui: client {client}'s size of surface {surface:?} was not refreshed for {length:?}: released"
+                        "cmux-tui: client {client}'s size of surface {surface:?} was not refreshed for {:?}: released",
+                        size_lease()
                     );
                     if let Err(error) =
                         cmd_sizing::release_surface_size_locked(mux, client, surface)

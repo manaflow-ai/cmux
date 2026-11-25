@@ -54,36 +54,3 @@ gh workflow run internal-token-staging.yml -R manaflow-ai/cmux --ref feat-cmux-n
 gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
 python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
 ```
-
-## cmux VM Worker secrets to cmux-platform
-
-`.github/workflows/cmux-vm-secrets-seal.yml` is cutover step 1 of cmux-platform's `workers/cmux-vm/MOVED.md`. It runs
-only from `feat-cmux-next`, one job per environment (`cmux-vm-staging`, `cmux-vm-production`), and seals every
-environment secret `cmux-vm.yml` reads there to the cmux-platform environment of the same name. It copies no
-repository secret (`CLOUDFLARE_*`, `CMUX_PR_AUTOFIX_APP_*`), skips a name whose value is empty and lists the skipped
-names in the run summary. The artifact `sealed-secrets` holds `bundle-cmux-vm-staging.json` and
-`bundle-cmux-vm-production.json`, and is published only when both environments sealed.
-
-The target public keys are read at run time, not pinned: job `keys` reads them with the manaflow-cmux-pr-autofix
-App (environments read on cmux-platform) in a job that holds none of the Worker's secrets (it runs in the App's own
-`cmux-pr-autofix` environment). When that App cannot read
-them, the run fails before sealing and names the four dispatch inputs to pass instead. `put` checks the live key either
-way. To run it and store the result, as an account with write access to cmux-platform's environment secrets:
-
-```sh
-gh workflow run cmux-vm-secrets-seal.yml -R manaflow-ai/cmux --ref feat-cmux-next
-D="$(mktemp -d)"; gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$D"
-python3 scripts/ci/sealed_secrets.py put "$D"
-```
-
-If job `keys` fails, pass the keys (public values) instead:
-
-```sh
-S="$(gh api repos/manaflow-ai/cmux-platform/environments/cmux-vm-staging/secrets/public-key)"
-P="$(gh api repos/manaflow-ai/cmux-platform/environments/cmux-vm-production/secrets/public-key)"
-gh workflow run cmux-vm-secrets-seal.yml -R manaflow-ai/cmux --ref feat-cmux-next \
-  -f staging_key_id="$(jq -r .key_id <<<"$S")" -f staging_key="$(jq -r .key <<<"$S")" \
-  -f production_key_id="$(jq -r .key_id <<<"$P")" -f production_key="$(jq -r .key <<<"$P")"
-```
-
-Rerun it whenever cmux's values change before the cutover; each `put` overwrites the copies.

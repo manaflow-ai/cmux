@@ -138,8 +138,7 @@ extension InstantPerfTests {
                 "home_list_first_screen_under_load", target: 16, small: atFeedPriority.small, god: atFeedPriority.god,
                 note: String(format: "small: the 20-row window, god: the 20-of-5,000 window, their runs in turn under one load: %ld cores parsing the whole god list (%ld B) at the feed's priority (%ld lists parsed). The same god window with no load: %.2f ms; at .userInitiated (the feed before): %.2f ms",
                              Self.loaders, HomeInboxFixture.wire(.god).count, atFeedPriority.parsed,
-                             InstantPerfReport.median(quietGod), InstantPerfReport.median(atOldPriority.god)),
-                underLoad: true)
+                             InstantPerfReport.median(quietGod), InstantPerfReport.median(atOldPriority.god)))
         }
     }
 }

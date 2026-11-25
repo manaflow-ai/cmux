@@ -1,8 +1,6 @@
 internal import CMUXMobileCore
 internal import Foundation
-#if canImport(os)
 internal import os
-#endif
 
 /// Linearizes new transport ownership against synchronous client retirement.
 final class MobileRPCClientLifecycleGate: Sendable {

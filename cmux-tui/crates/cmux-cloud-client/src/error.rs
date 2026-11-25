@@ -5,15 +5,12 @@
 //! keeps the status, the tag, the code and the message, whatever came back.
 
 use cmux_cloud_machine::refusals;
-#[cfg(feature = "http")]
 use futures::StreamExt;
 use serde_json::Value;
 
-#[cfg(feature = "http")]
 use crate::{ByteStream, Error};
 
 /// The most of an error body that is read.
-#[cfg(feature = "http")]
 const MAX_ERROR_BODY: usize = 64 * 1024;
 
 /// A refused or failed Cloud call.
@@ -91,7 +88,6 @@ impl ApiError {
     }
 
     /// A call that never got an answer (no route, a reset, a timeout).
-    #[cfg(feature = "http")]
     pub fn unreachable(error: &reqwest::Error) -> Self {
         Self {
             status: None,
@@ -116,7 +112,6 @@ impl ApiError {
     }
 
     /// Reads a generated method's error.
-    #[cfg(feature = "http")]
     pub async fn from_api(error: Error<ByteStream>) -> Self {
         match error {
             Error::ErrorResponse(response) => {
@@ -151,18 +146,16 @@ impl ApiError {
     }
 }
 
-#[cfg(feature = "http")]
 fn retry_after_header(headers: &reqwest::header::HeaderMap) -> Option<String> {
     headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok().map(str::to_owned)
 }
 
-#[cfg(feature = "http")]
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
     let room = MAX_ERROR_BODY.saturating_sub(body.len());
     body.extend_from_slice(chunk.get(..room).unwrap_or(chunk));
 }
 
-#[cfg(all(test, feature = "http"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

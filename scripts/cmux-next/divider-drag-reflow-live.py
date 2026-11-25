@@ -25,7 +25,6 @@ import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
-from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -139,11 +138,7 @@ try:
     written = subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "write", "--text", "clear; seq -s. 900\r"],
                              capture_output=True, text=True, timeout=60, env=cli_env, stdin=subprocess.DEVNULL)
     report["write"] = {"exit": written.returncode, "out": written.stdout[-400:], "err": written.stderr[-400:]}
-    # The line is printed (its end is on the left terminal's screen), then both grids hold still.
-    printed = lambda: "899.900" in ((rpc("surface.read_text") or {}).get("text") or "").replace("\n", "")
-    if not wait_until(printed, "seq's line on the left terminal", timeout=15, raise_on_timeout=False):
-        report["notes"].append("the printed line never showed on the left terminal within 15 s")
-    wait_stable(terminals, "the terminals' grids after the print", timeout=10, interval=0.1, raise_on_timeout=False)
+    time.sleep(1.0)
     dividers = vertical_dividers(layer())
     if not dividers:
         sys.exit("no vertical divider")
@@ -165,21 +160,15 @@ try:
                 report["steps"].append({"pointer_x": round(x, 1), "fit": [p[1] for p in panes], "grid": [p[2] for p in panes],
                                         "drawn": [p[3] for p in panes]})
         rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
-        if not sample:
-            # sleep-ok: pass A's frame recording runs on 0.8 s past the release with no debug reads in it
-            time.sleep(0.8)
-            return
-        # The drag is over: the fitted, owner and drawn grids stop changing.
-        if wait_stable(terminals, "the grids after the drag", timeout=10, interval=0.1, raise_on_timeout=False) is None:
-            report["notes"].append("debug.surfaces did not answer after the drag")
+        time.sleep(0.8)
 
     # Baseline: display-link intervals of the idle window for 2 s.
     rpc("debug.frames", {"action": "start"})
-    time.sleep(2)  # sleep-ok: the idle baseline's recording window (2 s of display-link intervals)
+    time.sleep(2)
     report["frames_idle"] = rpc("debug.frames", {"action": "stop"})
     # Pass A: frame intervals of the drag alone (no debug reads or recording between events).
     rpc("debug.frames", {"action": "start"})
-    time.sleep(0.3)  # sleep-ok: 300 ms of idle frames recorded before the drag (drag_started_ms marks it)
+    time.sleep(0.3)
     report["drag_started_ms"] = 300
     drag(sample=False)
     report["frames"] = rpc("debug.frames", {"action": "stop"})

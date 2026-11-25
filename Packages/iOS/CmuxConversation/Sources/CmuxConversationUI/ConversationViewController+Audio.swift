@@ -4,53 +4,6 @@ import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
 
-/// What the composer's audio recorder (``ConversationAudioComposer``) needs from the screen it
-/// records on: the conversation (``ConversationViewController``) or New Message
-/// (``ConversationComposeViewController``), which sends the recording as the first message.
-@MainActor
-protocol ConversationAudioHost: AnyObject {
-    var composer: ConversationComposerView { get }
-    /// Audio this account already sent here (Messages shows the waveform glyph from then on);
-    /// nil while that is not known yet (not signed in to the conversation).
-    var hasSentAudio: Bool? { get }
-    func dismissPhotoDrawer()
-    func presentMicrophoneDenied()
-    /// Sends a finished recording; false when it could not be sent.
-    func sendRecordedAudio(data: Data, info: ConversationAudioInfo) -> Bool
-    /// Whether a send now can go anywhere; false keeps the review up (the host says why).
-    func canSendRecordedAudio() -> Bool
-}
-
-extension ConversationViewController: ConversationAudioHost {
-    var hasSentAudio: Bool? {
-        guard let meID = store.meID else { return nil }
-        return store.messages.contains(where: { $0.senderID == meID && $0.audioAttachment != nil })
-    }
-
-    func sendRecordedAudio(data: Data, info: ConversationAudioInfo) -> Bool {
-        // A reply stays in its open thread, as a typed one does.
-        store.sendAudio(data: data, info: info, replyToID: replyTarget?.id) != nil
-    }
-
-    func canSendRecordedAudio() -> Bool {
-        // A held send keeps the review up; agreeing sends it.
-        sendGateAllows(retry: { [weak self] in self?.audioComposer.send() })
-    }
-}
-
-extension UIViewController {
-    /// Recording needs the microphone, and this app may not use it: say where to allow it.
-    func presentMicrophoneDenied() {
-        let alert = UIAlertController(
-            title: String(localized: "conversation.audio.micDenied.title", defaultValue: "Microphone Access Is Off", bundle: .module),
-            message: String(localized: "conversation.audio.micDenied.message", defaultValue: "To record audio messages, allow microphone access in Settings.", bundle: .module),
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: String(localized: "conversation.audio.ok", defaultValue: "OK", bundle: .module), style: .default))
-        present(alert, animated: true)
-    }
-}
-
 extension ConversationViewController: AudioMessageCellDelegate {
     func keepAudio(messageID: String) {
         store.keepAudio(messageID: messageID)
@@ -79,6 +32,16 @@ extension ConversationViewController: AudioMessageCellDelegate {
         guard next.senderID != store.meID, next.audioAttachment != nil else { return nil }
         return next
     }
+
+    func presentMicrophoneDenied() {
+        let alert = UIAlertController(
+            title: String(localized: "conversation.audio.micDenied.title", defaultValue: "Microphone Access Is Off", bundle: .module),
+            message: String(localized: "conversation.audio.micDenied.message", defaultValue: "To record audio messages, allow microphone access in Settings.", bundle: .module),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String(localized: "conversation.audio.ok", defaultValue: "OK", bundle: .module), style: .default))
+        present(alert, animated: true)
+    }
 }
 
 /// Records an audio message in the composer the way Messages does on iOS 26
@@ -94,7 +57,7 @@ extension ConversationViewController: AudioMessageCellDelegate {
 /// VoiceOver has no hold: activating the button records straight away.
 @MainActor
 final class ConversationAudioComposer {
-    private weak var controller: (any ConversationAudioHost)?
+    private weak var controller: ConversationViewController?
     private var recorder: ConversationAudioRecorder?
     private let field = AudioRecordingFieldView()
     private var displayLink: CADisplayLink?
@@ -114,7 +77,7 @@ final class ConversationAudioComposer {
     /// How long Messages leaves "Tap and hold to record and send audio" up.
     static let hintDuration: Duration = .seconds(2)
 
-    init(controller: any ConversationAudioHost) {
+    init(controller: ConversationViewController) {
         self.controller = controller
         field.onStop = { [weak self] in self?.stopToReview() }
         field.onSend = { [weak self] in self?.send() }
@@ -136,12 +99,6 @@ final class ConversationAudioComposer {
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
         hold.minimumPressDuration = Self.holdDuration
         button.addGestureRecognizer(hold)
-        // The button records from the start on every iOS (a tap says to hold, a hold records):
-        // cmux has no dictation behind Messages 26.5's microphone, so a microphone that only
-        // turned into the record button after audio was sent never recorded at all. Only the
-        // glyph follows Messages (``noteConversationChanged()``).
-        button.isUserInteractionEnabled = true
-        button.isAccessibilityElement = true
         noteConversationChanged()
     }
 
@@ -150,18 +107,21 @@ final class ConversationAudioComposer {
     }
 
     func noteConversationChanged() {
-        guard !showsRecordButton, let sent = controller?.hasSentAudio else { return }
+        guard !showsRecordButton, let store = controller?.store, let meID = store.meID else { return }
         // A synthetic or file input (UI tests, demos) stands in for audio already sent.
-        let sentAudio = ConversationAudioRecorder.Input.fromEnvironment != .microphone || sent
+        let sentAudio = ConversationAudioRecorder.Input.fromEnvironment != .microphone
+            || store.messages.contains(where: { $0.senderID == meID && $0.audioAttachment != nil })
         if ComposerBarGeometry.showsRecordGlyph(iOS27: ConversationComposerView.isIOS27, sentAudio: sentAudio) {
             setShowsRecordButton()
         }
     }
 
     private func setShowsRecordButton() {
-        guard !showsRecordButton, controller?.composer.micButton != nil else { return }
+        guard !showsRecordButton, let button = controller?.composer.micButton else { return }
         showsRecordButton = true
         controller?.composer.showRecordGlyph()
+        button.isUserInteractionEnabled = true
+        button.isAccessibilityElement = true
     }
 
     /// A tap too short to record: Messages answers with the hold hint.
@@ -286,9 +246,6 @@ final class ConversationAudioComposer {
     }
 
     func send() {
-        // Nowhere to send it yet (New Message with no one in To:): the review stays, so the
-        // recording is not thrown away.
-        guard controller?.canSendRecordedAudio() != false else { return }
         run(.send)
     }
 
@@ -296,8 +253,10 @@ final class ConversationAudioComposer {
         guard let recorder, let controller else { return dismiss() }
         stopReviewPlayer()
         guard let recorded = recorder.finish() else { return dismiss() }
+        let replyTo = controller.replyTarget?.id
         dismiss()
-        guard controller.sendRecordedAudio(data: recorded.data, info: recorded.info) else { return }
+        // A reply stays in its open thread, as a typed one does.
+        guard controller.store.sendAudio(data: recorded.data, info: recorded.info, replyToID: replyTo) != nil else { return }
         setShowsRecordButton()
     }
 
@@ -403,7 +362,7 @@ final class ConversationAudioComposer {
 
     // MARK: Field
 
-    private func show(in controller: any ConversationAudioHost, stage: ComposerAudioLayout.Stage) {
+    private func show(in controller: ConversationViewController, stage: ComposerAudioLayout.Stage) {
         let composer = controller.composer
         composer.textView.resignFirstResponder()
         field.frame = composer.fieldGlass.contentView.bounds

@@ -98,31 +98,31 @@ public nonisolated struct PlainErrorText {
     public static func words(_ kind: Kind) -> String {
         switch kind {
         case .offline:
-            String(localized: "error.plain.offline", defaultValue: "You're offline. Check your network, then try again.", bundle: .localizedModule)
+            String(localized: "error.plain.offline", defaultValue: "You're offline. Check your network, then try again.", bundle: .module)
         case .timedOut:
             String(localized: "error.plain.timedOut", defaultValue: "The connection timed out. Check your network, then try again.",
-                   bundle: .localizedModule)
+                   bundle: .module)
         case .unreachable:
             String(localized: "error.plain.unreachable", defaultValue: "cmux couldn't reach the server. Check your network, then try again.",
-                   bundle: .localizedModule)
+                   bundle: .module)
         case .secureConnection:
             String(localized: "error.plain.secureConnection", defaultValue: "cmux couldn't make a secure connection. Try again later.",
-                   bundle: .localizedModule)
+                   bundle: .module)
         case .noSpace:
-            String(localized: "error.plain.noSpace", defaultValue: "The disk is full. Free some space, then try again.", bundle: .localizedModule)
+            String(localized: "error.plain.noSpace", defaultValue: "The disk is full. Free some space, then try again.", bundle: .module)
         case .readOnly:
-            String(localized: "error.plain.readOnly", defaultValue: "The disk is read-only.", bundle: .localizedModule)
+            String(localized: "error.plain.readOnly", defaultValue: "The disk is read-only.", bundle: .module)
         case .permission:
-            String(localized: "error.plain.permission", defaultValue: "cmux doesn't have permission to do that.", bundle: .localizedModule)
+            String(localized: "error.plain.permission", defaultValue: "cmux doesn't have permission to do that.", bundle: .module)
         case .notFound:
-            String(localized: "error.plain.notFound", defaultValue: "The file or folder isn't there anymore.", bundle: .localizedModule)
+            String(localized: "error.plain.notFound", defaultValue: "The file or folder isn't there anymore.", bundle: .module)
         case .exists:
-            String(localized: "error.plain.exists", defaultValue: "An item with that name already exists.", bundle: .localizedModule)
+            String(localized: "error.plain.exists", defaultValue: "An item with that name already exists.", bundle: .module)
         }
     }
 
     /// The line for an error cmux has no words for.
     public static var generic: String {
-        String(localized: "error.plain.generic", defaultValue: "Something went wrong. Try again.", bundle: .localizedModule)
+        String(localized: "error.plain.generic", defaultValue: "Something went wrong. Try again.", bundle: .module)
     }
 }

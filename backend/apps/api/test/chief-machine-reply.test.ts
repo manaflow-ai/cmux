@@ -25,16 +25,11 @@ const attachmentPart = (parts: ReadonlyArray<MessagePart>) => parts.find((part) 
  * this test can model an acknowledged write whose response disappears; all membership, quota, slots,
  * upload verification and R2 reads use the production handlers and reducers.
  */
-const withReply = async (
-  suffix: string,
-  reply: string,
-  check: (b: ChiefBrainDO, run: string, conversation: string, owner: Awaited<ReturnType<typeof signIn>>, f: Fixture) => Promise<void>,
-  peers: ReadonlyArray<string> = []
-) => {
+const withReply = async (suffix: string, reply: string, check: (b: ChiefBrainDO, run: string, conversation: string, owner: Awaited<ReturnType<typeof signIn>>, f: Fixture) => Promise<void>) => {
   const owner = await signIn(`chief-reply-${suffix}`)
   const conversation = convId()
   const agent = `agent_reply_${suffix}`
-  const chiefOwner = { ...owner.principal, owned_agents: [{ id: agent, display_name: "Chief" }, ...peers.map((id) => ({ id, display_name: "Peer" }))] } as Principal
+  const chiefOwner = { ...owner.principal, owned_agents: [{ id: agent, display_name: "Chief" }] } as Principal
   const conversationStub = stub(testEnv.CONVERSATION_DO, conversation)
   expect(result(await conversationStub.submit(conversation, chiefOwner, {
     t: "op",
@@ -45,8 +40,7 @@ const withReply = async (
       title: "Chief reply",
       participants: [
         { id: owner.user, kind: "human", display_name: "Owner" },
-        { id: agent, kind: "agent", display_name: "Chief", agent_class: "mux" },
-        ...peers.map((id) => ({ id, kind: "agent", display_name: "Peer", agent_class: "mux" }))
+        { id: agent, kind: "agent", display_name: "Chief", agent_class: "mux" }
       ]
     },
     idempotency_key: "create"
@@ -245,7 +239,6 @@ describe("complete machine replies through durable attachments", { timeout: 120_
   })
 
   it("keeps the actual conversation's agent-turn budget on the compact message", async () => {
-    // The turn cap applies only where two or more agents share the conversation.
     await withReply("budget", longReply, async (b, run, conversation, owner, f) => {
       const conv = stub(testEnv.CONVERSATION_DO, conversation)
       expect(result(await conv.submit(conversation, owner.principal, {
@@ -259,6 +252,6 @@ describe("complete machine replies through durable attachments", { timeout: 120_
       expect(f.messageSubmits).toHaveLength(1)
       const snapshot = await (testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ value?: { rows?: { rows: Array<unknown> } } }> }).readOp(conversation, owner.principal, "conversation.snapshot", { tail: 20 })
       expect(snapshot.value?.rows?.rows).toHaveLength(1)
-    }, ["agent_reply_budget_peer"])
+    })
   })
 })

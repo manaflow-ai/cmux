@@ -1,9 +1,7 @@
-import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextProcessEnvironment
 import CmuxNextSettings
 import CmuxNextTerminal
-import CmuxNextUpdater
 import Foundation
 
 /// This process's environment writes, in launch order, then the freeze.
@@ -16,9 +14,8 @@ import Foundation
 extension CmuxNextApp {
     static func prepareLaunchEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
         // Cmux variables inherited from a shell inside another cmux, so they
-        // cannot pick this app's socket, tag, or daemon session; then this build's own
-        // space and, for a DEV build, its own settings and state files (BuildStatePaths).
-        let stripped = LaunchIdentity.stripInheritedEnvironment(settingsBuildDefaults: .thisBuild, environmentGuard: environmentGuard)
+        // cannot pick this app's socket, tag, or daemon session.
+        let stripped = LaunchIdentity.stripInheritedEnvironment(environmentGuard: environmentGuard)
         // The names only (never values), so a launch knob lost to another
         // cmux's terminal shows in the app's log.
         if !stripped.isEmpty {

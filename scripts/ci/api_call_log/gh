@@ -14,9 +14,7 @@ self=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 # so the two wrappers never call each other in a loop. Any other gh under it (gh's own children)
 # is a fresh call.
 reentry=""
-# This shim's own GET /rate_limit (below) goes straight to gh, unlogged.
-[ -n "${API_CALL_LOG_GH_PROBE:-}" ] && reentry=1
-if [ -z "$reentry" ] && [ -n "${API_CALL_LOG_GH_SEEN:-}" ]; then
+if [ -n "${API_CALL_LOG_GH_SEEN:-}" ]; then
   if [ "${API_CALL_LOG_GH_PID:-}" = "$$" ] || [ "${API_CALL_LOG_GH_PID:-}" = "$PPID" ]; then
     reentry=1
   else
@@ -124,25 +122,6 @@ word() { case $1 in *[!a-z-]* | "") echo "?" ;; *) echo "$1" ;; esac; }
         ;;
     esac
     printf '%s\n' "$out" >>"$sink" 2>/dev/null || printf '%s\n' "$out" >>"${API_CALL_LOG_DIR:-/nonexistent}/pending.log" 2>/dev/null
-    # The token's hour, once per token per job: the shim sees no rate-limit headers, and a job token's calls draw
-    # on one of the repository's GITHUB_TOKEN hours. GET /rate_limit costs no quota.
-    mark="${API_CALL_LOG_DIR:-/nonexistent}/bucket-$fp"
-    case $fp in
-      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
-        if [ -n "${API_CALL_LOG_DIR:-}" ] && [ ! -e "$mark" ] && : >"$mark"; then
-          if command -v timeout >/dev/null 2>&1; then lim="timeout 15"; else lim=""; fi
-          b=$(API_CALL_LOG_GH_PROBE=1 GH_PROMPT_DISABLED=1 $lim "$real" api rate_limit \
-            --jq '.resources.core | "\(.used)\t\(.remaining)\t\(.reset)"' 2>/dev/null | head -n 1)
-          case $b in
-            [0-9]*"$(printf '\t')"[0-9]*"$(printf '\t')"[0-9]*)
-              out=$(printf 'gh-call\t%s\t%s\t%s\tcore\t%s\tGET /rate_limit [gh-bucket tok=%s]' "$stamp" \
-                "$(clean "${GITHUB_WORKFLOW:-}")" "$(clean "${GITHUB_JOB:-}")" "$b" "$fp")
-              printf '%s\n' "$out" >>"$sink" 2>/dev/null || printf '%s\n' "$out" >>"${API_CALL_LOG_DIR:-/nonexistent}/pending.log" 2>/dev/null
-              ;;
-          esac
-        fi
-        ;;
-    esac
   fi
 } >/dev/null 2>&1 </dev/null
 

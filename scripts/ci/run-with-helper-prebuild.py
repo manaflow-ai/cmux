@@ -32,15 +32,8 @@ def stop_group(process):
             process.kill()
         process.wait()
         return
-    # Until the group is gone after SIGTERM (the leader reaped, no member left), at most 5 s; then SIGKILL.
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        process.poll()
-        if not signal_group(process.pid, 0):
-            break
-        time.sleep(0.05)
-    else:
-        signal_group(process.pid, signal.SIGKILL)
+    time.sleep(0.2)
+    signal_group(process.pid, signal.SIGKILL)
     process.wait()
 
 

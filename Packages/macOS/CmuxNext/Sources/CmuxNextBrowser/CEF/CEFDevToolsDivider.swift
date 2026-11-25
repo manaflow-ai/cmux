@@ -115,8 +115,7 @@ final class CEFDevToolsDivider: NSView {
     }
 
     /// The dock side choices (CEF runs DevTools with docking off, so its
-    /// own three-dot menu has none). Each row runs a palette action (``command(for:)``, Close
-    /// `devtools.close`).
+    /// own three-dot menu has none).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let tab = devTools?.tab else { return nil }
         let menu = NSMenu()
@@ -132,35 +131,16 @@ final class CEFDevToolsDivider: NSView {
         let close = NSMenuItem(title: Strings.devToolsClose, action: #selector(closeItem(_:)), keyEquivalent: "")
         close.target = self
         menu.addItem(close)
-        return NSMenu.withoutSystemItems(menu)
+        return menu
     }
 
     @objc private func dockItem(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let dock = BrowserDevToolsDock(rawValue: raw) else { return }
-        run(Self.command(for: dock))
+        devTools?.perform(.dock(dock))
     }
 
     @objc private func closeItem(_ sender: NSMenuItem) {
-        run(.close)
-    }
-
-    /// The palette's Developer Tools action a dock row is: Dock to Left, Dock to Bottom
-    /// (`devtools.openDocked`), Dock to Right and Undock (`devtools.openInWindow`).
-    nonisolated static func command(for dock: BrowserDevToolsDock) -> WebDevToolsCommand {
-        switch dock {
-        case .left: .openDockedLeft
-        case .bottom: .openDocked
-        case .right: .openDockedRight
-        case .window: .openInWindow
-        }
-    }
-
-    /// A row runs its palette action through the tab's host (`BrowserTabIntent.devTools`), so the
-    /// menu and the palette run one handler; a tab with no host yet moves its own DevTools.
-    private func run(_ command: WebDevToolsCommand) {
-        guard let tab = devTools?.tab else { return }
-        if let delegate = tab.delegate { return delegate.browserTab(tab, didRequest: .devTools(command)) }
-        if let placement = command.placement { devTools?.perform(placement) }
+        devTools?.perform(.close)
     }
 }
 

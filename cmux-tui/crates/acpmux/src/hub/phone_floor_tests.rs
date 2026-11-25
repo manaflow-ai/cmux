@@ -62,85 +62,8 @@ async fn a_removed_phones_turn_gets_no_more_tools() {
     hub.pairing.revoke(&phone).unwrap();
     let off = hub.answer_tool_gate(&session, tool_call(&session)).await;
     assert_eq!(off["decision"], "deny", "{off}");
-    let reason = off["reason"].as_str().unwrap_or_default();
-    assert!(reason.starts_with("remote.mode_not_asking"), "{off}");
-    assert!(reason.contains("Settings > Mobile > Phones"), "names where the switch is: {off}");
+    assert_eq!(off["reason"], "remote.mode_not_asking", "{off}");
     assert_eq!(cancelled_turn(&session).as_deref(), Some("turn-phone"), "the turn ends too");
-}
-
-/// The phone's turn ended, and a helper it started runs on: its tool calls keep the chat's mode
-/// (Leo, 2026-11-21, after his phone's prompt to a bypass chat refused every helper's tool call
-/// `remote.mode_not_asking`: "i did not mean to pause you. it must be a bug?").
-fn end_turn(session: &Session) {
-    let turn = session.turn.lock().unwrap().take().expect("a running turn");
-    session.floor.mark_last_turn(turn.control == Control::Web, turn.device);
-}
-
-#[tokio::test]
-async fn the_phones_helpers_keep_the_mode_after_its_turn() {
-    let (hub, session, _) = fixture();
-    // As the turn's start marks the floor (`run_prompt_joined`).
-    session.floor.mark_last_turn(true, session.turn().and_then(|t| t.device));
-    end_turn(&session);
-    assert!(Hub::web_turn(&session), "the floor still holds between turns");
-    let helper = hub.answer_tool_gate(&session, tool_call(&session)).await;
-    assert_ne!(helper["decision"], "deny", "the owner's phone's helper runs: {helper}");
-    assert_eq!(hub.remote_floor_breach(&session), None);
-}
-
-#[tokio::test]
-async fn full_access_off_holds_the_phones_helpers_and_names_the_switch() {
-    let (hub, session, phone) = fixture();
-    end_turn(&session);
-    hub.pairing.set_full_access(&phone, false).unwrap();
-    let helper = hub.answer_tool_gate(&session, tool_call(&session)).await;
-    assert_eq!(helper["decision"], "deny", "{helper}");
-    let reason = helper["reason"].as_str().unwrap_or_default();
-    assert!(reason.starts_with("remote.mode_not_asking"), "{helper}");
-    assert!(reason.contains("Full access is off for this phone"), "{helper}");
-    assert!(reason.contains("Settings > Mobile > Phones"), "{helper}");
-}
-
-#[tokio::test]
-async fn a_removed_phones_helpers_are_held() {
-    let (hub, session, phone) = fixture();
-    end_turn(&session);
-    hub.pairing.revoke(&phone).unwrap();
-    let helper = hub.answer_tool_gate(&session, tool_call(&session)).await;
-    assert_eq!(helper["decision"], "deny", "{helper}");
-    assert_eq!(hub.remote_floor_breach(&session), Some("remote.mode_not_asking"));
-}
-
-#[tokio::test]
-async fn another_clients_turn_leaves_no_phone_on_the_floor() {
-    let (hub, session, _) = fixture();
-    // A Web turn no one device drove (a peer's Web client, two clients' steers).
-    session.turn.lock().unwrap().as_mut().unwrap().device = None;
-    end_turn(&session);
-    assert_eq!(session.floor.last_turn_device(), None);
-    assert_eq!(hub.remote_floor_breach(&session), Some("remote.mode_not_asking"));
-    // A local turn takes the floor back and with it any phone's mark.
-    session.floor.mark_last_turn(false, Some("phone".into()));
-    assert_eq!(session.floor.last_turn_device(), None);
-    assert!(!Hub::web_turn(&session));
-}
-
-/// A steer from the owner's phone into a Local turn makes it the phone's, and the floor
-/// keeps that phone after the turn (`check_steer`).
-#[tokio::test]
-async fn a_phone_steer_keeps_its_device_after_the_turn() {
-    let (hub, session, phone) = fixture();
-    {
-        let mut turn = session.turn.lock().unwrap();
-        let t = turn.as_mut().unwrap();
-        t.control = Control::Local;
-        t.device = None;
-    }
-    session.floor.mark_last_turn(false, None);
-    hub.check_steer(&session, Control::Web, Some(&phone)).expect("the phone steers");
-    assert_eq!(session.floor.last_turn_device().as_deref(), Some(phone.as_str()));
-    end_turn(&session);
-    assert_eq!(hub.remote_floor_breach(&session), None, "the phone's helper runs");
 }
 
 #[tokio::test]

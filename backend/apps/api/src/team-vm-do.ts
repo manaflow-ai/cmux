@@ -1,6 +1,5 @@
-import { envForObject } from "./build-space.ts"
 import type { Domain, OpFrame, Principal } from "@cmux/ownership"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { TeamVmOwnerDriver } from "./team-vm-api-route.ts"
@@ -65,8 +64,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     return this.journalStore
   }
 
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, teamVmDomain as Domain<TeamVmState>, "team_vm")
   }
 

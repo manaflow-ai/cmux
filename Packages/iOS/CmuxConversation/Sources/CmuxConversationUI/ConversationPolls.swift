@@ -421,9 +421,7 @@ extension ConversationViewController {
 
     func presentPollComposer() {
         let composer = PollComposerViewController { [weak self] question, choices in
-            guard let self else { return }
-            let send = { [weak self] in _ = self?.store.sendPoll(question: question, choices: choices) }
-            if self.sendGateAllows(retry: send) { send() }
+            self?.store.sendPoll(question: question, choices: choices)
         }
         let nav = UINavigationController(rootViewController: composer)
         if let sheet = nav.sheetPresentationController {

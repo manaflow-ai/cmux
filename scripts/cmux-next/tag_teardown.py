@@ -355,10 +355,7 @@ class TagTeardown:
                 os.kill(pid, signal.SIGKILL)  # an exact PID of this bundle, never a pattern
             except ProcessLookupError:
                 pass
-        # The KILLed PIDs are gone from the process table.
-        deadline = time.time() + 5
-        while time.time() < deadline and killed and self.processes():
-            time.sleep(0.1)
+        time.sleep(0.5)
         after = self.processes()
         # 4. The counts.
         self.log(f"teardown: {len(before)} processes of the bundle at exit, {len(left)} left after the shutdowns "

@@ -35,9 +35,9 @@ extension TabStripView {
         if TopRowLineLook.tunable.value != .off, let window, let content = window.contentView {
             let strip = restingWindowRect().strip
             if WindowTitlebar.isInTopRow(strip, in: window), WindowTitlebar.topRowEvensPillGaps(in: window) {
-                // Equal gaps from under the window's rim and to the strip's bottom; the card's top brings them to the line (#38054).
+                // Equal gaps from the window's top edge and to the strip's bottom; the card's top brings them to the line (#38054).
                 let row = PaneChromeMetrics(stripHeight: bounds.height, tabHeight: tabHeight, panePadding: 0)
-                return row.pillTop(stripTop: content.bounds.maxY - strip.maxY, rim: WindowTitlebar.topRowRim(in: window), scale: scale)
+                return row.pillTop(stripTop: content.bounds.maxY - strip.maxY, scale: scale)
             }
         }
         return metrics.tabTop(stripHeight: bounds.height, scale: scale)

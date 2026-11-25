@@ -206,24 +206,10 @@ async function expectModeChip(ctx: Parameters<Play>[0], mode: string) {
   await ctx.waitFor(() => text() === mode);
 }
 
-/// Opens a Cloud start's Mode menu: Claude Code's Cloud modes, Auto checked.
-const openCloudMode: Play = async (ctx) => {
-  await expectModeChip(ctx, "Auto");
-  await ctx.click({ role: "button", name: "Mode" });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
-  const label = (item: Element | null) => item?.querySelector(".acpmux-menu-label")?.textContent?.trim();
-  const checked = label(ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
-  if (checked !== "Auto") throw new Error(`the Cloud Mode menu checks ${checked}, not Auto`);
-  const labels = [...ctx.document.querySelectorAll('[role="menuitemradio"]')].map(label);
-  const expected = ["Auto", "Bypass permissions", "Manual"];
-  if (labels.length !== expected.length || expected.some((name) => !labels.includes(name)))
-    throw new Error(`the Cloud Mode menu lists ${labels.join(" | ")}, not ${expected.join(" | ")}`);
-};
-
 const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
 
 /// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
-/// start it in, or, with Cloud picked, the mode the Cloud machine starts it in at the same level.
+/// start it in, or, with Cloud picked, the asking mode the Cloud machine starts it in (Manual).
 function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
   const [answered, setAnswered] = useState(false);
   useEffect(() => {
@@ -241,9 +227,7 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
-          <span>
-            {cloud ? "The Cloud machine starts it at your start level." : "acpmux on this Mac names the start mode."}
-          </span>
+          <span>{cloud ? "The Cloud machine starts it in Manual." : "acpmux on this Mac names the start mode."}</span>
         </div>
         {answered && (
           <ComposerPickers
@@ -253,7 +237,6 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
             onMode={() => undefined}
             onEffort={() => undefined}
             showPlan
-            holdsStartMode={cloud === true}
           />
         )}
       </div>
@@ -568,14 +551,9 @@ export default componentEntry<Props>({
       play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
     },
     "new-chat-cloud": {
-      note: 'The same new chat with Cloud picked: the person\'s own Cloud machine starts it at their start level, full access, which on Claude Code is its Auto, so the chip names Auto from the first frame, never Manual and never the bare word Mode (Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness").',
+      note: 'The same new chat with Cloud picked: the Cloud machine starts it in Claude\'s asking mode, so the chip names Manual with its shield, never this Mac\'s Bypass permissions and never the bare word Mode (Leo 2026-11-10: "the "mode" is weird").',
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
-      play: async (ctx) => expectModeChip(ctx, "Auto"),
-    },
-    "new-chat-cloud-menu": {
-      note: "Its Mode menu: the modes a Cloud start runs in, Auto checked, with Manual and Bypass permissions; never Accept edits or Plan, which acpmux starts only on the person's own proof.",
-      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
-      play: openCloudMode,
+      play: async (ctx) => expectModeChip(ctx, "Manual"),
     },
     "new-chat-here-manual": {
       note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",

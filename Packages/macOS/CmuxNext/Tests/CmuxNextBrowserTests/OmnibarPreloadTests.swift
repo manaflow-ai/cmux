@@ -36,22 +36,6 @@ struct OmnibarPreloadTests {
         return state
     }
 
-    /// Every tab of this Mac has the guard `exceptCloudDesktop` (RemoteLocalhostStorePlan), so a gate
-    /// that wanted `.none` preloaded in no tab at all (bench `omnibar`, 0 of 16 prerendered).
-    @Test func aTabOfThisMacPreloadsAnyPageButAnOpenDesktopOne() throws {
-        let page = try #require(URL(string: "https://example.com/"))
-        let desktop = try #require(URL(string: "https://m1.cloud-desktop.localhost/"))
-        let local = try #require(URL(string: "http://localhost:3000/"))
-        #expect(CEFTab.preloads(under: .none, opening: page))
-        #expect(CEFTab.preloads(under: .exceptCloudDesktop, opening: page))
-        #expect(CEFTab.preloads(under: .exceptCloudDesktop, opening: local))
-        // An Open Desktop page reroutes to its machine's store: a prerender would reach this Mac's loopback.
-        #expect(!CEFTab.preloads(under: .exceptCloudDesktop, opening: desktop))
-        // A remote machine's stores: the guard must see every navigation.
-        #expect(!CEFTab.preloads(under: .noLoopback, opening: page))
-        #expect(!CEFTab.preloads(under: .loopbackOnly, opening: local))
-    }
-
     @Test func theDefaultMatchGoesFirstAndRowsThatLoadNoPageAreLeftOut() throws {
         let rows = [try row(.navigate, "https://github.com/"),
                     try row(.search, "https://www.google.com/search?q=github"),

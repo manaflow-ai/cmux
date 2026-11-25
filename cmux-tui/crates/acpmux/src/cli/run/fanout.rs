@@ -102,12 +102,7 @@ pub(super) async fn send_to_tag(
             let g = |k: &str| row.get(k).and_then(Value::as_str).unwrap_or("");
             match g("status") {
                 "queued" => {
-                    println!(
-                        "{}\tqueued ({} send --status {})",
-                        g("name"),
-                        crate::cli::entry::program(),
-                        g("deliveryId")
-                    )
+                    println!("{}\tqueued (acpmux send --status {})", g("name"), g("deliveryId"))
                 }
                 "dry-run" => println!("{}\twould send", g("name")),
                 _ => println!("{}\tfailed: {}", g("name"), g("error")),

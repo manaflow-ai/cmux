@@ -8,7 +8,7 @@ import CmuxNextIcons
 /// the terminal below.
 final class TerminalCopyModeBadge: NSView {
     static var text: String {
-        String(localized: "terminal.copyMode.indicator", defaultValue: "vim", bundle: .localizedModule)
+        String(localized: "terminal.copyMode.indicator", defaultValue: "vim", bundle: .module)
     }
 
     override func layout() {

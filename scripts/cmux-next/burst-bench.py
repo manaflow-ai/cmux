@@ -358,7 +358,7 @@ def scenario(opts):
 
     # The keys are scheduled for `duration`: no status call while they play, so the bench adds no
     # main-thread work to the presses it measures.
-    time.sleep(duration)  # sleep-ok: the key sequence's own schedule; a status poll while it plays would add main-thread work to what is measured
+    time.sleep(duration)  # test script: the sequence's own schedule, not a settle
     # The burst is done when the app says so: every key posted, no create still asking the daemon, no grid
     # waiting to go or for its echo. The deadline only bounds a burst that never settles (a failure).
     settled = stress.wait(lambda: done(status()), opts.deadline, step=0.1)

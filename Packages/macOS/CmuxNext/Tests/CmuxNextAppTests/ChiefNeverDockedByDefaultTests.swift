@@ -2,14 +2,12 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextDesign
 import CmuxNextLayout
-import CmuxNextSettings
 import Foundation
 import Testing
 
 /// cmux#37365 ("i dont want this by default"): the Chief is never docked unless the person docks it. A fresh
-/// window, a link clicked in the Chief with default settings (cmux#45889: no Chief at all), and a relaunch of a window whose Chief was docked
+/// window, a link clicked in the Chief with default settings, and a relaunch of a window whose Chief was docked
 /// and open all leave the Chief undocked and off screen until the person asks. `ChiefPanelWindowTests` covers the
 /// panel's own moves; these pin the defaults.
 @MainActor @Suite(.serialized, .closesItsWindows)
@@ -40,40 +38,12 @@ struct ChiefNeverDockedByDefaultTests {
         }
     }
 
-    /// cmux#45889: a link clicked in the Chief through the app's own entry point (`chiefLinkWillOpen`, default
-    /// settings) opens only its target. No floating Chief over the workspace, and nothing docked.
-    @Test func aLinkWithDefaultSettingsOpensOnlyItsTarget() async throws {
+    /// A link clicked in the Chief through the app's own entry point (`chiefLinkWillOpen`, default settings) opens
+    /// its workspace with the Chief floating over it: never docked, and nothing docked as a workspace.
+    @Test func aLinkWithDefaultSettingsFloatsTheChiefAndNeverDocksIt() async throws {
         let (chief, _) = ChiefPanelWindowTests.chiefView()
         let f = try await ChiefPanelWindowTests.fixture(chief)
         defer { f.close() }
-        #expect(f.services.settings?.snapshot.chiefDockOpenBeside != true, "the test needs default settings")
-        WindowDockActions(host: f.services).chiefLinkWillOpen(in: f.controller)
-        #expect(f.controller.frameChiefPanelArm == nil, "a link armed the floating Chief")
-        f.services.windows.show(workspaceID: "k1", in: f.state) // the link's jump
-        f.frame()
-        #expect(f.controller.content?.workspace.id == "k1", "the link did not open its workspace")
-        Self.expectNoChief(f, "a link with default settings")
-        #expect(f.controller.chiefPanelView?.launcher?.isVisible != true, "the floating Chief window is on screen")
-    }
-
-    /// `home.chiefDock.openBeside` turned on: a link clicked in the Chief opens its workspace with the Chief floating
-    /// over it, never docked, and nothing docked as a workspace.
-    @Test func aLinkWithOpenBesideOnFloatsTheChiefAndNeverDocksIt() async throws {
-        let (chief, _) = ChiefPanelWindowTests.chiefView()
-        let f = try await ChiefPanelWindowTests.fixture(chief)
-        defer { f.close() }
-        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-open-beside-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appending(path: "cmux.json")
-        try Data(#"{"home":{"chiefDock":{"openBeside":true}}}"#.utf8).write(to: url)
-        let settings = SettingsController(writer: TestSettingsWriter(), registry: f.services.registry, design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        await settings.reload()
-        try #require(settings.snapshot.chiefDockOpenBeside)
-        let before = f.services.settings
-        f.services.settings = settings
-        defer { f.services.settings = before }
         WindowDockActions(host: f.services).chiefLinkWillOpen(in: f.controller)
         f.services.windows.show(workspaceID: "k1", in: f.state) // the link's jump
         f.frame()

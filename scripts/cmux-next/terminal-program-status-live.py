@@ -21,7 +21,6 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -181,8 +180,7 @@ try:
         failures.append("no terminal after workspace new")
         raise SystemExit(1)
     term = new[0]
-    if not wait(lambda: cli("terminal", term, "screen", "read").stdout.strip(), 20):  # the shell draws its first prompt
-        print(f"no prompt yet in {term}", flush=True)
+    time.sleep(2)  # the shell draws its first prompt (harness wait)
 
     # The decision's shell example; sleep keeps the program in the foreground.
     report(term, "state=working:progress=40", "; sleep 6")
@@ -200,9 +198,7 @@ try:
 
     report(term, "state=done:app=demo")
     expect("done", term, lambda r: r.get("", {}).get("state") == "done")
-    # Past the next prompt: the shell finished the line and its screen stopped changing.
-    wait_stable(lambda: cli("terminal", term, "screen", "read").stdout, "the prompt after done", timeout=15,
-                interval=0.25, reads=4, raise_on_timeout=False)
+    time.sleep(2)  # past the next prompt (harness wait)
     expect("done-after-prompt", term, lambda r: r.get("", {}).get("state") == "done")
 
     report(term, "state=error:id=build:title=QnVpbGQ=")

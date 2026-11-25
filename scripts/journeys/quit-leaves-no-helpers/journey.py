@@ -169,9 +169,8 @@ def main(argv=None):
 
         # 1. Use a terminal: a new tab, a command typed key by key.
         nonce = str(int(time.time()))[-6:]
-        # "wait": the action answers once the new tab and its terminal are made and focused.
-        rpc(a.socket, "action.run", {"action": "newTab", "args": {"name": "jr-quit", "focus": True}, "wait": True},
-            timeout=60)
+        rpc(a.socket, "action.run", {"action": "newTab", "args": {"name": "jr-quit", "focus": True}})
+        time.sleep(1.0)
         for char in f"echo quit-{nonce}":
             rpc(a.socket, "debug.key", {"key": char, "modifiers": []})
         rpc(a.socket, "debug.key", {"key": "return", "modifiers": []})
@@ -199,9 +198,7 @@ def main(argv=None):
         if a.quit == "applescript":
             quitter = subprocess.Popen(["/usr/bin/osascript", "-e", f'tell application id "{bundle_id}" to quit'],
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            # Until osascript answers (a refusal exits non-zero at once) or the app is gone, at most 5 s; a
-            # quit question keeps osascript waiting, and the loop below answers it.
-            wait_for(lambda: quitter.poll() is not None or not alive(app_pid), 5, 0.1)
+            time.sleep(2.0)
             if quitter.poll() not in (None, 0):
                 step("applescript quit refused", stderr=quitter.stderr.read()[-300:])
                 quitter, how = None, "menu"
@@ -231,7 +228,7 @@ def main(argv=None):
             return 1
 
         # 4. Settle, then every process of the app bundle.
-        time.sleep(a.settle)  # sleep-ok: the check is defined as what still runs --settle s after the app exited
+        time.sleep(a.settle)
         after = teardown.processes()
         rows = {pid: {"command": command, **table_row(pid)} for pid, command in after}
         survivors = []

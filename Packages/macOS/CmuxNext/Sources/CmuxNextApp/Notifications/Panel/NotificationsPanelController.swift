@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextNotifications
 import Observation
 
 /// The notifications panel (`showNotifications`, ⌘I): the daemon's

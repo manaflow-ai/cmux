@@ -114,13 +114,9 @@ enum HomeInboxFixture {
             row["unread"] = rng.chance(30) ? rng.int(1...40) : 0
             let at = now.addingTimeInterval(-span * Double(index) / Double(count) - Double(rng.int(0...600)))
             row["activity_at"] = stamp.string(from: at)
-            // One row in ten carries a long Markdown reply (1.5-4 KB), the rest a line or two. Drawn
-            // from the row's index alone, so row N reads the same words in both lists: the first
-            // windows then differ in the list's size, not in what their previews cost to parse
-            // (drawn from each list's own seed they were 17.3 vs 13.4 KB, 1.29x the bytes).
+            // One row in ten carries a long Markdown reply (1.5-4 KB), the rest a line or two.
             let long = index % 10 == 3
-            var words = SeededRandom(seed: 0x5052_4556_0000 &+ UInt64(index))
-            row["preview"] = markdown(&words, bytes: long ? 1_500...4_000 : 80...400)
+            row["preview"] = markdown(&rng, bytes: long ? 1_500...4_000 : 80...400)
                 .replacingOccurrences(of: "\\n", with: "\n")
             if isChief {
                 row["chief"] = "agent_chief_\(index)"

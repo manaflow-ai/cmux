@@ -1,9 +1,7 @@
 //! The plan approval card's build methods (`hub/plan_build.rs`), routed before peer forwarding
 //! (`chats.rs`): a plan's builds are sub-sessions of its chat, on this daemon.
 //!
-//! - `_acpmux/plan/build {sessionId, permissionId, target, harnesses?, plan?}`: `plan` is the
-//!   person's edit of the plan (Claude Code's ExitPlanMode), which the agent or the builds get.
-//!   `target` is `here`
+//! - `_acpmux/plan/build {sessionId, permissionId, target, harnesses?}`: `target` is `here`
 //!   (answers the plan approval's allow, under the same person rule and proof as
 //!   `_acpmux/permission_respond`), `worktree` or `compare`. Answers `{target, buildId, builds,
 //!   failed}`; `builds` are the started chats (`{sessionId, name, shortName, harness,
@@ -93,15 +91,6 @@ async fn handle(
             })?;
             // One call per approval at a time: a second waits for nothing and starts nothing.
             let _claim = plan_build::claim(&session.id, permission_id)?;
-            // The person's edit of the plan, first: Approve hands it to the agent, a build
-            // elsewhere starts from it.
-            match params.get("plan") {
-                None | Some(Value::Null) => {}
-                Some(Value::String(edited)) => {
-                    hub.edit_pending_plan(&session, permission_id, edited)?;
-                }
-                Some(_) => return Err(RpcError::invalid_params("plan must be text")),
-            }
             let (plan, request) = hub.pending_plan(&session, permission_id)?;
             // The turn that asked, as it is now: stopped once the plan is handed to its builds.
             let asking_turn = session.turn().map(|t| t.turn_id);

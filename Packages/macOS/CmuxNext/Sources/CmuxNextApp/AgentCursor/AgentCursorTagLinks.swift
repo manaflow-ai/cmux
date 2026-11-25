@@ -51,20 +51,20 @@ final class AgentCursorTagLinks {
     }
 
     static var chief: String {
-        String(localized: "agentCursor.tag.chief", defaultValue: "Chief", bundle: .module.inAppLanguage)
+        String(localized: "agentCursor.tag.chief", defaultValue: "Chief", bundle: .module)
     }
 
     static var unnamed: String {
-        String(localized: "agentCursor.tag.unnamed", defaultValue: "Agent", bundle: .module.inAppLanguage)
+        String(localized: "agentCursor.tag.unnamed", defaultValue: "Agent", bundle: .module)
     }
 
     /// The tooltip and VoiceOver help of a tag whose origin is in `place`.
     static func goTo(_ place: String) -> String {
-        String(format: String(localized: "agentCursor.tag.goTo", defaultValue: "Go to %@", bundle: .module.inAppLanguage), place)
+        String(format: String(localized: "agentCursor.tag.goTo", defaultValue: "Go to %@", bundle: .module), place)
     }
 
     /// What VoiceOver reads for a tag with text `label`.
     static func accessibilityLabel(_ label: String) -> String {
-        String(format: String(localized: "agentCursor.tag.accessibilityLabel", defaultValue: "Agent cursor: %@", bundle: .module.inAppLanguage), label)
+        String(format: String(localized: "agentCursor.tag.accessibilityLabel", defaultValue: "Agent cursor: %@", bundle: .module), label)
     }
 }

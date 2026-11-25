@@ -8,10 +8,7 @@
 //! (`env.key_refused`, naming the key); there is no prefix rule, because some
 //! `CMUX_` variables name sockets. It is merged over the preset env, recorded
 //! in the session meta (so a restart and a respawn keep it), and never copied
-//! to a fork or a handoff: those set it again or run without it. One key is
-//! set by the daemon itself, never a client: a chat a peer daemon started here
-//! records that Mac's answer to cmux's tools (`hub/cmux_tools_answer.rs`), and
-//! its forks and sub-sessions keep it.
+//! to a fork or a handoff: those set it again or run without it.
 
 use std::collections::BTreeMap;
 

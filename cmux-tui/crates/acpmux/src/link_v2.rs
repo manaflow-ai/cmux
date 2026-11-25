@@ -15,9 +15,10 @@
 //! No frame of a running connection is dropped. A frame with no connection is dropped and
 //! counted, and so is every `_acpmux/v2` notification on a connection that is not a link, or with
 //! `peers` off. The first `hello` on a link starts its one connection, served with
-//! `Role::Peer` (`server/link_v2_serve.rs`), which nothing in a frame changes; a second `hello`
-//! ends it and is the first frame of the next.
+//! [`Role::Peer`], which nothing in a frame changes; a second `hello` ends it and is the first
+//! frame of the next.
 
+use acpmux_core::conn::{HubSource, Role};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::io;
@@ -161,7 +162,7 @@ pub fn parse(line: &str) -> Option<Incoming<'_>> {
 }
 
 impl Incoming<'_> {
-    pub(crate) fn is_hello(&self) -> bool {
+    fn is_hello(&self) -> bool {
         self.kind == KIND_REQUEST
             && serde_json::from_slice::<Method<'_>>(self.payload)
                 .is_ok_and(|m| m.method.as_deref() == Some("hello"))
@@ -238,7 +239,7 @@ impl Slot {
         self.ended.notify_waiters();
     }
 
-    pub(crate) fn is_reader_ended(&self) -> bool {
+    fn is_reader_ended(&self) -> bool {
         self.reader_ended.load(Ordering::Acquire)
     }
 
@@ -286,7 +287,7 @@ impl Slot {
 
     /// No connection writes here any more: the running one's writes fail, its waiting write is
     /// woken, and a line of it the writer has not taken is dropped.
-    pub(crate) fn retire(&self) {
+    fn retire(&self) {
         self.begin();
     }
 
@@ -444,7 +445,7 @@ impl AsyncWrite for Writer {
 }
 
 /// From the peer: one encoded frame the connection has not read yet.
-pub(crate) struct Inbound {
+struct Inbound {
     state: Mutex<InState>,
     taken: Notify,
     counters: Option<Arc<Shared>>,
@@ -463,7 +464,7 @@ impl Inbound {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub(crate) fn close(&self) {
+    fn close(&self) {
         let mut state = self.lock();
         state.closed = true;
         if let Some(shared) = &self.counters {
@@ -521,8 +522,8 @@ impl AsyncRead for Reader {
 /// The serving end gives [`Reader`] and [`Writer`] to `conn::run`; a test's dialing end gives
 /// them to the client.
 pub struct Adapter {
-    pub(crate) inbound: Arc<Inbound>,
-    pub(crate) slot: Arc<Slot>,
+    inbound: Arc<Inbound>,
+    slot: Arc<Slot>,
 }
 
 impl Adapter {
@@ -586,6 +587,91 @@ impl Adapter {
     }
 }
 
+/// A link's serving end: its one connection, started by a `hello`.
+pub struct Link {
+    hub: Arc<crate::hub::Hub>,
+    v2: Arc<acpmux_core::life::V2>,
+    slot: Arc<Slot>,
+    running: Option<(Adapter, tokio::task::JoinHandle<Option<()>>)>,
+}
+
+impl Link {
+    /// The serving end of a link whose writer drains `slot`, when links serve the stream.
+    /// The slot this link's connection writes to.
+    pub fn slot(&self) -> Arc<Slot> {
+        self.slot.clone()
+    }
+
+    pub fn serving(hub: &Arc<crate::hub::Hub>, slot: Arc<Slot>) -> Option<Self> {
+        let v2 = hub.link_v2.v2()?.clone();
+        Some(Self { hub: hub.clone(), v2, slot, running: None })
+    }
+
+    fn counters(&self) -> &Counters {
+        &self.hub.link_v2.counters
+    }
+
+    /// One frame line from the peer. Waits, when a connection runs, until it has read the
+    /// frame before; any wait ends when the connection does.
+    pub async fn take(&mut self, line: &str) {
+        let Some(frame) = parse(line) else {
+            self.counters().drop_one();
+            return;
+        };
+        // Its reader gone, a link starts no connection and hands it nothing.
+        if self.slot.is_reader_ended() {
+            self.end();
+            self.counters().drop_one();
+            return;
+        }
+        let running = self.running.as_ref().is_some_and(|(adapter, _)| !adapter.closed());
+        if frame.is_hello() {
+            if running {
+                self.counters().second_hello.fetch_add(1, Ordering::Relaxed);
+            }
+            self.end();
+            self.start();
+        } else if !running {
+            self.counters().drop_one();
+            return;
+        }
+        let Some((adapter, _)) = &self.running else { return };
+        if !adapter.deliver(&frame).await {
+            self.counters().drop_one();
+        }
+    }
+
+    fn start(&mut self) {
+        let (adapter, reader, writer) = Adapter::new(self.slot.clone());
+        let source = Arc::new(HubSource::for_peer(self.v2.hub()));
+        let daemon_id = self.hub.run_id();
+        let inbound = adapter.inbound.clone();
+        // It ends when its stream does (`end`), or with the daemon.
+        let task = self.hub.scope.spawn_until_cancelled("v2 peer link connection", async move {
+            // The role is this link's, fixed here: nothing a frame says changes it.
+            let surfaces = ["list".to_owned()];
+            let result =
+                acpmux_core::conn::run(reader, writer, source, daemon_id, &surfaces, Role::Peer)
+                    .await;
+            if let Err(error) = result {
+                tracing::debug!(%error, "a v2 connection on a peer link ended");
+            }
+            inbound.close();
+        });
+        self.running = Some((adapter, task));
+    }
+
+    /// The link's connection ends: its reader reads the end of the stream, and its writer's
+    /// next write fails. A connection that stopped reading (its requests wait on a write) still
+    /// sees the end at the write, so its task returns and its subscriptions are cleaned up.
+    pub fn end(&mut self) {
+        if let Some((adapter, _task)) = self.running.take() {
+            adapter.close();
+            adapter.slot.retire();
+        }
+    }
+}
+
 /// Held by a transport's read task. Dropped when the reader ends (end of input, a read error,
 /// or the abort a revoked credential sends), it ends the link's slot: the link's connection
 /// is ended even while the peer stops reading, so revoking a machine stops its access at once.
@@ -602,6 +688,12 @@ impl Drop for ReaderEnd {
         if let Some(slot) = &self.0 {
             slot.end_reader();
         }
+    }
+}
+
+impl Drop for Link {
+    fn drop(&mut self) {
+        self.end();
     }
 }
 

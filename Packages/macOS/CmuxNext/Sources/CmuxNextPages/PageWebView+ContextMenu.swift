@@ -17,12 +17,12 @@ extension PageWebView {
 
     /// The title of Copy in a Chromium page's menu (WebKit titles its own).
     public static var copyTitle: String {
-        String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .localizedModule)
+        String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .module)
     }
 
     /// The title of Copy Link in a Chromium page's menu (WebKit titles its own).
     public static var copyLinkTitle: String {
-        String(localized: "pages.chromiumMenu.copyLink", defaultValue: "Copy Link", bundle: .localizedModule)
+        String(localized: "pages.chromiumMenu.copyLink", defaultValue: "Copy Link", bundle: .module)
     }
 
     /// Ends `menu` with Inspect Element (``PageDeveloperTools``), in either engine. A page that

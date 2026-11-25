@@ -208,11 +208,11 @@ struct AgentPaneVideoTranscriptTests {
         let videos = folder.appendingPathComponent("videos", isDirectory: true)
         model.replyLinks.videoFolder = videos
 
-        // A video with no speech answers no segments; its one copy stays for the video's other reads.
+        // A video with no speech answers no segments; its copy is gone after.
         let reply = await Self.ask(model, "video.transcript", ["src": clip.path])
         #expect(Self.errorCode(reply) == nil, "\(reply)")
         #expect(((reply["value"] as? [String: Any])?["segments"] as? [Any])?.isEmpty == true)
-        #expect(((try? FileManager.default.contentsOfDirectory(atPath: videos.path)) ?? []).count == 1)
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: videos.path)) ?? []).isEmpty)
         // Outside home and the folders, or a chat on another machine: refused.
         #expect(Self.errorCode(await Self.ask(model, "video.transcript", ["src": outside.path])) == AgentPaneReplyError.mediaRefused.rawValue)
         model.remoteChat = true

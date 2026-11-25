@@ -5,7 +5,7 @@ import CmuxNextTestSupport
 import Testing
 
 /// Tab Overflow (cx-kp9b4) on a real strip in a window: crowded Shrink tabs stop at a minimum that keeps
-/// part of the title and then scroll; Scroll keeps tabs at 7/10 of the max width and scrolls; a crowded strip
+/// part of the title and then scroll; Scroll keeps tabs about 140 wide and scrolls; a crowded strip
 /// scrolls with no banner, and wheel, trackpad and selection move it.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabStripOverflowTests {
     private struct Harness {
@@ -62,12 +62,9 @@ import Testing
         harness.settle()
         let metrics = harness.strip.metrics
         #expect(metrics.overflow == .scroll)
-        // `TabTunables.scrollTabMinWidth`: 7/10 of the density's max width (127 of Compact's 181 since every density
-        // became Default scaled, #44449; it was 140 of the old 200).
-        let comfortable = (metrics.maxTabWidth * 7 / 10).rounded()
-        #expect(metrics.minInactiveTabWidth >= comfortable, "\(metrics.minInactiveTabWidth) of max \(metrics.maxTabWidth)")
-        #expect(harness.unselectedWidths.allSatisfy { $0 >= comfortable }, "\(Set(harness.unselectedWidths))")
-        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "20 tabs at \(comfortable) pt fit in 1600 pt")
+        #expect(metrics.minInactiveTabWidth >= 140)
+        #expect(harness.unselectedWidths.allSatisfy { $0 >= 140 }, "\(Set(harness.unselectedWidths))")
+        #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "20 tabs at 140 pt fit in 1600 pt")
         let cell = try #require(harness.strip.cells[harness.selected])
         let viewport = harness.strip.tabsClip.bounds
         #expect(cell.frame.minX >= viewport.minX - 0.5 && cell.frame.maxX <= viewport.maxX + 0.5,

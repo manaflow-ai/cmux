@@ -225,7 +225,6 @@ pub(super) fn run(
         .build()
         .map_err(|e| e.to_string())?;
     let client = reqwest::Client::builder()
-        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -349,7 +348,7 @@ fn print_exec(
 /// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
 /// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
 /// `{ok: false, error: {code}}`; only a code from `cmux_cloud_api::session::known_code` is printed.
-pub(super) async fn exec_route(
+async fn exec_route(
     client: &reqwest::Client,
     scope: &Scope,
     credential: &str,
@@ -394,7 +393,7 @@ pub(super) async fn exec_route(
     Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
-pub(super) async fn exec(
+async fn exec(
     client: &reqwest::Client,
     session: &Session,
     command: &str,
@@ -405,30 +404,14 @@ pub(super) async fn exec(
         session.api_base_url.trim_end_matches('/'),
         session.vm_id
     );
-    let budget = Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15));
-    let deadline = tokio::time::Instant::now() + budget;
     let response = client
         .post(url)
         .header(IDENTITY_HEADER, &session.token)
-        // Held open past about 120 s, the provider's edge cuts the call while the command runs on.
-        .header(cmux_cloud_api::background::AFTER_HEADER, cmux_cloud_api::background::AFTER_SECS)
-        .timeout(budget)
+        .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
         .json(&json!({ "command": command, "linuxUser": session.linux_user, "timeoutMs": timeout_ms }))
         .send()
         .await
         .map_err(|e| format!("the machine did not answer: {}", e.without_url()))?;
-    let identity = (IDENTITY_HEADER, session.token.as_str());
-    let response = cmux_cloud_api::background::settle(
-        client,
-        &session.api_base_url,
-        identity,
-        response,
-        deadline,
-    )
-    .await
-    .map_err(|cmux_cloud_api::background::Lost| {
-        "the machine did not answer in time; the command may have run".to_owned()
-    })?;
     let status = response.status();
     let body: Option<Value> = response.json().await.ok();
     if !status.is_success() {

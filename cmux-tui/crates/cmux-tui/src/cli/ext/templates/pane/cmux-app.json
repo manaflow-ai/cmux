@@ -4,7 +4,7 @@
   "id": "local/{{NAME}}",
   "name": "{{TITLE}}",
   "version": "0.1.0",
-  "description": "A tab made with cmux ext new.",
+  "description": "A pane made with cmux ext new.",
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "dist/main.js" },
   "implements": {
@@ -15,7 +15,7 @@
     }
   },
   "scopes": {
-    "workspace:read": "List your workspaces in the tab."
+    "workspace:read": "List your workspaces in the pane."
   },
   "files": ["dist/"]
 }

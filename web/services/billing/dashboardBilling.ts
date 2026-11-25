@@ -4,7 +4,6 @@ import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { isVaultEnabled } from "../vault/config";
 import { isWebPlusPlanEnabled as isGoPlanEnabled } from "./goPlanFlag";
-import { isCloudIntroEnabled } from "./cloudIntro";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
@@ -56,8 +55,6 @@ export type PersonalBillingJson = {
   /** A paid operator grant (pro, team, founders); "free" or unknown is not. */
   readonly hasPaidManualGrant: boolean;
   readonly vaultEnabled: boolean;
-  /** The $1 pass's checkout is on (isCloudIntroEnabled); its `?welcome=intro` means nothing otherwise. */
-  readonly cloudIntroEnabled?: boolean;
 };
 
 export type TeamBillingSubscriptionJson = {
@@ -153,7 +150,6 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
     goPlanEnabled,
     hasPaidManualGrant: isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata)),
     vaultEnabled: isVaultEnabled(),
-    cloudIntroEnabled: isCloudIntroEnabled(),
   };
 }
 

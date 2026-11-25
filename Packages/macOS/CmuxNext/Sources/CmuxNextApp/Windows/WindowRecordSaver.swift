@@ -4,7 +4,6 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
-import CmuxNextSidebar
 import CmuxNextControl
 import CmuxNextWakeups
 

@@ -61,21 +61,6 @@ pub(crate) async fn run(
             drop(lock);
             json!({"added": id, "reloaded": reloaded?})
         }
-        Some(ApprovalsCmd::Grant) => {
-            use crate::cli::standing_grant as grant;
-            let key = grant::ensure_key(&grant::key_path())?;
-            let entry = grant::entry(&key);
-            let added = crate::hub::approvers::parse_approvers(std::slice::from_ref(&entry))
-                .map_err(|e| anyhow!("{}", e.message))?;
-            let lock = change(&path, |macs| {
-                macs.retain(|m| m.id != grant::ID);
-                macs.extend(added);
-                Ok(())
-            })?;
-            let reloaded = reload().await;
-            drop(lock);
-            json!({"added": grant::ID, "key": grant::key_path(), "reloaded": reloaded?})
-        }
         Some(ApprovalsCmd::Enroll { peer }) => return on_peer(&peer, true, json_out).await,
         Some(ApprovalsCmd::Unenroll { peer }) => return on_peer(&peer, false, json_out).await,
         Some(ApprovalsCmd::Rm { id }) => {

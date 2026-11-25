@@ -4,7 +4,7 @@ import Testing
 /// Leo, 2026-10-12: no stock macOS tooltip bubble in cmux-next; Leo, 2026-10-20: every hover is
 /// themed or gone. A view's tooltip goes through `.themedHelp(_:)` (SwiftUI) or
 /// `NSView.themedToolTip` / `setThemedToolTipRegions` (AppKit), which `TooltipPresenter` draws.
-/// This scans the package's sources, and the Home transcript's (CmuxMessagesLab), for the raw AppKit and SwiftUI calls that draw the stock
+/// This scans the package's sources for the raw AppKit and SwiftUI calls that draw the stock
 /// bubble: `.help(`, `toolTip =`, `setToolTip(` and `addToolTip(`. Comments and string literals
 /// are ignored. Allowed: an `NSMenuItem`'s tool tip (native to menus), the tooltip implementation
 /// itself (`CmuxNextDesign/Tooltip/`), and a line carrying, or directly under a comment carrying,
@@ -14,23 +14,14 @@ import Testing
     static let exemptDirectory = "CmuxNextDesign/Tooltip/"
 
     /// The package's `Sources`, from this file's path.
-    nonisolated static var sources: URL {
+    static var sources: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources")
     }
 
-    /// The Home transcript and conversation list (Packages/Shared/CmuxMessagesLab), which cmux-next hosts: their
-    /// controls show the themed tooltip through the host's hooks (`MessagesLabHomeView.host`, `CmuxSidebarView.host`) (Lawrence 2026-11-20: one tooltip,
-    /// everywhere), vendored MessagesLab files included.
-    nonisolated static var homeSources: URL {
-        sources.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Shared/CmuxMessagesLab/Sources")
-    }
-
-    @Test(arguments: [(sources, 100), (homeSources, 20)])
-    func noViewDrawsTheStockTooltip(_ tree: URL, atLeast: Int) throws {
-        let root = tree.standardizedFileURL.path
+    @Test func noViewDrawsTheStockTooltip() throws {
+        let root = Self.sources.standardizedFileURL.path
         let enumerator = try #require(FileManager.default.enumerator(atPath: root))
         var scanned = 0
         var offenders: [String] = []
@@ -42,7 +33,7 @@ import Testing
             let text = try #require(String(data: data, encoding: .utf8), "\(relative) is not UTF-8")
             offenders += Self.violations(in: text).map { "\(relative):\($0.line): \($0.what)" }
         }
-        #expect(scanned > atLeast, "found only \(scanned) Swift files under \(root)")
+        #expect(scanned > 100, "found only \(scanned) Swift files under \(root)")
         #expect(offenders.isEmpty, """
         Raw tooltips draw macOS's stock bubble. Use .themedHelp(_:) / themedToolTip, drop a tooltip \
         that repeats a label or sits on an obvious glyph, or mark a real exception with \

@@ -37,8 +37,7 @@ final class PresenceDotsView: NSView {
         for (index, dot) in dots.enumerated() { dot.isHidden = index >= shown }
         overflow.setString(presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : "")
         overflow.isHidden = overflow.stringValue.isEmpty
-        // No tooltip: the dots sit on a workspace row, whose hover card names each agent and what it does (a1315's
-        // cut 3: rows carry no tooltips).
+        themedToolTip = presence.isEmpty ? nil : presence.map(Strings.presenceLine).joined(separator: "\n")
         needsLayout = true
         needsDisplay = true
     }

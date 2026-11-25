@@ -28,36 +28,6 @@ struct AgentPaneHiddenHoldTests {
         #expect(rig.calls == 1)
     }
 
-    /// The transport leaves other chats' rows out while nobody sees the pane (AcpmuxPaneSocket.setAsleep):
-    /// the pacer tells it each change of sight its probe sees, once per change.
-    @Test func thePacerTellsEachChangeOfSightOnce() {
-        let rig = Rig(hidden: true)
-        var told: [Bool] = []
-        rig.pacer.onSightChange = { told.append($0.unseen) }
-        rig.pacer.reportSight()
-        rig.pacer.visibilityChanged()
-        #expect(told == [true])
-        rig.hidden = false
-        rig.pacer.visibilityChanged()
-        rig.pacer.visibilityChanged()
-        #expect(told == [true, false])
-        rig.hidden = true
-        rig.pacer.visibilityChanged()
-        #expect(told == [true, false, true])
-    }
-
-    /// The pacer's report reaches the transport: a pane nobody sees has its other chats' rows left out.
-    @Test func anUnseenPaneTellsItsTransport() {
-        let transport = AgentPaneTransport()
-        let rig = Rig(hidden: true)
-        rig.pacer.onSightChange = { [weak transport] in transport?.pageSight = $0 }
-        rig.pacer.reportSight()
-        #expect(transport.pageUnseen)
-        rig.hidden = false
-        rig.pacer.visibilityChanged()
-        #expect(!transport.pageUnseen)
-    }
-
     @Test func heldFramesGoWhenThePaneShows() {
         let rig = Rig(hidden: true)
         rig.arrive()

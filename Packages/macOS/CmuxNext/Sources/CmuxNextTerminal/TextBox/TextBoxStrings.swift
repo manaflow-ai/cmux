@@ -4,7 +4,7 @@ package import Foundation
 package nonisolated struct TextBoxStrings {
     package nonisolated init() {}
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "TextBox", bundle: .localizedModule)
+        String(localized: key, defaultValue: value, table: "TextBox", bundle: .module)
     }
 
     package static var placeholder: String { t("textbox.placeholder", "Prompt or command") }

@@ -9,26 +9,26 @@ struct PinnedGapPlaygroundVariants {
 
     var all: [TabBarPlaygroundVariant] {
         [
-            variant(String(localized: "tabs.playground.pinned.shipped", defaultValue: "Tab gap, divider, tab gap", bundle: .localizedModule),
+            variant(String(localized: "tabs.playground.pinned.shipped", defaultValue: "Tab gap, divider, tab gap", bundle: .module),
                     shipped: true) { _ in },
-            variant(String(localized: "tabs.playground.pinned.before", defaultValue: "Before: 4 pt extra, no divider", bundle: .localizedModule)) {
+            variant(String(localized: "tabs.playground.pinned.before", defaultValue: "Before: 4 pt extra, no divider", bundle: .module)) {
                 $0.pinnedGroupGap = Metrics.space2
                 $0.showsPinnedDivider = false
             },
-            variant(String(localized: "tabs.playground.pinned.uniform", defaultValue: "Tab gap only: no divider, no extra space", bundle: .localizedModule)) {
+            variant(String(localized: "tabs.playground.pinned.uniform", defaultValue: "Tab gap only: no divider, no extra space", bundle: .module)) {
                 $0.pinnedGroupGap = 0
                 $0.showsPinnedDivider = false
             },
-            variant(String(localized: "tabs.playground.pinned.wide", defaultValue: "Wider: 6 pt, divider, 6 pt", bundle: .localizedModule)) {
+            variant(String(localized: "tabs.playground.pinned.wide", defaultValue: "Wider: 6 pt, divider, 6 pt", bundle: .module)) {
                 $0.pinnedGroupGap = 2 * Metrics.space3 + 1 - 2 * $0.tabBackgroundInset
             },
-            variant(String(localized: "tabs.playground.pinned.tall", defaultValue: "Tab gap, tall divider (tab height less 8 pt)", bundle: .localizedModule)) {
+            variant(String(localized: "tabs.playground.pinned.tall", defaultValue: "Tab gap, tall divider (tab height less 8 pt)", bundle: .module)) {
                 $0.separatorHeight = max(0, $0.tabHeight - 2 * Metrics.space2)
             },
-            variant(String(localized: "tabs.playground.pinned.strong", defaultValue: "Tab gap, stronger divider", bundle: .localizedModule)) {
+            variant(String(localized: "tabs.playground.pinned.strong", defaultValue: "Tab gap, stronger divider", bundle: .module)) {
                 $0.separatorOpacity = min(1, $0.separatorOpacity * 2)
             },
-            variant(String(localized: "tabs.playground.pinned.safari", defaultValue: "Safari: wide space, no divider (12 pt)", bundle: .localizedModule)) {
+            variant(String(localized: "tabs.playground.pinned.safari", defaultValue: "Safari: wide space, no divider (12 pt)", bundle: .module)) {
                 $0.pinnedGroupGap = 3 * Metrics.space2 - 2 * $0.tabBackgroundInset
                 $0.showsPinnedDivider = false
             },

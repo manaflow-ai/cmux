@@ -177,7 +177,7 @@ extension BrowserChromeView {
     func applyToolbarLayout() {
         let resolved = BrowserToolbarLayout.resolve(
             width: widthLeftByToolbarButtons(), pinned: extensionToolbar.pinnedCount,
-            showsExtensions: extensionToolbar.isShowingExtensions, metrics: toolbarMetrics
+            showsExtensions: extensionToolbar.isShowingExtensions, metrics: Self.toolbarMetrics
         )
         guard resolved != toolbarLayout else { return }
         toolbarLayout = resolved
@@ -185,13 +185,11 @@ extension BrowserChromeView {
         extensionToolbar.visibleLimit = resolved.visiblePinned
     }
 
-    /// The toolbar's sizes on this window's pixels (``OmnibarStyle/onPixels(_:scale:)``), as its views draw them.
-    var toolbarMetrics: BrowserToolbarLayout.Metrics {
-        let scale = OmnibarStyle.scale(of: self)
-        return BrowserToolbarLayout.Metrics(
-            button: OmnibarStyle.buttonSize(scale: scale), navigationSpacing: OmnibarStyle.buttonSpacing(scale: scale),
-            extensionSpacing: OmnibarStyle.buttonSpacing(scale: scale), inset: OmnibarStyle.toolbarInset,
-            margin: OmnibarStyle.barMargin(scale: scale), preferredAddress: Metrics.tabMaxWidth,
+    static var toolbarMetrics: BrowserToolbarLayout.Metrics {
+        BrowserToolbarLayout.Metrics(
+            button: OmnibarStyle.buttonSize, navigationSpacing: OmnibarStyle.buttonSpacing,
+            extensionSpacing: OmnibarStyle.buttonSpacing, inset: OmnibarStyle.toolbarInset,
+            margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
             minimumAddress: BrowserMetrics.minimumAddressWidth
         )
     }

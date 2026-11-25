@@ -91,7 +91,7 @@ def _load_counts():
 counts = _load_counts()
 
 ID = "layer-gate"
-UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
+UPSTREAM = "origin/feat-cmux-next"
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_SWIFT = counts.MANIFEST
 LAYERS_JSON = counts.LAYERS_JSON

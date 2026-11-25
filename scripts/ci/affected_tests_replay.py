@@ -3,12 +3,6 @@
 
     affected_tests_replay.py collect --since 2026-11-04T00:00:00Z --until ... --out failures.json
     affected_tests_replay.py check failures.json --metadata cargo-metadata.json [--json OUT]
-    affected_tests_replay.py tap tap-history.json.gz --since 2026-11-04 --out failures.json
-
-tap needs no GitHub quota: it reads base-red-watch's per-commit test outcomes on the base and
-keeps each red a merge put there (a pass, then fails at the next two observed commits), one
-failure per candidate commit between them, judged against that commit's parent. check counts
-such a red caught when the plan of any one candidate runs the test.
 
 collect reads, through `gh api` (glaeda-gh's when it is on PATH), the pull requests merged into
 feat-cmux-next in the window, every failed pull_request run of the test workflows on them, the
@@ -150,12 +144,6 @@ def failures_in_log(log: str) -> list[dict]:
     return list(found.values())
 
 
-def created_range(since: str, until: str) -> str:
-    """The runs search's `created` qualifier. GitHub answers a range whose end is not a date (the
-    open default `9999`) with no runs at all, so an open window is `>=SINCE`."""
-    return f"{since}..{until}" if re.fullmatch(r"\d{4}-\d\d-\d\d(T[\d:]+Z)?", until) else f">={since}"
-
-
 def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = "") -> int:
     prs = []
     for page in range(1, 6):
@@ -173,7 +161,7 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
         runs_in_workflow = 0
         for page in range(1, 11):
             data = json.loads(gh("api", f"repos/{REPO}/actions/workflows/{workflow}/runs?status=failure&event=pull_request"
-                                        f"&created={created_range(runs_since or since, until)}&per_page=100&page={page}"))
+                                        f"&created={runs_since or since}..{until}&per_page=100&page={page}"))
             for run in data.get("workflow_runs", []):
                 pr = by_branch.get(run["head_branch"]) or next(iter({p["number"] for p in run.get("pull_requests") or []} & numbers), None)
                 if not pr or runs_in_workflow >= max_runs:
@@ -199,75 +187,6 @@ def collect(since: str, until: str, out: Path, max_runs: int, runs_since: str = 
                 break
     out.write_text(json.dumps({"since": since, "until": until, "prs": sorted(numbers), "failures": failures}, indent=1))
     print(f"collect: {len(failures)} failed tests from {runs_read} failed runs -> {out}", file=sys.stderr)
-    return 0
-
-
-TAP_UNITTEST = re.compile(r"^(test\w+) \(")  # unittest's "test_x (__main__.Class.test_x)"
-TAP_PR = re.compile(r"\(#(\d+)\)\s*$")
-
-
-def tap_regressions(rows: list[dict], order: list[str]) -> list[dict]:
-    """Reds a merge put on the base, from per-commit test outcomes (base-red-watch's tap history:
-    [{"workflow", "job", "test", "events": {sha: {"outcome": "pass"|"fail"}}}]) and the base's
-    first-parent commits, oldest first. A regression is a pass at one observed commit followed by
-    fails at the next two observed commits: one red between greens is a flake, not a change's red.
-    Its candidates are the commits after the pass up to the first fail; one of them made the red."""
-    index = {sha: i for i, sha in enumerate(order)}
-    found = []
-    for row in rows:
-        seen = sorted((index[sha], e["outcome"]) for sha, e in row.get("events", {}).items()
-                      if sha in index and e.get("outcome") in ("pass", "fail"))
-        for (i, a), (j, b), (_, c) in zip(seen, seen[1:], seen[2:]):
-            if a == "pass" and b == "fail" and c == "fail":
-                found.append({"workflow": row["workflow"], "job": row["job"], "test": row["test"],
-                              "pass": order[i], "fail": order[j], "candidates": order[i + 1:j + 1]})
-    return found
-
-
-def tap_kind(workflow: str, job: str, test: str) -> tuple[str, str]:
-    """The replay kind and test name of a tap row. cmux-next web's react-apps-check runs webviews/
-    test files and its Web tests job runs web/'s; rust workspaces' jobs are named by the workspace."""
-    name = test.split(" > ", 1)[0]
-    if workflow == "rust workspaces":
-        return "rust", test
-    if job == "react-apps-check":
-        return "web", name
-    if job == "Web tests":
-        return "web-app", "web/" + name
-    if m := TAP_UNITTEST.match(test):
-        return "python-name", m.group(1)
-    return "unknown", test
-
-
-def tap_failures(history: dict, order: list[str]) -> dict:
-    """check's input from tap regressions: one failure per candidate commit, judged against its parent."""
-    failures = []
-    for group, reg in enumerate(tap_regressions(list(history["tests"].values()), order)):
-        kind, test = tap_kind(reg["workflow"], reg["job"], reg["test"])
-        for sha in reg["candidates"]:
-            subject = git("log", "-1", "--format=%s", sha).stdout.strip()
-            pr = int(m.group(1)) if (m := TAP_PR.search(subject)) else 0
-            name = test
-            if kind == "python-name":  # the file that defines the test at that commit
-                hits = git("grep", "-l", "-E", rf"def {test}\(", sha, "--", "tests", "scripts", check=False).stdout.split()
-                name = hits[0].split(":", 1)[1] if hits else test
-            failures.append({"kind": "python" if kind == "python-name" else kind, "test": name, "pr": pr,
-                             "head": sha, "base": f"{sha}^1", "group": group, "candidates": len(reg["candidates"]),
-                             "workflow": "rust-workspaces.yml" if reg["workflow"] == "rust workspaces" else reg["workflow"],
-                             "job": reg["job"], "tap_test": reg["test"]})
-    return {"prs": sorted({f["pr"] for f in failures}), "failures": failures}
-
-
-def tap(history_path: Path, since: str, out: Path) -> int:
-    import gzip
-    with (gzip.open if history_path.suffix == ".gz" else open)(history_path, "rt") as f:
-        history = json.load(f)
-    affected_tests.refresh_base(ROOT, f"origin/{BASE_BRANCH}")
-    order = git("rev-list", "--first-parent", "--reverse", f"--since={since}", f"origin/{BASE_BRANCH}").stdout.split()
-    data = tap_failures(history, order)
-    groups = {f["group"] for f in data["failures"]}
-    out.write_text(json.dumps(data, indent=1))
-    print(f"tap: {len(groups)} regressions, {len(data['failures'])} candidate commits -> {out}", file=sys.stderr)
     return 0
 
 
@@ -361,7 +280,7 @@ def replay_worktree() -> Path:
 
 
 def selected(plan: dict) -> dict:
-    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False, "native": set(), "rust_all": False, "web_app": False}
+    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False, "native": set(), "rust_all": False}
     for unit in plan["units"]:
         argv = unit["argv"]
         if unit["kind"] == "guards":
@@ -385,36 +304,13 @@ def selected(plan: dict) -> dict:
             sel["rust"] = True
         elif unit["kind"] == "native":
             sel["native"].add(unit["why"])
-        elif unit["kind"] == "web-app":
-            sel["web_app"] = True
     return sel
-
-
-RUST_WORKSPACE_AGGREGATES = ("plan (changed Cargo workspaces)", "rust workspaces")
-
-
-def rust_workspace_job(failure: dict) -> str:
-    """The workspace root a rust-workspaces.yml matrix job tested (its job name), or ""."""
-    job = failure.get("job", "").strip()
-    if failure.get("workflow") != "rust-workspaces.yml" or not job or job in RUST_WORKSPACE_AGGREGATES:
-        return ""
-    return job.split()[0].rstrip("/")
 
 
 RUNNER_CHECKOUT = re.compile(r"^(?:.*/)?_work/[^/]+/[^/]+/")  # home/runner/_work/cmux/cmux/tests/x.py
 
 
-def head_metadata(wt: Path) -> dict | None:
-    """The worktree's own cmux-tui crate graph, or None when cargo is absent or refuses the manifests."""
-    if not shutil.which("cargo"):
-        return None
-    try:
-        return cargo_affected.cargo_metadata(wt, cargo_affected.WORKSPACE)
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
-        return None
-
-
-def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool = False) -> int:
+def check(path: Path, metadata: Path, out: Path | None) -> int:
     data = json.loads(path.read_text())
     for f in data["failures"]:
         if f["kind"] == "python":
@@ -435,38 +331,23 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
         if not ensure_commit(head, pr):
             row.update(verdict="unknown", why="head not fetchable")
             continue
-        key = (f.get("base", ""), head)
-        if key not in plans:
-            # A failure on a base commit (tap) names its parent; a PR head plans from where it meets the base.
-            base = f.get("base") or git("merge-base", head, f"origin/{BASE_BRANCH}", check=False).stdout.strip()
+        if head not in plans:
+            base = git("merge-base", head, f"origin/{BASE_BRANCH}", check=False).stdout.strip()
             files = sorted({x for x in git("diff", "--name-only", "--no-renames", f"{base}...{head}").stdout.splitlines() if x})
             # The plan reads the tree's maps (tests, imports, registries) at the head: from a worktree of it.
             wt = replay_worktree()
             subprocess.run(["git", "-C", str(wt), "checkout", "--quiet", "--force", "--detach", head], check=True)
             plan = affected_tests.plan(wt, base, head, files, 4, False)
+            crates = cargo_affected.plan(wt, meta, files)
             # The saved metadata is one commit's crate graph: a head with other members or edges would
-            # be planned against the wrong graph, so its Rust verdicts are unknown, unless
-            # --metadata-per-head reads the head's own (`cargo metadata --no-deps` compiles nothing).
-            head_meta = meta
+            # be planned against the wrong graph, so its Rust verdicts are unknown.
             same_graph = head_graph(head) == meta_graph(meta)
-            if not same_graph and per_head_metadata:
-                head_meta = head_metadata(wt)
-                same_graph = head_meta is not None
-            crates = cargo_affected.plan(wt, head_meta or meta, files)
-            plans[key] = {"plan": plan, "sel": selected(plan), "crates": crates, "files": files,
+            plans[head] = {"plan": plan, "sel": selected(plan), "crates": crates, "files": files,
                            "tree": None, "same_graph": same_graph}
-        p = plans[key]
+        p = plans[head]
         sel, plan = p["sel"], p["plan"]
         kind, test = f["kind"], f["test"]
-        workspace = rust_workspace_job(f)
-        if workspace:
-            # A Cargo workspace beside cmux-tui (rust-workspaces.yml's matrix job is named by its root): only a
-            # native unit for it runs it, an every-suite plan included (that plan once listed no such unit).
-            manifest = workspace + "/Cargo.toml"
-            hit, why = manifest in sel["native"], f"workspace {manifest}"
-        elif kind == "web-app":
-            hit, why = sel["web_app"], "web/'s suite"
-        elif sel["all"]:
+        if sel["all"]:
             hit, why = True, "every suite (" + "; ".join(plan["reasons"][:2]) + ")"
         elif kind == "python":
             if p["tree"] is None:
@@ -489,6 +370,11 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
             targets = swift_target_of(p["tree"], test, kind)
             hit = bool(targets) and bool(targets & sel["swift"])
             why = f"targets {sorted(t for _, t in targets)[:3]} vs {len(sel['swift'])} selected"
+        elif kind == "rust" and f.get("workflow") == "rust-workspaces.yml" and "Native/" in f.get("job", ""):
+            # A separate cargo workspace (Native/OptChat/optchat-chief): the plan runs it as a native unit.
+            manifest = f["job"][f["job"].index("Native/"):].split()[0].rstrip("/") + "/Cargo.toml"
+            hit = manifest in sel["native"] or sel["rust_all"]
+            why = f"native {manifest}"
         elif kind == "rust" and not p["same_graph"]:
             row.update(verdict="unknown", why="the head's crate graph differs from --metadata's")
             continue
@@ -500,17 +386,6 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
             hit, why = False, "unknown kind"
         row.update(verdict="selected" if hit else "MISSED", why=why, also_failed_on=len(seen_on[(kind, test)]))
     missed = [r for r in rows if r["verdict"] == "MISSED"]
-    groups = collections.defaultdict(list)
-    for r in rows:
-        if "group" in r:
-            groups[r["group"]].append(r)
-    if groups:
-        # A tap regression's red came from one of its candidate commits: it is caught when the plan of
-        # any one of them runs the test (exact when it has one candidate); the innocent ones' misses are no miss.
-        missed = [g[0] for g in groups.values() if not any(r["verdict"] in ("selected", "unknown") for r in g)]
-        exact = [g for g in groups.values() if g[0]["candidates"] == 1]
-        print(f"replay: {len(groups)} base regressions ({len(exact)} with one candidate commit), "
-              f"{len(groups) - len(missed)} caught by a candidate's plan, {len(missed)} missed")
     own = [r for r in missed if r["also_failed_on"] <= 1]
     heads = len(plans)
     full = sum(1 for p in plans.values() if p["plan"]["all"])
@@ -523,7 +398,7 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
     if out:
         summary = {"prs": len(data["prs"]), "failures": len(rows), "missed": len(missed), "missed_own": len(own),
                    "heads": heads, "heads_all": full,
-                   "units_per_head": {f"{b}...{h}" if b else h: len(p["plan"]["units"]) for (b, h), p in plans.items()}, "rows": rows}
+                   "units_per_head": {h: len(p["plan"]["units"]) for h, p in plans.items()}, "rows": rows}
         out.write_text(json.dumps(summary, indent=1, default=str))
     return 1 if missed else 0
 
@@ -542,18 +417,10 @@ def main(argv: list[str]) -> int:
     k.add_argument("failures", type=Path)
     k.add_argument("--metadata", type=Path, required=True)
     k.add_argument("--json", type=Path)
-    k.add_argument("--metadata-per-head", action="store_true",
-                   help="a head whose crate graph differs from --metadata's: read its own with `cargo metadata --no-deps`")
-    t = sub.add_parser("tap", help="check's input from base-red-watch's per-commit test outcomes (no GitHub reads)")
-    t.add_argument("history", type=Path, help="tap-history.json(.gz)")
-    t.add_argument("--since", required=True, help="first-parent commits of the base from here")
-    t.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.cmd == "collect":
         return collect(args.since, args.until, args.out, args.max_runs, args.runs_since)
-    if args.cmd == "tap":
-        return tap(args.history, args.since, args.out)
-    return check(args.failures, args.metadata, args.json, args.metadata_per_head)
+    return check(args.failures, args.metadata, args.json)
 
 
 if __name__ == "__main__":

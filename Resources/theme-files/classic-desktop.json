@@ -6,12 +6,8 @@
   "description": "Gray chrome, hard edges, navy selection, no glass and no motion.",
 
   // A light terminal theme, with white panes and the navy of the era's title bars.
-  // Selected text keeps Builtin Light's black ink, so the selection is the era's light blue
-  // (`cmux theme check`).
   "appearance.theme": "Builtin Light",
-  // The window, sidebar and pages take that theme too, over an App Theme of your own.
-  "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#ffffff", "foreground": "#000000", "selection": "#a6caf0", "accent": "#000080" },
+  "colors": { "background": "#ffffff", "foreground": "#000000", "selection": "#000080", "accent": "#000080" },
   "appearance.accent": "theme",
 
   // No wallpaper and no glass: every surface is solid.

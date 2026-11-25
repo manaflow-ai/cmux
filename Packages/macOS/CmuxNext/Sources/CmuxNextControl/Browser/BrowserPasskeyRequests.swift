@@ -71,7 +71,7 @@ public actor BrowserPasskeyRequests {
         for id in replaced { await host.withdraw(id) }
         let id = UUID().uuidString
         if await host.isInFront(tabID: tabID) {
-            try await host.handOver(tabID: tabID, during: trigger)
+            try await trigger()
             return Raised(id: id, status: .triggered)
         }
         let request = BrowserPasskeyRequest(id: id, tabID: tabID, agent: agent, site: site, reason: reason)
@@ -92,7 +92,7 @@ public actor BrowserPasskeyRequests {
             return .expired
         }
         try await host.reveal(tabID: request.request.tabID)
-        try await host.handOver(tabID: request.request.tabID, during: request.trigger)
+        try await request.trigger()
         return .triggered
     }
 

@@ -12,9 +12,6 @@ use std::os::fd::{AsRawFd, OwnedFd};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
-/// The most one local read parses at once.
-const LOCAL_READ_BYTES: usize = 64 * 1024;
-
 pub(super) struct LocalOutput {
     #[cfg(unix)]
     pub(super) descriptor: Option<OwnedFd>,
@@ -84,10 +81,7 @@ impl LocalOutput {
         if journal_target.is_some() && journal_update.is_none() {
             return Ok(0);
         }
-        // On the heap for this read only, never on the reader's stack: a
-        // 64 KiB stack array stays resident in every reader thread once
-        // zeroed, so 1,000 idle terminals kept 64 MB of it (CMUX-571).
-        let mut buf = vec![0u8; LOCAL_READ_BYTES];
+        let mut buf = [0u8; 64 * 1024];
         let n = read(&mut buf)?;
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);

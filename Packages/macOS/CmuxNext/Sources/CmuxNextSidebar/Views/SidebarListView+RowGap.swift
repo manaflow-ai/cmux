@@ -35,8 +35,7 @@ extension SidebarListViewComponents {
                 let layout = SidebarRegionView.layout(of: content, width: bounds.width)
                 for slot in layout.rows {
                     guard case let .item(id, _) = slot.kind, id == SidebarListBlocks.gapID else { continue }
-                    // The block's items end above its bottom padding (the Chief's top section keeps a gap under it).
-                    let y = row.y + slot.frame.minY, end = row.y + base.height - (content.metrics.bottomPadding ?? 0)
+                    let y = row.y + slot.frame.minY, end = row.y + base.height
                     rows = SidebarRowGap(y: y, height: layout.height - base.height, hold: y >= end ? end - 1 : nil)
                 }
             }

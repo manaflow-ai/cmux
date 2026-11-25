@@ -118,13 +118,23 @@ export const CopyIcon = () => (
   <svg viewBox="0 0 16 16" width="14" height="14"><path d="M5.2 5.2h7.1v7.1H5.2zM3.7 10.8H3V3.7h7.1v.7" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" /></svg>
 );
 
-/** The one spinner of the agent chat: the open arc cmux's pages and the app draw (webviews
- * conversation/icons.tsx `Spinner`), no track behind it, turned smoothly once per
- * `--cmux-spinner-period` (app.css `.spinner`). */
-export function Spinner({ size = 14 }: { size?: number }) {
+export function PinwheelSpinner({ size = 14 }: { size?: number }) {
   return (
-    <svg className="spinner" viewBox="0 0 16 16" width={size} height={size} fill="none" aria-hidden="true">
-      <path d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <svg className="pinwheel-spinner" viewBox="0 0 16 16" width={size} height={size} aria-hidden="true">
+      {Array.from({ length: 8 }, (_, i) => (
+        <line
+          key={i}
+          x1="8"
+          y1="2.5"
+          x2="8"
+          y2="5"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          opacity={0.2 + i * 0.1}
+          transform={`rotate(${i * 45} 8 8)`}
+        />
+      ))}
     </svg>
   );
 }

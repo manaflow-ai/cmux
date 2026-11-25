@@ -448,7 +448,6 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
-    mux.wake_lazy_terminal(&terminal_id);
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -1106,8 +1105,6 @@ fn resolve_terminal_surface(
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
-    // A parked terminal starts on its first need (mux/terminal_respawn/lazy.rs).
-    mux.wake_lazy_terminal(&terminal_id);
     let surface_id = mux
         .resource_surface_for_terminal(&terminal_id)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;

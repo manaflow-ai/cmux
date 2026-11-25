@@ -12,8 +12,6 @@ public final class PageInfoModel {
     public internal(set) var supported: Set<SitePermissionKind> = []
     /// nil while loading.
     public internal(set) var siteData: SiteDataSummary?
-    /// The last "Delete site data" failed: the cookies page says so, with the reason, in place of the counts.
-    public internal(set) var siteDataDeleteFailure: PageInfoSiteDataDeleteError?
     /// Parsed chain, leaf first; nil while loading.
     public internal(set) var certificates: [PageInfoCertificate]?
     public internal(set) var certificateFailure: String?

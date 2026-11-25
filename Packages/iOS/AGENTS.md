@@ -1,8 +1,9 @@
 # iOS agent instructions
 
-These packages are used by the iPhone app, `cmux-next-ios/`. Its install, sign-in,
-pairing and fleet simulator rules are in [cmux-next-ios/CLAUDE.md](../../cmux-next-ios/CLAUDE.md)
-and the root [finishing a task](../../skills/cmux-dev-workflow/references/finishing-a-task.md). The classic app in `ios/` is retired.
+The iPhone install and authentication gates, local simulators,
+cross-tag Mac access, and dev auth profiles live in `ios/AGENTS.md` at the
+repository root. They apply to work under `Packages/iOS/` as well, so read that
+file too.
 
 ## CmuxConversation and CmuxTabsKit live here
 

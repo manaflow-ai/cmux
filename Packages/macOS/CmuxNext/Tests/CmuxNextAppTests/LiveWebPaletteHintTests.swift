@@ -17,10 +17,13 @@ struct LiveWebPaletteHintTests {
         let descriptor = try #require(services.registry.descriptor(for: "liveWeb.start"))
         let hint = try #require(descriptor.hint)
         #expect(hint.contains("agent"))
-        let items = RegistryPaletteProvider(registry: services.registry).makeItems()
-        // A row that cannot run here is not listed; one that runs says what it does.
-        if let row = items.first(where: { $0.id == "action:liveWeb.start" }) { #expect(row.subtitle == hint) }
+        let row = try #require(RegistryPaletteProvider(registry: services.registry).makeItems()
+            .first { $0.id == "action:liveWeb.start" })
+        // A row that cannot run says why instead; one that runs says what it does.
+        if row.isEnabled { #expect(row.subtitle == hint) }
         // Actions with no hint keep no subtitle while they run.
-        if let other = items.first(where: { $0.id == "action:liveWeb.stop" }) { #expect(other.subtitle == nil) }
+        let other = try #require(RegistryPaletteProvider(registry: services.registry).makeItems()
+            .first { $0.id == "action:liveWeb.stop" })
+        if other.isEnabled { #expect(other.subtitle == nil) }
     }
 }

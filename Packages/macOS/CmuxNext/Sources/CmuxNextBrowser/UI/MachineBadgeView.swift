@@ -43,7 +43,7 @@ final class MachineBadgeView: NSView {
     /// The chip's menu (the host's machine actions); nil: no menu.
     var makeMenu: (() -> NSMenu?)?
 
-    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(makeMenu?()) }
+    override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
 
     override func mouseDown(with event: NSEvent) {
         guard let menu = makeMenu?() else { return super.mouseDown(with: event) }
@@ -52,7 +52,8 @@ final class MachineBadgeView: NSView {
 
     func show(text: String, help: String) {
         label.stringValue = text
-        setAccessibilityLabel(help) // it shows its words: no tooltip (a1315's cut 2)
+        themedToolTip = help
+        setAccessibilityLabel(help)
         updateLayer()
     }
 
@@ -61,14 +62,7 @@ final class MachineBadgeView: NSView {
     override func updateLayer() {
         performWithTheme {
             layer?.backgroundColor = Palette.hoverFill.cgColor
-            // The bar's ink on the plate (`OmnibarInk`; issue 50986).
-            label.textColor = OmnibarStyle.ink.iconColor(on: [Palette.hoverFill], bare: false)
+            label.textColor = Palette.textSecondary
         }
-    }
-
-    /// A theme repaint skips a badge outside a window: entering one redraws it in the shown theme's ink.
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil { needsDisplay = true }
     }
 }

@@ -674,30 +674,3 @@ fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static 
 #[cfg(test)]
 #[path = "page_browser_use_tests.rs"]
 mod browser_use_tests;
-
-/// The line a person's `cmux window|pane|tab screenshot` adds under the result when the app
-/// masked areas of the image (`masked_areas`: `home`, `chat`, `browser`, ...): an agent's capture
-/// covers them in grey for privacy, and without this line the grey reads as a blank pane. None
-/// for any other run, a raw capture, or a result with no masked area.
-pub(super) fn masked_note(params: &Value, value: &Value) -> Option<String> {
-    let action = params.get("action")?.as_str()?;
-    if !matches!(
-        action,
-        "window screenshot"
-            | "pane screenshot"
-            | "tab screenshot"
-            | "window.screenshot"
-            | "pane.screenshot"
-            | "tab.screenshot"
-    ) {
-        return None;
-    }
-    let result = value.get("result").unwrap_or(value);
-    let areas: Vec<&str> =
-        result.get("masked_areas")?.as_array()?.iter().filter_map(Value::as_str).collect();
-    if areas.is_empty() {
-        return None;
-    }
-    let messages = &crate::localization::catalog().app_control;
-    Some(messages.screenshot_masked.replace("{areas}", &areas.join(", ")))
-}

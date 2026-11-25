@@ -123,8 +123,6 @@ impl Harness {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
-            resends: 0,
-            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,

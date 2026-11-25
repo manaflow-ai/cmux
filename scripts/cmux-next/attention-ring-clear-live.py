@@ -54,7 +54,6 @@ os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, "live.log"), "a")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
-from state_wait import wait_until, wait_stable  # noqa: E402
 
 
 def say(*parts):
@@ -207,26 +206,6 @@ def tab_of_terminal(term):
     return None
 
 
-def screen_text(term):
-    """Terminal `term`'s screen text ("" when it cannot be read)."""
-    value = cli_json("terminal", term, "screen", "read")
-    return (value.get("text") or "") if isinstance(value, dict) else ""
-
-
-def prompt_drawn(term):
-    """Until terminal `term` shows anything (its shell drew the first prompt)."""
-    if term and not wait_until(lambda: screen_text(term).strip(), f"terminal {term}'s first prompt", timeout=15,
-                               interval=0.1, raise_on_timeout=False):
-        say(f"  terminal {term} drew no prompt in 15 s")
-
-
-def unread_in(pane):
-    """Until the app holds an unread notification in `pane` (the notify landed)."""
-    if not wait_until(lambda: any(u.get("pane") == pane for u in notifications().get("unread", [])),
-                      f"an unread notification in {pane}", timeout=10, raise_on_timeout=False):
-        say(f"  no unread notification in {pane} after 10 s")
-
-
 def notifications():
     value = rpc("debug.notifications")
     return value if isinstance(value, dict) and "error" not in value else {}
@@ -306,7 +285,7 @@ class Session:
         if not term:
             raise SystemExit(f"workspace create: {json.dumps(made)[:300]}")
         self.show(ws, pane)
-        prompt_drawn(term)
+        time.sleep(0.8)  # the shell draws its first prompt (harness wait)
         return term, name, ws, pane
 
     def show(self, ws, pane=None, how="action"):
@@ -332,7 +311,7 @@ class Session:
         if not term:
             say("  split", json.dumps(made)[:300])
         wait(lambda: focused_pane() == new, 10)
-        prompt_drawn(term)
+        time.sleep(0.8)  # first prompt (harness wait)
         return term, new
 
     def two_panes(self):
@@ -369,9 +348,7 @@ class Session:
         cleared = wait(lambda: pane not in rings(), 3)
         state = "CLEARED" if cleared else "STUCK"
         shot = snapshot(f"{theme}-{case}")
-        # Left as a fixed wait: past the dismiss flash (at most 2 blinks of the 1 s flash loop); no socket read
-        # says whether that animation still runs, and the shot's hash never rests (the cursor blinks).
-        time.sleep(2.5)
+        time.sleep(2.5)  # past the dismiss flash (at most 2 blinks of the 1 s flash loop)
         late = snapshot(f"{theme}-{case}-late")
         row = {"case": case, "theme": theme, "pane": pane, "result": state, "note": note, "shot": shot, "late": late,
                "active": self.active(), "unread": [u.get("pane") for u in notifications().get("unread", [])]}
@@ -418,12 +395,7 @@ class Session:
         if case == "click-mouse-reporting":
             def reporting(term):
                 cli("terminal", term, "write", "--text", "printf '\\033[?1000h\\033[?1006h'; cat\n")
-                # The shell ran the line: it is the screen's last line (cat holds the terminal after the printf).
-                def ran():
-                    lines = [line.rstrip() for line in screen_text(term).splitlines() if line.strip()]
-                    return bool(lines) and lines[-1].endswith("; cat")
-                if not wait_until(ran, "the mouse-reporting command", timeout=10, interval=0.1, raise_on_timeout=False):
-                    say("  the mouse-reporting command never showed as the last line in 10 s")
+                time.sleep(0.5)
                 self.ring_notify(term)
             return self.click_unfocused(theme, case, reporting, click)
         if case in ("keyboard-focus-notify", "keyboard-focus-mark"):
@@ -453,16 +425,12 @@ class Session:
             tab_b = (tab_of_terminal(term_b) or {}).get("id")
             made = cli_json("tab", "create", "terminal", "--workspace", p["workspace"], "--pane", pane_b)
             hidden = find_key(made, "terminal_id")
-            prompt_drawn(hidden)
+            time.sleep(0.8)
             cli("tab", tab_b, "focus")  # the first tab shows again; the new one is hidden
-            if not wait_until(lambda: any(w.get("focused_tab") == tab_b for w in notifications().get("windows", [])),
-                              f"tab {tab_b} shown again", timeout=10, raise_on_timeout=False):
-                say(f"  tab {tab_b} never showed again in 10 s")
+            time.sleep(0.8)
             self.ring_notify(hidden)
-            unread_in(pane_b)
-            # Whether the pane rings for its hidden tab, once that settles.
-            hidden_ring = bool(wait_stable(lambda: pane_b in rings(), "the pane's ring for its hidden tab", timeout=10,
-                                           interval=0.25, reads=4, raise_on_timeout=False))
+            time.sleep(1.0)
+            hidden_ring = pane_b in rings()
             rpc("action.run", {"action": "nextSurface", "origin": "script", "focus": True})
             return self.record(case, theme, pane_b, note=f"hidden tab rang: {hidden_ring}")
         if case in ("workspace-switch-sidebar", "workspace-switch-key"):
@@ -471,7 +439,7 @@ class Session:
             ws = p["workspace"]
             self.new_workspace()  # shows another workspace
             self.ring_notify(term_b)
-            unread_in(pane_b)
+            time.sleep(1.0)
             self.show(p["name"] if case.endswith("sidebar") else ws, pane_b, how="row" if case.endswith("sidebar") else "action")
             return self.record(case, theme, pane_b)
         if case in ("click-during-arrival", "double-click-unfocused"):
@@ -518,7 +486,6 @@ class Session:
             rpc("debug.mouse", {"pane": pane_a, "action": "click"})
             if not wait(lambda: pane_a not in rings(), 3):
                 return self.record(case, theme, pane_a, note="the click left it")
-            # Left as a fixed wait: past the dismiss flash; no socket read says whether that animation still runs.
             time.sleep(2.5)
             tab_a = (tab_of_terminal(term_a) or {}).get("id")
             if case.endswith("then-move"):
@@ -528,20 +495,12 @@ class Session:
                 r = cli("tab", tab_a, "move", "--workspace", p["workspace"], "--screen", screen or "current", "--pane", pane_b, "--index", "1")
                 say("  move", r.returncode, (r.stdout + r.stderr).strip()[:200])
                 watch = pane_b
-                moved = lambda: any(t.get("id") == tab_a for ws_ in topology().get("workspaces", []) for sc in ws_.get("screens", [])
-                                    for pn in sc.get("panes", []) if pn.get("id") == pane_b for t in pn.get("tabs", []))
-                if not wait_until(moved, f"tab {tab_a} in {pane_b}", timeout=10, raise_on_timeout=False):
-                    say(f"  tab {tab_a} never showed in {pane_b} in 10 s")
             elif case.endswith("pane-move"):
                 other = self.new_workspace()
                 r = cli("pane", pane_a, "move", "--to-workspace", other[2], "--focus")
                 say("  pane move", r.returncode, (r.stdout + r.stderr).strip()[:200])
                 self.show(other[2], None)
-                # The moved pane is in the shown workspace.
-                in_other = lambda: any(pn.get("id") == pane_a for ws_ in topology().get("workspaces", []) if ws_.get("id") == other[2]
-                                       for sc in ws_.get("screens", []) for pn in sc.get("panes", []))
-                if not wait_until(in_other, f"pane {pane_a} in workspace {other[2]}", timeout=10, raise_on_timeout=False):
-                    say(f"  pane {pane_a} never showed in {other[2]} in 10 s")
+                time.sleep(1.0)
                 watch = pane_a
             elif case.endswith("switch"):
                 other = self.new_workspace()
@@ -551,10 +510,6 @@ class Session:
                 cli("tab", tab_a, "rename", "renamed")
                 cli("tab", tab_a, "update", "--icon", "star")
                 watch = pane_a
-                if not wait_until(lambda: "renamed" in json.dumps(tab_of_terminal(term_a) or {}), f"tab {tab_a} renamed",
-                                  timeout=10, raise_on_timeout=False):
-                    say(f"  tab {tab_a} never read renamed in 10 s")
-            # sleep-ok: the window in which a ring that comes back would show (a negative check: nothing to wait on)
             time.sleep(2.0)
             back = watch in rings()
             return self.results.append({"case": case, "theme": theme, "pane": watch, "result": "STUCK" if back else "CLEARED",

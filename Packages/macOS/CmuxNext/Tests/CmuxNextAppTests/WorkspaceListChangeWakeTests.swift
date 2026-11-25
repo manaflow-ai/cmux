@@ -8,7 +8,7 @@ import CmuxNextSidebar
 import Foundation
 import Testing
 
-/// WORKSPACE LIST 800 (SESSION 800, 2026-11-10): in a large session (826 workspaces) each workspace close blocked
+/// WORKSPACE LIST 800 (SESSION 800, 2026-11-10): in the person's session (826 workspaces) each workspace close blocked
 /// the main thread about 100 ms and each new workspace two times; at 60 workspaces nothing blocked. A change of the
 /// workspace LIST (one workspace added, one closed) must wake the observers of the changed workspace and of the list,
 /// never one observer per workspace of the session (CLAUDE.md "Go past Chrome": a local model change is O(changed

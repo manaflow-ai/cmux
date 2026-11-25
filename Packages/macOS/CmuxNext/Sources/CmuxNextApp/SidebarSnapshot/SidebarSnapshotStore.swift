@@ -1,4 +1,3 @@
-import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 

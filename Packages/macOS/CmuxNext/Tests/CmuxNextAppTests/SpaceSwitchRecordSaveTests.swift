@@ -9,9 +9,9 @@ import Testing
 /// build kept the remembered tab of each pane behind a key that held every daemon's applied sequence, so in a live
 /// session (an agent prints, a title changes: a batch between any two switches) each save read every pane of every
 /// workspace of the window again: 858 observed reads, 2.7 ms of the main thread per switch at 826 workspaces
-/// (`sample` of a large session, aws-m4pro-8). A tab switch paid the same walk: its own change moved the key.
+/// (`sample` of the real session, aws-m4pro-8). A tab switch paid the same walk: its own change moved the key.
 /// Each test counts the panes one save reads. The size is the one argument: 60 and 826 workspaces (826 is the
-/// size of the `real` fixture), one pane with two tabs in each.
+/// count of the session the budget is for), one pane with two tabs in each.
 @MainActor @Suite(.serialized)
 struct SpaceSwitchRecordSaveTests {
     @Test(arguments: [60, 826])

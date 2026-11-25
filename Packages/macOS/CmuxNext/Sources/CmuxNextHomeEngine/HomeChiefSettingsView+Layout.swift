@@ -7,16 +7,13 @@ import Foundation
 extension HomeChiefSettingsView {
     // MARK: Layout
 
-    /// Adds `view` across the card, to the tab section being built (``filling``), else to the card.
     func addFullWidth(_ view: NSView) {
-        let target = filling.map { sections[$0] } ?? stack
         view.translatesAutoresizingMaskIntoConstraints = false
-        target.addArrangedSubview(view)
-        view.widthAnchor.constraint(equalTo: target.widthAnchor).isActive = true
+        stack.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
 
-    /// The avatar (a menu changes it) beside the Name row, where the brain runs under the name. The
-    /// profile shows the avatar in its header, which leaves the Name row.
+    /// The avatar (a menu changes it) with the name and where the brain runs beside it.
     func identityRow() -> NSView {
         avatarButton.target = self
         avatarButton.action = #selector(showPictureMenu)
@@ -51,13 +48,12 @@ extension HomeChiefSettingsView {
         text.translatesAutoresizingMaskIntoConstraints = false
         box.widthAnchor.constraint(equalTo: text.widthAnchor).isActive = true
         place.widthAnchor.constraint(lessThanOrEqualTo: text.widthAnchor).isActive = true
-        let name = Self.row(HomeEngineStrings.name, text, fills: true)
-        let row = NSStackView(views: [avatarButton, name])
+        let row = NSStackView(views: [avatarButton, text])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = Metrics.space3
-        // The name takes the rest of the row.
-        name.trailingAnchor.constraint(equalTo: row.trailingAnchor).isActive = true
+        // The name takes the rest of the row, not the width of the line under it.
+        text.trailingAnchor.constraint(equalTo: row.trailingAnchor).isActive = true
         return row
     }
 
@@ -69,43 +65,22 @@ extension HomeChiefSettingsView {
         return label
     }
 
-    /// The label column's width: the card's rows less the picker column and the gap between them.
-    static let labelWidth: CGFloat = width - 2 * inset - pickerWidth - labelGap
-    static let labelGap: CGFloat = 8
-
-    /// One settings row of the card's two columns: the label in the label column (it wraps rather
-    /// than truncates), the control at the start of the control column. A picker or a field (`fills`)
-    /// takes the whole control column. The label's first line sits on the control's first line, so a
-    /// control taller than a line (the pet grid, the name with the line under it) keeps its label at its top.
-    static func row(_ title: String, _ control: NSView, fills: Bool? = nil) -> NSView {
-        let label = ThemedLabel(wrappingLabelWithString: title)
+    /// One settings row: the label at the leading edge, the control at the trailing edge.
+    static func row(_ title: String, _ control: NSView) -> NSView {
+        let label = ThemedLabel(labelWithString: title)
         label.font = Typography.body
-        label.preferredMaxLayoutWidth = labelWidth
-        label.translatesAutoresizingMaskIntoConstraints = false
-        let cell = NSView()
-        cell.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(label)
-        let line = min(control.fittingSize.height, Metrics.controlHeight)
-        let labelLine = NSLayoutManager().defaultLineHeight(for: Typography.body)
-        NSLayoutConstraint.activate([
-            cell.widthAnchor.constraint(equalToConstant: labelWidth),
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
-            label.topAnchor.constraint(equalTo: cell.topAnchor, constant: max(0, ((line - labelLine) / 2).rounded())),
-            label.bottomAnchor.constraint(equalTo: cell.bottomAnchor),
-        ])
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         control.translatesAutoresizingMaskIntoConstraints = false
-        let row = NSStackView(views: [cell, control])
-        row.orientation = .horizontal
-        row.alignment = .top
-        row.spacing = labelGap
-        if fills ?? (control is NSPopUpButton || control is ThemedFieldBox) {
-            control.trailingAnchor.constraint(equalTo: row.trailingAnchor).isActive = true
-        } else {
-            let spacer = NSView()
-            spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-            row.addArrangedSubview(spacer)
+        if control is NSPopUpButton {
+            control.widthAnchor.constraint(equalToConstant: pickerWidth).isActive = true
         }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        let row = NSStackView(views: [label, spacer, control])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = Metrics.space2
         return row
     }
 
@@ -128,7 +103,7 @@ extension HomeChiefSettingsView {
         onResize()
     }
 
-    /// The closed disclosure over the diagnostics: its title, then the triangle, one click target.
+    /// The closed disclosure over the diagnostics: a triangle and its title, one click target.
     func diagnosticsRow() -> NSView {
         diagnosticsToggle.setButtonType(.pushOnPushOff)
         diagnosticsToggle.bezelStyle = .disclosure
@@ -145,8 +120,7 @@ extension HomeChiefSettingsView {
         title.refusesFirstResponder = true
         title.ink = .secondary
         title.textFont = Typography.header
-        // The title is the section's header at the column's edge; the triangle follows it.
-        let row = NSStackView(views: [title, diagnosticsToggle])
+        let row = NSStackView(views: [diagnosticsToggle, title])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = Metrics.space1

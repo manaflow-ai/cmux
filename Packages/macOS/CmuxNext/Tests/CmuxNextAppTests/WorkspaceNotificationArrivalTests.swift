@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
-import CmuxNextNotifications
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -21,7 +20,7 @@ struct WorkspaceNotificationArrivalTests {
         let wire = #"{"notification":9,"title":"Deploy done","body":"","level":"info","workspace_id":"ws_00000000000000000000000000000042","source":"cli"}"#
         let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
         #expect(notification.workspaceID?.rawValue == "ws_00000000000000000000000000000042")
-        let workspace = try #require(store.workspace(namedBy: notification))
+        let workspace = try #require(NotificationCenterService.workspace(of: notification, in: store))
         let service = NotificationCenterService()
         service.terminalNotificationsEnabled = { true }
         if muted { service.preferences.mutedWorkspaces = [workspace.id] }

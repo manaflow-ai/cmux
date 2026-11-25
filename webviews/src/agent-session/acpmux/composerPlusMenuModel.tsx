@@ -5,7 +5,7 @@ import { composerPlusSections, type ComposerPlusEntry, type ComposerPlusSection 
 import { Icon } from "./icons/Icon";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 
-export function composerActionIcon(entry: ComposerPlusEntry, planning: boolean): React.ReactNode {
+function rowIcon(entry: ComposerPlusEntry, planning: boolean): React.ReactNode {
   if (entry.id === "add.files") return <PaperclipIcon />;
   if (entry.id === "add.mention") return <AtIcon />;
   if (entry.id === "add.commands") return <SlashIcon />;
@@ -14,19 +14,6 @@ export function composerActionIcon(entry: ComposerPlusEntry, planning: boolean):
   if (entry.id.startsWith("add.mode.")) return planning ? <BuildIcon /> : <PlanIcon />;
   // icon-scale-allow: the composer's own 18 glyph set (design/grid.md)
   return <Icon name={entry.icon} size={18} />;
-}
-
-/** The verb Return carries out on a + menu row, shown beside the Return keycap on the highlighted row. */
-export type ComposerPlusReturnVerb = "attach" | "insert" | "open" | "switch" | "search" | "run";
-
-export function composerPlusReturnVerb(entry: ComposerPlusEntry): ComposerPlusReturnVerb {
-  if (entry.section === "attach") return "attach";
-  // Goal and a recent command write the command over the draft; @ starts a mention in it.
-  if (entry.action.kind === "slash" || entry.id === "add.mention") return "insert";
-  if (entry.id.startsWith("add.mode.")) return "switch";
-  if (entry.id === "add.commands" || entry.section === "sessions" || entry.section === "tabs") return "open";
-  if (entry.section === "files") return "search";
-  return "run";
 }
 
 export type ComposerPlusCommandsArm = keyof typeof composerPlusCommands.arms;
@@ -44,8 +31,6 @@ export function composerPlusMenuSections(
   entries: readonly ComposerPlusEntry[],
   planning = false,
   arm: ComposerPlusCommandsArm = composerPlusCommands.defaultArm,
-  /// Toggle Plan Mode's keycaps, shown on the Plan/Build row (unset: no key bound).
-  planShortcut?: string,
 ): { section: ComposerPlusSection; entries: ComposerPlusEntry[]; choices: Choice[] }[] {
   return [...composerPlusSections(entries)].flatMap(([section, all]) => {
     const rows = section === "commands" ? arrangeCommands(all, arm) : all;
@@ -62,10 +47,9 @@ export function composerPlusMenuSections(
                 entry.description.trim() && entry.description.trim() !== entry.name.trim()
                   ? entry.description
                   : undefined,
-              icon: composerActionIcon(entry, planning),
+              icon: rowIcon(entry, planning),
               ...(entry.id === "add.mention" ? { hint: "@" } : {}),
               ...(entry.id === "add.commands" ? { hint: "/" } : {}),
-              ...(planShortcut && entry.id.startsWith("add.mode.") ? { hint: planShortcut } : {}),
             })),
           },
         ]

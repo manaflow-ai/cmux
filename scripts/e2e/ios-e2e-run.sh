@@ -190,32 +190,8 @@ wait_mac_output() {
 ensure_terminal_keyboard() {
   if "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null | grep -qF "Show Keyboard"; then
     "$AXE" tap --id terminal.inputAccessory.hideKeyboard --udid "$SIM_UDID"
-    wait_keyboard_up
+    sleep 1
   fi
-}
-
-# After the keyboard toggle: until the accessory no longer offers "Show Keyboard" (the keyboard is up), at most
-# 10 s. Best-effort: input_ready's typed self-check is the real gate.
-wait_keyboard_up() {
-  local deadline=$(( $(date +%s) + 10 ))
-  while (( $(date +%s) < deadline )); do
-    "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null | grep -qF "Show Keyboard" || return 0
-    sleep 0.25
-  done
-  echo "warn: the keyboard did not come up within 10s of its toggle" >&2
-  return 0
-}
-
-# After a tap on the terminal surface: until it is first responder, which shows its input accessory bar
-# (the hide/show keyboard button). Best-effort: input_ready's typed self-check below retries the tap.
-wait_terminal_focus() {
-  local deadline=$(( $(date +%s) + 10 ))
-  while (( $(date +%s) < deadline )); do
-    "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null | grep -qF "terminal.inputAccessory.hideKeyboard" && return 0
-    sleep 0.25
-  done
-  echo "warn: the terminal's input accessory bar never showed within 10s of the tap" >&2
-  return 0
 }
 
 # A preceding real-use workload can leave the phone on the workspace list.
@@ -376,12 +352,12 @@ input_ready() {
 }
 ensure_terminal_surface
 "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
-wait_terminal_focus
+sleep 1
 ensure_terminal_keyboard
 if ! input_ready; then
   "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
   "$AXE" tap --id terminal.inputAccessory.hideKeyboard --udid "$SIM_UDID" >/dev/null 2>&1 || true
-  wait_keyboard_up
+  sleep 1
   input_ready || fail "terminal input never became ready (two attempts)"
 fi
 step_done
@@ -470,7 +446,7 @@ step "replay-after-reconnect"
 BACKGROUND_STARTED="$(monotonic_seconds)"
 if (( BACKGROUND_SECONDS > 0 )); then
   echo "== backgrounded for ${BACKGROUND_SECONDS}s"
-  sleep "$BACKGROUND_SECONDS"  # sleep-ok: how long the app stays backgrounded is the scenario itself
+  sleep "$BACKGROUND_SECONDS"
 fi
 FOREGROUND_STARTED="$(monotonic_seconds)"
 TRACE_LOG_PATH=""
@@ -488,12 +464,12 @@ wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # input with the same tap + typed self-check used in preflight.
 ensure_terminal_surface
 "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
-wait_terminal_focus
+sleep 1
 ensure_terminal_keyboard
 if ! input_ready; then
   "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
   "$AXE" tap --id terminal.inputAccessory.hideKeyboard --udid "$SIM_UDID" >/dev/null 2>&1 || true
-  wait_keyboard_up
+  sleep 1
   input_ready || fail "terminal input never recovered after relaunch"
 fi
 APP_FOREGROUND_SECONDS=""

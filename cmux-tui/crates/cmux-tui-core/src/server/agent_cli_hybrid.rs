@@ -32,13 +32,14 @@
 //!   when the viewer does not know them yet and names styles from a table the connection builds,
 //!   so the link carries less than the PTY it replaces for every agent CLI (v1's JSON per frame
 //!   cost more than the PTY for Claude Code).
-//! - A connection that declared both and [`TERMINAL_SHELL_LINES_CAPABILITY`] gets every other
-//!   terminal (a shell or any program: `cmux_agent_cli_render::adapter`) as the same lean
-//!   frames: its lines and cursor. A full-screen program (the alternate screen or mouse
-//!   tracking) goes as `output` PTY bytes from the byte that starts it, after a last frame of
-//!   what came before, so the viewer's terminal tracks its modes; when it ends the frames go on
-//!   from the screen the viewer then shows, with no keyframe. A terminal that is already
-//!   full-screen when it attaches starts with `vt-state`.
+//! - A connection that declared both and [`TERMINAL_SHELL_LINES_CAPABILITY`] gets a plain
+//!   shell's terminal (its own program a shell: `cmux_agent_cli_render::adapter`) as the same
+//!   lean frames: its lines and cursor. A full-screen program the shell runs (the alternate
+//!   screen or mouse tracking) goes as `output` PTY bytes from the byte that starts it, after
+//!   a last frame of what came before, so the viewer's terminal tracks its modes; when it ends
+//!   the frames go on from the screen the viewer then shows, with no keyframe. A terminal that
+//!   is already full-screen when it attaches starts with `vt-state`. Any other program (a
+//!   terminal whose own program is not a shell or an agent CLI) keeps the byte stream.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -61,8 +62,8 @@ pub const AGENT_CLI_HYBRID_CAPABILITY: &str = "agent-cli-hybrid-v1";
 /// With [`AGENT_CLI_HYBRID_CAPABILITY`]: frames go as lean `agent-cli-lean` events.
 pub const AGENT_CLI_HYBRID_LEAN_CAPABILITY: &str = "agent-cli-hybrid-v2";
 
-/// With both: every other terminal (a shell or any program) goes as lean frames too, PTY bytes
-/// only while a full-screen program runs.
+/// With both: a plain shell's terminal goes as lean frames too, PTY bytes only while it runs a
+/// full-screen program.
 pub const TERMINAL_SHELL_LINES_CAPABILITY: &str = "terminal-shell-lines-v1";
 
 /// How long a stream whose viewer left can still be resumed.
@@ -130,11 +131,15 @@ fn parked() -> &'static Mutex<HashMap<String, Parked>> {
 }
 
 /// The stream a viewer gets for `surface`'s terminal: an agent CLI's adapter while one runs,
-/// else its lines. No lookup of the terminal's program on the attach's path.
+/// the shell's when its own program is a shell, else the PTY.
 pub(super) fn adapter(mux: &Mux, surface: &crate::Surface) -> Adapter {
     let agent =
         surface.terminal_public_id().and_then(|terminal| mux.running_agent_adapter(terminal));
-    Adapter::of(agent.as_deref())
+    if Adapter::of(agent.as_deref(), None) == Adapter::Agent {
+        return Adapter::Agent;
+    }
+    let program = surface.process_id().and_then(crate::platform::process_executable);
+    Adapter::of(None, program.as_deref())
 }
 
 /// Whether the terminal shows a full-screen program: the alternate screen or mouse tracking.

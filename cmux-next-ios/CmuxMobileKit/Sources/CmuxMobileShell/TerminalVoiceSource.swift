@@ -18,7 +18,6 @@ import Observation
 @MainActor
 final class TerminalVoiceSource: AgentVoiceSource {
     let voiceSourceID: String
-    let voiceMacID: String?
     private let workspaceID: String
     private let tabID: String
     private let feed: FeedStore
@@ -30,7 +29,6 @@ final class TerminalVoiceSource: AgentVoiceSource {
     init(macID: String, workspaceID: String, tabID: String, feed: FeedStore,
          currentTab: @escaping @MainActor () -> WorkspaceTab?, currentModel: @escaping @MainActor () -> TerminalModel?) {
         voiceSourceID = "terminal:\(macID):\(tabID)"
-        voiceMacID = macID
         self.workspaceID = workspaceID
         self.tabID = tabID
         self.feed = feed

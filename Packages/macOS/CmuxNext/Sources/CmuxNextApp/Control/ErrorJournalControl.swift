@@ -94,7 +94,7 @@ struct ErrorJournalControl: Sendable {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ErrorJournal", bundle: .module.inAppLanguage)
+        String(localized: key, defaultValue: value, table: "ErrorJournal", bundle: .module)
     }
 
     /// `90s`, `15m`, `2h`, `3d` (a bare number is seconds).

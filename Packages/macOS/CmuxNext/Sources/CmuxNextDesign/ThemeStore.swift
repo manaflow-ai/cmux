@@ -49,8 +49,6 @@ public final class ThemeStore {
     public private(set) var appTheme: AppTheme?
     /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
     public private(set) var accent: ThemeAccent = .neutral
-    /// `appearance.selection`: whether the selection fill takes the accent's tint (default) or stays neutral.
-    public private(set) var selection: ThemeSelection = .accent
     /// Art Color (`appearance.accent: "art"`): each scope's accent takes the hue of the art it
     /// shows (`BackdropArt.accentHue`), over the theme's own.
     public private(set) var accentFollowsArt = false
@@ -98,7 +96,6 @@ public final class ThemeStore {
         defer { if publishesGlobally { hasAppliedConfig = true } }
         var input = input
         input.accent = accent
-        input.selection = selection
         let previousConfig = configInput
         configInput = input
         let changed = applyChrome(firstConfig: firstConfig)
@@ -123,7 +120,6 @@ public final class ThemeStore {
         let firstConfig = firstConfig ?? !hasAppliedConfig
         var input = appInput ?? configInput
         input.accent = accent
-        input.selection = selection
         let previous = self.input
         self.input = input
         let derived = ThemeTokens.derive(from: input)
@@ -166,7 +162,6 @@ public final class ThemeStore {
     public func setAppTheme(from input: ThemeInput?) -> Bool {
         var input = input
         input?.accent = accent
-        input?.selection = selection
         guard input != appInput else { return false }
         appInput = input
         appTheme = input.map(AppTheme.derive)
@@ -203,26 +198,6 @@ public final class ThemeStore {
         configInput.accent = accent
         // Two accents can give the config's theme the same tokens (`theme` and `magenta` under
         // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
-        if !applyChrome(), publishesGlobally {
-            ThemeRepaint.batch {
-                root?.storeDidChange()
-                repaintAll(crossfade: true)
-            }
-        }
-        return true
-    }
-
-    /// Sets what the selection fill takes (`appearance.selection`) and re-derives every scope's
-    /// tokens with it. Returns false when it did not change.
-    @discardableResult
-    public func setSelection(_ selection: ThemeSelection) -> Bool {
-        guard selection != self.selection else { return false }
-        self.selection = selection
-        if var app = appInput {
-            app.selection = selection
-            appInput = app
-        }
-        configInput.selection = selection
         if !applyChrome(), publishesGlobally {
             ThemeRepaint.batch {
                 root?.storeDidChange()

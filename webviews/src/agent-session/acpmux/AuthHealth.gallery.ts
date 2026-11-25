@@ -23,9 +23,7 @@ const waitForSignOut: Play = async (ctx) => {
   await waitForPicker(ctx);
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-cols [role=listbox] [role=button]")].some(
-      (item) =>
-        item.textContent?.trim() === translate("harness.logIn") ||
-        item.textContent?.trim() === translate("auth.fix.signInTo", { name: "Claude Code" }),
+      (item) => item.textContent?.trim() === translate("harness.logIn"),
     ),
   );
 };

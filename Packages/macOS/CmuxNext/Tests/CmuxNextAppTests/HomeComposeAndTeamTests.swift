@@ -39,7 +39,6 @@ struct HomeComposeAndTeamTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
         let content = NSView()
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
-        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: window, height: 800), styleMask: [.borderless],
                            backing: .buffered, defer: false)
@@ -55,9 +54,7 @@ struct HomeComposeAndTeamTests {
         let button = try #require(HomeNarrowSidebarTests.chatCompose(in: split))
         #expect(!button.isHidden, "the chat has no compose at \(list) pt in a \(window) pt window")
         let frame = button.convert(button.bounds, to: content)
-        let chats = split.chatColumn.chats.convert(split.chatColumn.chats.bounds, to: content)
-        #expect(chats.minX >= 4 && chats.minX <= 24, "Chats sits \(chats.minX) pt from the chat's left edge")
-        #expect(frame.minX > chats.maxX && frame.minX <= chats.maxX + 16, "compose sits at \(frame.minX) pt, Chats ends at \(chats.maxX) pt")
+        #expect(frame.minX >= 4 && frame.minX <= 24)
         split.composing = true
         #expect(button.isHidden)
     }

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextBridge
 import CmuxNextDesign
 
 extension ShellWindow {

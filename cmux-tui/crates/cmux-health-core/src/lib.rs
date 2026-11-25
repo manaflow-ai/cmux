@@ -95,10 +95,6 @@ pub struct Action {
     /// This part's count of actions sent, never reset: the host echoes it in
     /// `repairResult`, so a late result never lands on a newer attempt.
     pub token: u64,
-    /// The part's label (`register`), for the host's log: which part it repairs.
-    pub label: String,
-    /// Why, in the words the indicator shows ("Not answering for 12 s."), for the host's log.
-    pub cause: String,
 }
 
 /// How a receipt's repair ended.

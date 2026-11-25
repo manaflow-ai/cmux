@@ -2,11 +2,10 @@ public import AppKit
 public import Foundation
 import UniformTypeIdentifiers
 
-/// Where the page asks to open a file: a tab beside the agent, the editor, or Finder (the file revealed, not run).
+/// Where the page asks to open a file: a tab beside the agent, or the editor.
 public nonisolated enum AgentPaneFileTarget: String, Equatable, Sendable {
     case tab
     case editor
-    case finder
 }
 
 /// Opening a file the page names. The path comes from an agent's tool calls,

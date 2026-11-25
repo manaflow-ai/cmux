@@ -178,7 +178,7 @@ public final class RemoteVNCSession {
         guard !prompting else { return }
         prompting = true
         let saved = store?.credentials(for: endpoint)
-        let spec = CmuxDialogSpec(usesTransientMaterial: true,
+        let spec = CmuxDialogSpec(
             title: RemoteVNCStrings.signInTitle(record.host),
             lines: [RemoteVNCStrings.signInMessage],
             fields: [
@@ -215,7 +215,7 @@ public final class RemoteVNCSession {
 @MainActor
 struct RemoteVNCStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .localizedModule)
+        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .module)
     }
 
     static func signInTitle(_ host: String) -> String {

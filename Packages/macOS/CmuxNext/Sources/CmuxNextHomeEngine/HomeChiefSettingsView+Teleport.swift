@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// The Runs On row (Chief teleport): where this Mac's Chief runs, as the location chip whose
-/// Teleport menu moves it (``ChiefRunsOnChip``; Home's header has no location chip). Shown only for the Chief that
+/// Teleport menu moves it (the same menu as the Home header's chip). Shown only for the Chief that
 /// `cmux chief move` moves, this Mac's default one, wherever it runs now.
 extension HomeChiefSettingsView {
     func addTeleportRow() {
@@ -11,7 +11,7 @@ extension HomeChiefSettingsView {
         teleportRow.isHidden = true
         teleportRow.setAccessibilityIdentifier("cmux.home.chief.teleportRow")
         addFullWidth(teleportRow)
-        gap(after: teleportRow)
+        stack.setCustomSpacing(Metrics.space4, after: teleportRow)
     }
 
     /// Shows the Runs On row with `chip`; nil hides it.
@@ -20,20 +20,12 @@ extension HomeChiefSettingsView {
         guard shown !== chip else { return }
         for view in teleportRow.arrangedSubviews { view.removeFromSuperview() }
         if let chip {
-            // Drawn like the pickers in the same label column (Harness, Computer Use), across the control column.
-            chip.style = .field
-            let row = Self.row(ChiefTeleportStrings.row, chip, fills: true)
+            let row = Self.row(ChiefTeleportStrings.row, chip)
             row.translatesAutoresizingMaskIntoConstraints = false
             teleportRow.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: teleportRow.widthAnchor).isActive = true
         }
         teleportRow.isHidden = chip == nil
-        followPlace()
         onResize()
-    }
-
-    /// The line under the name says where the Chief runs only while no Runs On row says it.
-    func followPlace() {
-        place.isHidden = !teleportRow.isHidden
     }
 }

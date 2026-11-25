@@ -76,36 +76,22 @@ import Testing
 
     @Test func moveStepsAmongThePinnedItems() {
         let layout = Self.layout(["itm_a", "itm_b", "itm_c"])
-        #expect(layout.bandMove("itm_b", .step(-1)) == .move(section: Self.pinned, index: 0, target: SidebarDocTarget(section: "sec_pinned", before: "itm_a")))
-        #expect(layout.bandMove("itm_b", .step(1)) == .move(section: Self.pinned, index: 2, target: SidebarDocTarget(section: "sec_pinned", after: "itm_c")))
+        #expect(layout.stepMoveTarget("itm_b", by: -1) == SidebarDocTarget(section: "sec_pinned", before: "itm_a"))
+        #expect(layout.stepMoveTarget("itm_b", by: 1) == SidebarDocTarget(section: "sec_pinned", after: "itm_c"))
     }
 
-    @Test func moveStaysAtEitherEndAndIsNilOutsideTheBands() {
+    @Test func moveStopsAtEitherEndAndOutsideTheBands() {
         let layout = Self.layout(["itm_a", "itm_b"])
-        #expect(layout.bandMove("itm_a", .step(-1)) == .stays)
-        #expect(layout.bandMove("itm_b", .step(1)) == .stays)
-        #expect(layout.bandMove("itm_list_row", .step(1)) == nil)
+        #expect(layout.stepMoveTarget("itm_a", by: -1) == nil)
+        #expect(layout.stepMoveTarget("itm_b", by: 1) == nil)
+        #expect(layout.stepMoveTarget("itm_list_row", by: 1) == nil)
     }
 
     @Test func layoutTilesStepWithItemMove() {
         let layout = Self.layout(["itm_a", "itm_b", "itm_c"])
-        #expect(layout.bandMove("itm_b", .step(-1))?.layoutOp(LayoutItemID("itm_b")) == .itemMove(LayoutItemID("itm_b"), section: Self.pinned, index: 0))
-        #expect(layout.bandMove("itm_b", .step(1))?.layoutOp(LayoutItemID("itm_b")) == .itemMove(LayoutItemID("itm_b"), section: Self.pinned, index: 2))
-        #expect(layout.bandMove("itm_c", .step(1))?.layoutOp(LayoutItemID("itm_c")) == nil)
-    }
-
-    /// Move to Top of a band that leads with Home (a top section holding Home and pinned rows):
-    /// first after Home, never above it.
-    @Test func topKeepsALeadingHomeFirst() {
-        let section = LayoutSection(id: Self.pinned, region: .top, items: [
-            LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef),
-            LayoutItem(id: LayoutItemID("itm_a"), ref: .workspace("s-local:ws_a")),
-            LayoutItem(id: LayoutItemID("itm_b"), ref: .workspace("s-local:ws_b")),
-        ])
-        let layout = SidebarLayoutDocument(sections: [section])
-        #expect(layout.bandMove("itm_b", .top) == .move(section: Self.pinned, index: 1, target: SidebarDocTarget(section: "sec_pinned", before: "itm_a")))
-        #expect(layout.bandMove("itm_a", .top) == .stays)
-        #expect(layout.bandMove("itm_a", .bottom) == .move(section: Self.pinned, index: 2, target: SidebarDocTarget(section: "sec_pinned", after: "itm_b")))
-        #expect(layout.bandMove("itm_a", .above("itm_nope")) == nil)
+        #expect(layout.stepMoveOp(LayoutItemID("itm_b"), by: -1) == .itemMove(LayoutItemID("itm_b"), section: Self.pinned, index: 0))
+        #expect(layout.stepMoveOp(LayoutItemID("itm_b"), by: 1) == .itemMove(LayoutItemID("itm_b"), section: Self.pinned, index: 2))
+        #expect(layout.stepMoveOp(LayoutItemID("itm_c"), by: 1) == nil)
+        #expect(layout.stepMoveOp(LayoutItemID("itm_a"), by: -1) == nil)
     }
 }

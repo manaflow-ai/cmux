@@ -51,7 +51,7 @@ export function RulesNotice({ rules }: { rules: ForumRule[] }) {
             ))}
           </ul>
         ) : (
-          <p className="acpmux-host-error-message acpmux-rules-newest">
+          <p className="acpmux-host-error-message acpmux-rules-newest" title={newest.body}>
             <span className="acpmux-rules-key">{newest.key}</span> {newest.body}
           </p>
         )}

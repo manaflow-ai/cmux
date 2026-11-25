@@ -13,8 +13,8 @@ import UniformTypeIdentifiers
 /// it draws, so an arrival needs no layout at all: only its own rect is drawn again, and loads
 /// that finish together are one update.
 ///
-/// The observable: the layout the field throws away after a thumbnail arrives (the composer field
-/// is TextKit 1: `NSLayoutManagerDelegate` hears each invalidation, a relayout to come). The real view over a real `HomeStore` on the mock
+/// The observable: the layout fragments TextKit 2 makes (`NSTextLayoutManagerDelegate` asks for
+/// each new one) after a thumbnail arrives. The real view over a real `HomeStore` on the mock
 /// owner, in an offscreen window; the pictures go in through the paste's own path
 /// (`addDraftAttachment`, after the store prepared them).
 ///
@@ -26,10 +26,14 @@ import UniformTypeIdentifiers
         func cancel() {}
     }
 
-    /// Counts the field's layout invalidations (each one text laid out again).
-    final class FragmentCounter: NSObject, NSLayoutManagerDelegate {
+    /// Counts the layout fragments TextKit 2 makes (each one a paragraph laid out again).
+    final class FragmentCounter: NSObject, NSTextLayoutManagerDelegate {
         var made = 0
-        func layoutManagerDidInvalidateLayout(_ sender: NSLayoutManager) { made += 1 }
+        func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation,
+                               in textElement: NSTextElement) -> NSTextLayoutFragment {
+            made += 1
+            return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
     }
 
     static let conversation = ConversationID("conv_chief")
@@ -57,7 +61,7 @@ import UniformTypeIdentifiers
         }
         func layout() {
             window.contentView?.layoutSubtreeIfNeeded()
-            field.textKit1LayOutAll()
+            if let tlm = field.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
             field.displayIfNeeded()
             CATransaction.flush()
         }
@@ -141,11 +145,11 @@ import UniformTypeIdentifiers
         let pictures = r.pictures
         try #require(pictures.count == count, "the field holds \(r.pictures.count) of \(count) pictures")
         Self.drawnByTheField(pictures, in: r)
-        let lm = try #require(r.field.layoutManager)
+        let tlm = try #require(r.field.textLayoutManager)
         let counter = FragmentCounter()
-        let previous = lm.delegate
-        lm.delegate = counter
-        defer { lm.delegate = previous }
+        let previous = tlm.delegate
+        tlm.delegate = counter
+        defer { tlm.delegate = previous }
         r.layout()
         // Each picture's thumbnail arrives again, as a load that finishes does; the field lays out after each.
         var made: [Int] = []
@@ -164,7 +168,7 @@ import UniformTypeIdentifiers
         print(String(format: "PASTE-BENCH pictures=%d paste_ms=%.1f arrival_ms_p50=%.2f arrival_ms_max=%.2f fragments_per_arrival=%@",
                      count, total, sorted[sorted.count / 2], sorted.last ?? 0, made.map(String.init).joined(separator: ",")))
         #expect(made.allSatisfy { $0 == 0 },
-                "a thumbnail's arrival laid the text out \(made.max() ?? 0) times with \(count) pictures (want none: it only draws): \(made)")
+                "a thumbnail's arrival laid out \(made.max() ?? 0) paragraphs with \(count) pictures (want none: it only draws): \(made)")
     }
 
     /// Thumbnails that finish together are one update of the field, not one each.
@@ -175,18 +179,18 @@ import UniformTypeIdentifiers
         let pictures = r.pictures
         try #require(pictures.count == 6)
         Self.drawnByTheField(pictures, in: r)
-        let lm = try #require(r.field.layoutManager)
+        let tlm = try #require(r.field.textLayoutManager)
         let counter = FragmentCounter()
-        let previous = lm.delegate
-        lm.delegate = counter
-        defer { lm.delegate = previous }
+        let previous = tlm.delegate
+        tlm.delegate = counter
+        defer { tlm.delegate = previous }
         r.layout()
         counter.made = 0
         let before = r.field.inlineRedrawUpdates
         for picture in pictures { picture.thumbnailArrived(picture.thumbnail) }
         for _ in 0..<4 { await Task.yield() }
         r.layout()
-        #expect(counter.made == 0, "six arrivals together laid the text out \(counter.made) times (want none)")
+        #expect(counter.made == 0, "six arrivals together laid out \(counter.made) paragraphs (want none)")
         #expect(r.field.inlineRedrawUpdates - before == 1, "six arrivals together were \(r.field.inlineRedrawUpdates - before) updates (want one)")
     }
 }

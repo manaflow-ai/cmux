@@ -64,7 +64,6 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (launch, App, owned, sample, end_bundle)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
-from state_wait import wait_until, wait_stable, StateWaitTimeout  # noqa: E402
 
 ARTICLE = "<p>" + ("Hibernation frees a hidden page's renderer and brings it back on demand. " * 30) + "</p>"
 PAGE = """<!doctype html><html><head><meta charset=utf-8><title>Hibernate {n}</title>
@@ -183,18 +182,6 @@ def renderers(result: dict) -> dict:
 
 
 HELD_FREEZE_S = 3600
-
-
-def processes_settled(app_pid: int, bundle: str, what: str, timeout: float = 60) -> None:
-    """The app's process set (its renderers and helpers) unchanged for about 3 s: the ones that exit have exited."""
-    try:
-        wait_stable(lambda: sorted(bm.owned(app_pid, bundle)), what, timeout=timeout, interval=1.0, reads=4)
-    except StateWaitTimeout:
-        print(f"   {what}: the process set never settled in {timeout:g} s", file=sys.stderr)
-
-
-def main_windows(sock: str) -> list:
-    return [w for w in (bp.rpc(sock, "debug.window_list") or {}).get("windows") or [] if w.get("kind") == "main"]
 
 
 def pump(sock: str) -> dict:
@@ -356,8 +343,7 @@ def main():
         tabs = [t for engine in engines for t in opened[engine]]
         report["opened"] = opened
         # Agent grace (30 s after the last script call) and the page's own load work pass first.
-        # sleep-ok: the app's own 30 s agent-grace timer has to run out; no state reports its end
-        time.sleep(35)
+        time.sleep(35)  # test script: let the hidden pages settle
         chromium = set(opened.get("chromium", []))
         # The "awake" phase is hidden only: the freeze is held off until it ends (HELD_FREEZE_S); the counts prove it.
         awake_frozen = len(set(hibernation(sock).get("frozen") or []) & chromium)
@@ -373,7 +359,7 @@ def main():
             print(f"PERF-HIBERNATE-FROZEN all={bool(frozen)} frozen={len(hibernation(sock).get('frozen') or [])} "
                   f"awake_frozen_at_end={report['awake_frozen_at_end']}", flush=True)
             report["all_frozen"] = bool(frozen)
-            processes_settled(pid, bundle, "the app's processes after the freeze")
+            time.sleep(5)  # test script: settle after the freeze
             # A "frozen" phase is measured only when every bench page froze; else it would be hidden pages under that name.
             if frozen:
                 phase(pid, bundle, "frozen", args.measure, report, sock)
@@ -389,15 +375,13 @@ def main():
         print(f"PERF-HIBERNATE-SLEPT all={bool(asleep)} hibernated={len(status.get('hibernated') or [])} "
               f"snapshots={status.get('snapshots')} snapshot_bytes={status.get('snapshot_bytes')} "
               f"exemptions={json.dumps(status.get('exemptions') or {})}", flush=True)
-        processes_settled(pid, bundle, "the hibernated pages' renderers exiting")
+        time.sleep(10)  # test script: renderers exit and the app settles
         phase(pid, bundle, "hibernated", args.measure, report, sock)
         # No tab on screen at all (the window miniaturized): nothing changes on screen, so the GPU process and the
         # pump must go quiet; a GPU process that still wakes at display rate here is a bug (vsync must stop).
         reply = app.run("minimizeWindow")
-        # The main windows report themselves miniaturized (no wait when the action was refused).
-        mains = (wait_until(lambda: (lambda m: m if m and all(w.get("miniaturized") for w in m) else None)(main_windows(sock)),
-                            "the main window miniaturized", timeout=15, raise_on_timeout=False)
-                 if not reply.get("error") else None) or main_windows(sock)
+        time.sleep(5)  # test script: the window is miniaturized and the app settles
+        mains = [w for w in (bp.rpc(sock, "debug.window_list") or {}).get("windows") or [] if w.get("kind") == "main"]
         minimized = bool(mains) and all(w.get("miniaturized") for w in mains)
         report["minimized"] = {"ran": minimized, "error": reply.get("error")}
         print(f"PERF-HIBERNATE-MINIMIZED ran={minimized} error={reply.get('error')}", flush=True)
@@ -405,9 +389,7 @@ def main():
             phase(pid, bundle, "minimized", args.measure, report, sock)
         app.run("showMainWindow")
         app.run("tab.focus", target=front)
-        if not wait_until(lambda: (lambda m: m and not any(w.get("miniaturized") for w in m))(main_windows(sock)),
-                          "the main window back on screen", timeout=15, raise_on_timeout=False):
-            print("   showMainWindow: the main window never came back from the Dock", file=sys.stderr)
+        time.sleep(3)  # test script: the window is back
         for engine in engines:
             for tab in opened[engine]:
                 if tab in set(hibernation(sock).get("hibernated") or []):
@@ -524,8 +506,7 @@ def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra, re
     driven = [t for engine in engines[:1] for t in [open_tab(engine, page_url(engine, 901, ports))] if t]
     opened_extra.extend(playing + silent + driven)
     app.run("tab.focus", target=front)
-    # sleep-ok: the app's own 30 s agent-grace timer after the script calls has to run out; no state reports its end
-    time.sleep(35)
+    time.sleep(35)  # test script: agent grace after the script calls
     for tab in driven:
         evaluate(sock, tab, "1")
     if pid is not None and report is not None:
@@ -584,7 +565,7 @@ def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra, re
               "driven_tabs": len(driven), "driven_hibernated": sorted(ever_slept & set(driven)),
               "exemptions": status.get("exemptions")}
     if pid is not None and report is not None:
-        processes_settled(pid, bundle, "the hibernated pages' renderers exiting")
+        time.sleep(10)  # test script: renderers exit and the app settles
         phase(pid, bundle, "pressure-after", measure, report)
         phases = {p["label"]: p for p in report["phases"]}
         result["footprint_before_mb"] = phases["pressure-before"]["total_footprint_mb"]

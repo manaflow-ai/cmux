@@ -280,10 +280,6 @@ export function composerPlusSections(
 
 export const COMPOSER_PLUS_MOTION = "none" as const;
 
-export function isComposerCommand(id: string): boolean {
-  return Object.values(COMMANDS).includes(id as (typeof COMMANDS)[keyof typeof COMMANDS]);
-}
-
 export function runComposerPlusAction(
   action: ComposerPlusAction,
   handlers: {
@@ -296,7 +292,7 @@ export function runComposerPlusAction(
     handlers.slash(action.command);
     return true;
   }
-  if (isComposerCommand(action.id)) {
+  if (Object.values(COMMANDS).includes(action.id as (typeof COMMANDS)[keyof typeof COMMANDS])) {
     handlers.command(action.id, action.modeId);
     return true;
   }

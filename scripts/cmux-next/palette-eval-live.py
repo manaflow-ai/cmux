@@ -17,7 +17,6 @@ Usage: palette-eval-live.py TAG APP OUT_DIR CASES_JSON [--shot QUERY ...]
 import json, os, pwd, re, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
-from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 TAG, APP, OUT, CASES = sys.argv[1:5]
 SHOTS = []
@@ -93,17 +92,7 @@ try:
         time.sleep(0.5)
     if not wins:
         sys.exit("no window")
-    # Until the providers (settings, apps) published their first rows: the root ranker input stops changing.
-    probe = os.path.join(scratch, "entries-probe.json")
-
-    def entries():
-        rpc("debug.palette.entries", {"path": probe}, timeout=60)
-        with open(probe) as f:
-            return f.read()
-    try:
-        wait_stable(entries, "the root palette's entries", timeout=30, interval=0.5, reads=4)
-    except StateWaitTimeout as error:
-        safe_print(f"note: {error}", flush=True)
+    time.sleep(3)  # let providers (settings, apps) publish their first rows
     safe_print("entries:", json.dumps(rpc("debug.palette.entries", {"path": os.path.join(OUT, "root-entries.json")}, timeout=60)),
                flush=True)
     results = {}

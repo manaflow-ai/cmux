@@ -17,7 +17,6 @@ Run it on a fleet Mac, never on the laptop.
 import json, os, socket, subprocess, sys, time, tempfile, shutil, statistics
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
-from state_wait import wait_until  # noqa: E402
 
 BIN = sys.argv[1]
 RUNS = int(sys.argv[2]) if len(sys.argv) > 2 else 20
@@ -61,13 +60,11 @@ def records():
 times = []
 adopted = 0
 try:
-    # The daemon is up and has spawned its spare terminal host (a host with no tab record yet).
-    if not wait_until(lambda: hosts() - set(records().values()), "the daemon's spare terminal host", timeout=15, raise_on_timeout=False):
-        safe_print("no spare terminal host after 15 s; the first tab cannot adopt one", flush=True)
+    time.sleep(1.0)
     sampler = None
     if os.environ.get("SAMPLE"):
         sampler = subprocess.Popen(["sample", str(daemon.pid), os.environ["SAMPLE"], "1", "-mayDie", "-file", os.environ.get("SAMPLE_OUT", "/tmp/r81b-sample.txt")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(0.5)  # sample attaching to the daemon has no signal outside sample itself
+        time.sleep(0.5)
     for i in range(RUNS):
         before = hosts()
         spare = before - set(records().values())

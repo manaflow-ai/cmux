@@ -1,6 +1,5 @@
 public import Foundation
 import CmuxNextCompat
-import struct CmuxNextControl.LaunchMarkSink
 import os
 
 /// Marks of the first agent pane's load (view made, page loaded, page asked
@@ -17,7 +16,6 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         var sink: (@Sendable (String, Date) -> Void)?
         var early: [(String, Date)] = []
         var listeners: [@Sendable (String) -> Void] = []
-        var layoutSettled = false
     }
 
     private let state = Mutex(State())
@@ -38,37 +36,14 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         state.withLock { $0.listeners.append(listener) }
     }
 
-    /// Records `name` at `date` (now by default; a page's report carries its own wall-clock time).
-    func mark(_ name: String, at date: Date = Date()) {
+    func mark(_ name: String) {
         signposter.emitEvent("agent_pane", "\(name, privacy: .public)")
+        let now = Date()
         let (receiver, listeners) = state.withLock { state -> ((@Sendable (String, Date) -> Void)?, [@Sendable (String) -> Void]) in
-            if state.sink == nil, state.early.count < 64 { state.early.append((name, date)) }
+            if state.sink == nil, state.early.count < 64 { state.early.append((name, now)) }
             return (state.sink, state.listeners)
         }
-        receiver?(name, date)
+        receiver?(name, now)
         for listener in listeners { listener(name) }
-    }
-
-    /// The first chat page's launch settle (`pane.launchSettle`, webviews launchSettle.ts), once per process:
-    /// `web.layout.settle` is a time mark (the page's wall-clock `date`, on the launch marks' process-start clock
-    /// through the receiver); the rest are values, not times, so they go straight to the launch harness's
-    /// stream (``LaunchMarkSink``, nothing without one): `web.layout.max_move` and
-    /// `web.layout.max_move.<element>` in CSS px, `web.layout.shifts` a count.
-    func layoutSettle(at date: Date, maxMovePx: Double, element: String, shifts: Int) {
-        // No harness, no marks: not even the in-memory launch mark.
-        guard LaunchMarkSink.shared.isActive else { return }
-        let first = state.withLock { state -> Bool in
-            defer { state.layoutSettled = true }
-            return !state.layoutSettled
-        }
-        guard first else { return }
-        mark("web.layout.settle", at: date)
-        // One token of the `<name> <value>` line: the page names a short kind; anything else reads `other`.
-        let named = element.count <= 32 && !element.isEmpty
-            && element.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || $0 == "-" }
-        let sink = LaunchMarkSink.shared
-        sink.write(name: "web.layout.max_move", ms: maxMovePx)
-        sink.write(name: "web.layout.max_move.\(named ? element : "other")", ms: maxMovePx)
-        sink.write(name: "web.layout.shifts", ms: Double(shifts))
     }
 }

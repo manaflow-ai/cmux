@@ -6,8 +6,7 @@ import Testing
 
 /// An empty workspace list draws nothing under Home, as classic draws nothing there: no
 /// "No workspaces" and no "New workspace: + or ⌘N" (https://github.com/manaflow-ai/cmux/issues/32728).
-/// The row stays, one plain row high, as the list's drop target. Pinned's drop zone says nothing either
-/// (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"): the gap a drag opens there is the cue.
+/// The row stays, one plain row high, as the list's drop target; Pinned's still says "Drop here to pin".
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEmptyWorkspaceHintTests {
     @Test(arguments: SidebarDensity.allCases)
     func emptyWorkspaceListDrawsNoText(_ density: SidebarDensity) throws {
@@ -22,6 +21,7 @@ import Testing
         #expect(geometry.height == SidebarLayoutMetrics.standard.emptySectionHeight)
         let view = EmptySectionRowView(key: geometry.key)
         view.frame = NSRect(x: 0, y: 0, width: 240, height: geometry.height)
+        view.configure(pinned: false)
         view.layoutSubtreeIfNeeded()
         #expect(view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.isEmpty)
     }
@@ -42,15 +42,16 @@ import Testing
         #expect(row.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.isEmpty)
     }
 
-    @Test func pinnedsDropZoneDrawsNoText() {
+    @Test func reusedRowSwitchesBetweenPinnedDropZoneAndBlankList() {
         _ = NSApplication.shared
         let view = EmptySectionRowView(key: .emptySection(.machine(.local)))
+        view.configure(pinned: false)
         view.prepareForReuse(key: .emptySection(.pinned))
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarLayoutMetrics.standard.emptySectionHeight)
-        view.layoutSubtreeIfNeeded()
+        view.configure(pinned: true)
         let visible = { view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.map(\.stringValue) }
-        #expect(visible().isEmpty, "Pinned's drop zone draws \(visible())")
+        #expect(visible() == ["Drop here to pin"])
         view.prepareForReuse(key: .emptySection(.machine(.local)))
+        view.configure(pinned: false)
         #expect(visible().isEmpty)
     }
 }

@@ -16,7 +16,6 @@ import argparse, json, os, socket, subprocess, sys, time
 import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -57,9 +56,7 @@ def poll(predicate, timeout=30):
 
 
 def step(name):
-    # Wait until the field's height animation finished: the geometry reads the same several times in a row.
-    wait_stable(lambda: rpc("debug.home.drive", {"action": "geometry"}), "the compose field geometry", timeout=10,
-                interval=0.1, reads=4, raise_on_timeout=False)
+    time.sleep(0.6)  # let the field's height animation finish before the shot
     path = os.path.join(opts.out, f"{name}.png")
     snap = rpc("debug.window_snapshot", {"path": path})
     geometry = rpc("debug.home.drive", {"action": "geometry"})

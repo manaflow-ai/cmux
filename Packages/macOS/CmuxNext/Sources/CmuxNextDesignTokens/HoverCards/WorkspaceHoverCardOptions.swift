@@ -7,11 +7,10 @@ package import Foundation
 public nonisolated struct WorkspaceHoverCardOptions: Sendable, Hashable {
     /// The card's design.
     public enum Layout: String, Sendable, Hashable, CaseIterable {
-        /// The title, status and a stats line, the workspace's facts, then the scrollable history
-        /// (prompts, starts, waits, finished turns), newest first (u3320).
+        /// The default: the title, status and a stats line, the workspace's facts, then the
+        /// scrollable history (prompts, starts, waits, finished turns), newest first.
         case timeline
-        /// The settings default (`sidebar.hoverCards.layout`, Lawrence 2026-11-20: "drastically simplify
-        /// all parts of the UI"): the facts card with the last three moments under it, no scrolling.
+        /// The facts card with the last three moments under it, no scrolling.
         case compact
         /// The history alone, taller and wider, each prompt up to three lines.
         case log
@@ -21,8 +20,6 @@ public nonisolated struct WorkspaceHoverCardOptions: Sendable, Hashable {
         case minimal
     }
 
-    /// Before settings load (and in tests that build a card by hand) the history design; the app
-    /// applies the settings default, Compact.
     public var layout: Layout = .timeline
     /// Running times: the status's and a command's elapsed time, and the stats line.
     public var showsTimings = true

@@ -219,25 +219,6 @@ pub fn claude_session_exists(root: &Path, id: &str) -> bool {
     is_bare_id(id) && find_claude(root, id).is_some()
 }
 
-/// `claude_session_exists`, looking in the one project folder `cwd` names
-/// before any walk: `find_claude` reads every folder under `projects/` (over
-/// 1400 of them on a busy host), which no start of a chat should pay for. A
-/// cwd whose folder name Claude wrote differently only falls back to the walk.
-pub fn claude_session_exists_near(root: &Path, id: &str, cwd: &Path) -> bool {
-    if !is_bare_id(id) {
-        return false;
-    }
-    let scoped = root.join("projects").join(project_dir_name(cwd)).join(format!("{id}.jsonl"));
-    scoped.is_file() || find_claude(root, id).is_some()
-}
-
-/// Claude Code's `projects/` folder name for a chat's `cwd`: every character
-/// that is not a letter or a digit becomes `-` (`/Users/me/fun` is
-/// `-Users-me-fun`).
-pub(crate) fn project_dir_name(cwd: &Path) -> String {
-    cwd.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
-}
-
 /// `<claude>/projects/<project>/<id>.jsonl`.
 pub(crate) fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");

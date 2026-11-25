@@ -11,34 +11,34 @@ struct NewTabControlPlaygroundVariants {
     var all: [TabBarPlaygroundVariant] {
         let fixture = fixture
         var variants = [
-            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.shipped", defaultValue: "+ and a separate ⌄ chooser", bundle: .localizedModule),
+            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.shipped", defaultValue: "+ and a separate ⌄ chooser", bundle: .module),
                                     isShipped: true) { count in
                 let strip = fixture.strip(count: count)
                 strip.showsNewTabMenuButton = true
                 return TabBarPlaygroundBar(strip: strip)
             },
-            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.chrome", defaultValue: "Chrome and Helium: a plain + after the last tab, kinds on right-click or hold", bundle: .localizedModule)) { count in
+            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.chrome", defaultValue: "Chrome and Helium: a plain + after the last tab, kinds on right-click or hold", bundle: .module)) { count in
                 TabBarPlaygroundBar(strip: fixture.strip(count: count))
             },
-            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.caret", defaultValue: "+ with a caret inside: a click opens the kinds", bundle: .localizedModule)) { count in
+            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.caret", defaultValue: "+ with a caret inside: a click opens the kinds", bundle: .module)) { count in
                 let strip = fixture.strip(count: count)
                 strip.opensNewTabMenuOnPress = true
                 return TabBarPlaygroundBar(strip: strip)
             },
-            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.inMore", defaultValue: "No +: New Tab and the kinds in the ⋮ menu (⌘T stays)", bundle: .localizedModule)) { count in
+            TabBarPlaygroundVariant(name: String(localized: "tabs.playground.newTab.inMore", defaultValue: "No +: New Tab and the kinds in the ⋮ menu (⌘T stays)", bundle: .module)) { count in
                 TabBarPlaygroundBar(strip: fixture.strip(count: count, showsNewTabButton: false))
             },
         ]
         let candidates: [(TabBarPlaygroundNewTabControl.Style, String)] = [
-            (.plusOnly, String(localized: "tabs.playground.newTab.plusOnly", defaultValue: "A plain + at the trailing end, kinds on right-click or hold", bundle: .localizedModule)),
-            (.plusOpensMenu, String(localized: "tabs.playground.newTab.plusMenu", defaultValue: "One + that opens a small menu of kinds", bundle: .localizedModule)),
-            (.chevronOnHover, String(localized: "tabs.playground.newTab.hoverChevron", defaultValue: "+ with a ⌄ that shows only on hover", bundle: .localizedModule)),
-            (.cornerBadge, String(localized: "tabs.playground.newTab.badge", defaultValue: "+ with a tiny ⌄ badge in its corner", bundle: .localizedModule)),
-            (.segmented, String(localized: "tabs.playground.newTab.segmented", defaultValue: "+ and ⌄ as one split capsule", bundle: .localizedModule)),
-            (.chevronFirst, String(localized: "tabs.playground.newTab.chevronFirst", defaultValue: "⌄ before the +", bundle: .localizedModule)),
-            (.filledPlus, String(localized: "tabs.playground.newTab.filled", defaultValue: "Safari: + in a filled rounded square", bundle: .localizedModule)),
-            (.labeled, String(localized: "tabs.playground.newTab.labeled", defaultValue: "+ New Tab, with its label", bundle: .localizedModule)),
-            (.largePlus, String(localized: "tabs.playground.newTab.large", defaultValue: "A larger +, the toolbar's button size", bundle: .localizedModule)),
+            (.plusOnly, String(localized: "tabs.playground.newTab.plusOnly", defaultValue: "A plain + at the trailing end, kinds on right-click or hold", bundle: .module)),
+            (.plusOpensMenu, String(localized: "tabs.playground.newTab.plusMenu", defaultValue: "One + that opens a small menu of kinds", bundle: .module)),
+            (.chevronOnHover, String(localized: "tabs.playground.newTab.hoverChevron", defaultValue: "+ with a ⌄ that shows only on hover", bundle: .module)),
+            (.cornerBadge, String(localized: "tabs.playground.newTab.badge", defaultValue: "+ with a tiny ⌄ badge in its corner", bundle: .module)),
+            (.segmented, String(localized: "tabs.playground.newTab.segmented", defaultValue: "+ and ⌄ as one split capsule", bundle: .module)),
+            (.chevronFirst, String(localized: "tabs.playground.newTab.chevronFirst", defaultValue: "⌄ before the +", bundle: .module)),
+            (.filledPlus, String(localized: "tabs.playground.newTab.filled", defaultValue: "Safari: + in a filled rounded square", bundle: .module)),
+            (.labeled, String(localized: "tabs.playground.newTab.labeled", defaultValue: "+ New Tab, with its label", bundle: .module)),
+            (.largePlus, String(localized: "tabs.playground.newTab.large", defaultValue: "A larger +, the toolbar's button size", bundle: .module)),
         ]
         variants += candidates.map { style, name in
             TabBarPlaygroundVariant(name: name) { count in

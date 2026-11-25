@@ -5,16 +5,6 @@ import Testing
 @testable import CmuxMobileLive
 
 @Suite(.timeLimit(.minutes(1))) struct LinkRequestDeadlineTests {
-    static func pairing() -> LinkPairing {
-        let keys = PhoneKeys(userID: "u1", service: "test.deadline.\(UUID())", store: MemorySecretStore(), enclave: false)
-        return LinkPairing(keys: keys, phoneID: MacPinTests.phone, name: "iPhone", pins: MacPins(file: nil))
-    }
-
-    static func pairing<C: Clock<Duration>>(clock: C) -> LinkPairing {
-        let keys = PhoneKeys(userID: "u1", service: "test.deadline.\(UUID())", store: MemorySecretStore(), enclave: false)
-        return LinkPairing(keys: keys, phoneID: MacPinTests.phone, name: "iPhone", pins: MacPins(file: nil), push: nil, clock: clock)
-    }
-
     @Test func aDroppedRPCReplyTimesOutAndTheNextRequestStillWorks() async throws {
         let channel = DeadlineChannel()
         let connection = AcpmuxConnection(channel: channel)
@@ -52,7 +42,7 @@ import Testing
     }
 
     @Test func aMissingPairingChallengeTimesOutAndClosesItsChannel() async throws {
-        var pairing = Self.pairing()
+        var pairing = PairInviteTests.pairing(PairInvites())
         pairing.handshakeTimeout = .milliseconds(20)
         let channel = DeadlineChannel()
         let result = await pairing.finish(.success(opened(channel)), macID: "test-mac") {}
@@ -65,7 +55,7 @@ import Testing
 
     @Test func approvalCanFinishAfterTheHandshakeDeadline() async throws {
         let clock = LinkTestClock()
-        var pairing = Self.pairing(clock: clock)
+        var pairing = PairInviteTests.pairing(PairInvites(), clock: clock)
         // Leave enough room for the first frame to be scheduled while still
         // proving that approval has its own budget after the handshake expires.
         pairing.handshakeTimeout = .seconds(1)
@@ -88,7 +78,7 @@ import Testing
     }
 
     @Test func aMissingApprovalHasAVisibleTimeout() async throws {
-        var pairing = Self.pairing()
+        var pairing = PairInviteTests.pairing(PairInvites())
         pairing.approvalTimeout = .milliseconds(20)
         let channel = DeadlineChannel()
         channel.push(Data(#"{"pending":true}"#.utf8))
@@ -98,7 +88,7 @@ import Testing
     }
 
     @Test func cancellingPairingClosesItsWaitingReceive() async throws {
-        let pairing = Self.pairing()
+        let pairing = PairInviteTests.pairing(PairInvites())
         let channel = DeadlineChannel()
         let task = Task { await pairing.finish(.success(opened(channel)), macID: "test-mac") {} }
         var reads = channel.reads.makeAsyncIterator()

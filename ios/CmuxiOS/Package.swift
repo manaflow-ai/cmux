@@ -46,8 +46,6 @@ let package = Package(
                 .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -108,7 +106,6 @@ let package = Package(
         .target(
             name: "CmuxiOSPush",
             dependencies: [
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
@@ -118,7 +115,6 @@ let package = Package(
         .target(
             name: "CmuxiOSIdentity",
             dependencies: [
-                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],

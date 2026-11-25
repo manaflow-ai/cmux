@@ -4,8 +4,7 @@ public import Foundation
 public nonisolated struct BackdropCatalog: Sendable, Equatable {
     /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
     /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``), then the
-    /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos), then the
-    /// living wallpapers drawn by code (``BackdropShader``).
+    /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos).
     public let choices: [BackdropSelection]
     /// The macOS wallpapers among ``choices``, by path.
     public let appleWallpapers: [String: AppleWallpaper]
@@ -18,9 +17,6 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     public static let bundled: [BackdropSelection] = BackdropArtCollection.allCases.flatMap { collection in
         BackdropArt.allCases.filter { $0.collection == collection }.map(BackdropSelection.art)
     }
-
-    /// The living wallpapers (``BackdropShader``), last in the picker: drawn by code, no file to read.
-    public static let shaders: [BackdropSelection] = BackdropShader.allCases.map(BackdropSelection.shader)
 
     /// The bundled art only (no folder read): what ``BackdropCatalogStore`` shows before its first build.
     public init(bundledOnly: Void) {
@@ -51,6 +47,6 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
             return path
         })
         choices = Self.bundled + yours.filter { !$0.isVideo } + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
-            + moving + yours.filter(\.isVideo) + Self.shaders
+            + moving + yours.filter(\.isVideo)
     }
 }

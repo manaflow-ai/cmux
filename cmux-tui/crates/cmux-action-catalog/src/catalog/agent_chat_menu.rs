@@ -1,7 +1,6 @@
 // cmux NEXT action catalog data. Edit by hand: this is the source of truth.
 //! The `AgentChatMenuActionCatalog` actions.
 
-use super::args;
 use crate::model::*;
 use crate::text::t;
 
@@ -147,71 +146,6 @@ pub static ACTIONS: &[Action] = &[
         targets: &["pane"],
         cli_name: "agent open-cwd-in-terminal",
         focuses: true,
-        ..Action::DEFAULT
-    },
-    // Open in Editor on a chat's folder: the "..." menu's Folder ▸, Session Info, and a Priority row's menu
-    // (its `agent-chat` target). The editors and the default are the App's (cmux-window-rules `editors`).
-    Action {
-        id: "agentPane.openCwdInEditor",
-        group: GROUP,
-        title: Text::raw("Open Chat Folder in Editor"),
-        keywords: &["agent", "chat", "folder", "cwd", "directory", "editor", "ide", "code", "vscode", "cursor", "zed", "open"],
-        category: "agents",
-        symbol: "chevron.left.forwardslash.chevron.right",
-        surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("priorityRow", "reopen", 0).label(Text::raw("Open in Editor"))], ..SurfacePlan::DEFAULT },
-        arguments: &[args::EDITOR.optional()],
-        requires: &["agentPaneFocused"],
-        targets: &["pane", "agent-chat"],
-        cli_name: "agent open-cwd-in-editor",
-        focuses: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "agentPane.openCwdInApp",
-        group: GROUP,
-        title: Text::raw("Open Chat Folder In…"),
-        keywords: &["agent", "chat", "folder", "cwd", "directory", "editor", "ide", "app", "open in", "open with"],
-        category: "agents",
-        symbol: "arrow.up.forward.app",
-        surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("priorityRow", "reopen", 1).style("choices").label(Text::raw("Open In"))], ..SurfacePlan::DEFAULT },
-        arguments: &[args::EDITOR],
-        requires: &["agentPaneFocused"],
-        targets: &["pane", "agent-chat"],
-        cli_name: "agent open-cwd-in",
-        focuses: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "agentPane.copyCwdPath",
-        group: GROUP,
-        title: Text::raw("Copy Chat Folder Path"),
-        keywords: &["agent", "chat", "folder", "cwd", "directory", "path", "copy", "clipboard"],
-        category: "agents",
-        symbol: "doc.on.doc",
-        surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("priorityRow", "inspect", 0).label(Text::raw("Copy Path"))], ..SurfacePlan::DEFAULT },
-        requires: &["agentPaneFocused"],
-        targets: &["pane", "agent-chat"],
-        cli_name: "agent copy-cwd-path",
-        focuses: true,
-        ..Action::DEFAULT
-    },
-    // Make This Agent a Chief: the focused chat's agent becomes a Chief under its own id, as
-    // `cmux chief adopt AGENT` (`chief.profile.adopt`); its conversations and history stay.
-    Action {
-        id: "agentPane.adoptAsChief",
-        group: GROUP,
-        title: t("HomeActions", "action.agentPane.adoptAsChief", "Make This Agent a Chief"),
-        keywords: &["agent", "chat", "chief", "adopt", "promote", "orchestrator", "profile"],
-        category: "agents",
-        symbol: "sparkles",
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
-        requires: &["agentPaneFocused"],
-        targets: &["pane", "agent-chat"],
-        cli_name: "chief adopt",
-        waits_for_result: true,
         ..Action::DEFAULT
     },
 ];

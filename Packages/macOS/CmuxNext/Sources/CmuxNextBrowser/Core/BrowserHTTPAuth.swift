@@ -13,28 +13,28 @@ enum BrowserHTTPAuth {
                                        NSURLAuthenticationMethodNTLM, NSURLAuthenticationMethodDefault]
 
     static func spec(host: String, realm: String?, isSecure: Bool, failedBefore: Bool, user: String?) -> CmuxDialogSpec {
-        var lines = [String(localized: "browser.auth.message", defaultValue: "The server asks for a user name and password.", bundle: .localizedModule)]
+        var lines = [String(localized: "browser.auth.message", defaultValue: "The server asks for a user name and password.", bundle: .module)]
         if let realm, !realm.isEmpty {
-            lines.append(String(format: String(localized: "browser.auth.realm", defaultValue: "Realm: %@", bundle: .localizedModule), realm))
+            lines.append(String(format: String(localized: "browser.auth.realm", defaultValue: "Realm: %@", bundle: .module), realm))
         }
         if !isSecure {
-            lines.append(String(localized: "browser.auth.insecure", defaultValue: "Your user name and password are sent without encryption.", bundle: .localizedModule))
+            lines.append(String(localized: "browser.auth.insecure", defaultValue: "Your user name and password are sent without encryption.", bundle: .module))
         }
         if failedBefore {
-            lines.append(String(localized: "browser.auth.failed", defaultValue: "The user name or password is not correct.", bundle: .localizedModule))
+            lines.append(String(localized: "browser.auth.failed", defaultValue: "The user name or password is not correct.", bundle: .module))
         }
-        return CmuxDialogSpec(usesTransientMaterial: true,
-            title: String(format: String(localized: "browser.auth.title", defaultValue: "Sign in to %@", bundle: .localizedModule), host),
+        return CmuxDialogSpec(
+            title: String(format: String(localized: "browser.auth.title", defaultValue: "Sign in to %@", bundle: .module), host),
             lines: lines,
             origin: host,
             fields: [
-                .text("user", initial: user ?? "", label: String(localized: "browser.auth.user", defaultValue: "User Name", bundle: .localizedModule)),
-                .text(id: "password", label: String(localized: "browser.auth.password", defaultValue: "Password", bundle: .localizedModule),
+                .text("user", initial: user ?? "", label: String(localized: "browser.auth.user", defaultValue: "User Name", bundle: .module)),
+                .text(id: "password", label: String(localized: "browser.auth.password", defaultValue: "Password", bundle: .module),
                       initial: "", placeholder: nil, secure: true),
                 .check(id: "remember", title: Strings.authRemember, on: false),
             ],
             buttons: [.cancel(Strings.cancel),
-                      CmuxDialogButton(id: "sign-in", title: String(localized: "browser.auth.signIn", defaultValue: "Sign In", bundle: .localizedModule), role: .default)],
+                      CmuxDialogButton(id: "sign-in", title: String(localized: "browser.auth.signIn", defaultValue: "Sign In", bundle: .module), role: .default)],
             identifier: "browser.dialog.httpAuth")
     }
 

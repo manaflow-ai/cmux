@@ -11,8 +11,6 @@ package final class RemoteCursorCoordinator {
     /// The NSCursor of the last remote shape at the last scale.
     private var worn: (id: UInt32, scale: CGFloat, cursor: NSCursor)?
     package private(set) var presentation = RemoteCursorPresentation.none
-    /// False draws no remote pointer over the video (an embedded preview without chrome draws its own).
-    package var showsOverlay = true
 
     init(video: RemoteVideoView, capture: RemoteInputCaptureView) {
         self.video = video
@@ -36,7 +34,7 @@ package final class RemoteCursorCoordinator {
             cursor: cursor, control: capture.controller.isActive, pointerInImage: capture.pointerInImage,
             echoesLocalPointer: echoes, inFrame: inFrame)
         presentation = next
-        video.setRemoteCursor(cursor, drawsOverlay: next.drawsOverlay && showsOverlay)
+        video.setRemoteCursor(cursor, drawsOverlay: next.drawsOverlay)
         switch next.local {
         case .system: capture.localCursor = nil
         case .hidden: capture.localCursor = Self.blank

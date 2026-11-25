@@ -523,7 +523,7 @@ fn a_runs_reply_outlives_a_restart_but_an_incognito_ones_never_reaches_the_file(
     // Codex's review of #39022 at 551a7dca (F2): a Run that ended answers its reply and error after
     // the daemon starts again (its machine is deleted, so nothing else has them); an incognito
     // send's never touch the file. At 946e940e (F1): an incognito send never starts a Run here at
-    // all (it would be an ordinary chat in the app); it is refused.
+    // all (it would be an ordinary chat in the app); classic Cloud runs it.
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("cloud-runs.json");
     let failed = || {

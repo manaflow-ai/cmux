@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { localizedShortcutText, shortcutCategoriesOf } from "../data/cmux-shortcuts";
+import { localizedShortcutText, shortcutCategories } from "../data/cmux-shortcuts";
+import generated from "../data/cmux-shortcuts.generated.json";
 import { buildDocsShortcuts } from "../scripts/export-docs-shortcuts";
 
 // DOCS-SHORTCUTS-FROM-CATALOG: the keyboard shortcuts docs are the cmux-next
 // action catalog. The page reads a copy in web/data (web/ never reads plans/
-// at build time) that only the base autofix writes (RFD 0048), so a pull
-// request's copy may lag the catalog by one autofix run. These tests build the
-// page from the catalog export and the string catalogs at the head, never the copy.
+// at build time); these tests read the catalog export and the string
+// catalogs at test time and require the copy and the page to match them.
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
@@ -27,7 +27,6 @@ type Action = {
   default_shortcut: Wire | null; default_chord: Wire[] | null; default_aliases: Alias[];
 };
 const bound: Action[] = surfaces.actions.filter((action: Action) => action.default_shortcut || action.default_chord || action.default_aliases.length > 0);
-const shortcutCategories = shortcutCategoriesOf(buildDocsShortcuts(surfaces, catalogs));
 
 /** The keys a reader sees for one stroke: modifiers ⌃⌥⇧⌘, then the key. */
 function expectedStroke(wire: Wire): string[] {
@@ -41,6 +40,10 @@ function expectedStroke(wire: Wire): string[] {
 }
 
 describe("keyboard shortcuts docs", () => {
+  test("the web/data copy is fresh against the catalog export and string catalogs", () => {
+    expect(buildDocsShortcuts(surfaces, catalogs)).toEqual(generated as never);
+  });
+
   test("every catalog default shortcut is on the page with the same keys, and nothing else is", () => {
     const rows = new Map(shortcutCategories.flatMap((category) => category.shortcuts).map((row) => [row.id, row]));
     expect([...rows.keys()].sort()).toEqual(bound.map((action) => action.id).sort());

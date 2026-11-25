@@ -57,14 +57,14 @@ impl Live {
                 row.extra = extra.clone();
                 self.v2.hub.submit(row).unwrap();
             }
-            // The writer may publish the rows in a different order from their submission.
-            until("the padding rows", || self.rows_of("local").len() == (chunk + 1) * 100).await;
+            let last = format!("pad-{}", chunk * 100 + 99);
+            until("the padding rows", || self.index().get(&last).is_some()).await;
         }
         for n in 0..1000 {
             self.v2.hub.remove("local", &format!("pad-{n}")).unwrap();
         }
         until("a compaction", || self.v2.hub.compaction_stats().completed > done).await;
-        until("the padding gone", || self.rows_of("local").is_empty()).await;
+        until("the padding gone", || self.index().get("pad-999").is_none()).await;
     }
 
     async fn stop(self) {
@@ -178,12 +178,8 @@ async fn one_change_on_a_refused_machine_after_a_slot_frees_brings_every_chat() 
     book(&live.v1, &listed);
     until("the 257th whole", || live.rows_of(LAST).len() == 3).await;
     until("its record", || origin(&live.index(), LAST) == Some(OriginState::Connected)).await;
-    until("the changed row", || {
-        live.index()
-            .get_row(&RowKey::new(LAST, "machine-256-2"))
-            .is_some_and(|r| r.state == "waiting")
-    })
-    .await;
+    let changed = live.index().get_row(&RowKey::new(LAST, "machine-256-2")).unwrap();
+    assert_eq!(changed.state, "waiting");
     assert_eq!(v2_keys(&live.index()), v1_keys(&live.v1));
     live.stop().await;
 }

@@ -11,7 +11,7 @@ import Testing
 
 @MainActor
 struct LaunchPolishVisibilityTests {
-    /// The stored layout keeps the App Store; with Labs off its item info hides it (AppStoreHiddenUntilReadyTests).
+    /// The App Store is drawn like any other item (Leo 2026-11-14, no Labs gate).
     @Test func appStoreIsDrawnFromTheStoredLayout() {
         let stored = SidebarLayoutDocument.defaults
         #expect(stored.firstItem(with: .app("cmux/app-store")) != nil)
@@ -49,7 +49,7 @@ struct LaunchPolishVisibilityTests {
 
     /// Leo 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING
     /// LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES". The palette's and Help menu's What's New
-    /// (`updates.whatsNew`) is available with Labs off, the default; the App Store is a Labs preview until it is ready.
+    /// (`updates.whatsNew`) is available with Labs off, the default, and so is the App Store (Leo 2026-11-14).
     @Test func whatsNewActionIsAvailableWithLabsOff() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -57,7 +57,7 @@ struct LaunchPolishVisibilityTests {
         #expect(services.settings?.snapshot.previewFeatures != true)
         #expect(services.registry.unavailableReason(for: "updates.whatsNew") == nil,
                 "What's New in the palette and Help menu is still behind Labs")
-        #expect(services.registry.settingOffReason("appStore.show") != nil, "the App Store shows with Labs off")
+        #expect(services.registry.settingOffReason("appStore.show") == nil, "the App Store is still behind Labs")
     }
 
     /// The update this launch came from, as the old build recorded it.

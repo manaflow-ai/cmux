@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxTheme
 
 /// The glass levels, native side (schemas/design-scale/design-scale.json `glass`, the entries of
 /// `kind: level`; design/glass.md in leo-workspace). Leo, 2026-11-06: "we have, like, a ton of
@@ -28,7 +27,7 @@ public nonisolated enum GlassLevel: String, CaseIterable, Sendable {
     public var tintStrength: Double {
         switch self {
         case .chrome: 1
-        case .popover, .menu: TransientMaterial.standard.nativeTintStrength
+        case .popover, .menu: 1.25
         case .chip: 1.5
         }
     }

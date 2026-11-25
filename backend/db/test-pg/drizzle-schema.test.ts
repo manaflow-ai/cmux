@@ -14,24 +14,14 @@ const run = url ? describe : describe.skip
 const root = join(import.meta.dir, "..")
 // drizzle-kit pull assigns index operator classes (`.op("text_ops")`) nondeterministically across
 // runs (seen in CI: int8_ops on a text column), so they are not compared; the columns, order,
-// uniqueness and methods still are. It also lists tables in catalog order, which an ALTER TABLE
-// changes (0008_build_space moved automations and automation_runs), names its imports in first-use
-// order, and writes an empty string default as `.default(')`: tables and imports are compared
-// sorted, and that default as `.default('')`.
-const sortedImport = (line: string) =>
-  line.replace(/\{([^}]*)\}/, (_, names: string) => `{ ${names.split(",").map((name) => name.trim()).filter(Boolean).sort().join(", ")} }`)
-const body = (text: string) => {
-  const flat = text
+// uniqueness and methods still are.
+const body = (text: string) =>
+  text
     .slice(text.indexOf("import {"))
     .replace(/\r/g, "")
     .replace(/\.op\("[a-z0-9_]+"\)/g, "")
-    .replace(/\.default\('\)/g, ".default('')")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
-  const [head = "", ...tables] = flat.split(/\n+(?=export const )/)
-  const [imports = "", ...rest] = head.split("\n")
-  return [[sortedImport(imports), ...rest].join("\n").trim(), ...tables.map((table) => table.trim()).sort()].join("\n\n")
-}
 
 run("Drizzle schema", () => {
   it("matches the migrated database (drizzle-kit pull)", () => {

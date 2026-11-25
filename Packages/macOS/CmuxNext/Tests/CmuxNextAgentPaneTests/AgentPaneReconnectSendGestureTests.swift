@@ -51,9 +51,8 @@ struct AgentPaneReconnectSendGestureTests {
         let sent = await pane.transport.send(connection: again, frames: [Self.prompt(id: 2, promptId: "p-1", ticket: ticket)])
         #expect(sent == nil, "the person's own Enter was refused after the pane reconnected")
         #expect(await pane.server.wait { peers in peers.dropFirst().contains { $0.frames.contains { $0.contains("session/prompt") } } })
-        // The ticket is single use, but a spent one no longer refuses the prompt: a send needs no
-        // gesture (Leo, 2026-11-17: "go remove this").
-        #expect(await pane.transport.send(connection: again, frames: [Self.prompt(id: 3, promptId: "p-1", ticket: ticket)]) == nil)
+        // The ticket is single use, on any connection.
+        #expect(await pane.transport.send(connection: again, frames: [Self.prompt(id: 3, promptId: "p-1", ticket: ticket)]) == .gestureRequired)
     }
 
     /// acpmux restarts (or the nightly relaunched it) right after the Enter: the daemon closes the
@@ -78,15 +77,15 @@ struct AgentPaneReconnectSendGestureTests {
                 "the person's own Enter was refused after acpmux restarted")
     }
 
-    /// Only the person's send tickets carry over: other picks (a mode) end with their connection as
-    /// before. A prompt with no gesture goes on the new connection: a send needs none.
+    /// Only the person's send tickets carry over: an agent's prompt with no gesture is still refused on
+    /// the new connection, and other picks (a mode) end with their connection as before.
     @Test func onlyThePersonsSendTicketsOutliveTheConnection() async throws {
         let pane = try await AgentPaneDelayedSendGestureTests.paneWithChat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
         pane.transport.close(connection: pane.id)
         let again = try await Self.reopen(pane)
-        #expect(await pane.transport.send(connection: again, frames: [Slow.prompt(id: 2, promptId: "p-agent")]) == nil)
+        #expect(await pane.transport.send(connection: again, frames: [Slow.prompt(id: 2, promptId: "p-agent")]) == .gestureRequired)
 
         pane.transport.gestures.record()
         let mode = try #require(AgentPaneGestureIntent(gestureParams: [

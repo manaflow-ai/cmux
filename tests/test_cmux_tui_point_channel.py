@@ -73,8 +73,6 @@ if name == "completion.json":
         "cmux-tui-acpmux-x86_64-unknown-linux-musl": "1" * 64,
         "cmux-tui-acpmux-aarch64-unknown-linux-musl": "2" * 64,
         "cmux-tui-x86_64-unknown-linux-musl": "3" * 64,
-        "cmux-tui-rd-x86_64-unknown-linux-gnu": "6" * 64,
-        "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md": "7" * 64,
     }})
     open(out, "w").write(body)
     sys.exit(0)
@@ -176,9 +174,8 @@ def main():
     _check(uploads == ["write-once cmux-tui/channels/feat-cmux-next.json"], f"the first write is write-once: {uploads}")
     channel = json.loads(after or "{}")
     _check(channel.get("key") == KEY and sorted(channel.get("binaries", {})) == [
-        "cmux-tui-acpmux-aarch64-unknown-linux-musl", "cmux-tui-acpmux-x86_64-unknown-linux-musl",
-        "cmux-tui-rd-x86_64-unknown-linux-gnu"],
-        f"the pointer names the tree, its acpmux and cmux-rd binaries, and no notices: {after}")
+        "cmux-tui-acpmux-aarch64-unknown-linux-musl", "cmux-tui-acpmux-x86_64-unknown-linux-musl"],
+        f"the pointer names the tree and only its acpmux binaries: {after}")
 
     # An older commit: moved, by a swap on the bytes that were compared.
     result, after, uploads = run(pointer(OLD))

@@ -67,8 +67,7 @@ public struct SettingsDiagnosticNotices: Sendable {
     public static func announces(_ kind: SettingsDiagnostic.Kind) -> Bool {
         switch kind {
         case .unreadableFile, .invalidValue, .unknownAction, .unknownMetric, .unsupportedChord, .removedSetting: true
-        case .shortcutConflict, .managedOverride, .managedConflict, .correctedValue, .setByThemeFile, .overThemeFile,
-             .plainBackgrounds: false
+        case .shortcutConflict, .managedOverride, .managedConflict, .correctedValue, .setByThemeFile: false
         }
     }
 

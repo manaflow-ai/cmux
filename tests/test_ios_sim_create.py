@@ -124,8 +124,7 @@ elif args[:3] == ["list", "-j", "devices"]:
 
     def test_the_steps_iphone_is_made_before_the_build(self):
         script = SCRIPT.read_text()
-        self.assertIn("sim_name=cmux-next-ios-sim\n", script)
-        made = script.index('udid="$(sim_create "$sim_name" ')
+        made = script.index('udid="$(sim_create cmux-next-ios-sim ')
         self.assertLess(made, script.index("# --- Build ---"))
         self.assertLess(script.index("# --- end sim_create"), made)
 

@@ -119,10 +119,9 @@ export function foreignFileId(text: string): string | undefined {
 }
 
 /// The line of a `:12` or `:12:4` suffix.
-export function lineOf(value: string): number | undefined {
+function lineOf(value: string): number | undefined {
   const match = /:(\d+)(?::\d+)?$/.exec(value);
-  const line = match && Number(match[1]);
-  return line && line > 0 && line <= 10_000_000 ? line : undefined;
+  return match ? Number(match[1]) : undefined;
 }
 
 /// A raster image the pane draws as a thumbnail: PNG, JPEG, GIF or WebP, by file extension.

@@ -66,7 +66,7 @@ def drive(driver, out: Path) -> None:
         state = driver.call("browser.page.state", {}, timeout=20)
         driver.save("browser_resize", {"error": "the probe page never ran in a Chromium tab", "opened": opened, "state": state})
         return
-    driver.settle("the probe page's window and layout")
+    time.sleep(1.5)
 
     drags = []
     for dx, dy in ((300, 150), (-300, -150), (300, 150), (-300, -150)):
@@ -80,13 +80,10 @@ def drive(driver, out: Path) -> None:
         drags.append(trace)
         time.sleep(0.6)
     frames_dir = out / "browser-resize-frames"
-    (frames_dir / "frames.json").unlink(missing_ok=True)  # an earlier run's file would end the wait below at once
     record = driver.call("debug.window_record", {"dir": str(frames_dir), "seconds": 2.0})
-    time.sleep(0.1)  # sleep-ok: the recording's lead-in, frames at rest before the drag
+    time.sleep(0.1)
     recorded = driver.drag_corner(300, 150)
-    # The drag back stays out of the recording: wait for it to end (its frames.json written).
-    if "error" not in record:
-        driver.recorded(frames_dir, 2.0)
+    time.sleep(2.2)
     driver.drag_corner(-300, -150)
     driver.save("browser_resize", {"drags": drags, "opened": opened, "record": record, "recorded_drag": recorded})
 

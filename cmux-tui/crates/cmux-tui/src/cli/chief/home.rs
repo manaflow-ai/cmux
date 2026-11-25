@@ -15,8 +15,6 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use cmux_agent_pane_policy::build_identity::{BuildIdentity, BuildKind};
-
 /// The one build that keeps the shared home, `~/.cmux/chief/<account>`.
 const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
 
@@ -26,19 +24,6 @@ const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
 /// release) never share one Chief.
 fn has_own_home(bundle_id: &str) -> bool {
     !bundle_id.trim().is_empty() && bundle_id != NIGHTLY_BUNDLE_ID
-}
-
-/// The home's folder for `build` (Swift `ChiefHome.folderName`): the build
-/// key for a DEV build (any `com.cmuxterm.app.debug[.<tag>]` or unknown
-/// bundle, a tagged staging build), which is the bundle id for a tagged DEV
-/// build and the untagged one, so their homes stay; the bundle id as a path
-/// component for every other.
-fn folder_name(build: &BuildIdentity) -> Option<String> {
-    let bundle_id = build.bundle_id()?;
-    let keyed = build.kind() == BuildKind::Dev
-        || (build.kind() == BuildKind::Staging
-            && bundle_id.starts_with("com.cmuxterm.app.staging."));
-    if keyed { Some(build.key().to_owned()) } else { component(bundle_id) }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,14 +55,13 @@ impl ChiefHome {
                 env(key)
             }
         };
-        let bundled = |identity: &crate::app_identity::AppIdentity| identity.bundle_id.is_some();
-        let build = crate::app_identity::AppIdentity::detect(&env, exe.as_deref())
-            .filter(bundled)
+        let bundle = crate::app_identity::AppIdentity::detect(&env, exe.as_deref())
+            .and_then(|identity| identity.bundle_id)
             .or_else(|| {
-                crate::app_identity::AppIdentity::detect(|_| None, exe.as_deref()).filter(bundled)
-            })
-            .map(|identity| identity.build());
-        Self::resolve_for(explicit, env, user_home, cwd, build.as_ref())
+                crate::app_identity::AppIdentity::detect(|_| None, exe.as_deref())
+                    .and_then(|identity| identity.bundle_id)
+            });
+        Self::resolve_for(explicit, env, user_home, cwd, bundle.as_deref())
     }
 
     /// First match wins: `explicit` (`--chief-home`), `CMUX_CHIEF_HOME`,
@@ -85,17 +69,15 @@ impl ChiefHome {
     /// `CMUX_NEXT_CHIEF_ROOT` (isolation markers ignored) or `~/.cmux/chief`:
     /// an isolated launch (`CMUX_NEXT_CHIEF_ISOLATED=1` and the app's other
     /// isolation markers) at `isolated/<CMUX_TAG or untagged>`, else the
-    /// build's home: `<name>[.<account>]` for every build but NIGHTLY (the
-    /// build key for a DEV build, so two copies of one bundle id with their
-    /// own tags never share a Chief; else the bundle id), `<account>` for
-    /// NIGHTLY and outside any app. A DEV bundle may name another build in
-    /// `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
+    /// build's home: `<bundle id>[.<account>]` for every build but NIGHTLY,
+    /// `<account>` for NIGHTLY and outside any app. A DEV bundle
+    /// may name another build in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
     pub(super) fn resolve_for(
         explicit: Option<&Path>,
         env: impl Fn(&str) -> Option<String>,
         user_home: &Path,
         cwd: &Path,
-        app: Option<&BuildIdentity>,
+        bundle_id: Option<&str>,
     ) -> Self {
         let value = |key: &str| env(key).filter(|v| !v.is_empty());
         let given = explicit.map(Path::to_path_buf).or_else(|| {
@@ -124,18 +106,15 @@ impl ChiefHome {
         let account = value("CMUX_NEXT_CHIEF_ACCOUNT")
             .and_then(|a| component(&a))
             .unwrap_or("default".into());
-        let named = app
-            .and_then(BuildIdentity::bundle_id)
+        let build = bundle_id
             .filter(|id| crate::app_identity::is_debug_bundle(id))
             .and_then(|_| value("CMUX_NEXT_CHIEF_BUILD_ID"))
-            .map(|id| BuildIdentity::new(Some(&id), None));
-        let build = named.as_ref().or(app);
-        let name =
-            match build.filter(|b| b.bundle_id().is_some_and(has_own_home)).and_then(folder_name) {
-                None => account,
-                Some(id) if account == "default" => id,
-                Some(id) => format!("{id}.{account}"),
-            };
+            .or_else(|| bundle_id.map(str::to_owned));
+        let name = match build.as_deref().filter(|id| has_own_home(id)).and_then(component) {
+            None => account,
+            Some(id) if account == "default" => id,
+            Some(id) => format!("{id}.{account}"),
+        };
         Self { root: standardized(&base.join(name)), isolated: false }
     }
 
@@ -156,12 +135,7 @@ impl ChiefHome {
         {
             let base = crate::app_identity::darwin_user_temp_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"));
-            let scope = crate::app_identity::app_runtime_scope();
-            cmux_tui_core::server::try_default_socket_path_in_base_scoped(
-                &self.session(),
-                &base,
-                scope.as_deref(),
-            )
+            cmux_tui_core::server::try_default_socket_path_in_base(&self.session(), &base)
         }
         #[cfg(not(target_os = "macos"))]
         {

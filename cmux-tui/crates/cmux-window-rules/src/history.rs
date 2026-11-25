@@ -11,8 +11,6 @@ pub enum Direction {
     Back,
     Forward,
     Last,
-    /// Back to the agent chat the user was in before this one (Go Back One Session).
-    BackSession,
 }
 
 /// What a walk says when the trail has nowhere to go (refused quietly: R136).
@@ -22,7 +20,6 @@ pub enum Nowhere {
     NothingBack,
     NothingForward,
     NothingLast,
-    NothingSession,
 }
 
 /// One trail walk action.
@@ -80,11 +77,6 @@ pub fn actions() -> Actions {
                 action: "focusHistoryLast",
                 direction: Direction::Last,
                 nowhere: Nowhere::NothingLast,
-            },
-            Walk {
-                action: "focusHistoryBackSession",
-                direction: Direction::BackSession,
-                nowhere: Nowhere::NothingSession,
             },
         ],
         pages: vec![

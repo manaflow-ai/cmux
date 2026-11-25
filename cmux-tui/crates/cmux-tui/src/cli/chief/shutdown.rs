@@ -163,7 +163,6 @@ fn stop_daemon(global: &GlobalArgs, home: &ChiefHome) -> i32 {
             force: false,
             end_terminals: true,
             restore_wait: crate::local_owner::RESTORE_DEADLINE,
-            if_idle: false,
         },
         session: None,
     };

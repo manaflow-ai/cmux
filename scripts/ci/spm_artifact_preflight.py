@@ -12,9 +12,7 @@ Before the build this lists every binary artifact the packages in play declare, 
 files rather than from workspace-state.json (the seed drops that file, and Package.resolved pins only remote
 packages): the local packages the Xcode project references (--xcodeproj) and every local package they reach by
 `.package(path:)`, the checkout of each pin in Package.resolved (or every checkout under SOURCE_PACKAGES/checkouts
-when neither pins nor a resolved dependency list is available), and any dependency workspace-state.json names.
-After a resolve, requirements are recomputed from the current graph; cached checkouts of removed dependencies
-do not remain requirements. A `.binaryTarget(name:, url:)` (or a
+when no pin is read), and any dependency workspace-state.json still names. A `.binaryTarget(name:, url:)` (or a
 `path:` to a .zip) is expected at SOURCE_PACKAGES/artifacts/<identity>/<name>/<name>.xcframework, where identity is
 the package directory's lowercased name (artifacts/{iroh-ffi/Iroh, cmuxvncwebrtc/WebRTC, cmuxnext/CCmuxAppFFI}); a
 `.binaryTarget(name:, path:)` to an xcframework is expected in the package's own tree. A manifest that declares one
@@ -142,19 +140,16 @@ def expected_artifacts(source_packages: Path, resolved_files: list[Path],
             packages.append((identity, Path(str(ref.get('location') or ''))))
         else:
             packages.append((identity, source_packages / 'checkouts' / str(dependency.get('subpath') or identity)))
-    graph_known = isinstance(state.get('dependencies'), list)
+    pinned = False
     for resolved in resolved_files:
-        pins = read_json(resolved).get('pins')
-        if isinstance(pins, list):
-            graph_known = True
-        for pin in pins or []:
+        for pin in read_json(resolved).get('pins') or []:
             identity = str(pin.get('identity') or '').lower()
             location = str(pin.get('location') or '')
             if identity and location:
+                pinned = True
                 packages.append((identity, source_packages / 'checkouts' / checkout_name(location)))
-    if not graph_known:
-        # With no graph to go by, retain conservative checks of cached manifests.
-        # An explicitly empty graph is known: old checkouts are not dependencies.
+    if not pinned:
+        # No pin to go by: every checked-out remote package is in play.
         checkouts = source_packages / 'checkouts'
         if checkouts.is_dir():
             packages.extend((checkout.name.lower(), checkout) for checkout in sorted(checkouts.iterdir())
@@ -177,9 +172,10 @@ def expected_artifacts(source_packages: Path, resolved_files: list[Path],
     return expected
 
 
-def problems(source_packages: Path, resolved_files: list[Path],
-             local_roots: list[Path] | None = None) -> list[str]:
-    """Why the current graph's binary artifacts cannot be built from, or [] when every one is in place."""
+def problems(source_packages: Path, resolved_files: list[Path], local_roots: list[Path] | None = None,
+             needed: dict[Path, str] | None = None) -> list[str]:
+    """Why the binary artifacts here cannot be built from, or [] when every one is in place. NEEDED adds
+    artifacts expected before a resolve, so one that a resolve did not bring back still counts."""
     found: list[str] = []
     artifacts = (source_packages / 'artifacts').resolve()
     state = read_json(source_packages / STATE).get('object') or {}
@@ -191,7 +187,7 @@ def problems(source_packages: Path, resolved_files: list[Path],
             found.append(f'{STATE} records {recorded}, outside {artifacts}')
         elif not recorded.is_dir():
             found.append(f'{STATE} records {recorded}, which is missing')
-    expected = expected_artifacts(source_packages, resolved_files, local_roots)
+    expected = {**(needed or {}), **expected_artifacts(source_packages, resolved_files, local_roots)}
     for path, why in sorted(expected.items()):
         if not path.is_dir():
             found.append(f'{path} is missing ({why})')
@@ -236,13 +232,14 @@ def main(argv: list[str]) -> int:
         return 0
     for problem in found:
         print(f'::warning title=Swift package artifacts::{problem}')
+    needed = expected_artifacts(source_packages, args.resolved, roots)
     drop_artifact_state(source_packages)
     if not resolve_cmd:
         print('Swift package artifacts: dropped the artifact state; the build resolves it again')
         return 0
     print(f'Swift package artifacts: resolving again: {" ".join(resolve_cmd)}', flush=True)
     status = subprocess.run(resolve_cmd).returncode
-    still = problems(source_packages, args.resolved, roots)
+    still = problems(source_packages, args.resolved, roots, needed)
     if status != 0 or still:
         for problem in still:
             print(f'::error title=Swift package artifacts::{problem}')

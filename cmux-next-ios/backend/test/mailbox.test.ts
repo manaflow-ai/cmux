@@ -15,7 +15,6 @@ const sealedBox = (n = 200) => "x".repeat(n)
 
 const reg = (over: Partial<PushRegistration> = {}): PushRegistration => ({
   deviceId: PHONE,
-  space: "",
   ownerUserId: "o",
   token: "aa",
   environment: "production",

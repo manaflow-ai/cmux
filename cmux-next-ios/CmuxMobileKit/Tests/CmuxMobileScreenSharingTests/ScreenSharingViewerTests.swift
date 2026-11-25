@@ -37,50 +37,6 @@ import Testing
         #expect(ends.calls.isEmpty)
     }
 
-    /// A screen link (`cmux://mac-screen?device=…&display=…`) streams over `cmux.rd/1` on its
-    /// display, never WebRTC (the joined Mac's share host refuses WebRTC offers): view only
-    /// unless the link asked for control and the Mac granted it. The host's end or refusal
-    /// ends the session; a link that failed reattaches like a dropped stream.
-    @Test func aScreenLinkStreamsOverRdOnItsDisplayViewOnlyUnlessControlIsGranted() async throws {
-        let (service, ends) = makeService()
-        service.demoDiscovery = .listed
-        service.demoMacs = [mac()]
-        service.open(deviceID: hostID.uppercased(), name: nil, scope: .view, display: "69733382")
-        let viewer = try #require(service.viewer)
-        #expect(viewer.rd == MacScreenRdTarget(displayID: 69_733_382, control: false))
-        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .view)), scope: .view)
-        service.route(.sessionTicket(ticket("s1", scope: .view)))
-        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
-        #expect(viewer.screen == nil, "no WebRTC session")
-        #expect(viewer.rdScreen != nil)
-        #expect(!viewer.rdControl)
-        #expect(viewer.takeSignaling() == nil, "the ticket's signaling waits for the rd open")
-
-        // A link failure reattaches; the host's refusal ends the session on the hub.
-        viewer.rdClosed(sessionID: "s1", code: "link_failed", reason: "")
-        #expect(viewer.phase == .reconnecting(sessionID: "s1", scope: .view))
-        #expect(viewer.rdScreen != nil, "the picture stays for the reattach")
-        service.route(.sessionTicket(ticket("s1", scope: .view)))
-        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .view))
-        viewer.rdClosed(sessionID: "s1", code: "refused", reason: "sharing is off")
-        #expect(viewer.phase == .ended(reason: "sharing is off"))
-        #expect(viewer.rdScreen == nil)
-        await ends.wait(for: 1)
-        #expect(ends.calls == [Ends.Call(session: "s1", reason: "failed")])
-
-        // Control asked: granted only with a full-scope ticket. A list tap after it is WebRTC.
-        let (full, _) = makeService()
-        full.demoDiscovery = .listed
-        full.demoMacs = [mac()]
-        full.open(deviceID: hostID, name: nil, scope: .full)
-        let controller = try #require(full.viewer)
-        #expect(controller.rd == MacScreenRdTarget(displayID: nil, control: true))
-        controller.requestAnswered(.success(HubSession(id: "s2", state: .pending, scope: .full)), scope: .full)
-        full.route(.sessionTicket(ticket("s2", scope: .full)))
-        #expect(controller.rdControl)
-        #expect(controller.screen == nil)
-    }
-
     @Test func aTicketBeforeTheHTTPAnswerIsTakenAndTheAnswerChangesNothing() throws {
         let (service, _) = makeService()
         let viewer = try #require(service.connect(to: mac(), scope: .view))
@@ -179,45 +135,6 @@ import Testing
         #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
         #expect(viewer.screen === screen)
         #expect(ends.calls.isEmpty)
-    }
-
-    /// ask-a85f219369 (Leo: "i cant connect from [one Mac] to [another]"): an approved session whose
-    /// ticket push never came (pushes have no backlog) asks the hub for the ticket and streams,
-    /// instead of saying Connecting forever.
-    @Test func anApprovedSessionWithNoTicketPushAsksTheHubForIt() async throws {
-        let (service, _) = makeService()
-        let viewer = try #require(service.connect(to: mac(), scope: .full))
-        viewer.ticketWait = .milliseconds(10)
-        let reattach = Reattachments()
-        viewer.reattachSession = { _, id in
-            await reattach.record(id)
-            return self.ticket(id, scope: .full)
-        }
-        viewer.requestAnswered(.success(HubSession(id: "s9", state: .approved, scope: .full)), scope: .full)
-        #expect(viewer.phase == .approved(sessionID: "s9", scope: .full))
-        let id = await reattach.wait()
-        #expect(id == "s9")
-        for _ in 0..<500 where viewer.phase != .streaming(sessionID: "s9", scope: .full) { await Task.yield() }
-        #expect(viewer.phase == .streaming(sessionID: "s9", scope: .full))
-        #expect(viewer.screen != nil)
-    }
-
-    /// The hub has no ticket either (the Mac went offline): the screen says why and ends the session.
-    @Test func anApprovedSessionTheHubCannotAdmitSaysWhy() async throws {
-        let (service, ends) = makeService()
-        let viewer = try #require(service.connect(to: mac(), scope: .view))
-        viewer.ticketWait = .milliseconds(10)
-        viewer.reattachSession = { _, _ in
-            throw DeviceHubError.server(status: 409, code: .hostOffline, message: "the host is not connected")
-        }
-        viewer.requestAnswered(.success(HubSession(id: "s10", state: .approved, scope: .view)), scope: .view)
-        for _ in 0..<2000 where viewer.phase == .approved(sessionID: "s10", scope: .view) {
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        #expect(viewer.phase == .refused(.hostOffline,
-                                         requested: .view))
-        for _ in 0..<500 where ends.calls.isEmpty { await Task.yield() }
-        #expect(ends.calls == [Ends.Call(session: "s10", reason: "failed")])
     }
 
     /// conn-quiet (Leo, 2026-11-14: "shut the f*** up"): a dropped stream reattaches over its
@@ -382,19 +299,7 @@ import Testing
         #expect(viewer.phase == .refused(.hostOffline, requested: .full))
         viewer.request(.full)
         viewer.requestAnswered(.failure(.transport("offline")), scope: .full)
-        #expect(viewer.phase == .refused(.other(reason: "offline"), requested: .full))
-        // A code this build has no card for keeps the hub's words.
-        viewer.request(.full)
-        viewer.requestAnswered(.failure(.server(status: 429, code: .rateLimited, message: "too many requests; wait a minute")), scope: .full)
-        #expect(viewer.phase == .refused(.other(reason: "too many requests; wait a minute"), requested: .full))
-    }
-
-    @Test func anUnknownRefusalKeepsTheHubsReason() {
-        #expect(ScreenSharingRefusal(.server(status: 403, code: .other("new_code"), message: " ")) == .other(reason: "new_code"))
-        #expect(ScreenSharingRefusal(.http(status: 502)) == .other(reason: "HTTP 502"))
-        #expect(ScreenSharingRefusal(.transport("")) == .other(reason: nil))
-        #expect(ScreenSharingRefusal(.server(status: 409, code: .hostOffline, message: "the host is not connected")) == .hostOffline)
-        #expect(ScreenSharingRefusal.other(reason: "x").isOther && !ScreenSharingRefusal.notShared.isOther)
+        #expect(viewer.phase == .refused(.other, requested: .full))
     }
 
     @Test func theListPutsSharedOnlineMacsFirstAndLeavesOutPhones() {
@@ -427,14 +332,13 @@ import Testing
 
     // MARK: Fixtures
 
-    func makeService(accountID: String? = nil) -> (ScreenSharingService, Ends) {
+    func makeService() -> (ScreenSharingService, Ends) {
         let identity = DeviceIdentity(deviceID: UUID(), keys: TestKeys())
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { "token" })
         let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "iPhone", platform: .ios)
         let configuration = ScreenSharingService.Configuration(baseURL: URL(string: "https://hub.invalid")!, bundleIdentifier: "test",
-                                                               deviceName: "iPhone", tokens: DeviceHubAccountToken { "token" },
-                                                               accountID: accountID)
+                                                               deviceName: "iPhone", tokens: DeviceHubAccountToken { "token" })
         let service = ScreenSharingService(hub: hub, configuration: configuration,
                                            preferences: ScreenSharingPreferences(store: UserDefaults(suiteName: UUID().uuidString)!))
         let ends = Ends()

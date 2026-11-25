@@ -21,10 +21,10 @@ extension AgentPaneView {
     }
 
     static var openOutsideTitle: String {
-        String(localized: "agentPane.openOutside.title", defaultValue: "Open a file outside this project?", bundle: .localizedModule)
+        String(localized: "agentPane.openOutside.title", defaultValue: "Open a file outside this project?", bundle: .module)
     }
 
     static var openOutsideButton: String {
-        String(localized: "agentPane.openOutside.open", defaultValue: "Open", bundle: .localizedModule)
+        String(localized: "agentPane.openOutside.open", defaultValue: "Open", bundle: .module)
     }
 }

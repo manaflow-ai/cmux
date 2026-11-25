@@ -52,14 +52,7 @@ fn customize_facts(bundle: Option<&Path>) -> Value {
     let now_ms = super::super::customize::now_ms();
     cmux_customize::Customize::from_env()
         .ok()
-        .and_then(|customize| {
-            // A layer past its bound is turned off before it is reported,
-            // so the report says it expired, not that it is on.
-            let expiry =
-                cmux_customize::library::expire::Expiry { now_ms, app_abi, ..Default::default() };
-            customize.expire_stale(&expiry, "cli");
-            serde_json::to_value(customize.layers_at(app_abi, now_ms)).ok()
-        })
+        .and_then(|customize| serde_json::to_value(customize.layers_at(app_abi, now_ms)).ok())
         .unwrap_or(Value::Null)
 }
 

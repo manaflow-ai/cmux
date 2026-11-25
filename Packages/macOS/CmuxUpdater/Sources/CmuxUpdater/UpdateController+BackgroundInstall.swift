@@ -16,14 +16,9 @@ extension UpdateController {
 
     /// Whether a staged background update should install automatically once ready. A host that
     /// preserves daemon sessions across app relaunches bypasses the relaunch gate entirely.
-    /// A change with an update already staged applies to it (``UpdateDriver/idlePolicyChanged()``).
     public var installsUpdatesWhenIdle: Bool {
         get { driver.installsWhenIdle }
-        set {
-            guard driver.installsWhenIdle != newValue else { return }
-            driver.installsWhenIdle = newValue
-            driver.idlePolicyChanged()
-        }
+        set { driver.installsWhenIdle = newValue }
     }
 
     /// The legacy idle-install wait cap for hosts that opt into ``UpdateRelaunchGate``. cmux-next

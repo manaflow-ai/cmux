@@ -271,127 +271,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click a tab first, then try again."
+            "value": "No pane is focused."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "先にタブをクリックしてから、もう一度お試しください。"
+            "value": "フォーカスされたペインがありません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
+            "value": "لا يوجد جزء مركّز عليه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
+            "value": "Nijedan panel nije fokusiran."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Klik først på en fane, og prøv så igen."
+            "value": "Ingen rude har fokus."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
+            "value": "Kein Teilfenster ist fokussiert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
+            "value": "No hay ningún panel enfocado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cliquez d’abord sur un onglet, puis réessayez."
+            "value": "Aucun volet n’est actif."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fai prima clic su una scheda, poi riprova."
+            "value": "Nessun pannello attivo."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
+            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
+            "value": "포커스된 분할 창이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Klikk på en fane først, og prøv igjen."
+            "value": "Ingen rute er fokusert."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
+            "value": "Żaden panel nie jest aktywny."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Clique em uma aba primeiro e tente de novo."
+            "value": "Nenhum painel está focado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сначала щёлкните вкладку, затем повторите попытку."
+            "value": "Нет активной панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
+            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
+            "value": "Odakta bölme yok."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
+            "value": "Немає активної панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
+            "value": "Không có khung nào đang được tập trung."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请先点按一个标签页，然后重试。"
+            "value": "没有聚焦的窗格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請先點按一個分頁，然後再試一次。"
+            "value": "沒有聚焦的窗格。"
           }
         }
       },

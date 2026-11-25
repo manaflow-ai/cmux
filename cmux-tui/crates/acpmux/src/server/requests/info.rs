@@ -3,8 +3,6 @@
 
 use super::*;
 
-mod live_tree;
-
 /// The most keys one `_acpmux/info` with `sessionIds` asks for (the design doc, "asks by key
 /// (`_acpmux/info`, at most 100 a request)").
 pub(crate) const MAX_KEYS: usize = 100;
@@ -19,8 +17,9 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         return rows(hub, conn, params).await;
     }
     let s = hub.resolve_told(session_key(params)?, conn.origin == Origin::Local)?;
-    // Never waited for: the next read has it (`hub/usage_view.rs`), one pass behind at a time.
-    hub.revalidate_usage();
+    // Never waited for: the next read has it (`hub/usage_view.rs`).
+    let later = hub.clone();
+    tokio::spawn(async move { later.refresh_usage_stats().await });
     // After a restart the chat logs are read after the ready line; until
     // then the queue, the turn and the status are the session list's. Info
     // waits for this chat's (#22916; read now if the background pass has not
@@ -31,22 +30,10 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         hub.session_log(&s).await;
     }
     let mut detail = hub.session_detail(&s);
-    // The Labs pane asks only on opening/refreshing. Other info reads never touch the live tree.
-    // Keep the file read on the host's trusted socket/app origins, as for other host-local data.
-    if params.get("includeLiveTree") == Some(&Value::Bool(true))
-        && matches!(conn.origin, Origin::Local | Origin::LocalApp)
-    {
-        let cwd = s.meta().cwd;
-        detail.set("liveTree", live_tree::read(&cwd).await);
-    }
     if let Some(obj) = detail.as_object_mut() {
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
         obj.insert("ownershipEpoch".into(), json!(s.ownership_epoch()));
-        // A move of the chat under way, as its client reports it, and what a move copies
-        // (`hub/transfer_live.rs`).
-        obj.insert("moveProgress".into(), hub.move_progress(&s.id));
-        obj.insert("historyBytes".into(), json!(hub.history_bytes(&s.id)));
     }
     // The session env reaches the unix socket only: no summary or
     // event carries it, so a key added to the allowlist later never
@@ -108,9 +95,10 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
         Some(Value::Bool(tools)) => *tools,
         Some(_) => return Err(RpcError::invalid_params("withTools must be a boolean")),
     };
-    // One usage read for the request, as `_acpmux/sessions {usage: true}` makes it.
+    // One usage read for the request, as `_acpmux/sessions {usage: true}` waits for it.
     if params.get("usage") == Some(&Value::Bool(true)) {
-        hub.read_usage_for_list().await;
+        let read = hub.refresh_usage_stats();
+        let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
     }
     rows_reply(&keys, hub.rows_by_key(&keys, tools), ROWS_REPLY_BYTES)
 }

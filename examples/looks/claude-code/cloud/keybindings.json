@@ -1,3 +1,0 @@
-[
-  {"key": "cmd+j c", "command": "agentPane.composer.chooseComputer", "when": "agentPaneFocused"}
-]

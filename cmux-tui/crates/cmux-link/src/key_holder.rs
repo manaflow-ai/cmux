@@ -177,21 +177,6 @@ pub fn open_for_public_key<T, E>(
     open(&key.path_in(dir))
 }
 
-/// Open `key` in `dir` with `open` as a Noise static key only, with no lock: the hub carrier
-/// (acpmux `hub_carrier.rs`) uses the node key as its Noise XX static key beside the paired-peer
-/// link, which holds the lock for its WireGuard session. The lock exists because a key carries
-/// one live WireGuard session per peer; a Noise static key opens no session of that kind, so the
-/// link stays the one holder of the key's WireGuard session and the carrier needs no share of
-/// it. The caller keeps to the carrier's conditions: the key is only a Noise static key, never
-/// a WireGuard session, a signature or a KDF input.
-pub fn open_for_noise_static<T, E>(
-    key: KeyFile,
-    dir: &Path,
-    open: impl FnOnce(&Path) -> Result<T, E>,
-) -> Result<T, E> {
-    open(&key.path_in(dir))
-}
-
 /// The pid of the process that holds the lock in `dir`, if one does.
 pub fn holder(dir: &Path) -> io::Result<Option<Option<u32>>> {
     let lock = match open_private(&dir.join(LOCK_FILE), false) {

@@ -21,7 +21,7 @@ final class WhichKeyOverlay {
     private var isDismissing = false
 
     init() {
-        glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false, tone: .neutralGlass(.transient))
+        glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
         glass.translatesAutoresizingMaskIntoConstraints = true
         body.frame = glass.contentView.bounds
         body.autoresizingMask = [.width, .height]

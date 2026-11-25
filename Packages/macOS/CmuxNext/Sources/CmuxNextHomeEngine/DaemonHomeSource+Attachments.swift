@@ -1,5 +1,4 @@
 public import CmuxHomeCore
-import CmuxNextCompat
 import CmuxNextDaemon
 public import Foundation
 
@@ -10,7 +9,8 @@ public import Foundation
 nonisolated extension DaemonHomeSource {
     /// `~/Library/Caches/<bundle id>/HomeAttachments`.
     public static var defaultAttachmentCache: URL {
-        let caches = NextSupport.cachesDirectory()
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("HomeAttachments", isDirectory: true)
     }

@@ -5,12 +5,8 @@
 //! the user folder and cmux.json. Linux: inotify for changes only
 //! (`quiet_dirs`), since notify asks for every open. Others: notify's watcher
 //! (inotify). macOS: kqueue vnode events (`record_watch::DirWatch`) on the
-//! folders and on each file in them, made again when the files change.
-//! On every platform a burst reloads only when what the sources hold changed
-//! since the last reload (`sources_print`): a folder made on the way to a
-//! missing source folder (a new folder in the home or `~/.config`) moves the
-//! watch, but reloads nothing, since each reload drops the warming pooled
-//! sessions (`reload_catalog`).
+//! folders and on each file in them, made again when the files change, and
+//! a change counts only when what the sources hold changed (`sources_print`).
 //! Not FSEvents: it goes through fseventsd, which falls behind a burst of
 //! writes anywhere on the volume (a build, a full test run) by many seconds
 //! or drops the events (cx-ckdxf), so a new profile was missed or its event
@@ -122,9 +118,6 @@ impl Hub {
         if sources == ProfileSources::none() {
             return;
         }
-        // Before the watch is armed: a change made after this has an event, and the event's
-        // burst sees that the sources differ from what the loaded catalog read.
-        let loaded = sources_print(&sources);
         let (tx, rx) = std::sync::mpsc::channel();
         #[cfg(target_os = "linux")]
         let watcher = match crate::quiet_dirs::QuietDirs::follow(
@@ -179,7 +172,7 @@ impl Hub {
         let watch = Arc::downgrade(&watch);
         let thread = std::thread::Builder::new()
             .name("acpmux-harness-watch".into())
-            .spawn(move || run(&rx, &watch, &sources, loaded, &signal));
+            .spawn(move || run(&rx, &watch, &sources, &signal));
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
         }
@@ -326,8 +319,7 @@ impl HarnessWatcher {
 fn followed_targets(sources: &ProfileSources) -> Vec<crate::quiet_dirs::Target> {
     use crate::quiet_dirs::Target;
     let mut targets: Vec<Target> = sources.managed.iter().cloned().map(Target::Dir).collect();
-    let user = sources.user_dir.iter().chain(sources.person_dir.iter());
-    targets.extend(user.cloned().map(Target::Dir));
+    targets.extend(sources.user_dir.iter().cloned().map(Target::Dir));
     targets.extend(sources.cmux_json.iter().cloned().map(Target::File));
     targets
 }
@@ -352,7 +344,6 @@ fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
         folders.push(user.clone());
         folders.extend(user.parent().map(Path::to_path_buf));
     }
-    folders.extend(sources.person_dir.iter().cloned());
     folders.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
     folders
 }
@@ -378,7 +369,7 @@ fn nearest_folders(sources: &ProfileSources) -> Vec<PathBuf> {
 #[cfg(target_os = "macos")]
 fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = Vec::new();
-    for dir in sources.folders() {
+    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
         let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
             .unwrap_or_default();
@@ -391,15 +382,16 @@ fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
 }
 
 /// A path's size and modification time.
+#[cfg(target_os = "macos")]
 type Stamp = (u64, Option<std::time::SystemTime>);
 
 /// What the profile sources hold: each source folder's entries with their
 /// size and modification time (None for a missing folder), and cmux.json's.
-/// A folder on the way to a missing source folder is not in it.
+#[cfg(target_os = "macos")]
 fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
     let stamp = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
     let mut print = Vec::new();
-    for dir in sources.folders() {
+    for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
         print.push((dir.clone(), stamp(dir)));
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
@@ -420,7 +412,7 @@ fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
 /// folder itself, or cmux.json; or a folder on the way to one (made or removed
 /// while the folder past it is missing, `nearest_folders`).
 fn relevant(path: &Path, sources: &ProfileSources) -> bool {
-    let folders = sources.folders();
+    let folders = sources.managed.iter().chain(sources.user_dir.iter());
     let in_source = |dir: &PathBuf| path == dir || path.parent() == Some(dir.as_path());
     let on_the_way = |source: &PathBuf| source.as_path() != path && source.starts_with(path);
     sources.cmux_json.as_deref() == Some(path)
@@ -449,7 +441,6 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
     ProfileSources {
         managed: sources.managed.iter().map(|p| real(p)).collect(),
         user_dir: sources.user_dir.as_deref().map(real),
-        person_dir: sources.person_dir.as_deref().map(real),
         cmux_json: sources.cmux_json.as_deref().map(real),
     }
 }
@@ -462,7 +453,6 @@ fn followed(path: &Path, sources: &ProfileSources) -> bool {
     let now = ProfileSources {
         managed: sources.managed.iter().map(|p| resolve(p).0).collect(),
         user_dir: sources.user_dir.as_deref().map(|p| resolve(p).0),
-        person_dir: sources.person_dir.as_deref().map(|p| resolve(p).0),
         cmux_json: sources.cmux_json.as_deref().map(|p| resolve(p).0),
     };
     relevant(path, &now)
@@ -474,13 +464,11 @@ fn followed(_path: &Path, _sources: &ProfileSources) -> bool {
 }
 
 /// Ends when the watcher is dropped (the channel closes), or when the reload
-/// task is gone (the runtime stopped or the hub dropped). `loaded` is what the
-/// sources held before the watch was armed (`sources_print`).
+/// task is gone (the runtime stopped or the hub dropped).
 fn run(
     rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
     watch: &std::sync::Weak<HarnessWatcher>,
     sources: &ProfileSources,
-    mut loaded: Vec<(PathBuf, Option<Stamp>)>,
     signal: &tokio::sync::mpsc::UnboundedSender<()>,
 ) {
     // FSEvents reports real paths: a symlinked ~/.config must still match.
@@ -521,16 +509,9 @@ fn run(
             let Some(watch) = watch.upgrade() else { return };
             watch.refresh(sources);
             drop(watch);
-            // The watch follows a folder made on the way, but the catalog reloads only when
-            // the sources hold something else: a reload drops the warming pooled sessions.
-            // Read after the refresh, so a change the refresh's look found counts too.
-            let now = sources_print(sources);
-            if now != loaded {
-                loaded = now;
-                // Only a signal: the reload runs on the runtime, never here.
-                if signal.send(()).is_err() {
-                    return;
-                }
+            // Only a signal: the reload runs on the runtime, never here.
+            if signal.send(()).is_err() {
+                return;
             }
         }
         if closed {

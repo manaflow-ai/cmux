@@ -5,6 +5,117 @@
 use super::*;
 
 wire_op! {
+    /// Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds.
+    AppkvDeleteOp {
+        name: "appkv.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: AppkvDeleteParams,
+        result: AppkvDeleteResult,
+        error: AppkvDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvDeleteParams {
+    pub app: AppKvApp,
+    pub key: AppKvKey,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvDeleteResult {
+    pub app: String,
+    pub key: String,
+    pub existed: bool,
+}
+
+wire_errors! {
+    /// The error codes appkv.delete declares.
+    AppkvDeleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000).
+    AppkvListOp {
+        name: "appkv.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: AppkvListParams,
+        result: AppkvListResult,
+        error: AppkvListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_revision: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvListResult {
+    pub rows: Vec<AppKvRow>,
+    pub next_after_revision: Option<WireNumber>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes appkv.list declares.
+    AppkvListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins.
+    AppkvSetOp {
+        name: "appkv.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: AppkvSetParams,
+        result: AppKvRow,
+        error: AppkvSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppkvSetParams {
+    pub app: AppKvApp,
+    pub key: AppKvKey,
+    pub value: Value,
+}
+
+wire_errors! {
+    /// The error codes appkv.set declares.
+    AppkvSetError {
+        AppLimit = "app.limit",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret.
     AutomationAuditListOp {
         name: "automation.audit.list",
@@ -375,117 +486,6 @@ wire_errors! {
     AutomationRunsListError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// The names of an automation's secrets (who may edit it). Never returns a value.
-    AutomationSecretListOp {
-        name: "automation.secret.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session],
-        params: AutomationSecretListParams,
-        result: AutomationSecretListResult,
-        error: AutomationSecretListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AutomationSecretListParams {
-    pub automation: AutomationId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AutomationSecretListResult {
-    pub automation: AutomationId,
-    pub secrets: Vec<AutomationSecretState>,
-}
-
-wire_errors! {
-    /// The error codes automation.secret.list declares.
-    AutomationSecretListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Remove one secret of an automation (its creator, editors and team admins).
-    AutomationSecretRemoveOp {
-        name: "automation.secret.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:SchedulerDO",
-        risk: "destructive",
-        principals: [Session],
-        params: AutomationSecretRemoveParams,
-        result: AutomationSecretRemoveResult,
-        error: AutomationSecretRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AutomationSecretRemoveParams {
-    pub automation: AutomationId,
-    pub name: AutomationSecretName,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AutomationSecretRemoveResult {
-    pub automation: AutomationId,
-    pub name: AutomationSecretName,
-    pub removed: bool,
-}
-
-wire_errors! {
-    /// The error codes automation.secret.remove declares.
-    AutomationSecretRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned.
-    AutomationSecretSetOp {
-        name: "automation.secret.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:SchedulerDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: AutomationSecretSetParams,
-        result: AutomationSecretState,
-        error: AutomationSecretSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AutomationSecretSetParams {
-    pub automation: AutomationId,
-    pub name: AutomationSecretName,
-    pub value: String,
-}
-
-wire_errors! {
-    /// The error codes automation.secret.set declares.
-    AutomationSecretSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        AutomationSecretNotConfigured = "automation_secret.not_configured",
-        AutomationSecretTooMany = "automation_secret.too_many",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
     }
 }
 

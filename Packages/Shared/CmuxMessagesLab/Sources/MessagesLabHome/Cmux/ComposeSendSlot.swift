@@ -33,6 +33,7 @@ struct ComposeSendSlot: Equatable {
         frame = CGRect(x: centre.x - size / 2, y: centre.y - size / 2, width: size, height: size)
         shown = !text.isEmpty || attachments > 0
         // The attachment marks (U+FFFC) are not text to send.
-        enabled = attachments > 0 || Draft.hasSendableText(text)
+        let plain = text.replacingOccurrences(of: "\u{FFFC}", with: "")
+        enabled = attachments > 0 || !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

@@ -14,39 +14,6 @@ import { admitRequest, PROVIDER_PIN_HEADER, serveChat } from "./route.ts"
 
 type Json = Record<string, unknown>
 
-/**
- * Gemini's thought signatures ride in the tool_use id (cx: Gemini 4 Neon on the router). Vertex returns
- * one on a step's first function call and refuses the next request without it; a Messages client keeps
- * and echoes only what the Messages shape has, and every client echoes the tool_use id (in its own
- * tool_use block and in tool_result.tool_use_id). So the id carries it: `gts1_<length>_<padding>_<signature
- * as unpadded base64url><provider id>`, inside the Messages id alphabet [A-Za-z0-9_-]; the padding count
- * keeps the round trip exact. toChat splits it back.
- */
-const SIG_ID = /^gts1_(\d+)_(\d)_/
-
-const b64url = (b64: string) => b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-const b64std = (url: string, padding: number) => url.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padding)
-
-/** A provider tool-call id plus its thought signature (if any) -> the Messages tool_use id. */
-export const signedToolId = (id: string, signature: unknown): string => {
-  if (typeof signature !== "string" || !signature) return id
-  const sig = b64url(signature)
-  const padding = Math.min(9, signature.length - signature.replace(/=+$/, "").length)
-  return `gts1_${sig.length}_${padding}_${sig}${id}`
-}
-
-/** A Messages tool_use id -> the provider's id and the thought signature it carries (if any). */
-export const splitToolId = (id: string): { readonly id: string; readonly signature?: string } => {
-  const m = SIG_ID.exec(id)
-  if (!m) return { id }
-  const len = Number(m[1])
-  const start = m[0].length
-  if (!Number.isSafeInteger(len) || start + len > id.length) return { id }
-  return { id: id.slice(start + len), signature: b64std(id.slice(start, start + len), Number(m[2])) }
-}
-
-const thoughtSignature = (call: Json): unknown => ((call.extra_content as Json | undefined)?.google as Json | undefined)?.thought_signature
-
 const fail = (status: number, type: string, message: string) => Response.json({ type: "error", error: { type, message } }, { status })
 
 const text = (v: unknown): string => {
@@ -62,13 +29,7 @@ export const toChat = (b: Json): Json | string => {
   if (system) messages.push({ role: "system", content: system })
   if (!Array.isArray(b.messages) || b.messages.length === 0) return "messages must be a non-empty array"
   for (const m of b.messages as Array<Json>) {
-    if (!m || (m.role !== "user" && m.role !== "assistant" && m.role !== "system")) return "each message needs role user, assistant or system"
-    // A system message inside the thread (Claude Code 2.1.3xx sends its reminders this way): text only, kept in place.
-    if (m.role === "system") {
-      const note = text(m.content)
-      if (note) messages.push({ role: "system", content: note })
-      continue
-    }
+    if (!m || (m.role !== "user" && m.role !== "assistant")) return "each message needs role user or assistant"
     if (typeof m.content === "string") {
       messages.push({ role: m.role, content: m.content })
       continue
@@ -84,14 +45,11 @@ export const toChat = (b: Json): Json | string => {
           break
         case "tool_use":
           if (m.role !== "assistant") return "tool_use blocks belong to assistant messages"
-          {
-            const split = splitToolId(String(block.id ?? ""))
-            calls.push({ id: split.id, type: "function", function: { name: String(block.name ?? ""), arguments: JSON.stringify(block.input ?? {}) }, ...(split.signature ? { extra_content: { google: { thought_signature: split.signature } } } : {}) })
-          }
+          calls.push({ id: String(block.id ?? ""), type: "function", function: { name: String(block.name ?? ""), arguments: JSON.stringify(block.input ?? {}) } })
           break
         case "tool_result":
           if (m.role !== "user") return "tool_result blocks belong to user messages"
-          results.push({ role: "tool", tool_call_id: splitToolId(String(block.tool_use_id ?? "")).id, content: (block.is_error ? "Error: " : "") + text(block.content) })
+          results.push({ role: "tool", tool_call_id: String(block.tool_use_id ?? ""), content: (block.is_error ? "Error: " : "") + text(block.content) })
           break
         case "thinking":
         case "redacted_thinking":
@@ -140,7 +98,7 @@ const fromChatJson = (j: Json, model: unknown): Json => {
     } catch {
       input = {}
     }
-    content.push({ type: "tool_use", id: signedToolId(String(c.id ?? `toolu_${crypto.randomUUID()}`), thoughtSignature(c)), name: String(fn.name ?? ""), input })
+    content.push({ type: "tool_use", id: String(c.id ?? `toolu_${crypto.randomUUID()}`), name: String(fn.name ?? ""), input })
   }
   return { id: `msg_${String(j.id ?? crypto.randomUUID()).replace(/^chatcmpl-/, "")}`, type: "message", role: "assistant", model, content, stop_reason: STOP[String(choice.finish_reason)] ?? "end_turn", stop_sequence: null, usage: usageOf(j.usage) }
 }
@@ -204,7 +162,7 @@ const sseTranslator = (model: unknown) => {
         if (open?.kind !== "tool" || open.tool !== k) {
           close(c)
           open = { index: next++, kind: "tool", tool: k }
-          send(c, "content_block_start", { index: open.index, content_block: { type: "tool_use", id: signedToolId(String(t.id ?? `toolu_${crypto.randomUUID()}`), thoughtSignature(t)), name: String(fn.name ?? ""), input: {} } })
+          send(c, "content_block_start", { index: open.index, content_block: { type: "tool_use", id: String(t.id ?? `toolu_${crypto.randomUUID()}`), name: String(fn.name ?? ""), input: {} } })
         }
         if (typeof fn.arguments === "string" && fn.arguments) send(c, "content_block_delta", { index: open.index, delta: { type: "input_json_delta", partial_json: fn.arguments } })
       }

@@ -203,8 +203,7 @@ export const localCases = (c: Corpus): void => {
     c.op(budget, `budget: agent turn ${turn + 1} of ${MAX_AGENT_TURNS}`, MUX, `m${turn}`, send(`m${turn}`, parts(`turn ${turn}`)), "commit")
   }
   budget.advance(10_000)
-  // One agent in the conversation (the person's own Chief chat): nothing to loop with, so no cap.
-  c.op(budget, "budget: a lone agent has no turn cap", MUX, "m9", send("m9", parts("again")), "commit")
+  c.op(budget, "budget: one agent turn over the budget", MUX, "m9", send("m9", parts("again")), "agent_budget")
   c.op(budget, "budget: a work card is never limited", MUX, "w1", send("w1", [{ type: "work", session: "s", status: "done" }]), "commit")
   c.op(budget, "budget: humans are never limited", ALICE, "h2", send("h2", parts("next")), "commit")
   c.op(budget, "budget: an agent after a human message", MUX, "m10", send("m10", parts("ok")), "commit")
@@ -213,18 +212,6 @@ export const localCases = (c: Corpus): void => {
   c.op(budget, "budget: malformed parts report invalid_parts first", MUX, "m11", send("m11", []), "invalid_parts")
   budget.advance(1)
   c.op(budget, "budget: at the gap", MUX, "m11", send("m11", parts("now")), "commit")
-
-  // Two agents share the conversation: the cap stops their loop.
-  const capped = new CoreHost(createdHead({ ...base, participants: [human(ALICE), agent(MUX), agent("agent_two")] }))
-  capped.send(ALICE, "h1", "go")
-  for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
-    capped.advance(10_000)
-    c.op(capped, `budget: two agents, agent turn ${turn + 1} of ${MAX_AGENT_TURNS}`, turn % 2 === 0 ? MUX : "agent_two", `m${turn}`, send(`m${turn}`, parts(`turn ${turn}`)), "commit")
-  }
-  capped.advance(10_000)
-  c.op(capped, "budget: two agents, one agent turn over the budget", MUX, "m9", send("m9", parts("again")), "agent_budget")
-  c.op(capped, "budget: two agents, a person's text resets the cap", ALICE, "h2", send("h2", parts("next")), "commit")
-  c.op(capped, "budget: two agents, an agent after the person's text", MUX, "m10", send("m10", parts("ok")), "commit")
 
   // The gap's free first round: with two agents, both answer a person's text at once; the third
   // agent text since that person waits the gap (agent-to-agent traffic stays spaced).
@@ -239,7 +226,7 @@ export const localCases = (c: Corpus): void => {
   c.op(round, "gap round: at the gap", MUX, "r3", send("r3", parts("re")), "commit")
 
   // The work-card bypass: text-less work cards between agent texts must not reset or hide the count.
-  const cards = new CoreHost(createdHead({ ...base, participants: [human(ALICE), agent(MUX), agent("agent_two")] }))
+  const cards = new CoreHost()
   cards.send(ALICE, "h1", "go")
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     cards.advance(10_000)
@@ -266,7 +253,7 @@ export const localCases = (c: Corpus): void => {
   c.op(links, "link preview: null title, site and image are absent", ALICE, "l4", send("l4", [link({ title: null, site: null, image: null })]), "commit")
   c.op(links, "an unknown part type is refused", ALICE, "l5", send("l5", [text("x"), { type: "future_part", anything: [1, 2] } as never]), "invalid_parts")
   // A link preview is an agent turn like text: link-only messages cannot bypass the loop guard.
-  const linkTurns = new CoreHost(createdHead({ ...base, participants: [human(ALICE), agent(MUX), agent("agent_two")] }))
+  const linkTurns = new CoreHost()
   linkTurns.send(ALICE, "h1", "go")
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     linkTurns.advance(10_000)

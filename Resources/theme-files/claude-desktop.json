@@ -7,8 +7,6 @@
 
   // The terminal theme, and its own colors.
   "appearance.theme": "Claude Light",
-  // The window, sidebar and pages take that theme too, over an App Theme of your own.
-  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#faf9f5", "foreground": "#141413", "selection": "#f0eee6", "accent": "#d97757" },
   "appearance.accent": "theme",
 

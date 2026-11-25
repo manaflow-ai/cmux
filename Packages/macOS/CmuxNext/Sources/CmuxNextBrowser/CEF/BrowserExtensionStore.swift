@@ -39,9 +39,6 @@ extension BrowserExtensionBackend {
 public final class BrowserExtensionStore {
     public let profileID: BrowserProfileID
     public private(set) var extensions: [BrowserExtensionInfo] = []
-    /// Counts changes of ``extensions``: a reader that keeps answers derived from the list (which
-    /// pages an extension can script) drops them when it moves.
-    @ObservationIgnored public private(set) var revision = 0
     public private(set) var commands: [BrowserExtensionCommand] = []
     @ObservationIgnored private let backend: any BrowserExtensionBackend
 
@@ -55,10 +52,7 @@ public final class BrowserExtensionStore {
     public func refresh() {
         guard let snapshot = backend.snapshot() else { return }
         if snapshot.commands != commands { commands = snapshot.commands }
-        if snapshot.extensions != extensions {
-            extensions = snapshot.extensions
-            revision += 1
-        }
+        if snapshot.extensions != extensions { extensions = snapshot.extensions }
     }
 
     /// Extensions whose process crashed or was killed (Chromium's

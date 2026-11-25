@@ -77,7 +77,7 @@ fn room_value(
         .filter(|pin| pin.profile == profile.id)
         .map(|pin| workspace_ref(connection, local, &pin.session_id, &pin.workspace_key))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let mut value = json!({
+    Ok(json!({
         "id": profile.id,
         "name": profile.name,
         "color": profile.color,
@@ -88,15 +88,7 @@ fn room_value(
         "default_session_id": profile.default_session_id,
         "follows": profile.follows,
         "pins": pins,
-    });
-    // `created-by-detail-v1`: who made the space, only when an agent or a script said so.
-    if let Some(created_by) =
-        super::created_by::made_by(connection, super::created_by::Made::Room, &profile.id)?
-        && let Some(object) = value.as_object_mut()
-    {
-        object.insert("created_by".into(), created_by);
-    }
-    Ok(value)
+    }))
 }
 
 pub(crate) fn room_snapshots(connection: &Connection) -> anyhow::Result<Vec<Value>> {

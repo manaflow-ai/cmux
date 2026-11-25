@@ -85,7 +85,6 @@ async fn complete_is_unix_socket_only_and_runs_headless() {
         managed: vec![],
         user_dir: Some(root.join("config").join("harnesses")),
         cmux_json: None,
-        person_dir: None,
     };
     std::fs::write(root.join("home").join("config.json"), "{}").unwrap();
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();

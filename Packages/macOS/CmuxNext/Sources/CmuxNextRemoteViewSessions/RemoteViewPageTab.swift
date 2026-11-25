@@ -41,7 +41,7 @@ public final class RemoteViewPageTab: BrowserTab {
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
          cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
          cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil,
-         personInput: (@MainActor () -> Void)? = nil, connectionTarget: RemoteConnectionTarget? = nil, loginKeychain: LoginKeychain) {
+         connectionTarget: RemoteConnectionTarget? = nil, loginKeychain: LoginKeychain) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -54,21 +54,17 @@ public final class RemoteViewPageTab: BrowserTab {
         var state = BrowserTabState(url: url, title: displayName ?? RemoteViewTabRecord.tabTitle(parsed))
         state.phase = .finished
         self.state = state
-        // The machine as the Connect card names it; the connecting card keeps that name in the same frame.
-        func gateTarget(_ record: RemoteViewTabRecord) -> RemoteConnectionTarget {
-            connectionTarget ?? RemoteConnectionTarget(name: record.cloudDesktop ? (displayName ?? "") : (displayName ?? record.host), kind: .desktop)
-        }
         switch decision {
         case let .connect(record):
             let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd,
-                                                     displayName: displayName, personInput: personInput)
+                                                     displayName: displayName)
             session?.useLoginKeychain(loginKeychain)
-            (session?.view as? RemoteDesktopPaneView)?.connectionTarget = gateTarget(record)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):
             session = nil
-            let target = gateTarget(record)
+            let target = connectionTarget ?? RemoteConnectionTarget(name: record.cloudDesktop ? (displayName ?? "") : (displayName ?? record.host),
+                                                                     kind: .desktop)
             let notice = RemoteViewUnavailableView(content: .confirmTarget(target))
             // Connect starts view mode; control is the toolbar toggle.
             notice.onConnect = { connect(record.url) }
@@ -89,23 +85,6 @@ public final class RemoteViewPageTab: BrowserTab {
 
     /// The tab's session, when it streams.
     public var debugSession: RemoteViewPageSession? { session }
-
-    /// Whether the tab shows a remote desktop session (not a Connect prompt or an unavailable notice).
-    public var streams: Bool { session != nil }
-
-    /// Sets the session's quality preset (`remote.setQuality`); false when the tab streams no session.
-    @discardableResult
-    public func selectQuality(_ preset: RemoteQualityPreset) -> Bool {
-        guard let session else { return false }
-        session.selectQuality(preset)
-        return true
-    }
-
-    /// What a row of the session toolbar's Quality menu runs (the App routes it to `remote.setQuality`).
-    public var onPickQuality: ((RemoteQualityPreset) -> Void)? {
-        get { session?.pickQuality }
-        set { session?.pickQuality = newValue }
-    }
 
     public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

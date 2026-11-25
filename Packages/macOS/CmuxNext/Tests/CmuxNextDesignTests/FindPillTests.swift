@@ -122,23 +122,3 @@ import CmuxNextDesignTokens
         #expect(pill.stepButtons.allSatisfy { $0.isEnabled })
     }
 }
-
-/// The find pill over a see-through window in dark. The pill is the transient glass (a 42 % veil),
-/// so over bright art its field came out (78, 69, 57) and the placeholder in the secondary ink read
-/// 4.00:1 (Terminal Find on the Great Wave, dark; fleet capture of 71726c94, text-inputs-glass/states.py,
-/// terminal-find-art). A pill holds a field, not a list: in dark its veil is at least 70 %, so the field
-/// stays under about 60/255 there; light keeps the transient veil (5.83:1).
-@MainActor @Suite struct FindPillVeilTests {
-    @Test func theFindPillsDarkVeilHoldsItsPlaceholder() {
-        #expect(FloatingGlassStyle.findPill.darkVeilAlpha >= 0.7)
-        #expect(FloatingGlassStyle.findPill.lightVeilAlpha == FloatingGlassStyle.transient.lightVeilAlpha)
-    }
-
-    @Test func thePillWearsTheFindPillGlass() {
-        let image = NSImage(size: NSSize(width: 12, height: 12))
-        let pill = FindPillView(labels: FindPillLabels(placeholder: "Find", previous: "Previous", next: "Next", close: "Close"),
-                                icons: FindPillIcons(search: image, previous: image, next: image, close: image),
-                                accessibilityPrefix: "test.find.veil")
-        #expect(pill.surface.tone == .neutralGlass(.findPill))
-    }
-}

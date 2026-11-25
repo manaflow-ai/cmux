@@ -45,7 +45,6 @@ function GalleryTrustAsk({ initialAsk }: Props) {
           onTrustRepo={() => answer("trusted", answerFolder(current, "repo"))}
           onDistrust={() => answer("untrusted", answerFolder(current, "repo"))}
           onContinueWithoutFolder={() => undefined}
-          onContinueReadOnly={() => undefined}
           onUndo={() => setCurrent({ cwd: current.cwd, ...(current.repo ? { repo: current.repo } : {}), state: "ask" })}
         />
       </div>

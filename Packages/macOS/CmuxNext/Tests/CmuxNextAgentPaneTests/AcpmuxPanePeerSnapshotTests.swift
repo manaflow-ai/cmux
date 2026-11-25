@@ -21,41 +21,6 @@ import Testing
         #expect(peer["error"] as? String == "removed")
     }
 
-    @Test func moveTargetsAcceptsOnlyItsOptionalSourceSelectors() {
-        #expect(AcpmuxPaneMethods.requests.contains("_acpmux/move_targets"))
-        for params in [[:], ["source": "studio"], ["sourceKind": "ssh"],
-                       ["source": "studio", "sourceKind": "ssh"]] {
-            #expect(!AcpmuxPaneMethods.breaksParamsRule([
-                "method": "_acpmux/move_targets", "params": params,
-            ], modeFields: nil))
-        }
-        for params in [["url": "ssh://private"], ["host": "private"], ["sessionId": "chat"]] {
-            #expect(AcpmuxPaneMethods.breaksParamsRule([
-                "method": "_acpmux/move_targets", "params": params,
-            ], modeFields: nil))
-        }
-    }
-
-    @Test func moveTargetsKeepLabelsAndDropEndpointsAndMetadata() throws {
-        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/move_targets"])
-        let value: [String: Any] = [
-            "targets": [[
-                "id": "ssh:studio", "label": "Studio", "kind": "ssh", "status": "ready",
-                "reason": "", "room": 3.0, "url": "ssh://private", "host": "private",
-            ]],
-            "pick": "ssh:studio",
-            "debug": "hidden",
-        ]
-        let filtered = try #require(AcpmuxPaneMethods.filtered(value, to: shape) as? [String: Any])
-        let target = try #require((filtered["targets"] as? [[String: Any]])?.first)
-        let fields = Set(["id", "label", "kind", "status", "reason", "room"])
-        #expect(Set(target.keys) == fields)
-        #expect((target["room"] as? NSNumber)?.doubleValue == 3)
-        #expect(filtered["pick"] as? String == "ssh:studio")
-        #expect(target["url"] == nil && target["host"] == nil)
-        #expect(filtered["debug"] == nil)
-    }
-
     /// The device kinds reach the page (each machine's glyph), and nothing else rides along.
     @Test func statusKeepsDeviceKindsOnly() throws {
         let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])

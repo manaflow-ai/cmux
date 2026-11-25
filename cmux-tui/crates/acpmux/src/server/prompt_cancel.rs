@@ -15,9 +15,6 @@
 //! (`PromptOptions::reply_reader`, the lane report's `LaneReplyReader`) reads as gone from the
 //! cancel on ([`ReaderGone`]), as for a caller whose connection ended, so the lane report of
 //! its turn still goes to the lead and a question's reply goes back to its asker.
-//!
-//! A cancel from the daemon's own stop (`shutdown_drain.rs`) stops nothing: the prompt, queued
-//! or running, is the next daemon's ([`PromptStop`]'s `stop_if_due`).
 
 use crate::hub::{Hub, Session};
 use serde_json::Value;
@@ -103,10 +100,7 @@ impl PromptStop {
     pub(super) fn watch(self: &Arc<Self>, on_accepted: OnAccepted) -> OnAccepted {
         let this = self.clone();
         Some(Box::new(move |v: Value| {
-            // A duplicate (a retry of a prompt id the chat already took) names the first run's
-            // prompt: that run belongs to its own request, so cancelling this one never stops it.
-            let duplicate = v.get("duplicate").and_then(Value::as_bool) == Some(true);
-            if let Some(id) = v.get("promptId").and_then(Value::as_str).filter(|_| !duplicate) {
+            if let Some(id) = v.get("promptId").and_then(Value::as_str) {
                 this.state.lock().unwrap_or_else(|e| e.into_inner()).prompt = Some(id.to_owned());
                 this.stop_if_due();
             }
@@ -127,15 +121,6 @@ impl PromptStop {
     }
 
     fn stop_if_due(&self) {
-        // The daemon's stop cancels every request in flight (`shutdown_drain.rs`), answering it
-        // `daemon.restarting`, and that is no Stop from its client: the prompt is the next
-        // daemon's, which restores it queued or goes on with its turn (adopted, or continued by
-        // `restart_resume.rs`), and the client's resend of its prompt id meets it there. Stopped
-        // here, an update withdrew queued messages and stopped running turns (a lane host,
-        // 2026-11-23 11:58:41Z: a held agent message `queue_removed` and never delivered).
-        if self.hub.shutting_down() {
-            return;
-        }
         let prompt = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if !state.cancelled || state.stopping {

@@ -1,38 +1,6 @@
 //! Layout undo: undo with confirmation tokens, including the resource-effect path.
 
 use super::*;
-use crate::model::{LayoutUndoEntry, ScreenLayoutSnapshot};
-
-/// An undo that closes the panes of `entry` does not close a hidden quick
-/// terminal (`quick-terminal-v1`): the user does not see that pane, so a
-/// confirmation of its close is no decision about it. The undo is stale
-/// while the quick terminal is hidden. After a show it asks for its
-/// confirmation as before. Each read of an entry that closes panes checks
-/// this: the previews, and the commit under the state lock.
-pub(super) fn keep_hidden_quick_terminal(
-    screen: &Screen,
-    entry: &LayoutUndoEntry,
-) -> Result<(), LayoutUndoError> {
-    match screen.quick_terminal() {
-        Some((pane, mark)) if mark.hidden && entry.created_panes.contains(&pane) => {
-            Err(LayoutUndoError::Stale(format!(
-                "layout undo would close the quick terminal {pane}, which is hidden"
-            )))
-        }
-        _ => Ok(()),
-    }
-}
-
-/// Puts the snapshot `before` back into `screen`, as an undo of the layout
-/// does it. A workspace has one quick terminal (`quick-terminal-v1`): with
-/// `elsewhere`, another screen of the workspace has it now, so a mark that
-/// the snapshot puts back ends, and its pane is a floating pane that shows.
-fn restore_snapshot(screen: &mut Screen, before: ScreenLayoutSnapshot, elsewhere: bool) {
-    screen.restore_layout_snapshot(before);
-    if elsewhere {
-        screen.unmark_quick_terminal();
-    }
-}
 
 impl Mux {
     /// Forget the layout-undo history of `pane`'s screen: its layout was
@@ -85,7 +53,6 @@ impl Mux {
                 ))
                 .into());
             }
-            keep_hidden_quick_terminal(screen, entry)?;
             for created in &entry.created_panes {
                 if !state.panes.contains_key(created) {
                     return Err(LayoutUndoError::Stale(format!(
@@ -192,7 +159,6 @@ impl Mux {
                     )
                     .into());
                 }
-                keep_hidden_quick_terminal(screen, &entry)?;
                 entry
             };
             if let Some(expected) = expected_revision
@@ -269,13 +235,9 @@ impl Mux {
                         .push_back(entry);
                     return Err(error);
                 }
-                let elsewhere = state
-                    .workspaces
-                    .get(workspace_index)
-                    .is_some_and(|workspace| workspace.quick_terminal_elsewhere(screen_index));
                 let screen = &mut state.workspaces[workspace_index].screens[screen_index];
                 let revision = screen.layout_revision.saturating_add(1);
-                restore_snapshot(screen, entry.before, elsewhere);
+                screen.restore_layout_snapshot(entry.before);
                 screen.layout_revision = revision;
                 if let Some(previous) = screen.layout_undo.back_mut() {
                     previous.after_revision = revision;
@@ -326,7 +288,6 @@ impl Mux {
                     )
                     .into());
                 }
-                keep_hidden_quick_terminal(screen, &entry)?;
                 entry
             };
             let mut remaining_history =
@@ -399,13 +360,9 @@ impl Mux {
                 )
                 .into());
             };
-            let elsewhere = state
-                .workspaces
-                .get(workspace_index)
-                .is_some_and(|workspace| workspace.quick_terminal_elsewhere(screen_index));
             let screen = &mut state.workspaces[workspace_index].screens[screen_index];
             let revision = screen.layout_revision.max(entry.after_revision).saturating_add(1);
-            restore_snapshot(screen, entry.before, elsewhere);
+            screen.restore_layout_snapshot(entry.before);
             screen.layout_revision = revision;
             screen.layout_undo = remaining_history;
             if let Some(previous) = screen.layout_undo.back_mut() {

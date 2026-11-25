@@ -1,10 +1,9 @@
-import { envForObject, spaceOfEnv, spacedName } from "./build-space.ts"
 import { type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
 import { address, conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
 const isOpen = (i: conversation.Invite) => i.status === "pending" || i.status === "pending_approval"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
@@ -77,8 +76,7 @@ export type InvitePreviewResult =
  */
 export class ConversationDO extends OwnerDO<Head> {
   protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
     const domain = withSlack(conversation.makeConversationDomain({
       participantPolicy: ownerRecordPolicy,
@@ -627,7 +625,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const a = this.acting(entity, actor)
     if (!a || !a.open || !/^[0-9a-f]{32}$/.test(id)) return null
     const objectId = store.randomId()
-    const slot: store.UploadSlot = { id, ...meta, actor, quota_user: quotaUser, object_id: objectId, object_key: conversation.attachmentObjectKey(this.attachmentSpace(entity), objectId), mode, expires_at: Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs }
+    const slot: store.UploadSlot = { id, ...meta, actor, quota_user: quotaUser, object_id: objectId, object_key: conversation.attachmentObjectKey(entity, objectId), mode, expires_at: Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs }
     store.createSlot(this.sqlStore, slot)
     // The slot's expiry is an alarm time: its object (if any) goes then unless a commit kept it.
     this.scheduleAlarm()
@@ -656,11 +654,6 @@ export class ConversationDO extends OwnerDO<Head> {
   async settleDerived(entity: string, id: string, etag: string | null): Promise<void> {
     if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
-
-  /** The bucket name of this conversation: a dev build's is under its space, so it never shares a prefix with nightly's same id. */
-  private attachmentSpace = (entity: string) => spacedName(spaceOfEnv(this.env), entity)
-  /** The bucket prefix every object of this conversation is under (the purge deletes it). */
-  attachmentKeyPrefix(entity: string): string { return conversation.attachmentPrefix(this.attachmentSpace(entity)) }
 
   async setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean> {
     if (!this.existingState(entity)) return false

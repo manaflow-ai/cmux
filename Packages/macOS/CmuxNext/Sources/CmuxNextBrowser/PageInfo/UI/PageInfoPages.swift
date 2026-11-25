@@ -124,8 +124,7 @@ import CmuxNextDesign
                                       accessory: .externalLink, tint: valid ? nil : PageInfoStyle.danger,
                                       identifier: "pageInfo.certificate")
             let issuer = model.certificates?.first?.issuer.commonName ?? model.certificates?.first?.issuer.organization
-            // The row shows its words: no tooltip (a1315's cut 2); VoiceOver hears where a click goes.
-            row.setAccessibilityHelp(valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate)
+            row.themedToolTip = valid && issuer != nil ? PageInfoStrings.showCertificateIssuedBy(issuer ?? "") : PageInfoStrings.showCertificate
             row.onActivate = { send(.showCertificate) }
             views.append(row)
         }

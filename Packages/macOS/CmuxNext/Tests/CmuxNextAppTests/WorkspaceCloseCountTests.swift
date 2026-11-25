@@ -7,7 +7,7 @@ import Foundation
 import Testing
 
 /// Lawrence 2026-11-10 (f15/f16): "closing workspaces with cmd shift w feels kinda slow". One Close Workspace does
-/// work O(shown + changed): what it walks in its key turn is the same in a large session (826 workspaces,
+/// work O(shown + changed): what it walks in its key turn is the same in the person's session (826 workspaces,
 /// `SessionFixtureSize.real`) as in one of 60 (CLAUDE.md "Go past Chrome": a local model change is O(changed items),
 /// never O(session)). Each test drives the close the key runs (`InstantClose.begin`, the turn of `closeWorkspace`) in
 /// a whole window and reads the window registry's `WorkspaceCloseWork` (`WindowRegistryStore.closeWork`). The close is then ended (`ClosingWorkspaces.end`), as the daemon's

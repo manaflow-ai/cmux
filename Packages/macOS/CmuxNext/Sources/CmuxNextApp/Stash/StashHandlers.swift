@@ -208,7 +208,7 @@ enum StashHandlers {
 /// The Save and Close handlers' strings (Resources/Stash.xcstrings).
 nonisolated enum StashHandlerStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Stash", bundle: .module.inAppLanguage)
+        String(localized: key, defaultValue: value, table: "Stash", bundle: .module)
     }
 
     static var saved: String { t("stash.saved", "Saved to Stashed Tabs") }

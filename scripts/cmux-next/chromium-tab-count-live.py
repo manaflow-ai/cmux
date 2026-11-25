@@ -101,7 +101,8 @@ def main():
     if failure is None and (soft is None or soft <= 256):
         failure = f"the app's soft open-file limit is {soft}"
     crashes = copy_crash_reports(started) if failure else []
-    # Reports are copied above; a crash report written late is copied by wait_for_crash_report.
+    if failure and crashes:
+        time.sleep(0)  # reports copied above; a crash report written late is copied by wait_for_crash_report
     result = {"host": os.uname().nodename, "tabs": opts.tabs, "rows": rows, "failure": failure, "crash_reports": crashes,
               "log": bench.log_path}
     print("RESULT " + json.dumps({k: v for k, v in result.items() if k != "rows"}), flush=True)

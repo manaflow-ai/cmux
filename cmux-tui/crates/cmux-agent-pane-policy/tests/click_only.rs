@@ -188,9 +188,7 @@ fn a_deny_needs_no_click() {
     }
 }
 
-/// The rule is for the answer methods only: a send needs no click, and no
-/// gesture at all (Leo, 2026-11-17, on "Not sent: it needs your own key press
-/// or click": "go remove this"), yet it is never free (the host journals it).
+/// The rule is for the answer methods only: a send still goes on a key press.
 #[test]
 fn a_frame_of_another_method_needs_no_click() {
     let params = json!({"sessionId": "own", "prompt": []});
@@ -198,8 +196,7 @@ fn a_frame_of_another_method_needs_no_click() {
         let Checked::Frame { facts, .. } = check("session/prompt", params.clone(), gesture) else {
             panic!("a prompt was refused with {gesture:?}")
         };
-        assert!(!facts.needs_gesture, "{gesture:?}: a send needs no gesture");
+        assert!(facts.needs_gesture, "{gesture:?}: the host still decides the gesture");
         assert!(!facts.needs_click, "{gesture:?}");
-        assert!(!facts.free(), "{gesture:?}: a prompt is journaled, never free");
     }
 }

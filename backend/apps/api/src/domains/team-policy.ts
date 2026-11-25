@@ -27,19 +27,6 @@ export const policyBytes = (values: unknown): number => new TextEncoder().encode
 
 export const initialPolicy = (): Policy => ({ version: 0, values: {}, updated_at: null, updated_by: null })
 
-/**
- * The policy a team starts with when it is made (team.ensure_personal, team.stack_mirror's first mirror): idle pause on
- * (Leo, 2026-11-23: "well, if this is the whole point of the product, then obviously, yes."). Mode `default`, so the
- * per-team switch stays (team.policy.update). A team made before this stored no key and keeps reading off
- * (cloudPolicyOf), which is why this is a seed for new teams and not policyProductDefaults.
- */
-export const NEW_TEAM_POLICY_VALUES = { "cloud.idlePause": { value: true, mode: "default" } } as const satisfies PolicyValues
-export const newTeamPolicy = (): Policy => ({ ...initialPolicy(), values: { ...NEW_TEAM_POLICY_VALUES } })
-
-/** `state` with the new-team policy when this op makes the team (no team and no policy yet); any other state unchanged. */
-export const withNewTeamPolicy = <S extends PolicyState & { readonly team: unknown }>(state: S): S =>
-  state.team === null && state.policy === undefined ? { ...state, policy: newTeamPolicy() } : state
-
 export interface PolicyState {
   readonly policy?: Policy
   readonly policy_history?: ReadonlyArray<PolicyVersion>

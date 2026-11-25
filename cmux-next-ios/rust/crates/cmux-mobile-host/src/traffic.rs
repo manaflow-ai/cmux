@@ -46,8 +46,6 @@ pub enum Kind {
     Localhost,
     /// `appearance`, `appearance-wallpaper`.
     Appearance,
-    /// `tabs`: the tab overview's thumbnails and favicons.
-    Tabs,
     /// This Mac's channels to another of the person's machines (`cmux machine`, `link_socket.rs`).
     Remote,
     /// `auth`, `echo`, `version`, `machine`, `needs-you`.
@@ -57,7 +55,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 16] = [
+    pub const ALL: [Kind; 15] = [
         Kind::Terminal,
         Kind::Chat,
         Kind::CloudChat,
@@ -70,7 +68,6 @@ impl Kind {
         Kind::File,
         Kind::Localhost,
         Kind::Appearance,
-        Kind::Tabs,
         Kind::Remote,
         Kind::Control,
         Kind::Other,
@@ -90,7 +87,6 @@ impl Kind {
             Kind::File => "file",
             Kind::Localhost => "localhost",
             Kind::Appearance => "appearance",
-            Kind::Tabs => "tabs",
             Kind::Remote => "remote",
             Kind::Control => "control",
             Kind::Other => "other",
@@ -116,8 +112,7 @@ impl Kind {
             "file" | "file-preview" | "upload" => Kind::File,
             "localhost" => Kind::Localhost,
             "appearance" | "appearance-wallpaper" => Kind::Appearance,
-            "tabs" => Kind::Tabs,
-            "auth" | "echo" | "version" | "machine" | "needs-you" | "phone-frames" => Kind::Control,
+            "auth" | "echo" | "version" | "machine" | "needs-you" => Kind::Control,
             _ => Kind::Other,
         }
     }

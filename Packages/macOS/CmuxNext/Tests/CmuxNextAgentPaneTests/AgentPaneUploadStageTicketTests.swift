@@ -6,10 +6,8 @@ import Testing
 /// webviews promptBudget.ts) begins its `chat.upload.begin` with that Send's ticket
 /// (``AgentPaneUploadSendTicket``) instead of spending the gesture: the person's Enter is one
 /// credit, and the prompt itself needs it, so an upload that spent it left the prompt refused as
-/// `gestureRequired` (#29500). Leo, 2026-10-31: "this is completely hardlocked bc of message size".
-/// A Send needs no gesture now (Leo, 2026-11-17, on "Not sent: it needs your own key press or
-/// click.": "go remove this"), so the upload just stages: it holds no ticket, and nothing cancels
-/// it when the ticket ends.
+/// `gestureRequired` (#29500). The upload holds the ticket; the prompt redeems it once every
+/// upload of it is done. Leo, 2026-10-31: "this is completely hardlocked bc of message size".
 @Suite(.serialized)
 @MainActor
 struct AgentPaneUploadStageTicketTests {
@@ -20,6 +18,8 @@ struct AgentPaneUploadStageTicketTests {
     /// What the stand-in stager saw, by kind.
     final class Staged {
         var requests: [AgentPaneUploadStageRequest] = []
+        /// The stager's finish fails (the copy did not complete).
+        var failFinish = false
         /// Seconds the stager's finish takes on `clock` (a Cloud or peer transfer after the last chunk).
         var finishTakes: TimeInterval = 0
         let clock = AgentPaneUploadSendTicketTests.Clock()
@@ -42,6 +42,7 @@ struct AgentPaneUploadStageTicketTests {
                 case .chunk(_, let offset, let data): return AgentPaneReply.success(["offset": offset + data.count])
                 case .finish:
                     staged.clock.now += staged.finishTakes
+                    if staged.failFinish { return AgentPaneReply.failure(code: "upload.incomplete", message: "Not completed.") }
                     return AgentPaneReply.success(["path": "/tmp/uploads/big.pdf"])
                 case .cancel: return AgentPaneReply.success()
                 }
@@ -77,7 +78,7 @@ struct AgentPaneUploadStageTicketTests {
 
     private func ok(_ reply: [String: Any]) -> Bool { reply["ok"] as? Bool == true }
 
-    @Test func aSendsUploadStagesAndThePromptStillGoes() async throws {
+    @Test func aSendsUploadHoldsItsTicketAndThePromptStillGoes() async throws {
         let (server, model, id, staged) = try await pane()
         defer { server.stop() }
         let transport = model.transport
@@ -91,8 +92,7 @@ struct AgentPaneUploadStageTicketTests {
         #expect(ok(await call(model, "chat.upload.finish", ["token": "t-1"])))
         #expect(staged.requests.count == 3)
         #expect(await prompt(transport, id, ticket: ticket, frame: 2) == nil, "the prompt of a send's upload was refused")
-        // A spent ticket no longer refuses the prompt: a send needs no gesture.
-        #expect(await prompt(transport, id, ticket: ticket, frame: 3) == nil, "a spent ticket refused a send")
+        #expect(await prompt(transport, id, ticket: ticket, frame: 3) == .gestureRequired, "one ticket sent two prompts")
     }
 
     /// The finish of a Cloud or peer upload awaits the transfer, with no page chunk to report progress:
@@ -111,7 +111,28 @@ struct AgentPaneUploadStageTicketTests {
         #expect(await prompt(transport, id, ticket: ticket, frame: 2) == nil, "a long finish expired the send ticket")
     }
 
-    @Test func aCancelledUploadLeavesThePromptToGo() async throws {
+    @Test func anUploadWithAnotherSendsTicketOrNoneIsRefused() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        for send: [String: Any] in [
+            ["sessionId": "s-new", "promptId": "p-2", "ticket": ticket], // another prompt
+            ["sessionId": "s-other", "promptId": "p-1", "ticket": ticket], // a chat not in the pane
+            ["sessionId": "s-new", "promptId": "p-1", "ticket": "forged"],
+        ] {
+            let begun = await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2].merging(send) { $1 })
+            #expect(!ok(begun), "an upload began on \(send)")
+        }
+        // No ticket and no gesture left: refused as before. The Enter's own upload credit (one batch
+        // of files, ``AgentPaneUserGestures/consumeUpload()``) is not the ticket's; spend it first.
+        _ = transport.gestures.consumeUpload()
+        #expect(!ok(await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2])))
+        #expect(staged.requests.isEmpty, "a refused upload reached the stager")
+    }
+
+    @Test func aCancelledUploadReleasesItsHold() async throws {
         let (server, model, id, _) = try await pane()
         defer { server.stop() }
         let transport = model.transport
@@ -128,6 +149,32 @@ struct AgentPaneUploadStageTicketTests {
         return await call(model, "chat.upload.begin", ["name": "big.pdf", "size": 2].merging(send) { $1 }.merging(extra) { $1 })
     }
 
+    @Test func aFinishThatFailsCancelsItsStageBeforeTheHoldEnds() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        staged.failFinish = true
+        #expect(ok(await begin(model, ticket: ticket)))
+        #expect(!ok(await call(model, "chat.upload.finish", ["token": "t-1"])))
+        #expect(staged.cancels == 1, "a stage whose finish failed was left to upload after its hold ended")
+        #expect(model.uploadHolds.isEmpty)
+    }
+
+    @Test func anEmptyChunkIsNoProgressAndEndsTheHeldStage() async throws {
+        let (server, model, _, staged) = try await pane()
+        defer { server.stop() }
+        let transport = model.transport
+        transport.gestures.record()
+        let ticket = try sendTicket(transport)
+        #expect(ok(await begin(model, ticket: ticket)))
+        #expect(!ok(await call(model, "chat.upload.chunk", ["token": "t-1", "offset": 0, "data": ""])))
+        #expect(!staged.requests.contains { if case .chunk = $0 { true } else { false } }, "an empty chunk reached the stager")
+        #expect(staged.cancels == 1)
+        #expect(model.uploadHolds.isEmpty)
+    }
+
     @Test func aHeldBeginNamesNoBatch() async throws {
         let (server, model, _, staged) = try await pane()
         defer { server.stop() }
@@ -140,9 +187,7 @@ struct AgentPaneUploadStageTicketTests {
         #expect(staged.requests.isEmpty, "a held begin with a batch reached the stager")
     }
 
-    /// A send's upload no longer holds its ticket, so the ticket's end (the page's release, a
-    /// reconnect) does not cancel the stage: its chunk still goes.
-    @Test func aChunkAfterItsTicketEndedStillGoes() async throws {
+    @Test func aChunkAfterItsTicketEndedCancelsItsStage() async throws {
         let (server, model, _, staged) = try await pane()
         defer { server.stop() }
         let transport = model.transport
@@ -150,8 +195,8 @@ struct AgentPaneUploadStageTicketTests {
         let ticket = try sendTicket(transport)
         #expect(ok(await begin(model, ticket: ticket)))
         transport.gestures.clearTickets() // the page's release, a reconnect
-        #expect(ok(await call(model, "chat.upload.chunk", ["token": "t-1", "offset": 0, "data": Data([1, 2]).base64EncodedString()])))
-        #expect(staged.requests.contains { if case .chunk = $0 { true } else { false } }, "a send's chunk was dropped when its ticket ended")
-        #expect(staged.cancels == 0)
+        #expect(!ok(await call(model, "chat.upload.chunk", ["token": "t-1", "offset": 0, "data": Data([1, 2]).base64EncodedString()])))
+        #expect(!staged.requests.contains { if case .chunk = $0 { true } else { false } }, "a chunk went after its ticket ended")
+        #expect(staged.cancels >= 1)
     }
 }

@@ -62,19 +62,17 @@ struct ComposeInlineText {
         return ids
     }
 
-    /// Each attachment character of S, in order: its UTF-16 offset and the field's attachment on
-    /// it (nil: a plain U+FFFC, pasted as text). One search per character, not a
-    /// read per character: every key runs this.
-    static func marks(in s: NSAttributedString) -> [(offset: Int, attachment: ComposeInlineAttachment?)] {
-        var out: [(offset: Int, attachment: ComposeInlineAttachment?)] = []
+    /// Ranges of attachment characters that stand for no draft attachment (a
+    /// plain U+FFFC pasted as text, an undo that brought a removed one back),
+    /// last first so they can be deleted in order.
+    static func orphanRanges(in s: NSAttributedString, keeping ids: Set<ID>) -> [NSRange] {
+        var out: [NSRange] = []
         let ns = s.string as NSString
-        var found = ns.range(of: "\u{FFFC}", options: .literal)
-        while found.location != NSNotFound {
-            let i = found.location
-            out.append((i, s.attribute(.attachment, at: i, effectiveRange: nil) as? ComposeInlineAttachment))
-            found = ns.range(of: "\u{FFFC}", options: .literal, range: NSRange(location: i + 1, length: ns.length - i - 1))
+        for i in 0..<ns.length where ns.character(at: i) == 0xFFFC {
+            let a = s.attribute(.attachment, at: i, effectiveRange: nil) as? ComposeInlineAttachment
+            if !(a.map { ids.contains($0.attachmentID) } ?? false) { out.append(NSRange(location: i, length: 1)) }
         }
-        return out
+        return out.reversed()
     }
 
     /// The text's height at WIDTH beyond one text line (0 without attachments taller than a line).

@@ -1,8 +1,8 @@
 //! `cmux agents doctor`: whether this machine is ready for agents, read-only.
 //!
 //! It reports, never changes: Claude Code and Codex on PATH, whether each
-//! names the cmux-computer-use MCP server in its own config, and the macOS
-//! grants of cmux Remote. cmux injects cmux-computer-use into every chat it
+//! names the cmux-cua MCP server in its own config, and the macOS grants of
+//! the cmux Computer Use helper. cmux injects cmux-cua into every chat it
 //! starts (acpmux `agent_tools`), so a config without it means computer use
 //! only inside cmux chats, not an error. The grants come from the running
 //! app (`computer_use.status`, the model behind Computer Use Setup); without
@@ -23,13 +23,12 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, wire};
 use crate::localization::AgentsDoctorMessages;
 
-const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux Computer Use (cmux-computer-use) wiring, any older cmux on PATH that a login shell could run instead of this one, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Exits 0 for every report; 2 on a usage error. --json prints {\"schema_version\":1,\"checks\":[...]}; every row has exactly the keys id, status (ok, missing, unknown, not_applicable, cmux_only, outdated), reason, detail, fix and fix_url (null when there is none).\n";
+const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this machine is ready for agents: Claude Code and Codex on PATH, their cmux-cua computer use wiring, any older cmux on PATH that a login shell could run instead of this one, and the macOS grants of cmux Computer Use (Accessibility, Screen Recording, capture consent). Read-only: it never changes a config and never asks for a grant. Exits 0 for every report; 2 on a usage error. --json prints {\"schema_version\":1,\"checks\":[...]}; every row has exactly the keys id, status (ok, missing, unknown, not_applicable, cmux_only, outdated), reason, detail, fix and fix_url (null when there is none).\n";
 
 /// The app method that reports Computer Use Setup's grants.
 pub(super) const STATUS_METHOD: &str = "computer_use.status";
 /// The MCP server name cmux uses for computer use, and its binary.
-/// The MCP server name of cmux Computer Use (`cmux computer-use mcp`).
-const CUA_SERVER: &str = "cmux-computer-use";
+const CUA_SERVER: &str = "cmux-cua";
 pub(super) const ACCESSIBILITY_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 pub(super) const SCREEN_RECORDING_URL: &str =
@@ -328,7 +327,7 @@ pub(super) fn mcp_tool() -> Value {
         "name": MCP_TOOL,
         "title": "Agents doctor",
         "description": "Check whether this machine is ready for agents, as `cmux agents doctor` \
-            does: Claude Code and Codex on PATH, their cmux Computer Use (cmux-computer-use) wiring, an older \
+            does: Claude Code and Codex on PATH, their cmux-cua computer use wiring, an older \
             cmux on PATH, and the macOS grants of cmux Computer Use. Read-only: it runs no fix and changes no \
             setting. Answers {schema_version, findings}; each finding is {id, status (ok, \
             warn, fail), reason, summary, fix}, where fix is null or {text, command, palette, \
@@ -585,9 +584,9 @@ fn harness_check(
     }
 }
 
-// MARK: cmux Computer Use wiring
+// MARK: cmux-cua wiring
 
-/// Where a harness config names cmux Computer Use.
+/// Where a harness config names cmux-cua.
 enum Wiring {
     Configured {
         location: PathBuf,
@@ -645,21 +644,12 @@ fn mcp_check(
     }
 }
 
-/// Whether a server entry is cmux Computer Use: by its name, or by its
-/// command (`cmux computer-use mcp`, or acpmux's `computer-use-mcp`).
-fn is_cua(name: &str, command: Option<&str>, args: &[&str]) -> bool {
-    if name == CUA_SERVER {
-        return true;
-    }
-    let Some(program) = command.and_then(|c| Path::new(c).file_name()).and_then(OsStr::to_str)
-    else {
-        return false;
-    };
-    match program {
-        "cmux" | "cmux-tui" => args.starts_with(&["computer-use", "mcp"]),
-        "acpmux" => args.first() == Some(&"computer-use-mcp"),
-        _ => false,
-    }
+/// Whether a server entry is cmux-cua: by its name or by its command.
+fn is_cua(name: &str, command: Option<&str>) -> bool {
+    name == CUA_SERVER
+        || command.is_some_and(|command| {
+            Path::new(command).file_name().and_then(OsStr::to_str) == Some(CUA_SERVER)
+        })
 }
 
 pub(super) fn read_text(path: &Path) -> Result<Option<String>, String> {
@@ -677,7 +667,7 @@ pub(super) fn read_json(path: &Path) -> Result<Option<Value>, String> {
         .transpose()
 }
 
-/// The names of the cmux Computer Use entries of an `mcpServers` object.
+/// The names of the cmux-cua entries of an `mcpServers` object.
 fn cua_server_names(servers: Option<&Value>) -> Vec<&str> {
     servers
         .and_then(Value::as_object)
@@ -685,12 +675,7 @@ fn cua_server_names(servers: Option<&Value>) -> Vec<&str> {
             servers
                 .iter()
                 .filter(|(name, server)| {
-                    let args: Vec<&str> = server
-                        .get("args")
-                        .and_then(Value::as_array)
-                        .map(|a| a.iter().filter_map(Value::as_str).collect())
-                        .unwrap_or_default();
-                    is_cua(name, server.get("command").and_then(Value::as_str), &args)
+                    is_cua(name, server.get("command").and_then(Value::as_str))
                 })
                 .map(|(name, _)| name.as_str())
                 .collect()
@@ -779,12 +764,7 @@ fn codex_cua(environment: &Environment) -> Wiring {
         let configured =
             config.get("mcp_servers").and_then(toml::Value::as_table).is_some_and(|servers| {
                 servers.iter().any(|(name, server)| {
-                    let args: Vec<&str> = server
-                        .get("args")
-                        .and_then(toml::Value::as_array)
-                        .map(|a| a.iter().filter_map(toml::Value::as_str).collect())
-                        .unwrap_or_default();
-                    is_cua(name, server.get("command").and_then(toml::Value::as_str), &args)
+                    is_cua(name, server.get("command").and_then(toml::Value::as_str))
                 })
             });
         if configured {
@@ -996,7 +976,3 @@ fn table(checks: &[Check], messages: &AgentsDoctorMessages) -> String {
     }
     out
 }
-
-#[cfg(test)]
-#[path = "agents_doctor_computer_use_wiring_tests.rs"]
-mod computer_use_wiring_tests;

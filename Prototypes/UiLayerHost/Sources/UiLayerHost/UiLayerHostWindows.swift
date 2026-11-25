@@ -13,23 +13,6 @@ import SwiftUI
 struct UiLayerHostMain {
     static func main() {
         let app = NSApplication.shared
-        if let shoot = UiShellShootOptions.parse(arguments: CommandLine.arguments) {
-            // One shot: draw the scenes, write the receipt, exit; no Dock icon, no run loop of its own.
-            app.setActivationPolicy(.accessory)
-            app.finishLaunching()
-            do {
-                let receipt = try UiShellShoot.run(shoot)
-                let failed = receipt.shots.filter { $0.error != nil }
-                for shot in receipt.shots {
-                    print("ui-shell: \(shot.scene) \(Int(shot.ms)) ms \(shot.files.joined(separator: " "))\(shot.error.map { " ERROR \($0)" } ?? "")")
-                }
-                print("ui-shell: \(receipt.shots.count) scenes in \(Int(receipt.totalMs)) ms -> \(shoot.output.path)")
-                exit(failed.isEmpty ? 0 : 1)
-            } catch {
-                FileHandle.standardError.write(Data("ui-shell: \(error)\n".utf8))
-                exit(2)
-            }
-        }
         let delegate = UiLayerHostDelegate(arguments: CommandLine.arguments)
         app.delegate = delegate
         app.setActivationPolicy(.regular)

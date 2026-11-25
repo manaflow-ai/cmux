@@ -1,7 +1,5 @@
 public import AppKit
 public import Foundation
-import CmuxNextPages
-import CmuxNextWindowRules
 
 /// The app `file.open {where: editor}` opens a file with (#16723): this Mac's text editor, and the
 /// open itself. The App holds one; tests pass a fake that records the open.
@@ -10,14 +8,6 @@ import CmuxNextWindowRules
     func application() -> URL?
     /// Opens `url` with `app`.
     func open(_ url: URL, withApplicationAt app: URL)
-}
-
-extension AgentPaneEditorApps {
-    public func open(_ opening: AgentPaneFileOpening, line: Int?) {
-        guard let editor = opening.editor else { return }
-        let location = WindowRules.editorLocation(for: opening.url, line: line, bundleID: Bundle(url: editor)?.bundleIdentifier)
-        open(location, withApplicationAt: editor)
-    }
 }
 
 /// This Mac's editors, through `NSWorkspace`.
@@ -30,7 +20,7 @@ extension AgentPaneEditorApps {
     }
 
     public func application() -> URL? {
-        LinkMenu().editor(workspace: workspace)
+        AgentPaneFileOpen.editorApplication(workspace: workspace)
     }
 
     public func open(_ url: URL, withApplicationAt app: URL) {

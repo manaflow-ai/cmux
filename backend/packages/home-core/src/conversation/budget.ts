@@ -5,10 +5,9 @@ import { findParticipant, hasText } from "./validate.ts"
 
 /**
  * The agent turn budget (home.md section 5, Rust `budget.rs`): in one thread
- * (the replies of one root, or the conversation's top level) of a conversation
- * with two or more agents, agents may post at most MAX_AGENT_TURNS text messages
- * after the last person's text message in that thread (a lone agent, the
- * person's own Chief chat, has no cap: there is no agent to loop with), and agent text messages are at least MIN_AGENT_GAP_MS apart in
+ * (the replies of one root, or the conversation's top level) agents may post at
+ * most MAX_AGENT_TURNS text messages after the last person's text message in
+ * that thread, and agent text messages are at least MIN_AGENT_GAP_MS apart in
  * the conversation, so agents (Chiefs) cannot loop. Agents in two threads do
  * not spend each other's budget; only a person's text resets one.
  *
@@ -28,13 +27,6 @@ export const agentCount = (head: ConversationHead): number => head.participants.
 
 /** Whether an agent text at streak `streak` waits the gap: only once every agent may have answered the person. */
 const gapApplies = (head: ConversationHead, streak: number): boolean => streak >= agentCount(head)
-
-/**
- * Whether the turn cap applies: only where two or more agents share the conversation, so they
- * could loop with each other. A lone agent (the person's own Chief chat) has no cap; the gap
- * still spaces its texts.
- */
-const capped = (head: ConversationHead): boolean => agentCount(head) >= 2
 
 /** Whether `message` is in thread `threadRoot` (undefined: the top level). */
 export const inThread = (message: Message, threadRoot: string | undefined): boolean => message.thread_root === threadRoot
@@ -102,7 +94,7 @@ export const checkAgentBudget = (
   const maxTurns = head.settings?.agent_budget.turns ?? MAX_AGENT_TURNS
   const gapMs = head.settings?.agent_budget.gap_ms ?? MIN_AGENT_GAP_MS
   const streak = threadAgentStreak(head, recent, threadRoot)
-  if (capped(head) && streak >= maxTurns) return "agent_budget"
+  if (streak >= maxTurns) return "agent_budget"
   if (!gapApplies(head, streak)) return null
   const turns = recent.filter((message) => hasText(message.parts))
   // A clock that moved back (now before the last agent message) never blocks.
@@ -125,7 +117,7 @@ export const checkAgentStreak = (head: ConversationHead, actor: string, parts: R
   const maxTurns = head.settings?.agent_budget.turns ?? MAX_AGENT_TURNS
   const gapMs = head.settings?.agent_budget.gap_ms ?? MIN_AGENT_GAP_MS
   const streak = streakOf(head, threadRoot)
-  if (capped(head) && streak >= maxTurns) return "agent_budget"
+  if (streak >= maxTurns) return "agent_budget"
   if (!gapApplies(head, streak)) return null
   const at = head.last_agent_text_at === undefined ? null : parseRfc3339Millis(head.last_agent_text_at)
   if (at !== null && nowMs >= at && nowMs < at + gapMs) return "agent_rate"

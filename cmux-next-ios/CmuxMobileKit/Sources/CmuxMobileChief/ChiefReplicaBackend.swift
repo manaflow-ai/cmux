@@ -216,7 +216,9 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
 
         private func connectOnce() async -> Bool {
             guard let url = socketURL(), let token = try? await http.token(forceRefresh: false) else { return false }
-            guard let request = try? http.socketRequest(url, token: token) else { return false }
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
             let task = http.session.webSocketTask(with: request)
             socket = task
             task.resume()

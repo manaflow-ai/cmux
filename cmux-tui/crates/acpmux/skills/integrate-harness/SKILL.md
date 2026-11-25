@@ -25,7 +25,7 @@ until every step passes.
    per step with a `fix:` line. Do what the fix says, then run doctor again.
    Use `--no-prompt` when the user does not want a model call.
 5. When doctor says `ready`, confirm one real chat:
-   `cmux agent exec -m <id> "Reply with the single word OK."` prints the reply.
+   `cmux acp exec -m <id> "Reply with the single word OK."` prints the reply.
    Then tell the user the harness now shows in the cmux model picker.
    `cmux harness list` shows every harness and its source.
 
@@ -123,10 +123,7 @@ Flags: `--prompt-arg` (prompt as the last argument), `--last-block` (only the
 prompt's last text block: for a program that keeps its own memory),
 `--after-echo` (drop output up to the frame that echoes the prompt),
 `--instructions` (prefix the session folder's AGENTS.md), `--tty` (a terminal as
-its stdout and controlling terminal, for a program that prints only there),
-`--prints-only` (the program only prints and changes nothing, such as a test
-or echo program: the agent then keeps any permission policy, so a remote start's
-`ask` runs it; never for a program that edits files or runs commands).
+its stdout and controlling terminal, for a program that prints only there).
 Example: `--example unii`.
 
 ## Where cmux looks

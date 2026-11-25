@@ -158,14 +158,12 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers, with the Mac it runs on
-    /// (`machine`, ``DeviceMachine``): the hub reads the host's answers about this Mac across every
-    /// device id it has (each tagged build, each renewed identity, cmux Remote's and the app's).
+    /// Registers or updates this device, signed by the key it registers.
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
+        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey, machine: DeviceMachine.current.id)
+                        agreementKey: identity.agreementKey)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
@@ -193,16 +191,6 @@ public actor DeviceHubClient {
     public func setMacScreenShared(_ shared: Bool) async throws -> HubDevice {
         try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/mac-screen", body: ["shared": shared],
                        as: DeviceAnswer.self).device
-    }
-
-    /// Carries a signed `cmux.share-approval.v1` (`approvalJSON`, one JSON object) to the host
-    /// `target`: `POST /v1/devices/:target/share-approval {approval}` (cmuxterm-hq#18912 cut 2). The
-    /// hub pushes it to the target, which admits it and turns its own sharing on.
-    public func sendShareApproval(target: String, approvalJSON: String) async throws {
-        struct Delivered: Decodable { var delivered: Bool? }
-        let body = Data("{\"approval\":".utf8) + Data(approvalJSON.utf8) + Data("}".utf8)
-        _ = try await call("POST", "/v1/devices/\(segment(target))/share-approval", query: [], bodyData: body,
-                           as: Delivered.self)
     }
 
     public func permissions(host: String) async throws -> [HubPermission] {

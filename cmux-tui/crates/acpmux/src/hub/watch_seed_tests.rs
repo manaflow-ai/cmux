@@ -94,7 +94,6 @@ async fn native_history_seed_survives_append_flush_and_checkpoint_failures() {
             offset: 0,
             codex_items: false,
             open: None,
-            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -163,7 +162,6 @@ async fn missing_claude_transcript_retries_native_history_seed_when_it_reappears
             offset: 0,
             codex_items: false,
             open: None,
-            ..Default::default()
         });
     }
     hub.save_meta(&session);

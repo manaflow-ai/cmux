@@ -699,17 +699,6 @@ struct CodeView: View {
         }
     }
 
-    private func codeLine(_ line: AttributedString) -> NSAttributedString {
-        let result = NSMutableAttributedString()
-        let font = UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
-        for run in line.runs {
-            let color = run.swiftUI.foregroundColor.map { UIColor($0) } ?? .label
-            result.append(NSAttributedString(string: String(line[run.range].characters),
-                                             attributes: [.font: font, .foregroundColor: color]))
-        }
-        return result
-    }
-
     var body: some View {
         let lines = prepared.lines(for: Source(text: text, language: language))
         ScrollViewReader { proxy in
@@ -721,11 +710,8 @@ struct CodeView: View {
                                 .foregroundStyle(.tertiary)
                                 .frame(width: gutterWidth, alignment: .trailing)
                                 .padding(.trailing, 12)
-                            InPlaceSelectionLabel(codeLine(lines[index]))
+                            Text(lines[index])
                                 .fixedSize(horizontal: !wrap, vertical: true)
-                                .alignmentGuide(.firstTextBaseline) { _ in
-                                    UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular).ascender
-                                }
                         }
                         .font(.system(size: codeSize, design: .monospaced))
                         .padding(.vertical, 1)
@@ -735,6 +721,7 @@ struct CodeView: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.trailing, 16)
+                .textSelection(.enabled)
             }
             .defaultScrollAnchor(.topLeading)
             .task(id: Source(text: text, language: language)) {

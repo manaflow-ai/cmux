@@ -54,19 +54,6 @@ pub struct CiIntent {
     pub source_ref: String,
     pub command: String,
     pub target_worker: String,
-    /// Controller job kind. Intents saved before the pool route keep their original binding.
-    #[serde(default = "legacy_ci_kind")]
-    pub kind: String,
-    /// Pool label the controller places the job by (empty: none, the legacy route).
-    #[serde(default)]
-    pub label: String,
-    /// The one wait's bound, from the job's creation (0: the default bound).
-    #[serde(default)]
-    pub timeout_secs: u64,
-}
-
-fn legacy_ci_kind() -> String {
-    "cmux".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

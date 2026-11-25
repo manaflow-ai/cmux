@@ -1,6 +1,5 @@
-import { envForObject } from "./build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { authorizeDefaultMachine, defaultHandId, defaultHandScope, type DefaultHandScope } from "./chief-default-hand.ts"
 import { PROVIDERS } from "./hand-providers.ts"
 import { LEGACY_HAND_PROVIDER } from "./providers/index.ts"
@@ -73,8 +72,7 @@ export class HandDO extends DurableObject<Env> {
   private readonly helloWaiters = new Set<() => void>()
   private inserts = 0
 
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     const sql = ctx.storage.sql
     sql.exec(`CREATE TABLE IF NOT EXISTS hand (id INTEGER PRIMARY KEY CHECK (id = 1), hand TEXT NOT NULL, owner TEXT NOT NULL, name TEXT NOT NULL, minted_by TEXT NOT NULL, created_at INTEGER NOT NULL, code_sha TEXT, key_sha TEXT, paired_at INTEGER, revoked_at INTEGER, profile TEXT, hello TEXT, last_seen INTEGER)`)

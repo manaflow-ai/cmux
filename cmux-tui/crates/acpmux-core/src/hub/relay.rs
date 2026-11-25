@@ -41,15 +41,7 @@ pub trait PageRelay: Send + Sync {
     /// peer naming `listPages` (decision 265). Otherwise the provider answers.
     fn relays(&self, origin: &str) -> bool;
     /// Sends `request` to `origin` in the peer's terms: its filter and every key `local`
-    /// (decision 266). Called once per request, when the asker starts to wait for it and its
-    /// slot is taken. The request is on its way when `page` returns: the future only waits for
-    /// the answer. Dropping the future is how the relay learns the asker left (its deadline
-    /// passed, or its connection ended): the relay's entry for it and the room it holds leave
-    /// on that drop, and an answer that comes after is dropped there and counted.
-    ///
-    /// `request.sid` is the asker's. The relay may send it under a sid of its own, of any
-    /// length: the seam asks for less by the asker's sid, so the answer, sent under the
-    /// asker's sid, still fits the asker's budget.
+    /// (decision 266). Called once per request, after its slot is taken.
     fn page(&self, origin: &str, request: Page) -> RelayFuture;
 }
 
@@ -89,21 +81,19 @@ pub enum Relayed {
     /// An origin it asks has [`RELAY_IN_FLIGHT`] requests in flight.
     Busy,
     /// Sent; [`RelayedPage::answer`] waits for the origins.
-    Sent(Box<RelayedPage>),
+    Sent(RelayedPage),
 }
 
-/// A relayed page with its slots taken. [`RelayedPage::answer`] sends it; dropping it before
-/// sends nothing, and dropping it at any time gives its slots back.
+/// A relayed page in flight. Dropping it gives its slots back.
 pub struct RelayedPage {
     _slots: Slots,
     hub: Arc<RelayState>,
-    relay: Arc<dyn PageRelay>,
     work: Work,
 }
 
 enum Work {
-    View { origin: String, sid: String, max: usize, request: Box<Page> },
-    Keys { plan: KeyedPlan, asks: Vec<(String, Page)> },
+    View { origin: String, sid: String, max: usize, answer: RelayFuture },
+    Keys { plan: KeyedPlan, asks: Vec<(String, RelayFuture)> },
 }
 
 /// Why a relayed page answers `error`.
@@ -152,20 +142,20 @@ impl Hub {
             if !names_other || request.view == Some(ListView::Folders) {
                 return None;
             }
-            return Some(self.relay_keys(request, keys, &relay));
+            return Some(self.relay_keys(request, keys, relay.as_ref()));
         }
         let origin = relayed_view_origin(request)?;
         if !relay.relays(origin) {
             return None;
         }
-        Some(self.relay_view(request, origin, &relay))
+        Some(self.relay_view(request, origin, relay.as_ref()))
     }
 
     fn relay_view(
         &self,
         request: &Page,
         origin: &str,
-        relay: &Arc<dyn PageRelay>,
+        relay: &dyn PageRelay,
     ) -> Result<Relayed, HubError> {
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
@@ -175,9 +165,7 @@ impl Hub {
         // less by what that renaming can add, so the renamed page fits the asker's budget.
         let growth = name_growth(origin)?;
         let reserve = growth.saturating_mul(MAX_WINDOW_ROWS + 2);
-        // The origin's answer may come under a shorter sid than the asker's, which the asker's
-        // frame carries: ask for less by the asker's sid too.
-        let peer_max = max.saturating_sub(reserve).saturating_sub(request.sid.len());
+        let peer_max = max.saturating_sub(reserve);
         if peer_max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
         }
@@ -212,24 +200,19 @@ impl Hub {
         let Some(slots) = self.take_slots(std::slice::from_ref(&origin.to_owned())) else {
             return Ok(Relayed::Busy);
         };
-        Ok(Relayed::Sent(Box::new(RelayedPage {
+        let answer = relay.page(origin, peer);
+        Ok(Relayed::Sent(RelayedPage {
             _slots: slots,
             hub: self.relay.clone(),
-            relay: relay.clone(),
-            work: Work::View {
-                origin: origin.to_owned(),
-                sid: request.sid.clone(),
-                max,
-                request: Box::new(peer),
-            },
-        })))
+            work: Work::View { origin: origin.to_owned(), sid: request.sid.clone(), max, answer },
+        }))
     }
 
     fn relay_keys(
         &self,
         request: &Page,
         keys: &[PageKey],
-        relay: &Arc<dyn PageRelay>,
+        relay: &dyn PageRelay,
     ) -> Result<Relayed, HubError> {
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES
@@ -254,34 +237,13 @@ impl Hub {
             }
         }
         // The room the plan leaves is shared by the origins asked, less what renaming their
-        // rows adds. When not every origin's share holds a page's least budget, the most
-        // origins that fit are asked in the order asked, the first always, and only the others'
-        // keys go to `rest`: a page that answers no key and has a `rest` would be asked again
-        // the same way, and its client ends the connection on that.
-        let room = max.saturating_sub(plan.used);
-        let least = 8192 + request.sid.len();
-        let mut grown = Vec::with_capacity(origins.len());
-        for (origin, count) in origins {
-            let grows = name_growth(&origin)?.saturating_mul(count);
-            grown.push((origin, grows));
-        }
-        let origins = grown;
-        let fits = |asked: usize| {
-            origins.iter().take(asked).all(|(_, grows)| room / asked > least + grows)
-        };
-        let asked = (1..=origins.len()).rev().find(|asked| fits(*asked)).unwrap_or(0);
-        if asked == 0
-            && !origins.is_empty()
-            && plan.entries.iter().all(|entry| matches!(entry, Entry::Ask(_) | Entry::Rest(_)))
-        {
-            // Not even the first origin fits and nothing else is answered: as a keyed page's
-            // first lookup that does not fit.
-            return Err(HubError::InvalidPage);
-        }
+        // rows adds. An origin whose share is under a page's least budget is not asked: its keys
+        // go to `rest`, and the asker asks again.
+        let share = max.saturating_sub(plan.used) / origins.len().max(1);
         let mut budgets: Vec<(String, usize)> = Vec::new();
-        for (n, (origin, grows)) in origins.into_iter().enumerate() {
-            if n < asked {
-                let peer_max = room / asked - grows;
+        for (origin, count) in origins {
+            let peer_max = share.saturating_sub(name_growth(&origin)?.saturating_mul(count));
+            if peer_max > 8192 + request.sid.len() {
                 budgets.push((origin, peer_max.min(crate::wire::MAX_PAGE_BYTES)));
             } else {
                 for entry in &mut plan.entries {
@@ -327,15 +289,15 @@ impl Hub {
                     fold: None,
                     turns: false,
                 };
-                Ok((origin, peer))
+                let answer = relay.page(&origin, peer);
+                Ok((origin, answer))
             })
             .collect::<Result<Vec<_>, HubError>>()?;
-        Ok(Relayed::Sent(Box::new(RelayedPage {
+        Ok(Relayed::Sent(RelayedPage {
             _slots: slots,
             hub: self.relay.clone(),
-            relay: relay.clone(),
             work: Work::Keys { plan, asks },
-        })))
+        }))
     }
 
     /// All of `origins` or none: a request takes one slot per origin it asks.
@@ -355,15 +317,14 @@ impl Hub {
 }
 
 impl RelayedPage {
-    /// Sends the page to its origins, waits for them at most [`RELAY_PAGE_DEADLINE`] from now,
-    /// and builds the asker's frame. A view page whose origin failed is an error; a key it failed to answer is
+    /// Waits for the origins, at most [`RELAY_PAGE_DEADLINE`] from now, and builds the asker's
+    /// frame. A view page whose origin failed is an error; a key it failed to answer is
     /// `unknown`.
     pub async fn answer(self) -> Result<Frame, RelayError> {
         let deadline = tokio::time::Instant::now() + RELAY_PAGE_DEADLINE;
         let state = self.hub.clone();
         match self.work {
-            Work::View { origin, sid, max, request } => {
-                let answer = self.relay.page(&origin, *request);
+            Work::View { origin, sid, max, answer } => {
                 let page = match tokio::time::timeout_at(deadline, answer).await {
                     Err(_) => {
                         return Err(RelayError {
@@ -379,14 +340,6 @@ impl RelayedPage {
                 view_frame(&state, &origin, sid, max, page)
             }
             Work::Keys { mut plan, asks } => {
-                // Every origin is asked before any is waited for.
-                let asks = asks
-                    .into_iter()
-                    .map(|(origin, request)| {
-                        let answer = self.relay.page(&origin, request);
-                        (origin, answer)
-                    })
-                    .collect::<Vec<_>>();
                 for (origin, answer) in asks {
                     let answer =
                         tokio::time::timeout_at(deadline, answer).await.ok().and_then(Result::ok);

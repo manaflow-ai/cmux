@@ -83,7 +83,7 @@ struct AgentPaneUploadTests {
         let begin = AgentPaneRequest(body: ["method": "chat.upload.begin", "params": ["name": "large.bin", "size": 1_000_000]])
         #expect(begin == .uploadStage(.begin(name: "large.bin", size: 1_000_000, batchToken: nil, batch: nil)))
         let chunk = AgentPaneRequest(body: ["method": "chat.upload.chunk", "params": ["token": "t", "offset": 0, "data": Data([1, 2]).base64EncodedString()]])
-        #expect(chunk == .uploadStage(.chunk(token: "t", offset: 0, data: AgentPaneUploadChunk(Data([1, 2])))))
+        #expect(chunk == .uploadStage(.chunk(token: "t", offset: 0, data: Data([1, 2]))))
         let oversized = Data(repeating: 0, count: 512 * 1024 + 1).base64EncodedString()
         #expect(AgentPaneRequest(body: ["method": "chat.upload.chunk", "params": ["token": "t", "offset": 0, "data": oversized]]) == .unsupported("chat.upload.chunk"))
     }

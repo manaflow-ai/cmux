@@ -431,8 +431,6 @@ async fn a_new_socket_carries_every_live_link() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     let second = pool.connect(wireguard(&second_mac), None).await.expect("second Mac");
     assert!(names(&second.timings()).contains(&"signaling_open"), "{:?}", second.timings());
-    // The new socket took the first Mac's live session at once, at this dial.
-    assert!(names(&second.timings()).contains(&"rehomed"), "{:?}", second.timings());
 
     // Both links are up at once.
     for handle in [&first, &second] {
@@ -440,16 +438,10 @@ async fn a_new_socket_carries_every_live_link() {
         channel.send(b"both".to_vec()).await.unwrap();
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"both".to_vec() });
     }
-    // A network change opens another socket and both live links move onto it
-    // (`open` rehomes every live session); both still carry traffic after.
+    // Nothing is left on the dead socket: a network change has no session to move.
     let marks =
         pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
-    assert!(names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
-    for handle in [&first, &second] {
-        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
-        channel.send(b"moved".to_vec()).await.unwrap();
-        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"moved".to_vec() });
-    }
+    assert!(!names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
     first.close();
     second.close();
     pool.reset().await;

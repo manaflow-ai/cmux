@@ -17,10 +17,6 @@ final class CardSlot {
 /// shows (the zoom lands on real cards, a scroll never shows a blank one);
 /// the rest are built one per frame, nearest first, only while the grid
 /// rests; a hidden grid builds only its on-screen cards, one per frame.
-/// Far cards are released only once the grid rests: a card the grid built
-/// stays built while it scrolls or decelerates, so a fling never tears a
-/// card down and builds it again from nothing in a scroll frame (Leo,
-/// 2026-11-22: "why do things move when i scroll around").
 /// Scrolling never re-runs the grid's body: the offset comes in through
 /// `scrolled(to:)` and changes only the slots that flip.
 @MainActor
@@ -76,8 +72,8 @@ final class CardResidency {
 
     func setScrolling(_ scrolling: Bool) {
         self.scrolling = scrolling
-        // Stopped: far cards go (once still), building ahead resumes.
-        reconcile(urgent: false)
+        // Stopped: building ahead resumes.
+        tick()
         publishIdle()
     }
 
@@ -107,8 +103,8 @@ final class CardResidency {
                 self.stillFrames += 1
                 guard self.stillFrames >= Self.restFrames else { return true }
                 self.moving = false
-                // At rest again: far cards go, building ahead resumes.
-                self.reconcile(urgent: false)
+                // At rest again: building ahead resumes.
+                self.tick()
                 return false
             }
         }
@@ -139,10 +135,7 @@ final class CardResidency {
     private func reconcile(urgent: Bool) {
         guard let layout else { return }
         let step = plan.step(layout: layout, offset: offset, isBuilt: isBuilt)
-        // Releasing waits for rest: a moving grid keeps every card it built.
-        if !scrolling, !moving {
-            for i in step.release where i < ids.count { slots[ids[i]]?.built = false }
-        }
+        for i in step.release where i < ids.count { slots[ids[i]]?.built = false }
         if urgent {
             for i in step.visible where i < ids.count { build(ids[i]) }
         }

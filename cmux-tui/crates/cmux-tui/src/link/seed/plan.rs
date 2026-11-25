@@ -95,12 +95,6 @@ pub struct Planned {
     /// A delta seed found HEAD, the index, the working tree and refs/stash as
     /// the previous seed left them: nothing to send.
     pub unchanged: bool,
-    /// The `.gitattributes` files (from the top, `/`-separated) that name `filter=lfs`;
-    /// [`SeedParams::lfs`] is whether there is one. A head-first seed reads where they are:
-    /// only one that can reach the head's files keeps the seed from opening at its head
-    /// (`seed_cli::asks_head_first`).
-    #[serde(skip)]
-    pub lfs_attributes: Vec<String>,
 }
 
 /// The commits an earlier seed of this folder sent ([`plan_since`]).
@@ -316,19 +310,18 @@ pub fn plan_recorded(
     let bundle_bytes = std::fs::metadata(out_bundle)
         .map_err(|error| failed("reading the bundle", error.to_string()))?
         .len();
-    let lfs_attributes = lfs_attributes(&repo, &[]);
     Ok(Planned {
         params: SeedParams {
             url: repo.github.url(),
             repo: repo.github.slug(),
             base,
-            head_ref: repo.head_ref,
+            head_ref: repo.head_ref.clone(),
             head: recorded.head.clone(),
             index: recorded.index.clone(),
             work: recorded.work.clone(),
             stash: recorded.stash.clone(),
             sparse: None,
-            lfs: !lfs_attributes.is_empty(),
+            lfs: uses_lfs(&repo, &[]),
             since: None,
         },
         skipped: Vec::new(),
@@ -336,7 +329,6 @@ pub fn plan_recorded(
         bases,
         bundle_bytes,
         unchanged: false,
-        lfs_attributes,
     })
 }
 
@@ -617,7 +609,7 @@ fn build(
             .map_err(|error| failed("copying the shallow list", error.to_string()))?;
     }
     let stash = repo.commit("refs/stash");
-    let lfs_attributes = lfs_attributes(repo, &skipped);
+    let lfs = uses_lfs(repo, &skipped);
     skipped.extend(submodule_work);
 
     let mut refs = vec![
@@ -697,7 +689,7 @@ fn build(
             work: work_commit,
             stash,
             sparse,
-            lfs: !lfs_attributes.is_empty(),
+            lfs,
             since,
         },
         skipped,
@@ -705,7 +697,6 @@ fn build(
         bases,
         bundle_bytes,
         unchanged,
-        lfs_attributes,
     })
 }
 
@@ -959,9 +950,9 @@ fn sparse_patterns(repo: &Repo) -> Result<Option<String>, Fallback> {
     Ok(Some(std::fs::read_to_string(file).unwrap_or_default()))
 }
 
-/// The `.gitattributes` files in the working tree (tracked, or untracked and
-/// going) that name `filter=lfs`, from the top. The seed uses LFS when any does.
-fn lfs_attributes(repo: &Repo, skipped: &[Skipped]) -> Vec<String> {
+/// Whether any `.gitattributes` in the working tree (tracked, or untracked
+/// and going) names `filter=lfs`.
+fn uses_lfs(repo: &Repo, skipped: &[Skipped]) -> bool {
     let listed = git::output(git::at(&repo.top).args([
         "ls-files",
         "-z",
@@ -977,9 +968,8 @@ fn lfs_attributes(repo: &Repo, skipped: &[Skipped]) -> Vec<String> {
         .filter(|path| !path.is_empty())
         .map(|path| String::from_utf8_lossy(path).into_owned())
         .filter(|path| !skipped.iter().any(|item| &item.path == path))
-        .filter(|path| {
-            std::fs::read(repo.top.join(path))
+        .any(|path| {
+            std::fs::read(repo.top.join(&path))
                 .is_ok_and(|text| String::from_utf8_lossy(&text).contains("filter=lfs"))
         })
-        .collect()
 }

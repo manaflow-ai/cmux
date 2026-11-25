@@ -4,13 +4,13 @@ use std::sync::{Arc, Mutex};
 
 use super::*;
 
-pub(super) const PANE: &str = "pane_00000000000000000000000000000007";
-pub(super) const OLD_TAB: &str = "tab_0000000000000000000000000000000a";
-pub(super) const NEW_TAB: &str = "tab_0000000000000000000000000000000b";
-pub(super) const OLD_BROWSER: &str = "browser_0000000000000000000000000000000a";
-pub(super) const NEW_BROWSER: &str = "browser_0000000000000000000000000000000b";
+const PANE: &str = "pane_00000000000000000000000000000007";
+const OLD_TAB: &str = "tab_0000000000000000000000000000000a";
+const NEW_TAB: &str = "tab_0000000000000000000000000000000b";
+const OLD_BROWSER: &str = "browser_0000000000000000000000000000000a";
+const NEW_BROWSER: &str = "browser_0000000000000000000000000000000b";
 
-pub(super) fn open_actions() -> Value {
+fn open_actions() -> Value {
     let mut actions = fixture_actions();
     actions["actions"].as_array_mut().unwrap().push(json!({
         "id": "file.open", "title": "Open File", "cli_name": "file open", "cli": true,
@@ -20,7 +20,7 @@ pub(super) fn open_actions() -> Value {
     actions
 }
 
-pub(super) fn tab(id: &str, browser: &str) -> Value {
+fn tab(id: &str, browser: &str) -> Value {
     json!({"id": id, "pane_id": PANE, "name": null, "index": 0, "focused": false,
            "content_kind": "browser", "content_id": browser})
 }
@@ -47,7 +47,7 @@ fn open(server: &mut Server<Fake>, arguments: Value) -> Value {
 
 /// Waits for `count` reloads (bounded), then a quiet period longer than the debounce,
 /// and answers every reload sent.
-pub(super) fn reloads_after(reloads: &Arc<Mutex<Vec<Value>>>, count: usize) -> Vec<Value> {
+fn reloads_after(reloads: &Arc<Mutex<Vec<Value>>>, count: usize) -> Vec<Value> {
     let deadline = Instant::now() + Duration::from_secs(10);
     while reloads.lock().unwrap().len() < count && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
@@ -207,12 +207,7 @@ fn watches_are_bounded_and_drop_the_oldest() {
 }
 
 /// One request to the deck viewer: the status line, the head, the body.
-pub(super) fn fetch(
-    port: u16,
-    method: &str,
-    target: &str,
-    host: &str,
-) -> (String, String, Vec<u8>) {
+fn fetch(port: u16, method: &str, target: &str, host: &str) -> (String, String, Vec<u8>) {
     use std::io::{Read as _, Write as _};
     let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).expect("the viewer");
     write!(stream, "{method} {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n")
@@ -305,7 +300,7 @@ fn a_pptx_opens_in_the_loopback_deck_viewer_and_reloads() {
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["params"]["browser"], NEW_BROWSER, "{}", sent[0]);
     assert_eq!(fetch(port, "GET", &format!("/{token}/deck.pptx"), &host).2, b"PK\x03\x04 second");
-    let again = server.decks.borrow().as_ref().unwrap().url(&path, pptx_view::Kind::Pptx).unwrap();
+    let again = server.decks.borrow().as_ref().unwrap().url(&path).unwrap();
     assert_eq!(again, format!("http://127.0.0.1:{port}/{token}/"));
 
     // Deleted: a reload, and the deck is a 404 the page shows as "was deleted or moved".

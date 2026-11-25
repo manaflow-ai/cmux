@@ -6,17 +6,17 @@ public nonisolated struct WorkspaceHibernationActionStrings {
     public nonisolated init() {}
     /// Keep Workspace Awake's title while the workspace may hibernate.
     public static var keepAwake: String {
-        String(localized: "action.workspace.keepAwake", defaultValue: "Keep Workspace Awake", table: "HibernationActions", bundle: .localizedModule)
+        String(localized: "action.workspace.keepAwake", defaultValue: "Keep Workspace Awake", table: "HibernationActions", bundle: .module)
     }
 
     /// Its title while the workspace is kept awake.
     public static var allowHibernation: String {
-        String(localized: "workspaceHibernation.allowHibernation", defaultValue: "Allow Workspace to Hibernate", table: "HibernationActions", bundle: .localizedModule)
+        String(localized: "workspaceHibernation.allowHibernation", defaultValue: "Allow Workspace to Hibernate", table: "HibernationActions", bundle: .module)
     }
 
     /// Hibernate Workspace on a workspace shown in a window.
     public static var shownRefusal: String {
         String(localized: "workspaceHibernation.refusal.shown", defaultValue: "A workspace on screen cannot hibernate. Switch to another workspace first.",
-               table: "HibernationActions", bundle: .localizedModule)
+               table: "HibernationActions", bundle: .module)
     }
 }

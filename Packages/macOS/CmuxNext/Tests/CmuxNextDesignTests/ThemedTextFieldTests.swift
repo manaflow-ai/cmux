@@ -7,8 +7,7 @@ import CmuxNextDesignTokens
 
 /// Theme sweep 3: a dialog's text field drew AppKit's bezel, text and gray placeholder whatever the
 /// room's theme, and the editors' placeholders were macOS's `placeholderTextColor`. In a themed
-/// scope a field's text is the scope's primary ink, its placeholder the scope's secondary ink (the
-/// tertiary held 3.61:1 / 4.00:1 in the browser's Find bar; fleet capture of a60fd539), and
+/// scope a field's text is the scope's primary ink, its placeholder the scope's tertiary ink, and
 /// a native card's field (`ThemedFieldBox`) sits on the theme's field fill instead of the system bezel.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ThemedTextFieldTests {
     /// A dark purple room theme: its inks are far from any system gray.
@@ -41,7 +40,7 @@ import CmuxNextDesignTokens
         defer { window.close() }
 
         let ink = scope.perform { Palette.textPrimary }
-        let hint = scope.perform { Palette.textSecondary }
+        let hint = scope.perform { Palette.textTertiary }
         let lift = scope.perform { Palette.chromeBackground }
         for id in ["name", "token"] {
             let field = try #require(Self.find(dialog, id: "cmux.dialog.field.\(id)") as? NSTextField, "\(id)")
@@ -66,7 +65,7 @@ import CmuxNextDesignTokens
         let window = try Self.host(field, in: scope)
         defer { window.close() }
 
-        let hint = scope.perform { Palette.textSecondary }
+        let hint = scope.perform { Palette.textTertiary }
         let placeholder = try #require(Self.placeholderInk(field), "the placeholder has a theme ink")
         #expect(Self.distance(placeholder, hint) < 0.03, "placeholder \(placeholder) vs theme hint \(hint)")
         #expect(field.placeholderString == "Group name")

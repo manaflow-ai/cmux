@@ -317,7 +317,6 @@ final class CEFSpareWindow {
         host = taken
         // The pane that showed it is gone: tabs Chromium places must not follow it here.
         if runtime.lastShownHost === taken { runtime.lastShownHost = nil }
-        if runtime.lastShownWebHost === taken { runtime.lastShownWebHost = nil }
     }
 
     /// Under memory pressure (`held`) the waiting page closes and none is made; back to normal, the

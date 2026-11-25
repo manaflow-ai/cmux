@@ -339,7 +339,7 @@ import Testing
         #expect(line.group == group.id)
         #expect(line.frame.minY == frame.minY)
         #expect(line.frame.maxY == frame.maxY)
-        #expect(line.frame.minX == SidebarStyle.groupBarX(membersMinX: frame.minX) + SidebarStyle.groupRailInset)
+        #expect(line.frame.minX == SidebarStyle.groupBarX(membersMinX: frame.minX))
         #expect(line.frame.width == SidebarStyle.groupBarWidth)
     }
 }

@@ -45,10 +45,10 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     /// The name the app shows for this engine.
     public var title: String {
         switch id {
-        case "codex": String(localized: "home.chief.backend.codex", defaultValue: "Codex", bundle: .localizedModule)
-        case "muse": String(localized: "home.chief.backend.muse", defaultValue: "Muse Code", bundle: .localizedModule)
-        case "unii": String(localized: "home.chief.backend.unii", defaultValue: "UniiChat", bundle: .localizedModule)
-        default: String(localized: "home.chief.backend.claude", defaultValue: "Claude", bundle: .localizedModule)
+        case "codex": String(localized: "home.chief.backend.codex", defaultValue: "Codex", bundle: .module)
+        case "muse": String(localized: "home.chief.backend.muse", defaultValue: "Muse Code", bundle: .module)
+        case "unii": String(localized: "home.chief.backend.unii", defaultValue: "UniiChat", bundle: .module)
+        default: String(localized: "home.chief.backend.claude", defaultValue: "Claude", bundle: .module)
         }
     }
 
@@ -57,14 +57,14 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         switch id {
         case "unii":
             String(localized: "home.chief.backend.uniiHint",
-                   defaultValue: "Runs on your UniiChat account. Sign in first with `cmux harness login unii`.", bundle: .localizedModule)
+                   defaultValue: "Runs on your UniiChat account. Sign in first with `unii login`.", bundle: .module)
         case "muse":
             String(localized: "home.chief.backend.museHint",
                    defaultValue: "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter.",
-                   bundle: .localizedModule)
+                   bundle: .module)
         case "codex":
             String(localized: "home.chief.backend.codexHint",
-                   defaultValue: "Runs on this Mac with your Codex sign-in.", bundle: .localizedModule)
+                   defaultValue: "Runs on this Mac with your Codex sign-in.", bundle: .module)
         default: nil
         }
     }

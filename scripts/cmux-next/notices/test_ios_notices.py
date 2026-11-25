@@ -32,8 +32,6 @@ SPEC.loader.exec_module(ios)
 PIN = "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
 MACHO = b"\xcf\xfa\xed\xfe" + b"\0" * 60
 MUSL_TEXT = (ROOT / "cmux-tui/dist/notices/texts/musl-1.2.5/COPYRIGHT").read_text()
-# The bundle-map entry of the binary that links the macos slice (behind the stub Contents/MacOS/cmux).
-APP_CODE = "Contents/Frameworks/CmuxNextApp.framework/*"
 
 
 class RepositoryTests(unittest.TestCase):
@@ -87,14 +85,13 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("std.math.cbrt", musl["FooterText"])
 
     def test_the_mac_notices_carry_musl_for_the_app_binary(self) -> None:
-        # The published nightly-next app (3728109721001) has the same code in Contents/MacOS/cmux,
-        # since CMUX-629 in Contents/Frameworks/CmuxNextApp.framework behind a stub executable.
+        # The published nightly-next app (3728109721001) has the same code in Contents/MacOS/cmux.
         self.assertEqual(ios.mac_notice_errors(), [])
         notices = (ROOT / "THIRD_PARTY_LICENSES.md").read_text()
         self.assertIn("<!-- notices-section: manual-musl-in-the-zig-standard-library -->", notices)
         self.assertIn(MUSL_TEXT.strip(), notices)
         entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
-        app = next(entry for entry in entries if entry["path"] == APP_CODE)
+        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
         self.assertIn("section:manual-musl-in-the-zig-standard-library", app["notices"])
 
     def test_the_mac_notices_credit_the_freetype_project(self) -> None:
@@ -104,7 +101,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("<!-- notices-section: manual-freetype -->", notices)
         self.assertIn(FTL_CREDIT, notices)
         entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
-        app = next(entry for entry in entries if entry["path"] == APP_CODE)
+        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
         self.assertIn("section:manual-freetype", app["notices"])
 
     def test_mac_notices_refuse_a_missing_freetype_credit(self) -> None:

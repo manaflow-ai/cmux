@@ -99,26 +99,6 @@ fn lossy_input_fits(master_fd: Option<MasterFd>, len: usize) -> bool {
     usize::try_from(pending).unwrap_or(0) + len <= INPUT_QUEUE_BYTES - KEY_ROOM_BYTES
 }
 
-/// The bytes the PTY child of `master` has not read yet (`FIONREAD` on the macOS master), for the paste pacer
-/// (`paste_pacing`). `None` when the PTY cannot say: elsewhere the master's count is its output, not the child's
-/// input.
-pub(crate) fn unread_input(master: &dyn MasterPty) -> Option<usize> {
-    #[cfg(target_os = "macos")]
-    {
-        let fd = master.as_raw_fd()?;
-        let mut pending: libc::c_int = 0;
-        if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut pending) } != 0 {
-            return None;
-        }
-        usize::try_from(pending).ok()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = master;
-        None
-    }
-}
-
 /// Elsewhere every report is written as before: the cut has not been seen
 /// or reproduced off macOS, whose queue is the smallest.
 #[cfg(not(target_os = "macos"))]

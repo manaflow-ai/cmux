@@ -4,7 +4,6 @@ export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
   steerQueueTooltip: "composer.steerQueueTooltip",
-  queueSteerTooltip: "composer.queueSteerTooltip",
   suggestFailing: "composer.suggestFailing",
   suggestDraft: "composer.suggestDraft",
   suggestOpen: "composer.suggestOpen",

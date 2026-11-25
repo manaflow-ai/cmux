@@ -4,8 +4,6 @@
 //!
 //! ```text
 //! cmux customize library status            customize: 2 on: pr-43496 @dbb1e3e (web), theme-dusk
-//!                                          (and what expired: `; expired: pr-45206 (on 5 days, past
-//!                                          24 hours; back: cmux customize library on pr-45206)`)
 //! cmux customize library off --code --reason TEXT   every pr-N entry off, TEXT as its note
 //! cmux customize library off --all         every entry off: what was there before any layer
 //! cmux customize library reset             the same as off --all
@@ -25,7 +23,6 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::code::{CodeKind, WebBase, WebTarget, read_object};
-use super::expire::Expired;
 use super::overlay::{Overlay, now_ms};
 use super::text::one_line;
 use super::{Changed, Entry, web_top};
@@ -76,10 +73,6 @@ pub struct Layers {
     /// one is no library entry, so this is where it shows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_dev: Option<Overlay>,
-    /// Layers that expired in the last week and are still off, each with
-    /// its one command back ([`super::expire`]).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub expired: Vec<Expired>,
 }
 
 /// What a recovery verb did.
@@ -129,13 +122,7 @@ impl Customize {
             line.push_str("; ");
             line.push_str(&words);
         }
-        let expired = self.expired(now_ms);
-        if !expired.is_empty() {
-            let words: Vec<String> = expired.iter().map(Expired::words).collect();
-            line.push_str("; expired: ");
-            line.push_str(&words.join(", "));
-        }
-        Layers { on, line, overlay, stray_overlay, problem, web_dev, expired }
+        Layers { on, line, overlay, stray_overlay, problem, web_dev }
     }
 
     /// Turns every code entry off and records `reason` (one line) as
@@ -306,12 +293,7 @@ impl Customize {
             return Ok(());
         }
         let (now, _) = read_object(&self.roots().config_dir.join(super::code::WEB_DEV))?;
-        let keep = WebBase {
-            overlay: None,
-            enabled: now.get("enabled").cloned(),
-            no_file: false,
-            text: None,
-        };
+        let keep = WebBase { overlay: None, enabled: now.get("enabled").cloned(), no_file: false };
         self.write_web_dev(&WebTarget::Base, &keep)?;
         notes.push(format!(
             "web-dev.json still served layer {}; its overlay is removed",

@@ -1,7 +1,5 @@
 public import CMUXMobileCore
-#if canImport(CmuxMobileSupport)
 internal import CmuxMobileSupport
-#endif
 public import Foundation
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the

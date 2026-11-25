@@ -20,14 +20,13 @@ import Testing
     }
 
     /// The client's refusal code, if any, and the `agent-session-start` frame the daemon got.
-    private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?, harness: String? = nil,
-                       credentials: [String: String]? = nil) async throws
+    private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?) async throws
         -> (refusal: String?, frame: [String: Any]?) {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
         var refusal: String?
-        do { _ = try await client.start(cwd: "/w", harness: harness, ownerLink: ownerLink, credentials: credentials) } catch let error as AgentSessionAttachError {
+        do { _ = try await client.start(cwd: "/w", harness: nil, ownerLink: ownerLink) } catch let error as AgentSessionAttachError {
             refusal = error.code
         }
         await client.close()
@@ -58,33 +57,6 @@ import Testing
         let older = try await start(serving: [], ownerLink: link(5, 5))
         #expect(older.frame != nil)
         #expect(older.frame?["vm_kind"] == nil)
-    }
-
-    /// A Codex start that carries the owner's credential goes only to a machine whose acpmux keeps the provider override
-    /// (cmux#45774): an older one takes credentials yet drops the override, and Codex runs on no key there. That start is
-    /// refused before it is sent, with the code the remote start answers by updating the machine.
-    @Test func aCodexCredentialGoesOnlyToADaemonThatRunsItsProvider() async throws {
-        let owner = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
-        let token = ["CMUX_CHATGPT_ACCESS_TOKEN": "tok"]
-        let older = try await start(serving: owner, ownerLink: link(3, 3), harness: "codex", credentials: token)
-        #expect(older.refusal == AgentSessionAttachClient.codexCredentialsUnsupported)
-        #expect(older.frame == nil, "a Codex credential went to a daemon that drops its provider")
-
-        let current = try await start(serving: owner + [AgentSessionAttachClient.startCodexCredentialsCapability],
-                                      ownerLink: link(3, 3), harness: "codex", credentials: token)
-        // The fake daemon answers every start with no session (agent_session.refused); only that it went out counts here.
-        #expect(current.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
-        #expect((current.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == token)
-
-        // A Claude credential and a credential-less Codex start are unchanged on the older daemon.
-        let claude = try await start(serving: owner, ownerLink: link(3, 3), harness: "claude", credentials: ["CLAUDE_CODE_OAUTH_TOKEN": "tok"])
-        #expect(claude.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
-        #expect(claude.frame != nil)
-        let plain = try await start(serving: owner, ownerLink: link(3, 3), harness: "codex")
-        #expect(plain.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
-        #expect(plain.frame != nil)
-        #expect(AgentSessionAttachClient.credentialsCapability(harness: "codex") == AgentSessionAttachClient.startCodexCredentialsCapability)
-        #expect(AgentSessionAttachClient.credentialsCapability(harness: "claude") == AgentSessionAttachClient.startCredentialsCapability)
     }
 
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was

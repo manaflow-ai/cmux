@@ -56,12 +56,12 @@ public nonisolated struct BundledAgentMemoryIndex: AgentMemoryIndex {
 
     private func cancelled() -> AppHostCapabilityError {
         AppHostCapabilityError(code: "operation.cancelled",
-                               message: String(localized: "apps.memory.search.cancelled", defaultValue: "The memory search was cancelled", bundle: .localizedModule))
+                               message: String(localized: "apps.memory.search.cancelled", defaultValue: "The memory search was cancelled", bundle: .module))
     }
 
     private func unavailable(retryable: Bool) -> AppHostCapabilityError {
         AppHostCapabilityError(code: "memory.unavailable",
-                               message: String(localized: "apps.memory.search.unavailable", defaultValue: "Agent memory search is unavailable", bundle: .localizedModule),
+                               message: String(localized: "apps.memory.search.unavailable", defaultValue: "Agent memory search is unavailable", bundle: .module),
                                retryable: retryable)
     }
 }

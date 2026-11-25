@@ -105,8 +105,7 @@ final class FedChatRowsHost: Sendable {
     final class Clients: Sendable { let list = Mutex<[AcpmuxClient]>([]) }
     private let clients = Clients()
 
-    /// `hiddenInterval`: a hidden page's pace (long by default, so a test reads a hidden hold).
-    init(hiddenInterval: TimeInterval = 600) {
+    init() {
         let clients = self.clients
         host = AcpmuxChatRowsHost(
             socketPath: "/nonexistent", deliver: receiver.deliver,
@@ -120,8 +119,7 @@ final class FedChatRowsHost: Sendable {
                     driver.beginForTesting(onChange: onChange, onClose: onClose)
                     _ = clients.list.withLock { $0.last }?.connected()
                 },
-                reconnect: { _, _, refused in refused() }),
-            hiddenInterval: hiddenInterval)
+                reconnect: { _, _, refused in refused() }))
         receiver.attach(host)
     }
 

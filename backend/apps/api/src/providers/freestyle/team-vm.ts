@@ -6,7 +6,6 @@ import type { TeamVmProviderWiring } from "../index.ts"
 import { freestyleCustomer } from "./customer.ts"
 import { freestyleIdleSeconds } from "../../auto-pause.ts"
 import { FreestyleFiles } from "./team-vm-files.ts"
-import { BACKGROUND_AFTER, settleBackground } from "./background.ts"
 
 /** The team VM provider on Freestyle (plans/cmux-next/team-vm-plan.md S2): REST v5 with the team VM lane's key. */
 /** Idle pause: the provider pauses the VM after this long without activity (spec: about 10 minutes), only with CLOUD_IDLE_PAUSE on (auto-pause.ts). */
@@ -33,19 +32,15 @@ export class FreestyleDriver implements TeamVmDriver {
     this.files = new FreestyleFiles(apiKey, baseUrl)
   }
 
-  /** `background`: an exec that may outlive the provider edge's ~125 s hold goes to the background after 60 s (background.ts). */
-  private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS, background = false): Promise<{ status: number; json: Record<string, unknown> }> {
+  private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
     let res: Response
-    const auth = { authorization: `Bearer ${this.apiKey}` }
-    const deadlineAt = Date.now() + timeoutMs
     try {
       res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}${path}`, {
         method,
-        headers: { ...(background ? BACKGROUND_AFTER : {}), ...auth, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        headers: { authorization: `Bearer ${this.apiKey}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(timeoutMs)
       })
-      if (background) res = (await settleBackground(res, this.baseUrl, auth, deadlineAt)).res
     } catch (e) {
       // Network failure or timeout: the outcome is unknown (a create may still have happened).
       return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE" } }
@@ -147,7 +142,7 @@ export class FreestyleDriver implements TeamVmDriver {
   /** POST /v5/vms/{id}/exec-await {command, timeoutMs, linuxUser} answers {statusCode, stdout, stderr} (as the web resource reader uses it). */
   async exec(id: string, command: string, timeoutMs: number) {
     // As root: the bind writes root-only state (/var/lib/cmux); the provider's default exec user is the work user.
-    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs, linuxUser: "root" }, timeoutMs + 5_000, true)
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command, timeoutMs, linuxUser: "root" }, timeoutMs + 5_000)
     if (r.status === 404) throw new DriverError("team_vm.vm_missing", "exec: 404", true)
     if (r.status !== 200) this.fail(r.status, r.json, "exec")
     const code = typeof r.json.statusCode === "number" ? r.json.statusCode : -1

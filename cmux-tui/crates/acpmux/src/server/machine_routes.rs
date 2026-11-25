@@ -31,19 +31,10 @@ pub(super) async fn dispatch(
 }
 
 async fn routes(hub: &Arc<Hub>) -> Value {
-    let machines = hub.mesh_book_route_machines();
+    let machines = hub.mesh_book_machines();
     let daemon_socket = crate::config::socket_path();
     let listed = hub.machine_routes.reconcile(hub, &daemon_socket, &machines).await;
-    let carrier = hub.hub_carrier.get();
-    // Why this machine is unreachable through the carrier while it cannot heal on its own
-    // (`credential-unavailable`), and the action; null while it registers or is registered.
-    let reason = carrier.as_ref().and_then(|c| c.serve_reason());
-    json!({
-        "machines": listed,
-        "carrier": carrier.is_some(),
-        "carrierReason": reason,
-        "carrierAction": reason.map(crate::protocol::peer_state::OfflineReason::action),
-    })
+    json!({"machines": listed, "carrier": hub.hub_carrier.get().is_some()})
 }
 
 async fn probe(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {

@@ -305,13 +305,6 @@ async fn preset_args_are_validated() {
         json!(["--setting-sources", "user"]),
         json!(["--setting-sources", "project,local,user"]),
         json!(["--setting-sources", "local"]),
-        json!(["--disallowedTools"]),
-        json!(["--disallowedTools", ""]),
-        json!(["--disallowedTools", "Bash(rm:*)"]),
-        json!(["--disallowedTools", "--dangerously-skip-permissions"]),
-        json!(["--disallowedTools", "Agent Workflow"]),
-        json!(["--disallowedTools", "Agent", "Workflow"]),
-        json!(["--disallowedTools=Agent"]),
     ] {
         let err =
             c.request(method::MUX_PRESETS, set(words.clone(), "fakeclaude")).await.unwrap_err();
@@ -330,10 +323,6 @@ async fn preset_args_are_validated() {
     let local = json!(["--setting-sources", "project,local", "--disable-slash-commands"]);
     let ok = c.request(method::MUX_PRESETS, set(local.clone(), "fakeclaude")).await.unwrap();
     assert_eq!(ok["args"], local);
-    // A Chief subagent's deny list: tools only taken away.
-    let deny = json!(["--disallowedTools", "Task,Agent,AskUserQuestion,Workflow,mcp__cmux__app_*"]);
-    let ok = c.request(method::MUX_PRESETS, set(deny.clone(), "fakeclaude")).await.unwrap();
-    assert_eq!(ok["args"], deny);
     // A refused set changes nothing.
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"].as_array().unwrap().len(), 1, "{list}");

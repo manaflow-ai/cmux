@@ -46,7 +46,7 @@ export default componentEntry<Props>({
       props: {
         notice: {
           id: "remoteApprovals",
-          title: `Enroll this Mac on ${peer} first`,
+          title: `Enroll this Mac on ${peer} to allow from here`,
           detail: `Could not enroll this Mac on ${peer}: ssh: connect to host ${peer}: Operation timed out`,
           button: "Enroll this Mac",
           enabled: true,

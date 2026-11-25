@@ -35,9 +35,6 @@ public final class AgentPageRetirer {
         self?.teardown($0)
     }
 
-    /// How the app's chat pages were made (spare, kept, cold), every build; read by `agent.chat.perf page_source`.
-    public let sources = AgentPageSources()
-
     public init(measure: @escaping @MainActor (String, () -> Void) -> Void = { _, body in body() }) {
         self.measure = measure
     }
@@ -47,11 +44,7 @@ public final class AgentPageRetirer {
     public var keptPages: [(key: String, view: AgentPaneView)] { kept.pages.map { ("kept:\($0.session)", $0.page) } }
 
     /// The kept page of closed chat `session`, taken back.
-    public func takeKept(_ session: String) -> AgentPaneView? {
-        let page = kept.take(session)
-        if page != nil { sources.record(.kept) }
-        return page
-    }
+    public func takeKept(_ session: String) -> AgentPaneView? { kept.take(session) }
 
     /// Retires `view`; a chat page of this Mac showing `session` is kept first.
     public func retire(_ view: AgentPaneView, keeping session: String? = nil) {
@@ -93,8 +86,6 @@ public final class AgentPageRetirer {
         parking.addSubview(view)
         view.frame = CGRect(origin: .zero, size: size)
         // The pane hid the page when it let it go (`PaneContentView.retire`): hidden, Chromium drops its frame.
-        // Unhidden in the parking, it draws once at its size there, then reports hidden with that frame kept
-        // (`PageWebView+AwayDrawing`).
         view.isHidden = false
         PageWebView.syncChromiumVisibility(in: view)
     }

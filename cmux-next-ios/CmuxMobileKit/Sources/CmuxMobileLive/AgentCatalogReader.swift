@@ -19,18 +19,10 @@ extension AgentCatalog {
         var modelLists: [String: [AgentModelChoice]] = [:]
         for row in models?["harnesses"]?.arrayValue ?? [] {
             guard let id = row["harness"]?.stringValue else { continue }
-            // The agent's current models (`topModels`); the rest are older releases. With no
-            // list every model is current.
-            let top = row["topModels"]?.arrayValue?.compactMap(\.stringValue)
             modelLists[id] = (row["models"]?.arrayValue ?? []).compactMap { model in
                 guard let modelID = model["id"]?.stringValue, !modelID.isEmpty else { return nil }
                 let name = model["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? modelID
-                return AgentModelChoice(id: modelID, name: name, unavailableReason: model["unavailable"]?.stringValue,
-                                        efforts: (model["efforts"]?.arrayValue ?? []).compactMap(\.stringValue),
-                                        defaultEffort: model["defaultEffort"]?.stringValue,
-                                        shortName: model["shortName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 },
-                                        aliases: (model["aliases"]?.arrayValue ?? []).compactMap(\.stringValue),
-                                        isCurrent: top.map { $0.contains(modelID) } ?? true)
+                return AgentModelChoice(id: modelID, name: name, unavailableReason: model["unavailable"]?.stringValue)
             }
         }
         var choices: [AgentHarnessChoice] = []
@@ -57,31 +49,11 @@ extension AgentCatalog {
                 Self.launcherReason(entry["unavailable"])
             }
             let start = entry["start"]?["model"]?.stringValue ?? entry["model"]?.stringValue
-            // What its chats report (acpmux `reported`): mode names, and its options.
-            let reported = entry["reported"]
-            let reportedOptions = reported?["configOptions"]?.arrayValue ?? []
-            // The effort option names the levels whatever a phone may set; the other options are
-            // offered only when the Mac says a remote device may set them (`remoteSettable`, the
-            // remote guard's rule: Fast mode is not, so a pill for it would do nothing).
-            let options = reportedOptions.compactMap(Self.configChoice)
-            let settable = Set(reportedOptions.compactMap { option -> String? in
-                guard case .bool(true)? = option["remoteSettable"] else { return nil }
-                return option["id"]?.stringValue
-            })
-            let modes = (reported?["modes"]?.arrayValue ?? []).compactMap { mode -> AgentSettingChoice? in
-                guard let id = mode["id"]?.stringValue, !id.isEmpty else { return nil }
-                return AgentSettingChoice(id: id, name: mode["name"]?.stringValue ?? AgentSettingChoice.name(for: id),
-                                          detail: mode["description"]?.stringValue)
-            }
             choices.append(AgentHarnessChoice(
                 id: id, name: Self.displayName(id: id, family: family, entry: entry), family: family,
                 isDefault: id == defaultID, unavailableReason: reason,
                 models: modelLists[id] ?? [], defaultModel: start,
-                askingModes: (remote?["modes"]?.arrayValue ?? []).compactMap(\.stringValue),
-                startEffort: entry["start"]?["effort"]?.stringValue,
-                reportedModes: modes,
-                effortOption: options.first(where: \.isEffort),
-                configOptions: options.filter { settable.contains($0.id) && Self.isOwnOption($0, family: family, hasModes: !modes.isEmpty) }
+                askingModes: (remote?["modes"]?.arrayValue ?? []).compactMap(\.stringValue)
             ))
         }
         // The Mac's default first, then by name (the catalog is keyed, so unordered).
@@ -90,36 +62,6 @@ extension AgentCatalog {
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
         self.init(harnesses: choices, lastPicks: Self.lastPicks(reply["lastPicks"]))
-    }
-
-    /// One reported config option (ACP `configOptions[]`: a `select` with its choices, flat or in
-    /// groups); nil for one with nothing to pick.
-    static func configChoice(_ value: JSONValue) -> AgentConfigChoice? {
-        guard let id = value["id"]?.stringValue, !id.isEmpty else { return nil }
-        if let type = value["type"]?.stringValue, type != "select" { return nil }
-        var choices: [AgentSettingChoice] = []
-        for entry in value["options"]?.arrayValue ?? [] {
-            // A group (`{group, name, options}`) lists its choices inside.
-            for choice in entry["options"]?.arrayValue ?? [entry] {
-                guard let id = choice["value"]?.stringValue, !id.isEmpty, !choices.contains(where: { $0.id == id }) else { continue }
-                choices.append(AgentSettingChoice(id: id, name: choice["name"]?.stringValue ?? AgentSettingChoice.name(for: id),
-                                                  detail: choice["description"]?.stringValue))
-            }
-        }
-        guard !choices.isEmpty else { return nil }
-        return AgentConfigChoice(id: id, name: value["name"]?.stringValue ?? AgentSettingChoice.name(for: id),
-                                 category: value["category"]?.stringValue, choices: choices)
-    }
-
-    /// An option with no picker of its own, as the Mac's composer lists them (`agentOptions.ts`
-    /// `extraConfigOptions`): not the model, the effort or a mode, nor Codex's collaboration mode
-    /// or the per-chat switches the Mac keeps out of the composer (session recap, suggestions).
-    static func isOwnOption(_ option: AgentConfigChoice, family: String, hasModes: Bool) -> Bool {
-        guard option.choices.count > 1, !option.isEffort else { return false }
-        if option.id == "model" || option.category == "model" { return false }
-        if hasModes, option.id == "mode" || option.category == "mode" { return false }
-        if family == "codex", option.id == "collaboration_mode" || option.category == "collaboration_mode" { return false }
-        return !["session-recap", "prompt-suggestions"].contains(option.id)
     }
 
     /// acpmux `lastPicks` (`{lastAgent?, global?: {harness, model}, folders: [{folder, harness, model}]}`).

@@ -6,18 +6,14 @@ import SwiftUI
 /// moment it appears, then each whole second after `since` from the first
 /// one past the quiet seconds. `.periodic(from: since, by: 1)` gives the
 /// same text at the same moments, plus a redraw each second of the quiet
-/// stretch that draws the same text again. Not `live` (nobody can see the
-/// label: its row is off screen, or the app is in the background), only the
-/// moment it is asked, then nothing until it is live again.
+/// stretch that draws the same text again.
 public struct ElapsedTextSchedule: TimelineSchedule, Sendable {
     public let since: Date
     public let quietSeconds: Int
-    public let live: Bool
 
-    public init(since: Date, quietSeconds: Int = 0, live: Bool = true) {
+    public init(since: Date, quietSeconds: Int = 0) {
         self.since = since
         self.quietSeconds = max(0, quietSeconds)
-        self.live = live
     }
 
     public func entries(from startDate: Date, mode: TimelineScheduleMode) -> Entries {
@@ -25,17 +21,15 @@ public struct ElapsedTextSchedule: TimelineSchedule, Sendable {
     }
 
     /// The moment the label appears (its text is that moment's, as with the
-    /// periodic schedule's whole second at or before it), then, while live, the
-    /// whole seconds after `since` where the text can change.
+    /// periodic schedule's whole second at or before it), then the whole
+    /// seconds after `since` where the text can change.
     public struct Entries: Sequence, IteratorProtocol, Sendable {
         private let since: Date
-        private let live: Bool
         private var first: Date?
         private var second: Int
 
         init(schedule: ElapsedTextSchedule, start: Date) {
             since = schedule.since
-            live = schedule.live
             first = start
             let elapsed = start.timeIntervalSince(schedule.since).rounded(.down)
             // The first whole second after `start`, and none inside the quiet stretch.
@@ -48,7 +42,6 @@ public struct ElapsedTextSchedule: TimelineSchedule, Sendable {
                 first = nil
                 return date
             }
-            guard live else { return nil }
             defer { second += 1 }
             return since.addingTimeInterval(TimeInterval(second))
         }

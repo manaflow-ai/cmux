@@ -46,7 +46,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     // flipped bounds and returns where the list starts. Nil keeps MessagesLab's header.
     var headerLayout: ((CGRect) -> CGFloat)? { didSet { if isViewLoaded { view.needsLayout = true } } }
     // cmux: the neutral selection's fill (the host's theme tint, translucent); nil keeps the
-    // unemphasized grey. In the compact list the selection is the row's (cmux: Messages' narrow list).
+    // unemphasized grey. In the compact list the selection is a disc behind the avatar.
     var neutralFill: NSColor? { didSet { colorsChanged() } }
     /// The resolved colors (tests).
     var currentPalette: SidebarPalette { palette }
@@ -225,7 +225,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         filterButton.bezelStyle = .accessoryBarAction
         (filterButton.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
         filterButton.setAccessibilityLabel(SidebarStrings.filter)
-        filterButton.setSidebarToolTip(SidebarStrings.filter)  // cmux: the host's themed tooltip (SidebarToolTip.swift)
+        filterButton.toolTip = SidebarStrings.filter
         updateFilterButton()
         root.addSubview(filterButton)
 
@@ -632,7 +632,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             it.state = f == filter ? .on : .off
             m.addItem(it)
         }
-        filterButton.menu = NSMenu.systemFree(m)
+        filterButton.menu = m
         filterButton.contentTintColor = on ? (selectionColor ?? .controlAccentColor) : .secondaryLabelColor
         filterButton.isHidden = availableFilters.count < 2
     }
@@ -817,10 +817,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
     func item(_ h: Hit) -> Int? { switch h { case let .tile(t): return pinnedItems[checked: t]; case let .row(r): return rowItems[checked: r] } } // nil when stale
     func rect(_ h: Hit) -> CGRect {
-        switch h {
-        case let .tile(t): return metrics.compact ? tileRect(t) : tileRect(t).insetBy(dx: 2, dy: 2) // cmux: a compact tile is a row
-        case let .row(r): return selectionRect(r)
-        }
+        switch h { case let .tile(t): return tileRect(t).insetBy(dx: 2, dy: 2); case let .row(r): return selectionRect(r) }
     }
     /// A conversation's tile or row in screen coordinates (accessibility; .zero when not shown).
     func screenRect(of id: ConversationID) -> NSRect {
@@ -1056,19 +1053,22 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
         l.selection.cornerRadius = SidebarMetrics.selectionRadius
         let ar = metrics.rowAvatar(rowHeight: frame.height)
+        if metrics.compact, neutralSelection { // cmux: the compact row's selection is a disc behind the avatar, not a slab
+            l.selection.frame = ar.insetBy(dx: -4, dy: -4)
+            l.selection.cornerRadius = l.selection.frame.width / 2
+        }
         l.selection.isHidden = !selected
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         // The separator under the text, hidden next to the selection (as NSTableView does).
         let nextSelected = rowItems.dropFirst(r + 1).first.flatMap { snapshot.items[checked: $0] }.map { $0.id == highlightID } ?? false
         l.separator.isHidden = selected || nextSelected || r == rowItems.count - 1 || r + 1 == extraStart
-        // cmux: Messages' separator is 1 pt (2 px at 2x), not a hairline.
-        let s: CGFloat = 1
-        l.separator.frame = CGRect(x: SidebarMetrics.separatorX, y: frame.height - s, width: frame.width - SidebarMetrics.separatorX - SidebarMetrics.separatorInsetRight, height: s)
+        let s = 1 / max(1, document.window?.backingScaleFactor ?? 2)
+        l.separator.frame = CGRect(x: SidebarMetrics.textX, y: frame.height - s, width: frame.width - SidebarMetrics.textX - SidebarMetrics.separatorInsetRight, height: s)
         l.separator.backgroundColor = palette.separator
         // Avatar and unread dot: no dependence on the width (only their x in the compact list, where
         // the avatar is a tile's: one bitmap at the largest pin size, scaled, as the pinned tiles).
         let compact = metrics.compact
-        let ah = SidebarMetrics.avatar // cmux: a compact row's avatar is the row's
+        let ah = compact ? SidebarMetrics.pinMaxAvatar : SidebarMetrics.avatar
         l.avatar.frame = ar
         l.avatar.minificationFilter = .trilinear
         if l.avatarSpec != c.avatar || l.avatarGeneration != generation || l.avatarDiameter != ah {
@@ -1095,9 +1095,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         } else {
             l.setTyping(nil)
         }
-        if compact { // cmux: the avatar alone, the unread dot where the row has it (Messages' narrow list)
-            l.content.isHidden = true
-            l.content.contents = nil
+        if compact { // cmux: the name centered under the avatar, truncated, its unread dot inline before it
+            let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: k.emphasized, generation: generation)
+            let name = tileImage(keys.name, c)
+            let label = SidebarDraw.compactRowLabel(metrics, nameWidth: CGFloat(name?.width ?? 0) / renderContext.scale, unread: c.unread)
+            l.content.isHidden = false
+            l.content.contents = name
+            l.content.frame = label.name
+            if let dot = label.dot { l.dot.frame = dot }
             l.contentsScaleAll(renderContext.scale)
             l.shownKey = k
             return
@@ -1184,7 +1189,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var work: [(SidebarBitmapKey, ConversationSummary)] = []
         for i in pinnedItems { // no index math; a stale item is skipped
             guard let c = snapshot.items[checked: i], let keys = tileKeys(i) else { continue }
-            let parts = metrics.compact ? [] : [keys.name, keys.bubble].compactMap { $0 } // cmux: compact: no name, no bubble
+            let parts = metrics.compact ? [keys.name] : [keys.name, keys.bubble].compactMap { $0 } // compact: no bubble
             for k in parts where !cache.contains(k) { work.append((k, c)) }
         }
         if work.count > 1 {
@@ -1247,9 +1252,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.selection.isHidden = c.id != highlightID
         l.selection.backgroundColor = windowActive ? palette.selectionActive : palette.selectionInactive
         let ar = SidebarDraw.tileAvatar(metrics)
-        if metrics.compact { // cmux: the compact tile is a row: the row's selection across it
-            l.selection.frame = l.bounds
-            l.selection.cornerRadius = SidebarMetrics.selectionRadius
+        if metrics.compact, neutralSelection { // cmux: the compact tile's selection is a disc behind the avatar
+            l.selection.frame = ar.insetBy(dx: -4, dy: -4)
+            l.selection.cornerRadius = l.selection.frame.width / 2
         }
         // The avatar: one bitmap at the largest pin size, scaled to the current one.
         l.avatar.frame = ar
@@ -1263,7 +1268,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
         l.dot.backgroundColor = palette.unread
         // cmux: in the compact list a pinned avatar is row-sized, so a thin ring 2 pt outside it
-        // says "pinned"; the selection replaces it.
+        // (inside the selection disc's footprint) says "pinned"; the selection disc replaces it.
         l.pinRing.isHidden = !metrics.compact || !l.selection.isHidden
         if !l.pinRing.isHidden {
             l.pinRing.frame = ar.insetBy(dx: -SidebarMetrics.compactPinRingGap, dy: -SidebarMetrics.compactPinRingGap)
@@ -1281,13 +1286,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         } else {
             l.setTyping(nil)
         }
-        if metrics.compact { // cmux: no name in the compact list, the unread dot where a row has it
-            l.content.isHidden = true
-            l.content.contents = nil
-            l.time.isHidden = true
-            let d = SidebarMetrics.dotDiameter
-            l.dot.frame = CGRect(x: SidebarMetrics.dotCenterX - f.minX - d / 2, y: f.height / 2 - d / 2, width: d, height: d)
-        } else {
+        do {
             let keys = SidebarController.tileKeys(c, natural: natural(c), tileWidth: metrics.tileWidth, emphasized: emphasized(i), generation: generation)
             let name = tileImage(keys.name, c)
             let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
@@ -1645,7 +1644,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         menuTitles = m.items.map(\.title)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         menuRing.frame = rect(h)
-        menuRing.cornerRadius = { if case .tile = h, !metrics.compact { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }() // cmux: a compact tile is a row
+        menuRing.cornerRadius = { if case .tile = h { return SidebarMetrics.pinSelectionRadius }; return SidebarMetrics.selectionRadius }()
         menuRing.borderColor = palette.accent
         menuRing.isHidden = false
         CATransaction.commit()
@@ -1909,7 +1908,7 @@ final class SidebarDocumentView: NSView {
     }
     override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
     override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
+    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 125: controller?.moveSelection(1)

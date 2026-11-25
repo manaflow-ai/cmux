@@ -96,14 +96,15 @@ public struct MarkdownBlockView: View {
     public var body: some View {
         switch block.kind {
         case .heading(let level, let text):
-            InlineText(source: text, style: level == 1 ? .title3 : level == 2 ? .headline : .subheadline,
-                       weight: level == 2 ? nil : .bold)
+            InlineText(source: text, font: headingFont(level))
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
             if MarkdownInlineMath.contains(text) {
-                WebMarkdownView(markdown: text, style: .body, allowsTextSelection: true)
+                WebMarkdownView(markdown: text, style: .body)
             } else {
+                // No `.textSelection`: on iOS it took the long press and selected the whole
+                // paragraph. The enclosing row's context menu offers Select Text (CMUX-33).
                 InlineText(source: text)
             }
         case .list(let list):
@@ -115,13 +116,21 @@ public struct MarkdownBlockView: View {
         case .quote(let text):
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 1.5).fill(Color(uiColor: .separator)).frame(width: 3)
-                InlineText(source: text, color: .secondaryLabel)
+                InlineText(source: text).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .math(let tex):
-            WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body, allowsTextSelection: true)
+            WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body)
         case .rule:
             Divider().padding(.vertical, 4)
+        }
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: .title3.bold()
+        case 2: .headline
+        default: .subheadline.bold()
         }
     }
 }
@@ -183,8 +192,8 @@ struct MarkdownTableView: View {
         .scrollIndicators(.hidden)
         .trailingOverflowFade()
         .padding(.horizontal, -margin)
-        .selectionMenu { _ in
-            [SelectionMenu.action("Copy Table", "doc.on.doc") { UIPasteboard.general.string = table.plainText }]
+        .contextMenu {
+            Button("Copy Table", systemImage: "doc.on.doc") { UIPasteboard.general.string = table.plainText }
         }
     }
 
@@ -194,7 +203,7 @@ struct MarkdownTableView: View {
         // and ran into the row separators. The layout reports the height at
         // the capped width instead.
         TableCellLayout(minWidth: 96 - 24, maxWidth: 260 - 24) {
-            InlineText(source: text, style: .subheadline, weight: header ? .semibold : nil)
+            InlineText(source: text, font: header ? .subheadline.weight(.semibold) : .subheadline)
                 .frame(maxWidth: .infinity, alignment: alignment(column))
         }
             .padding(.horizontal, 12)

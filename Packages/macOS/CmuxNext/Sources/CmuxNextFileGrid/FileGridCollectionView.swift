@@ -102,7 +102,7 @@ final class FileGridCollectionView: NSCollectionView {
                 selectItems(at: [path], scrollPosition: [])
             }
         }
-        return NSMenu.systemFree(menuForSelection?())
+        return menuForSelection?()
     }
 
     /// `event` without its modifier keys, so AppKit tracks it as a plain press.

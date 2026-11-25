@@ -1,6 +1,5 @@
-import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env, RawEnv } from "../env.ts"
+import type { Env } from "../env.ts"
 import { BUDGET_LINES, type BudgetLine, type ProviderId } from "./catalog.ts"
 
 /**
@@ -60,8 +59,7 @@ export interface ProviderHealth {
 }
 
 export class SpendGuardDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    const env = envForObject(ctx, raw)
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     const sql = ctx.storage.sql
     sql.exec(`CREATE TABLE IF NOT EXISTS spend (day TEXT NOT NULL, line TEXT NOT NULL, micros INTEGER NOT NULL, PRIMARY KEY (day, line))`)

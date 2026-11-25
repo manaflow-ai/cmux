@@ -127,10 +127,9 @@ impl Launch {
     pub(super) fn first_prompt(&self, args: &NewArgs, created: &Value) -> Option<String> {
         let mut parts = Vec::new();
         if let Some(to) = &args.report_to {
-            let program = crate::cli::entry::program();
             parts.push(format!(
                 "You were started by the acpmux session {to}. Report back to it with: \
-                 {program} send --no-wait {to} '<report>'. Hand it an image with \
+                 acpmux send --no-wait {to} '<report>'. Hand it an image with \
                  --attach /abs/path.png, never a provider's file id (libfile_…)."
             ));
         }

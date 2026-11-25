@@ -36,27 +36,21 @@ public struct AttestKeyStoreError: Error, Sendable, Equatable {
 }
 
 /// ``AttestKeyStore`` in one generic-password item of the login keychain
-/// (works without a provisioning profile on macOS). Every call runs inside `withoutUI`, the app's
-/// guard that turns Keychain user interaction off, so a call that would ask fails with
-/// `errSecInteractionNotAllowed` (a store error) instead.
+/// (works without a provisioning profile on macOS).
 ///
 /// ```swift
-/// let store = KeychainAttestKeyStore(service: "com.cmuxterm.free-tier.app-attest", account: "key",
-///                                    withoutUI: { loginKeychain.withoutUI($0) })
+/// let store = KeychainAttestKeyStore(service: "com.cmuxterm.free-tier.app-attest", account: "key")
 /// ```
 public struct KeychainAttestKeyStore: AttestKeyStore {
     private let service: String
     private let account: String
-    private let withoutUI: @Sendable (() -> OSStatus) -> OSStatus
 
     /// One item, named by `service` and `account`.
     /// - Parameter service: the item's service name.
     /// - Parameter account: the item's account name.
-    /// - Parameter withoutUI: runs a Keychain call with user interaction off (the app's `LoginKeychain`).
-    public init(service: String, account: String, withoutUI: @escaping @Sendable (() -> OSStatus) -> OSStatus) {
+    public init(service: String, account: String) {
         self.service = service
         self.account = account
-        self.withoutUI = withoutUI
     }
 
     private var query: [String: Any] {
@@ -68,7 +62,7 @@ public struct KeychainAttestKeyStore: AttestKeyStore {
         var search = query
         search[kSecReturnData as String] = true
         search[kSecMatchLimit as String] = kSecMatchLimitOne
-        let status = withoutUI { SecItemCopyMatching(search as CFDictionary, &item) }
+        let status = SecItemCopyMatching(search as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw AttestKeyStoreError(status: status) }
         guard let data = item as? Data, let keyID = String(data: data, encoding: .utf8), !keyID.isEmpty else {
@@ -79,17 +73,17 @@ public struct KeychainAttestKeyStore: AttestKeyStore {
 
     public func save(_ keyID: String) throws {
         let data = Data(keyID.utf8)
-        var status = withoutUI { SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary) }
+        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var add = query
             add[kSecValueData as String] = data
-            status = withoutUI { SecItemAdd(add as CFDictionary, nil) }
+            status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw AttestKeyStoreError(status: status) }
     }
 
     public func delete() throws {
-        let status = withoutUI { SecItemDelete(query as CFDictionary) }
+        let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AttestKeyStoreError(status: status) }
     }
 }

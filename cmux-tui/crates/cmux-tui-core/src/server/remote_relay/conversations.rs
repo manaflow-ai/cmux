@@ -214,8 +214,7 @@ pub(in crate::server) fn remote_event(
         ConversationEvent::Run { .. }
         | ConversationEvent::Live { .. }
         | ConversationEvent::Avatar { .. }
-        | ConversationEvent::Chief { .. }
-        | ConversationEvent::Scheduled { .. } => None,
+        | ConversationEvent::Chief { .. } => None,
     }
 }
 

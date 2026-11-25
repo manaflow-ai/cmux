@@ -10,9 +10,6 @@ release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
 stapled_flag=(--require-stapled-app)
 if [ -n "${STAPLED_APP_FALLBACK_ID:-}" ]; then
   stapled_flag=(--stapled-app-fallback "$STAPLED_APP_FALLBACK_ID")
-elif [ "${CMUX_STAPLE_APP_IN_DMG:-true}" = false ]; then
-  # One notary round: only the DMG carries a stapled ticket; Gatekeeper must still call the app notarized.
-  stapled_flag=(--app-ticket-online)
 fi
 ./scripts/ci/verify-dmg-artifact.sh "$release" "$SIGN_CHANNEL" "${stapled_flag[@]}" 3>"$RUNNER_TEMP/verified.line"
 tested="$(awk '$1 == "verified" {print $2}' "$RUNNER_TEMP/verified.line")"

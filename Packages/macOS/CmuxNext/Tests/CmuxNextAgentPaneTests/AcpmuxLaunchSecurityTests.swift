@@ -1,7 +1,6 @@
 import Foundation
 import Security
 import Testing
-import CmuxNextCompat
 @testable import CmuxNextAgentPane
 
 struct AcpmuxLaunchSecurityTests {
@@ -27,27 +26,14 @@ struct AcpmuxLaunchSecurityTests {
         #expect(!arguments.contains(String(AcpmuxDaemonLauncher.personKeyDescriptor)))
     }
 
-    @Test func aDevBuildRunsTheDaemonUnderCmuxFiles() throws {
-        let environment = try Self.environment()
-        let app = URL(fileURLWithPath: "/App/cmux DEV one.app", isDirectory: true)
-        let host = try #require(FilesHost(bundleURL: app, bundleIdentifier: "com.cmuxterm.app.debug.one",
-                                          environment: [:], isExecutable: { _ in true }))
-
-        let plain = AcpmuxDaemonLauncher.arguments(for: environment)
-        let hosted = AcpmuxDaemonLauncher.arguments(for: environment, filesHost: host)
-
-        #expect(Array(plain.prefix(4)) == ["-c", AcpmuxDaemonLauncher.script, "acpmux-launch", environment.executable.path])
-        #expect(Array(hosted.prefix(7)) == ["-c", AcpmuxDaemonLauncher.script, "acpmux-launch",
-                                            host.executable.path, "run", "--", environment.executable.path])
-        #expect(Array(hosted.dropFirst(7)) == Array(plain.dropFirst(4)))
-    }
-
-    /// The retired cmux-cua socket variables never reach acpmux, signed or not: Computer Use's
-    /// endpoint comes from the cmux-tui daemon (`computer-use-endpoint`), never from the app.
-    @Test(arguments: [false, true])
-    func spawnEnvironmentDropsTheRetiredComputerUseVariables(unsigned: Bool) throws {
+    @Test func spawnEnvironmentWithholdsLegacyComputerUseSecrets() throws {
         var environment = try Self.environment()
-        environment.passesPersonKeyAtSpawn = unsigned
+        environment.passesPersonKeyAtSpawn = false
+        environment.computerUse = [
+            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
+            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
+            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
+        ]
 
         let variables = AcpmuxDaemonLauncher.spawnEnvironment(
             environment,
@@ -62,7 +48,41 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["CMUX_NEXT_CUA_SOCKET"] == nil)
         #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == nil)
         #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
+        #expect(variables["CMUX_NEXT_CUA_V2_DIR"] == "/private/v2")
         #expect(variables["PATH"] == "/usr/bin")
+    }
+
+    @Test func unsignedDevelopmentLaunchKeepsLegacyComputerUseAgentCredentials() throws {
+        var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = true
+        environment.computerUse = [
+            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
+            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
+            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
+        ]
+
+        let variables = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
+
+        #expect(variables["CMUX_NEXT_CUA_SOCKET"] == "/private/helper.sock")
+        #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == "fixture-secret")
+        #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
+    }
+
+    @Test func signedComputerUseEnrollmentCarriesOnlyTheAgentCredential() throws {
+        var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = false
+        environment.computerUse = [
+            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
+            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
+            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
+            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
+        ]
+
+        let parameters = AcpmuxComputerUse.enrollmentParameters(environment)
+
+        #expect(parameters["socket"] as? String == "/private/helper.sock")
+        #expect(parameters["agentToken"] as? String == "fixture-secret")
+        #expect(parameters.count == 2)
     }
 
     @Test func signedLaunchDoesNotInheritUnrelatedApplicationSecrets() throws {

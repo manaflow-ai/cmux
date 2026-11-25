@@ -266,14 +266,15 @@ async fn open(
             allowed
         }
     };
-    // IPv6 first and raced (crate::happy): the resolver's order is musl's, IPv4 first on a
-    // ULA-only host, and tried one at a time IPv6 was never reached.
-    let addrs = crate::happy::v6_first(&addrs);
-    let stream = crate::happy::race(&addrs, crate::happy::STAGGER, CONNECT_TIMEOUT)
-        .await
-        .map_err(|_| Refused::Unreachable)?;
-    let _ = stream.set_nodelay(true);
-    Ok(stream)
+    for addr in addrs {
+        if let Ok(Ok(stream)) =
+            tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await
+        {
+            let _ = stream.set_nodelay(true);
+            return Ok(stream);
+        }
+    }
+    Err(Refused::Unreachable)
 }
 
 /// The intercepted connection: upstream TLS first (a failure closes the

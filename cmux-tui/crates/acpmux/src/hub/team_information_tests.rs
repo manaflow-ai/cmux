@@ -549,14 +549,8 @@ async fn allowed_relay_messages_become_read_only_after_confirmed_write_and_never
     }))
     .unwrap();
     let wait = std::time::Duration::from_secs(20);
-    let deliver = || {
-        crate::server::mesh_relay::deliver(
-            &hub,
-            &message,
-            &crate::server::mesh_relay::RefuseControl,
-            None,
-        )
-    };
+    let deliver =
+        || crate::server::mesh_relay::deliver(&hub, &message, &crate::mesh::RefuseControl, None);
     let ack = tokio::time::timeout(wait, deliver()).await.unwrap().unwrap();
     assert_eq!(ack.state, crate::mesh::AckState::Delivered);
     tokio::time::timeout(wait, arrived).await.unwrap().unwrap();

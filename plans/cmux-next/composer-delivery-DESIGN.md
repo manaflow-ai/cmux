@@ -20,7 +20,7 @@ never turns into a spinner and is never disabled because a prompt is in flight.
 
 | State | Entered when | Row shows |
 | --- | --- | --- |
-| `sending` | the pane wrote `session/prompt` | after 1 s only (a fast send shows nothing), the footer's time slot says "Sending" with a clock (held for a reconnect: "Sending when ready"), in place of the age, never beside it; one queued behind the running turn (a steer) looks sent, its age and nothing else (Leo, 2026-11-17). The row stays anchored at the bubble's right edge, so Copy never moves |
+| `sending` | the pane wrote `session/prompt` | after 1 s only (a fast send shows nothing), the footer's time slot says "Sending" with a clock (a steer behind the running turn: "Queued, sends when the current turn ends"; held for a reconnect: "Sending when ready"), in place of the age, never beside it |
 | `delivered` | acpmux recorded it: `_acpmux/prompt_accepted`, a `queued` or `user_message` record, or the `session/prompt` answer | the bubble's check, unread |
 | `read` | the agent started on it: its `user_message` record (a queued prompt dequeued) or a steer's `steered` | the bubble's check, read (UserBubble.tsx, owned by the message-actions lane) |
 | `failed` | a refusal, or the timeout below | the reason, and Retry, Edit, Remove, Details |

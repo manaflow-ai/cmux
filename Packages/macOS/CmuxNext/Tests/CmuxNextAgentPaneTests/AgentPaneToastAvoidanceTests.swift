@@ -27,7 +27,7 @@ struct AgentPaneToastAvoidanceTests {
         let one = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
             "rects": [["left": 20, "top": 600, "right": 880, "bottom": 690]],
         ]])
-        #expect(one == .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: 600, width: 860, height: 90))))
+        #expect(one == .toastAvoidance(CGRect(x: 20, y: 600, width: 860, height: 90)))
         #expect(String(describing: one) == "toastAvoidance")
         #expect(AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": ["rects": []]]) == .toastAvoidance(nil))
         let two = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
@@ -38,38 +38,6 @@ struct AgentPaneToastAvoidanceTests {
             "rects": [["left": 880, "top": 600, "right": 20, "bottom": 690]],
         ]])
         #expect(inverted == .unsupported("pane.toastAvoidance"))
-    }
-
-    /// The stack carries the page zoom it was measured at; a bad zoom is refused (Leo, 2026-11-12:
-    /// "evidently you zoom in and it doesn't really, you know, it doesn't follow, right?").
-    @Test func reportsCarryTheirPageZoomAndBadOnesAreRefused() {
-        let zoomed = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
-            "rects": [["left": 20, "top": 600, "right": 880, "bottom": 690, "zoom": 1.5]],
-        ]])
-        #expect(zoomed == .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: 600, width: 860, height: 90), zoom: 1.5)))
-        for bad in [0, 50, "1.5", Double.nan] as [Any] {
-            let refused = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
-                "rects": [["left": 20, "top": 600, "right": 880, "bottom": 690, "zoom": bad]],
-            ]])
-            #expect(refused == .unsupported("pane.toastAvoidance"), "zoom \(bad) was not refused")
-        }
-        let overlays = AgentPaneSessionInfoOverlay.decode([["left": 0, "top": 0, "right": 10, "bottom": 10, "zoom": 2]])
-        #expect(overlays?.first?.zoom == 2)
-    }
-
-    /// A stack measured at a zoom is placed at that zoom, not the pane's: after Cmd + the page's next
-    /// report decides where the toasts rest.
-    @Test func aStackIsPlacedAtTheZoomItWasMeasuredAt() async throws {
-        let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
-        defer { view.close() }
-        view.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
-        view.layoutSubtreeIfNeeded()
-        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: 300, width: 400, height: 90), zoom: 1.5)))
-        let placed = view.toastAvoidanceRect
-        #expect(abs(placed.height - 135) < 0.5, "the stack was not placed at its measured zoom: \(placed)")
-        #expect(abs(placed.width - 600) < 0.5)
-        #expect(view.pageBoxZoom(nil) == max(0.25, CGFloat(view.uiPointerPageZoom)))
     }
 
     /// A toast over an agent pane rests above its reported composer: the stack's floor is over it.
@@ -93,7 +61,7 @@ struct AgentPaneToastAvoidanceTests {
 
         // The composer card 90 px tall, its bottom 10 px over the page's foot.
         let pageHeight = (view.page?.frame ?? view.webView.frame).height
-        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90))))
+        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
         let composer = view.convert(view.toastAvoidanceRect, to: nil)
         #expect(composer.height > 89 && composer.height < 91)
         #expect(composer.minX > 19 && composer.minX < 21)
@@ -132,7 +100,7 @@ struct AgentPaneToastAvoidanceTests {
         workspace.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let pageHeight = (view.page?.frame ?? view.webView.frame).height
-        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90))))
+        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
         let composer = view.convert(view.toastAvoidanceRect, to: nil)
 
         workspace.isHidden = true
@@ -174,7 +142,7 @@ struct AgentPaneToastAvoidanceTests {
         source.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let pageHeight = (view.page?.frame ?? view.webView.frame).height
-        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90))))
+        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
         let composer = view.convert(view.toastAvoidanceRect, to: nil)
 
         // The destination window shows a toast and has no chat yet: its stack rests at the window's foot.

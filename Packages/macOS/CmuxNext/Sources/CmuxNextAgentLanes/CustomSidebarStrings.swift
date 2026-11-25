@@ -15,6 +15,6 @@ nonisolated enum CustomSidebarStrings {
     }
 
     private static func text(_ key: String, _ english: String) -> String {
-        Bundle.localizedModule.localizedString(forKey: key, value: english, table: "CustomSidebar")
+        Bundle.module.localizedString(forKey: key, value: english, table: "CustomSidebar")
     }
 }

@@ -41,21 +41,6 @@ The listener refuses browser pages from any other origin and requests whose
 `tailscale serve --https=8443`, pass both
 `--ws-allow-origin https://<name>.ts.net:8443 --ws-allow-host <name>.ts.net`.
 
-## Served by the daemon (one URL, no dev server)
-
-```bash
-scripts/serve-from-daemon.sh --session web --port 7690
-```
-
-builds this app into a page bundle folder as the page `web`, starts a headless
-daemon whose loopback listener also serves that folder (`CMUX_TUI_PAGES_DIR`,
-spec/transports.md "App listener and page files") and prints
-`http://127.0.0.1:7690/pages/web/#token=…`. A page under `/pages/` connects to
-its own origin, and a token in the fragment connects at once. On a Cloud or
-lane VM, `ssh -L 7690:127.0.0.1:7690 HOST` and open the URL on your machine.
-`scripts/measure-in-browser.mjs URL OUTDIR` drives headless Chrome against it
-and writes first paint, keystroke-to-echo and two screenshots.
-
 ## Remote access and one-tap links
 
 When served from a non-localhost host, the WebSocket URL defaults to `wss://<hostname>:8443`. Put TLS in front of the server, for example with `tailscale serve --https=8443 <ws-port>`. `?ws=<url>` is consumed from the address bar and the last URL is remembered in `localStorage`. For automation, `?ws=<url>#token=<token>` supplies a static token in the fragment, which never enters the HTTP request and is removed immediately without being persisted.

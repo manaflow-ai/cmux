@@ -127,7 +127,6 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
 
     @Test func tabsTheMacNoLongerListsAreDropped() async throws {
         let directory = StreamedBrowserDirectory()
-        directory.missingGrace = .zero
         let first = FakeOpener()
         directory.opener = { first }
         let a = try #require(directory.model(tab: "s1", url: nil))

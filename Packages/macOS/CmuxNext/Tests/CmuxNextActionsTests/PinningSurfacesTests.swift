@@ -38,26 +38,6 @@ import Testing
         #expect(shown.contains(id), "\(id) is not in the \(context) menu")
     }
 
-    /// A workspace row's menu offers pinning once, at its top (plans/cmux-next/ui-simplify.md, Pin: "one Pin row in the
-    /// menu"): More repeats no pin row of any kind, by id or by title.
-    @Test func aWorkspaceRowsMenuPinsOnceAtItsTop() throws {
-        let catalog = ContextMenuCatalog.shared
-        let entries = catalog.entries(for: .workspaceRow)
-        let titles = Dictionary(ActionCatalog.all.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
-        let labels = catalog.labels(for: .workspaceRow)
-        let isPin = { (id: ActionID) in
-            let title = labels[id] ?? titles[id] ?? ""
-            return id.rawValue.range(of: "pin", options: .caseInsensitive) != nil || title.range(of: "pin", options: .caseInsensitive) != nil
-        }
-        let pins = catalog.referencedIDs(entries).filter(isPin)
-        #expect(pins == ["palette.toggleWorkspacePin"], "pin rows in the workspace menu: \(pins)")
-        let more = entries.flatMap { entry -> [ContextMenuEntry] in
-            if case .folder(.more, let rows) = entry { return rows } else { return [] }
-        }
-        let morePins = catalog.referencedIDs(more).filter(isPin)
-        #expect(morePins.isEmpty, "More repeats a pin row: \(morePins)")
-    }
-
     /// Pinning a Home conversation names the conversation and may set the state outright, so a
     /// script pins without first reading whether it is pinned.
     @Test func homePinTakesAConversationAndAState() throws {

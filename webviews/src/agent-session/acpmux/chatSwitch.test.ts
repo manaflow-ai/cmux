@@ -3,10 +3,9 @@
 // the host turned motion off.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { MOTION_MS } from "../../motion/scale.generated";
 import { chatSwitchParts, playChatSwitch } from "./chatSwitch";
 
-const CEILING_MS = MOTION_MS.large;
+const CEILING_MS = 240;
 
 /** A transcript 400 px tall with rows of 60 px from `top`, the title and Session Info's body. */
 function pane(rowTops: number[]) {

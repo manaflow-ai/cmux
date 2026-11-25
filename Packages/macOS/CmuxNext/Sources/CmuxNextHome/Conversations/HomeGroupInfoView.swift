@@ -45,7 +45,8 @@ struct HomeGroupInfoView: View {
                     .accessibilityIdentifier("cmux.home.groupInfo.status")
             }
             if model.offersInvite {
-                CmuxDialogActionButton(HomeConversationStrings.inviteByEmail, hint: nil) { model.inviteByEmail() }
+                Button(HomeConversationStrings.inviteByEmail) { model.inviteByEmail() }
+                    .glassButtonStyle()
                     .accessibilityIdentifier("cmux.home.groupInfo.invite")
             }
             buttons
@@ -59,7 +60,8 @@ struct HomeGroupInfoView: View {
         HStack(spacing: Metrics.space3) {
             ThemedField(text: $model.nameDraft, placeholder: HomeConversationStrings.infoName,
                         identifier: "cmux.home.groupInfo.name", onSubmit: { model.rename() })
-            CmuxDialogActionButton(HomeConversationStrings.infoRename, hint: nil) { model.rename() }
+            Button(HomeConversationStrings.infoRename) { model.rename() }
+                .glassButtonStyle()
                 .disabled(!model.canRename)
                 .accessibilityIdentifier("cmux.home.groupInfo.rename")
         }
@@ -143,14 +145,17 @@ struct HomeGroupInfoView: View {
                 }
                 HStack {
                     Spacer()
-                    CmuxDialogActionButton(HomeConversationStrings.cancel, hint: nil) { model.isAdding = false }
-                    CmuxDialogActionButton(HomeConversationStrings.infoAdd, hint: nil) { model.addChosen() }
+                    Button(HomeConversationStrings.cancel) { model.isAdding = false }
+                        .glassButtonStyle()
+                    Button(HomeConversationStrings.infoAdd) { model.addChosen() }
+                        .glassButtonStyle()
                         .disabled(chosen.isEmpty || model.isRunning)
                         .accessibilityIdentifier("cmux.home.groupInfo.addChosen")
                 }
             }
         } else {
-            CmuxDialogActionButton(HomeConversationStrings.infoAddPeople, hint: nil) { model.isAdding = true }
+            Button(HomeConversationStrings.infoAddPeople) { model.isAdding = true }
+                .glassButtonStyle()
                 .disabled(model.isRunning)
                 .accessibilityIdentifier("cmux.home.groupInfo.addPeople")
         }
@@ -167,11 +172,14 @@ struct HomeGroupInfoView: View {
     private var buttons: some View {
         HStack(spacing: Metrics.space3) {
             if model.info.isGroup {
-                CmuxDialogActionButton(HomeConversationStrings.infoLeave, hint: nil, role: .destructive) { model.leave() }
+                Button(HomeConversationStrings.infoLeave, role: .destructive) { model.leave() }
+                    .glassButtonStyle()
+                    .foregroundStyle(colors.danger)
                     .accessibilityIdentifier("cmux.home.groupInfo.leave")
             }
             Spacer()
             CmuxDialogActionButton(HomeConversationStrings.infoDone, hint: .escape) { model.close() }
+                .glassButtonStyle()
                 .accessibilityIdentifier("cmux.home.groupInfo.done")
         }
     }

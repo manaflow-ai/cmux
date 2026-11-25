@@ -169,12 +169,10 @@ def samples_every_action(doc):
 
 
 def samples_typing(doc):
-    """typing-frame-bench.py: one replicate per round per surface.phase (key_to_frame_ms p50/p95/p99/max). With
-    --modes, several modes run in the same phase (every mode but L0 is the load phase), so the mode names the row."""
+    """typing-frame-bench.py: one replicate per round per surface.phase (key_to_frame_ms p50/p95/p99/max)."""
     out = {}
     for r in doc.get("runs") or []:
-        under = r.get("mode") or r.get("phase")
-        key = f"{r.get('session', 'light')}/{r.get('surface')}.{under}"
+        key = f"{r.get('session', 'light')}/{r.get('surface')}.{r.get('phase')}"
         for st, v in (r.get("key_to_frame_ms") or {}).items():
             if st in ("p50", "p95", "p99", "max"):
                 _add(out, key, f"key_to_frame.{st}", v)

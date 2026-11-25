@@ -18,7 +18,6 @@ import argparse, collections, json, os, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from state_wait import wait_stable  # noqa: E402
 
 
 def free_port():
@@ -88,8 +87,6 @@ def main():
             shutil.rmtree(os.path.join(os.path.expanduser("~"), "Library/Application Support", parent, "tags", app.tag,
                                        "tui"), ignore_errors=True)
         app.launch()
-        # sleep-ok: --settle is the session's age at measurement (idle-budget.py's light session settles the same
-        # 60 s), so startup timers are past; the age is the measured condition, not a stand-in for one event.
         time.sleep(opts.settle)
         report["targets"] = cdp.target_infos(port)
         pages = []
@@ -108,16 +105,14 @@ def main():
             pages.append(entry)
             print("CEF-IDLE-PAGE " + json.dumps(entry), flush=True)
         report["pages"] = pages
-        # The probes' own work ends before the window: their DevTools sessions detach and the target list stops changing.
-        wait_stable(lambda: sorted((t.get("targetId"), t.get("attached")) for t in cdp.target_infos(port)),
-                    "the DevTools targets after the probes", timeout=15, interval=0.2, reads=5, raise_on_timeout=False)
+        time.sleep(3)  # the probes' own rAF and evaluation work ends before the window
         tracer = trace.ChromiumTracer(port, opts.out)
         tracer.start()
         windows = app.rpc("debug.window_list", timeout=10).get("windows") or []
         report["window_start"] = [{k: w.get(k) for k in ("kind", "key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
         before = app.rpc("debug.cef", timeout=10).get("pump") or {}
         t0 = time.monotonic()
-        time.sleep(opts.window)  # sleep-ok: the measured idle window (pump counters and trace over --window s)
+        time.sleep(opts.window)
         after = app.rpc("debug.cef", timeout=10).get("pump") or {}
         windows = app.rpc("debug.window_list", timeout=10).get("windows") or []
         report["window_end"] = [{k: w.get(k) for k in ("kind", "key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]

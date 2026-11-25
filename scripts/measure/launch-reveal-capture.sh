@@ -52,14 +52,9 @@ set_appearance() {
   [[ "$want" == dark ]] && flag=true
   osascript -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $flag" >/dev/null 2>&1 \
     || { if [[ "$want" == dark ]]; then defaults write -g AppleInterfaceStyle Dark; else defaults delete -g AppleInterfaceStyle 2>/dev/null; fi; }
-  # Until the global default reads the wanted appearance, 10 s.
-  local got=light i
-  for i in $(seq 1 100); do
-    got=light
-    [[ "$(defaults read -g AppleInterfaceStyle 2>/dev/null)" == Dark ]] && got=dark
-    [[ "$got" == "$want" ]] && break
-    sleep 0.1
-  done
+  sleep 1.5
+  local got=light
+  [[ "$(defaults read -g AppleInterfaceStyle 2>/dev/null)" == Dark ]] && got=dark
   [[ "$got" == "$want" ]] || log "WARN appearance wanted $want, reads $got"
   return 0
 }
@@ -128,27 +123,25 @@ launch_and_record() {   # APP_PATH NAME APPEARANCE MODE
     ) &
     shots_pid=$!
   fi
-  sleep "$SECONDS_REC"  # sleep-ok: the recording window itself
+  sleep "$SECONDS_REC"
   wait "$WATCH_PID" 2>/dev/null; WATCH_PID=""
   [[ -n "$shots_pid" ]] && wait "$shots_pid" 2>/dev/null
   t_end="$(now_ms)"
   wait "$REC_PID" 2>/dev/null; REC_PID=""
   log "DONE $name $appearance $mode ended_ms=$t_end mov=$(stat -f %z "$base.mov" 2>/dev/null || echo missing) bytes"
   [[ -s "$base.mov" ]] || { log "WARN no recording: $(head -c 300 "$base.rec.log")"; }
-  quit_app "$app"
+  quit_app
   return 0
 }
 
-quit_app() {   # APP_PATH
-  local i app="$1"
+quit_app() {
+  local i
   [[ -n "$APP_PID" ]] || return 0
   kill -TERM "$APP_PID" 2>/dev/null
   for i in $(seq 1 100); do kill -0 "$APP_PID" 2>/dev/null || break; sleep 0.1; done
   if kill -0 "$APP_PID" 2>/dev/null; then log "KILL $APP_PID after 10 s"; kill -KILL "$APP_PID" 2>/dev/null; fi
   APP_PID=""
-  # Until LaunchServices no longer lists the app as running (the next run's open must start a new one), 10 s.
-  for i in $(seq 1 100); do [[ -z "$("$PROBE" pid "$app" | head -1)" ]] && break; sleep 0.1; done
-  [[ -z "$("$PROBE" pid "$app" | head -1)" ]] || log "WARN $app still listed as running 10 s after it exited"
+  sleep 1
 }
 
 main() {

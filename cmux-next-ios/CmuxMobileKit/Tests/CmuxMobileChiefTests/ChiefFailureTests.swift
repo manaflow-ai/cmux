@@ -193,7 +193,8 @@ final class ScriptedChiefMac: @unchecked Sendable {
     func session(_ mac: ScriptedChiefMac, preferences: ChiefPreferences, macID: String?) async throws -> ChiefSession {
         let link = MockMacLink { _, request in mac.respond(request) }
         let client = DaemonClient(channel: try await link.openChannel(service: "chief", args: [:]))
-        let session = ChiefSession(backend: ChiefOfflineBackend(), preferences: preferences, clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), preferences: preferences,
+                                   outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
         session.macID = macID
         session.use(ChiefDaemonBackend(client: client, preferences: preferences))
         return session

@@ -24,7 +24,6 @@ fn key(surface: SurfaceId, byte: u8) -> Command {
         expect_agent: None,
         submit: false,
         flow: None,
-        key: None,
     })
 }
 
@@ -462,51 +461,5 @@ fn a_read_only_viewers_keys_do_not_get_the_persons_priority() {
         writer.input_lane.carries_person_input(),
         "the typing client's keys did not mark its connection as the person's input"
     );
-    mux.shutdown();
-}
-
-/// `send-key-v1` (Leo, 2026-11-21: "there's like a sort of like double send type thing"): a phone
-/// whose `send` was written but whose reply was lost sends it again with the same key, and the
-/// terminal gets it once. Another key writes again; no key is today's path, every send written.
-#[cfg(unix)]
-#[test]
-fn a_send_with_an_applied_key_writes_nothing_again() {
-    fn keyed(surface: SurfaceId, text: &str, key: Option<String>) -> Command {
-        Command::Send(cmd_terminal_io::SendParams {
-            surface: Some(surface),
-            terminal_id: None,
-            text: None,
-            bytes: Some(base64::engine::general_purpose::STANDARD.encode(text)),
-            paste: false,
-            expect_foreground: None,
-            expect_agent: None,
-            submit: false,
-            flow: None,
-            key,
-        })
-    }
-    let mux = old_path_mux();
-    let (typing, client, writer) = attached_terminal(&mux);
-    let (sent, input) = mpsc::channel();
-    typing.replace_input_writer_for_test(Box::new(InputRecorder(sent)));
-    let written =
-        |input: &mpsc::Receiver<Vec<u8>>| -> Vec<u8> { input.try_iter().flatten().collect() };
-    let first = format!("send-once-{}", crate::workspace_registry::new_uuid_v4());
-    let second = format!("send-once-{}", crate::workspace_registry::new_uuid_v4());
-
-    let reply =
-        handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first.clone())), &writer)
-            .unwrap();
-    let again =
-        handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first)), &writer).unwrap();
-    assert_eq!(reply, again, "a repeat gets the same success reply");
-    assert_eq!(written(&input), b"ls\r".to_vec(), "the same key twice writes once");
-
-    handle_command(&mux, client, keyed(typing.id, "pwd\r", Some(second)), &writer).unwrap();
-    assert_eq!(written(&input), b"pwd\r".to_vec(), "another key writes again");
-
-    handle_command(&mux, client, keyed(typing.id, "a", None), &writer).unwrap();
-    handle_command(&mux, client, keyed(typing.id, "a", None), &writer).unwrap();
-    assert_eq!(written(&input), b"aa".to_vec(), "with no key every send is written, as before");
     mux.shutdown();
 }

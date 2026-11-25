@@ -25,6 +25,84 @@
       "name": "string",
       "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
     },
+    "AppKvApp": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 128
+    },
+    "AppKvKey": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 256
+    },
+    "AppKvRow": {
+      "kind": "object",
+      "fields": {
+        "app": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "json"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "updated_ms": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
     "Automation": {
       "kind": "object",
       "fields": {
@@ -293,55 +371,6 @@
       "name": "string",
       "pattern": "^auto_[a-z0-9]{20}$",
       "description": "An automation definition, owned by its team's SchedulerDO."
-    },
-    "AutomationSecretName": {
-      "kind": "primitive",
-      "name": "string",
-      "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
-      "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
-    },
-    "AutomationSecretState": {
-      "kind": "object",
-      "fields": {
-        "name": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "AutomationSecretName"
-          }
-        },
-        "hint": {
-          "required": true,
-          "type": {
-            "kind": "nullable",
-            "inner": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          }
-        },
-        "generation": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "updated_at": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "updated_by": {
-          "required": true,
-          "type": {
-            "kind": "ref",
-            "name": "UserId"
-          }
-        }
-      }
     },
     "AutomationSettings": {
       "kind": "object",
@@ -1655,92 +1684,11 @@
             "name": "int64"
           }
         },
-        "origin": {
-          "required": false,
-          "type": {
-            "kind": "ref",
-            "name": "CloudMachineOrigin"
-          }
-        },
-        "expires_at": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
         "revision": {
           "required": true,
           "type": {
             "kind": "ref",
             "name": "Revision"
-          }
-        }
-      }
-    },
-    "CloudMachineOrigin": {
-      "kind": "object",
-      "fields": {
-        "kind": {
-          "required": false,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "workflow",
-              "lane",
-              "agent",
-              "person"
-            ]
-          }
-        },
-        "label": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 200,
-            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-          }
-        },
-        "url": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 500,
-            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-          }
-        },
-        "run": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 200,
-            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-          }
-        },
-        "workflow": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 200,
-            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-          }
-        },
-        "lane": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1,
-            "max_length": 200,
-            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
           }
         }
       }
@@ -2593,158 +2541,6 @@
         }
       }
     },
-    "CloudSurgePreview": {
-      "kind": "object",
-      "fields": {
-        "count": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "ttl_seconds": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "provider": {
-          "required": true,
-          "type": {
-            "kind": "nullable",
-            "inner": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          }
-        },
-        "available": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        "reason": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "estimated_cost_usd": {
-          "required": true,
-          "type": {
-            "kind": "nullable",
-            "inner": {
-              "kind": "union",
-              "variants": [
-                {
-                  "kind": "primitive",
-                  "name": "float64"
-                },
-                {
-                  "kind": "enum",
-                  "values": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      }
-    },
-    "CloudSurgeReceipt": {
-      "kind": "object",
-      "fields": {
-        "count": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "ttl_seconds": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "slots": {
-          "required": true,
-          "type": {
-            "kind": "array",
-            "items": {
-              "kind": "ref",
-              "name": "CloudSurgeSlot"
-            }
-          }
-        }
-      }
-    },
-    "CloudSurgeSlot": {
-      "kind": "object",
-      "fields": {
-        "index": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "int64"
-          }
-        },
-        "status": {
-          "required": true,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "created",
-              "queued",
-              "refused"
-            ]
-          }
-        },
-        "machine_id": {
-          "required": true,
-          "type": {
-            "kind": "nullable",
-            "inner": {
-              "kind": "ref",
-              "name": "MachineId"
-            }
-          }
-        },
-        "provider": {
-          "required": true,
-          "type": {
-            "kind": "nullable",
-            "inner": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          }
-        },
-        "reason": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "retryable": {
-          "required": true,
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        }
-      }
-    },
     "CloudVmNetwork": {
       "kind": "object",
       "fields": {
@@ -3212,13 +3008,6 @@
                       "name": "string"
                     }
                   }
-                }
-              },
-              "linked_by_github_id": {
-                "required": false,
-                "type": {
-                  "kind": "primitive",
-                  "name": "int64"
                 }
               }
             }
@@ -10407,6 +10196,535 @@
     }
   },
   "operations": {
+    "appkv.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "appkv",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvApp"
+            }
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvKey"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "app": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "existed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppKvApp"
+          },
+          "key": {
+            "$ref": "#/$defs/AppKvKey"
+          }
+        },
+        "required": [
+          "app",
+          "key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppKvApp": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "AppKvKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "existed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app",
+          "key",
+          "existed"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "appkv.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "appkv",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "after_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "rows": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "AppKvRow"
+              }
+            }
+          },
+          "next_after_revision": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "after_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AppKvRow"
+            }
+          },
+          "next_after_revision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rows",
+          "next_after_revision",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppKvRow": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "value": {},
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "updated_ms": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "app",
+              "key",
+              "value",
+              "revision",
+              "updated_ms"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "appkv.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "appkv",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvApp"
+            }
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppKvKey"
+            }
+          },
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AppKvRow"
+          }
+        ]
+      },
+      "errors": [
+        "app.limit",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppKvApp"
+          },
+          "key": {
+            "$ref": "#/$defs/AppKvKey"
+          },
+          "value": {}
+        },
+        "required": [
+          "app",
+          "key",
+          "value"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppKvApp": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "AppKvKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AppKvRow",
+        "$defs": {
+          "AppKvRow": {
+            "type": "object",
+            "properties": {
+              "app": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "value": {},
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "updated_ms": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "app",
+              "key",
+              "value",
+              "revision",
+              "updated_ms"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "automation.audit.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -18524,509 +18842,6 @@
         }
       }
     },
-    "automation.secret.list": {
-      "class": "read",
-      "idempotency": "forbidden",
-      "target": "automation",
-      "ancestors": [
-        "user"
-      ],
-      "params": {
-        "selectors": {},
-        "fields": {
-          "automation": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AutomationId"
-            }
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "object",
-        "fields": {
-          "automation": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AutomationId"
-            }
-          },
-          "secrets": {
-            "required": true,
-            "type": {
-              "kind": "array",
-              "items": {
-                "kind": "ref",
-                "name": "AutomationSecretState"
-              }
-            }
-          }
-        }
-      },
-      "errors": [
-        "auth.forbidden",
-        "auth.unauthenticated",
-        "selector.not_found"
-      ],
-      "owner": "cloud:SchedulerDO",
-      "risk": "read",
-      "principals": [
-        "session"
-      ],
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "transport": {
-        "http": {
-          "method": "POST",
-          "path": "/v1/read"
-        }
-      },
-      "cli": {
-        "path": "automation secret list",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "automation"
-      },
-      "docs": "The names of an automation's secrets (who may edit it). Never returns a value.",
-      "since": "cloud-1",
-      "input_json_schema": {
-        "type": "object",
-        "properties": {
-          "automation": {
-            "$ref": "#/$defs/AutomationId"
-          }
-        },
-        "required": [
-          "automation"
-        ],
-        "additionalProperties": true,
-        "$defs": {
-          "AutomationId": {
-            "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
-            "description": "An automation definition, owned by its team's SchedulerDO."
-          }
-        }
-      },
-      "output_json_schema": {
-        "type": "object",
-        "properties": {
-          "automation": {
-            "$ref": "#/$defs/AutomationId"
-          },
-          "secrets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/AutomationSecretState"
-            }
-          }
-        },
-        "required": [
-          "automation",
-          "secrets"
-        ],
-        "additionalProperties": true,
-        "$defs": {
-          "AutomationId": {
-            "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
-            "description": "An automation definition, owned by its team's SchedulerDO."
-          },
-          "AutomationSecretName": {
-            "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
-            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
-          },
-          "UserId": {
-            "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
-            "description": "A cmux user (Stack user id kept as an external id)."
-          },
-          "AutomationSecretState": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "$ref": "#/$defs/AutomationSecretName"
-              },
-              "hint": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "generation": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_by": {
-                "$ref": "#/$defs/UserId"
-              }
-            },
-            "required": [
-              "name",
-              "hint",
-              "generation",
-              "updated_at",
-              "updated_by"
-            ],
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "automation.secret.remove": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "automation",
-      "ancestors": [
-        "user"
-      ],
-      "params": {
-        "selectors": {},
-        "fields": {
-          "automation": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AutomationId"
-            }
-          },
-          "name": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AutomationSecretName"
-            }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "object",
-            "fields": {
-              "automation": {
-                "required": true,
-                "type": {
-                  "kind": "ref",
-                  "name": "AutomationId"
-                }
-              },
-              "name": {
-                "required": true,
-                "type": {
-                  "kind": "ref",
-                  "name": "AutomationSecretName"
-                }
-              },
-              "removed": {
-                "required": true,
-                "type": {
-                  "kind": "primitive",
-                  "name": "boolean"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "errors": [
-        "auth.forbidden",
-        "auth.unauthenticated",
-        "idempotency.conflict",
-        "revision.conflict",
-        "selector.not_found",
-        "validation.invalid"
-      ],
-      "owner": "cloud:SchedulerDO",
-      "risk": "destructive",
-      "principals": [
-        "session"
-      ],
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "transport": {
-        "http": {
-          "method": "POST",
-          "path": "/v1/ops"
-        }
-      },
-      "cli": {
-        "path": "automation secret remove",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "automation"
-      },
-      "docs": "Remove one secret of an automation (its creator, editors and team admins).",
-      "since": "cloud-1",
-      "input_json_schema": {
-        "type": "object",
-        "properties": {
-          "automation": {
-            "$ref": "#/$defs/AutomationId"
-          },
-          "name": {
-            "$ref": "#/$defs/AutomationSecretName"
-          }
-        },
-        "required": [
-          "automation",
-          "name"
-        ],
-        "additionalProperties": true,
-        "$defs": {
-          "AutomationId": {
-            "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
-            "description": "An automation definition, owned by its team's SchedulerDO."
-          },
-          "AutomationSecretName": {
-            "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
-            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
-          }
-        }
-      },
-      "output_json_schema": {
-        "type": "object",
-        "properties": {
-          "automation": {
-            "$ref": "#/$defs/AutomationId"
-          },
-          "name": {
-            "$ref": "#/$defs/AutomationSecretName"
-          },
-          "removed": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "automation",
-          "name",
-          "removed"
-        ],
-        "additionalProperties": true,
-        "$defs": {
-          "AutomationId": {
-            "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
-            "description": "An automation definition, owned by its team's SchedulerDO."
-          },
-          "AutomationSecretName": {
-            "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
-            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
-          }
-        }
-      }
-    },
-    "automation.secret.set": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "automation",
-      "ancestors": [
-        "user"
-      ],
-      "params": {
-        "selectors": {},
-        "fields": {
-          "automation": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AutomationId"
-            }
-          },
-          "name": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AutomationSecretName"
-            }
-          },
-          "value": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 32768
-            }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "AutomationSecretState"
-          }
-        ]
-      },
-      "errors": [
-        "auth.forbidden",
-        "auth.unauthenticated",
-        "automation_secret.not_configured",
-        "automation_secret.too_many",
-        "idempotency.conflict",
-        "revision.conflict",
-        "selector.not_found",
-        "validation.invalid"
-      ],
-      "owner": "cloud:SchedulerDO",
-      "risk": "mutate-shared",
-      "principals": [
-        "session"
-      ],
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "transport": {
-        "http": {
-          "method": "POST",
-          "path": "/v1/ops"
-        }
-      },
-      "cli": {
-        "path": "automation secret set",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "automation"
-      },
-      "docs": "Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned.",
-      "since": "cloud-1",
-      "input_json_schema": {
-        "type": "object",
-        "properties": {
-          "automation": {
-            "$ref": "#/$defs/AutomationId"
-          },
-          "name": {
-            "$ref": "#/$defs/AutomationSecretName"
-          },
-          "value": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32768
-          }
-        },
-        "required": [
-          "automation",
-          "name",
-          "value"
-        ],
-        "additionalProperties": true,
-        "$defs": {
-          "AutomationId": {
-            "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
-            "description": "An automation definition, owned by its team's SchedulerDO."
-          },
-          "AutomationSecretName": {
-            "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
-            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
-          }
-        }
-      },
-      "output_json_schema": {
-        "$ref": "#/$defs/AutomationSecretState",
-        "$defs": {
-          "AutomationSecretName": {
-            "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
-            "description": "An environment variable name: capital letters, digits and _, starting with a letter (at most 64)."
-          },
-          "UserId": {
-            "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
-            "description": "A cmux user (Stack user id kept as an external id)."
-          },
-          "AutomationSecretState": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "$ref": "#/$defs/AutomationSecretName"
-              },
-              "hint": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "generation": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "updated_by": {
-                "$ref": "#/$defs/UserId"
-              }
-            },
-            "required": [
-              "name",
-              "hint",
-              "generation",
-              "updated_at",
-              "updated_by"
-            ],
-            "additionalProperties": true
-          }
-        }
-      }
-    },
     "automation.settings.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -26577,59 +26392,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -26872,14 +26634,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -28514,59 +28268,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -28809,14 +28510,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -29208,20 +28901,6 @@
               "name": "SnapshotId"
             }
           },
-          "origin": {
-            "required": false,
-            "type": {
-              "kind": "ref",
-              "name": "CloudMachineOrigin"
-            }
-          },
-          "ttl_seconds": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "int64"
-            }
-          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -29299,7 +28978,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -29319,14 +28998,6 @@
           },
           "from_snapshot": {
             "$ref": "#/$defs/SnapshotId"
-          },
-          "origin": {
-            "$ref": "#/$defs/CloudMachineOrigin"
-          },
-          "ttl_seconds": {
-            "type": "integer",
-            "minimum": 300,
-            "maximum": 604800
           }
         },
         "required": [
@@ -29360,59 +29031,6 @@
             "type": "string",
             "pattern": "^snap_[a-z0-9]{20}$",
             "description": "A Cloud machine snapshot."
-          },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
           }
         }
       },
@@ -29516,59 +29134,6 @@
               "kind",
               "at",
               "delete_at"
-            ],
-            "additionalProperties": true
-          },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
             ],
             "additionalProperties": true
           },
@@ -29814,14 +29379,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -30150,59 +29707,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -30445,14 +29949,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -30699,59 +30195,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -30994,14 +30437,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -31246,59 +30681,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -31541,14 +30923,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -32072,59 +31446,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -32367,14 +31688,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -32612,59 +31925,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -32907,14 +32167,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -33163,59 +32415,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -33458,14 +32657,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -33744,59 +32935,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -34039,14 +33177,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -34290,59 +33420,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -34585,14 +33662,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -34830,59 +33899,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -35125,14 +34141,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -36991,59 +35999,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -37290,14 +36245,6 @@
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
               },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -37317,349 +36264,6 @@
               "idle_policy",
               "error",
               "revision"
-            ],
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "cloud.surge.create": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "team",
-      "ancestors": [
-        "user"
-      ],
-      "params": {
-        "selectors": {},
-        "fields": {
-          "count": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "int64"
-            }
-          },
-          "ttl_seconds": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "int64"
-            }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "CloudSurgeReceipt"
-          }
-        ]
-      },
-      "errors": [
-        "auth.forbidden",
-        "auth.sso_required",
-        "auth.unauthenticated",
-        "client.too_old",
-        "cloud.surge.capacity",
-        "cloud.surge.unavailable",
-        "idempotency.conflict",
-        "owner.unreachable",
-        "revision.conflict",
-        "validation.invalid"
-      ],
-      "owner": "cloud:CloudDO",
-      "risk": "money",
-      "principals": [
-        "session"
-      ],
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "transport": {
-        "http": {
-          "method": "POST",
-          "path": "/v1/ops"
-        }
-      },
-      "cli": {
-        "path": "cloud surge create",
-        "visible": false
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "cloud"
-      },
-      "docs": "Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first.",
-      "since": "cloud-1",
-      "input_json_schema": {
-        "type": "object",
-        "properties": {
-          "count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 8
-          },
-          "ttl_seconds": {
-            "type": "integer",
-            "minimum": 300,
-            "maximum": 3600
-          }
-        },
-        "required": [
-          "count",
-          "ttl_seconds"
-        ],
-        "additionalProperties": true,
-        "$defs": {}
-      },
-      "output_json_schema": {
-        "$ref": "#/$defs/CloudSurgeReceipt",
-        "$defs": {
-          "MachineId": {
-            "type": "string",
-            "pattern": "^vm_[a-z0-9]{20}$",
-            "description": "A Cloud machine."
-          },
-          "CloudSurgeSlot": {
-            "type": "object",
-            "properties": {
-              "index": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "created",
-                  "queued",
-                  "refused"
-                ]
-              },
-              "machine_id": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/MachineId"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "provider": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "reason": {
-                "type": "string"
-              },
-              "retryable": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "index",
-              "status",
-              "machine_id",
-              "provider",
-              "reason",
-              "retryable"
-            ],
-            "additionalProperties": true
-          },
-          "CloudSurgeReceipt": {
-            "type": "object",
-            "properties": {
-              "count": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8
-              },
-              "ttl_seconds": {
-                "type": "integer",
-                "minimum": 300,
-                "maximum": 3600
-              },
-              "slots": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/CloudSurgeSlot"
-                }
-              }
-            },
-            "required": [
-              "count",
-              "ttl_seconds",
-              "slots"
-            ],
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "cloud.surge.preview": {
-      "class": "read",
-      "idempotency": "forbidden",
-      "target": "team",
-      "ancestors": [
-        "user"
-      ],
-      "params": {
-        "selectors": {},
-        "fields": {
-          "count": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "int64"
-            }
-          },
-          "ttl_seconds": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "int64"
-            }
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "ref",
-        "name": "CloudSurgePreview"
-      },
-      "errors": [
-        "auth.forbidden",
-        "auth.sso_required",
-        "auth.unauthenticated",
-        "client.too_old",
-        "owner.unreachable",
-        "selector.not_found",
-        "validation.invalid"
-      ],
-      "owner": "cloud:CloudDO",
-      "risk": "read",
-      "principals": [
-        "session",
-        "install"
-      ],
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "transport": {
-        "http": {
-          "method": "POST",
-          "path": "/v1/read"
-        }
-      },
-      "cli": {
-        "path": "cloud surge preview",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "default",
-        "group": "cloud"
-      },
-      "docs": "Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it.",
-      "since": "cloud-1",
-      "input_json_schema": {
-        "type": "object",
-        "properties": {
-          "count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 8
-          },
-          "ttl_seconds": {
-            "type": "integer",
-            "minimum": 300,
-            "maximum": 3600
-          }
-        },
-        "required": [
-          "count",
-          "ttl_seconds"
-        ],
-        "additionalProperties": true,
-        "$defs": {}
-      },
-      "output_json_schema": {
-        "$ref": "#/$defs/CloudSurgePreview",
-        "$defs": {
-          "CloudSurgePreview": {
-            "type": "object",
-            "properties": {
-              "count": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8
-              },
-              "ttl_seconds": {
-                "type": "integer",
-                "minimum": 300,
-                "maximum": 3600
-              },
-              "provider": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "available": {
-                "type": "boolean"
-              },
-              "reason": {
-                "type": "string"
-              },
-              "estimated_cost_usd": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            },
-            "required": [
-              "count",
-              "ttl_seconds",
-              "provider",
-              "available",
-              "reason",
-              "estimated_cost_usd"
             ],
             "additionalProperties": true
           }
@@ -38723,59 +37327,6 @@
             ],
             "additionalProperties": true
           },
-          "CloudMachineOrigin": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "workflow",
-                  "lane",
-                  "agent",
-                  "person"
-                ]
-              },
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "url": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$",
-                "allOf": [
-                  {
-                    "pattern": "^https:\\/\\/[^\\s/?#@]+(?:[/?#]\\S*)?$"
-                  }
-                ]
-              },
-              "run": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "workflow": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              },
-              "lane": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200,
-                "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]*$"
-              }
-            },
-            "required": [
-              "label"
-            ],
-            "additionalProperties": true
-          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -39018,14 +37569,6 @@
                 ]
               },
               "spend_cap_pause_at": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "origin": {
-                "$ref": "#/$defs/CloudMachineOrigin"
-              },
-              "expires_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
@@ -62225,13 +60768,6 @@
                           }
                         }
                       }
-                    },
-                    "linked_by_github_id": {
-                      "required": false,
-                      "type": {
-                        "kind": "primitive",
-                        "name": "int64"
-                      }
                     }
                   }
                 }
@@ -62411,11 +60947,6 @@
                     "type": "null"
                   }
                 ]
-              },
-              "linked_by_github_id": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -62547,7 +61078,7 @@
               "kind": "primitive",
               "name": "string",
               "max_length": 512,
-              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
             }
           },
           "expected_revision": {
@@ -62658,7 +61189,7 @@
           "return_to": {
             "type": "string",
             "maxLength": 512,
-            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
           }
         },
         "required": [
@@ -62816,11 +61347,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "linked_by_github_id": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -63107,11 +61633,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "linked_by_github_id": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -63837,11 +62358,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "linked_by_github_id": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

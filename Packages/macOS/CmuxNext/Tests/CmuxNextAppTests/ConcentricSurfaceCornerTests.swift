@@ -75,6 +75,7 @@ import Testing
             ("PopupStyle.rowCornerRadius", popup.rowCornerRadius, max(0, popup.cornerRadius - popup.padding)),
             ("ServerMetrics.cardRadius", ServerMetrics.cardRadius, corners.inner),
             ("Metrics.itemCornerRadius", Metrics.itemCornerRadius, corners.radius(depth: 2)),
+            ("TooltipPanel.radius", TooltipPanel.radius, corners.radius(depth: 2)),
             ("ServerMetrics.fieldRadius", ServerMetrics.fieldRadius, corners.radius(depth: 2)),
         ]
         for (name, value, expected) in nested {

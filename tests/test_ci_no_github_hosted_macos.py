@@ -90,8 +90,7 @@ def script_hits(root: Path) -> list[str]:
             if not path.is_file() or path.suffix not in SCRIPT_SUFFIXES:
                 continue
             relative = path.relative_to(root)
-            # A unit test (test_*.py, or *_test.py beside its script) names labels as fixtures; it routes nothing.
-            if SCRIPT_SKIP_PARTS & set(relative.parts) or path.name.startswith("test_") or path.stem.endswith("_test"):
+            if SCRIPT_SKIP_PARTS & set(relative.parts) or path.name.startswith("test_"):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")

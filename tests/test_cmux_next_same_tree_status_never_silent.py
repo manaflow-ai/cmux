@@ -99,10 +99,7 @@ class StatusFromOutside(unittest.TestCase):
         for tier, tested in status.TESTED.items():
             with self.subTest(tier=tier):
                 reporter = all_jobs[f"same-tree-status-{tier}"]
-                # Runs after a failed or skipped tested job; a cancelled run queues no tail job (#48396), and its
-                # status stays pending (never a pass) until a re-run posts it.
-                self.assertTrue(reporter["if"].replace("${{", "").strip().startswith(("always()", "!cancelled()")),
-                                reporter["if"])
+                self.assertTrue(reporter["if"].replace("${{", "").strip().startswith("always()"))
                 self.assertIn("inputs.same_tree_status_sha != ''", reporter["if"])
                 self.assertEqual(set(reporter["needs"]), {"same-tree-cmux-tui", *tested})
                 self.assertEqual(reporter["permissions"].get("statuses"), "write")

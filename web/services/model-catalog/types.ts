@@ -3,8 +3,7 @@
 // `delivery` and `diagnostics`; the server never sets them.
 
 export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-/** "disabled": turned off by the live catalog's kill switch (cloud-api /v1/models/catalog); clients hide it. */
-export type ModelStatus = "preview" | "deprecated" | "disabled";
+export type ModelStatus = "preview" | "deprecated";
 export type InputModality = "text" | "image" | "pdf" | "audio" | "video";
 
 export interface ModelInfo {
@@ -34,22 +33,6 @@ export interface HarnessModel {
   fast?: boolean;
   aliases?: string[];
   status?: ModelStatus;
-  /** Why a model is "disabled" (the kill switch's reason), for a tooltip. */
-  statusReason?: string;
-}
-
-/** The feed rules a "catalog" harness's models come from, so a client that reads the public feed
- *  itself (acpmux, every hour) lists a model the day the feed has it, before this catalog is
- *  rebuilt. Same meaning as overrides.ts `HarnessSource` and the override fields named here. */
-export interface HarnessFeed {
-  sources: { provider: string; include?: string[]; exclude?: string[]; minReleaseDate?: string }[];
-  shortNamePrefix?: string;
-  familyNames?: Record<string, string>;
-  dropEfforts?: EffortValue[];
-  defaultEffort?: EffortValue;
-  groupByProvider?: boolean;
-  /** Feed models this harness never lists (overrides.ts `hidden`). */
-  hidden?: string[];
 }
 
 export interface CatalogHarness {
@@ -61,10 +44,6 @@ export interface CatalogHarness {
   /** Where to install or sign in: https on a host allowlist (schema.ts DOCS_URL_HOSTS). */
   docsUrl?: string;
   defaultModel?: string;
-  /** The harness runs any model id its provider serves (Gemini CLI's `--model`), so a picker
-   *  offers the catalog's models even when the harness's own menu does not name them. */
-  runsAnyModel?: boolean;
-  feed?: HarnessFeed;
   models: HarnessModel[];
 }
 

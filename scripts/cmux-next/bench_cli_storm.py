@@ -40,7 +40,6 @@ import zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from daemon_teardown import daemon_env, end_terminals, recorded_hosts  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
-from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -481,14 +480,6 @@ def settle(profile, control, quiet_s=1.0, limit_s=30.0):
     return last
 
 
-def wait_rss_stable(pid, what, timeout=15.0):
-    """Waits until the app's RSS (whole MB) holds for about 1 s: the work before a memory reading has finished."""
-    try:
-        wait_stable(lambda: rss_kb(pid) // 1024, what, timeout=timeout, interval=0.2, reads=6)
-    except StateWaitTimeout as error:
-        safe_print(f"bench: warning: {error}")
-
-
 def wait_for_pty_baseline(profile, pid, baseline, limit_s):
     """Terminal hosts exit asynchronously: a closed tab's terminal is reaped
     after the daemon's reap grace period. Waits at most `limit_s`."""
@@ -632,11 +623,7 @@ def main():
                f"ptys in use {in_use}")
 
     profile.setup(control, pid)
-    # The stream pane's terminal is up once a new PTY holder appears; then memory holds before the launch reading.
-    if not wait_until(lambda: len(profile.pty_holders(pid) - pty_baseline) > 0, "the stream pane's terminal host",
-                      timeout=15, interval=0.1, raise_on_timeout=False):
-        safe_print("bench: warning: no new terminal host appeared for the stream pane within 15 s")
-    wait_rss_stable(pid, "the app's memory after setup")
+    time.sleep(1.0)
     launch_rss = rss_kb(pid)
     launch_footprint = footprint_mb(pid)
 
@@ -656,7 +643,7 @@ def main():
         warmup = {"storm_seconds": warm_seconds, "closed_by_daemon": warm_closed_by_daemon,
                   "pty_holders_left": len(warm_left)}
         safe_print(f"bench: warm-up {json.dumps(warmup)}")
-        wait_rss_stable(pid, "the app's memory after the warm-up cleanup")
+        time.sleep(2.0)
     baseline_rss = rss_kb(pid)
     baseline_footprint = footprint_mb(pid)
     try:
@@ -687,8 +674,7 @@ def main():
     closed_by_daemon = close_storm_tabs(profile, control)
     profile.stop_stream(control)
     cleanup_done = time.monotonic()
-    # The closes have landed once the left pane's tab count holds for 1 s.
-    settle(profile, control, quiet_s=1.0, limit_s=30.0)
+    time.sleep(5.0)
     leftover = len([t for t in profile.left_tabs(control) if t not in profile.keep])
     # A closed tab's terminal lives for the reap grace period, then exits:
     # count a host as leaked only past grace + margin after the last close.

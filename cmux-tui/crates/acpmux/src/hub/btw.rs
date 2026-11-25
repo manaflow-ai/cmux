@@ -255,13 +255,7 @@ impl Hub {
             // active turn. An idle process uses the read-only emulation below.
             // The translator enforces its own active-turn check at dispatch,
             // including when it lives in a separate agent-host process.
-            // The callback takes only the question's words, so a question that names an `@` tool
-            // goes to the side session below, which adds the tools note (`tool_mentions.rs`).
-            if target_harness.is_none()
-                && is_claude
-                && session.turn().is_some()
-                && crate::tool_mentions::mentioned(question).is_empty()
-            {
+            if target_harness.is_none() && is_claude && session.turn().is_some() {
                 match with_inline_deadline(
                     inline_deadline,
                     Box::pin(self.btw_inline_claude(session, question)),
@@ -385,7 +379,6 @@ impl Hub {
                     harness: Some(target_harness.clone().unwrap_or_else(|| meta.harness.clone())),
                     preset: if target_harness.is_some() { None } else { meta.preset.clone() },
                     name: Some(name.clone()),
-                    suffix_taken_name: false,
                     cwd: Some(meta.cwd.clone()),
                     policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
                     model: model.clone(),
@@ -393,8 +386,7 @@ impl Hub {
                     adopt: None,
                     remote: meta.remote_origin,
                     vm_boundary: meta.vm_boundary,
-                    // The answer of the Mac that started its chat (`cmux_tools_answer.rs`).
-                    env: super::cmux_tools_answer::inherited(Default::default(), &meta.session_env),
+                    env: Default::default(),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
@@ -408,11 +400,6 @@ impl Hub {
                     checked_cwd: None,
                     // It sees what its chat sees.
                     additional_directories: meta.additional_directories.clone(),
-                    // A side chat answers and stops: never its chat's stop condition.
-                    stop_condition: None,
-                    // A restricted chat's side chat runs restricted too (`restricted.rs`):
-                    // the same folder's config stays off.
-                    restricted: meta.restricted,
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,
@@ -420,7 +407,6 @@ impl Hub {
                     require_asking: false,
                     // A side chat never runs on its chat's Cloud credential.
                     credential: None,
-                    create_key: None,
                 };
                 let side = match with_inline_creation(
                     self.clone(),
@@ -532,8 +518,6 @@ impl Hub {
                 json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
             );
         }
-        // An `@computer-use` / `@browser-use` in the question gets its note (`tool_mentions.rs`).
-        crate::tool_mentions::add_note(&mut blocks);
         // Answer once the prompt is recorded; the turn runs on.
         let (accepted_tx, accepted) = oneshot::channel();
         let mut opts = opts;
@@ -877,7 +861,7 @@ impl Hub {
     fn btw_transcript(&self, session: &Session) -> String {
         // The two kinds it reads, parsed one record at a time (never the whole log).
         let mut lines: Vec<(&str, String)> = Vec::new();
-        let _ = self.scan_kinds_off(
+        let _ = self.store.scan_kinds(
             &session.id,
             &["user_message", "agent_message_chunk"],
             &mut |e: EventRecord| {

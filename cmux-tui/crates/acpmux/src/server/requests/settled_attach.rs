@@ -42,13 +42,6 @@ pub(super) fn reply(
     // Read before the page, as the attach does: a forward page that reads to the log's end
     // holds every record up to it.
     let last = s.meta().last_seq;
-    // More logged since the view than a few pages hold: the plain attach reads the newest page
-    // back from the log's end, which costs that page. The forward read from the view would cost
-    // every record logged since, of any kind, to learn it is more than a page: on Leo's daemon a
-    // view hours old read a 5.8 GB chat's later segments on each open (2026-11-18).
-    if last.saturating_sub(view.last_seq) > settled_gap_records(view.key.limit) {
-        return Ok(None);
-    }
     let read = || {
         hub.events_page(
             &s.id,
@@ -83,11 +76,4 @@ pub(super) fn reply(
     let mut reply = json!({"session": detail, "events": events, "hasMore": has_more, "lastSeq": last, "pageThrough": last, "presence": presence, "turnOpener": opener, "settled": settled});
     crate::hub::fit_reply(&mut reply);
     Ok(Some(reply))
-}
-
-/// The most records logged since a settled view that its open still reads forward: four of its
-/// pages' records, of any kind (a turn's reply chunks and tool updates are most of a log), so a
-/// view a few turns old answers and one hours old falls back to the plain attach.
-pub(super) fn settled_gap_records(limit: usize) -> u64 {
-    (limit.max(1) as u64).saturating_mul(4).max(2000)
 }

@@ -85,7 +85,6 @@ pub(super) fn mint_by_terminal(
         return Err(refused.into());
     }
     let terminal = TerminalPublicId::parse(terminal)?;
-    mux.wake_lazy_terminal(&terminal);
     let surface = mux
         .resource_surface_for_terminal(&terminal)
         .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;

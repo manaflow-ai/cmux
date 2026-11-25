@@ -53,13 +53,13 @@ struct AgentPaneTransportContextTests {
         let sessions: [Any] = ["foreign", NSNull(), 7]
         for session in sessions {
             let frame = try Self.text(method, ["sessionId": session])
-            guard case .refuse(.refuse(.sessionNotInPane, _, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
+            guard case .refuse(.refuse(.sessionNotInPane, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
                 Issue.record("Context request escaped the pane's session scope")
                 continue
             }
         }
         let frame = try Self.text(method, [:])
-        guard case .refuse(.refuse(.sessionNotInPane, _, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
+        guard case .refuse(.refuse(.sessionNotInPane, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
             Issue.record("Context request accepted a missing session")
             return
         }
@@ -69,7 +69,7 @@ struct AgentPaneTransportContextTests {
     func forgedParamsAndMetadataAreRefused(method: String) throws {
         for key in ["cwd", "host", "unknown", "_meta"] {
             let frame = try Self.text(method, ["sessionId": "own", key: "/other/project"])
-            guard case .refuse(.refuse(.intentInvalid, _, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
+            guard case .refuse(.refuse(.intentInvalid, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
                 Issue.record("Context request accepted \(key)")
                 continue
             }
@@ -79,7 +79,7 @@ struct AgentPaneTransportContextTests {
     @Test(arguments: ["_acpmux/context", "_acpmux/context_override"])
     func contextCannotReplaceTheHandshake(method: String) throws {
         let frame = try Self.text(method, ["sessionId": "own"])
-        guard case .refuse(.refuse(.firstFrameNotInitialize, _, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot(first: true)) else {
+        guard case .refuse(.refuse(.firstFrameNotInitialize, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot(first: true)) else {
             Issue.record("Context bypassed the initialize handshake")
             return
         }

@@ -1,6 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
-import { BASE_SPACE, spacedEnv } from "./build-space.ts"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { resolveTeamSharedKey, type TeamAgent, type TeamSharedKey } from "./team-agent-keys.ts"
 
 /**
@@ -21,11 +20,9 @@ import { resolveTeamSharedKey, type TeamAgent, type TeamSharedKey } from "./team
  *
  * Anything malformed answers null (no key), never an error: a bad id is no team's key.
  */
-export class ModelKeys extends WorkerEntrypoint<RawEnv> {
-  // The platform's call names a team and owner only, no build space: the base space's teams (build-space.ts).
-  // A dev build's team lives in its own space, so its machines get no shared key here (no other space's key).
+export class ModelKeys extends WorkerEntrypoint<Env> {
   async resolveTeamSharedKey(teamId: string, agent: string, ownerId?: string): Promise<TeamSharedKey | null> {
-    return modelKeyForTeam(spacedEnv(this.env, BASE_SPACE), teamId, agent, ownerId)
+    return modelKeyForTeam(this.env, teamId, agent, ownerId)
   }
 
   async resolveOwnerProviderKey(_ownerId: string, _agent: string): Promise<TeamSharedKey | null> {

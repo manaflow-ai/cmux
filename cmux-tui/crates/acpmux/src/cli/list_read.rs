@@ -214,11 +214,6 @@ pub(crate) fn name_probe(summary: &Summary) -> Option<Value> {
     }
     let mut probe = serde_json::Map::new();
     probe.insert("name".into(), name);
-    // A row carries only a given handle (`list_tee::summary::derived_handle`); derive the rest.
-    let handle = extra(summary, "handle");
-    let display =
-        crate::session_handle::display(handle.as_ref().and_then(Value::as_str), &summary.chat_id);
-    probe.insert("handle".into(), json!(display));
     probe.insert("sessionId".into(), json!(summary.chat_id));
     if summary.origin == "local" {
         // This daemon's rows are `local/ID` (`SessionReceipt::qualified_id`).

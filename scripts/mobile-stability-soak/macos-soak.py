@@ -121,15 +121,10 @@ def main() -> int:
         )
         if not WORKSPACE:
             raise RuntimeError("missing workspace ref")
-        # The new workspace lists its terminal surface (up to 15 s).
-        surface_deadline = time.monotonic() + 15
-        while True:
-            SURFACE = extract_first_ref("surface", require_cli("list-pane-surfaces", "--workspace", WORKSPACE))
-            if SURFACE or time.monotonic() >= surface_deadline:
-                break
-            time.sleep(0.1)
+        time.sleep(1)
+        SURFACE = extract_first_ref("surface", require_cli("list-pane-surfaces", "--workspace", WORKSPACE))
         if not SURFACE:
-            raise RuntimeError(f"missing surface ref: {WORKSPACE} listed no surface within 15 s")
+            raise RuntimeError("missing surface ref")
     except Exception as exc:
         log(f"fail bootstrap {exc}")
         write_status("failed", 0, 1, error=str(exc))

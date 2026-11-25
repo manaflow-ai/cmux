@@ -124,7 +124,7 @@ fn frame(host: &mut Host, t: &str) -> Value {
 /// `link-1`; returns once the carrier port is open.
 fn open_link(host: &mut Host, ports: &FakePorts) -> Value {
     host.send(&json!({ "type": "op", "id": "2", "op": "cloud.machine.connect",
-        "args": { "machine": "vm_beta02" }, "origin": "user", "idempotency_key": "c-2",
+        "args": { "machine": "vm-beta02" }, "origin": "user", "idempotency_key": "c-2",
         "open_token": "tok-1" }));
     let result = next_where(host, "connect result", |l| l["type"] == "result" && l["id"] == "2");
     assert_eq!(result["ok"], true, "{result}");
@@ -132,7 +132,7 @@ fn open_link(host: &mut Host, ports: &FakePorts) -> Value {
     assert_eq!(request["op"], "cmux.terminal.connector.open");
     assert_eq!(
         request["params"],
-        json!({ "kind": "cloud-vm", "target": "vm_beta02", "open_token": "tok-1" })
+        json!({ "kind": "cloud-vm", "target": "vm-beta02", "open_token": "tok-1" })
     );
     host.send(&json!({ "t": "host.result", "id": request["id"],
         "value": { "channel": "link-1", "window_bytes": WINDOW } }));
@@ -149,14 +149,14 @@ fn frame_or_read(host: &mut Host, ports: &FakePorts) -> usize {
     assert_eq!(ports.count(), 1, "one carrier port per link");
     let port = ports.port(0);
     let log = port.lock().unwrap();
-    assert_eq!(log.socket, PathBuf::from("/tmp/cmux-test/vm_beta02-1.sock"));
+    assert_eq!(log.socket, PathBuf::from("/tmp/cmux-test/vm-beta02-1.sock"));
     *log.reads.first().expect("a read request")
 }
 
 #[test]
 fn a_connect_without_an_open_token_opens_no_frame_link() {
     let (mut host, ports) = start();
-    host.op("2", "cloud.machine.connect", json!({ "machine": "vm_beta02" }), "c-2");
+    host.op("2", "cloud.machine.connect", json!({ "machine": "vm-beta02" }), "c-2");
     host.answer_of("3", "cloud.port.list", json!({}));
     assert_eq!(ports.count(), 0);
 }
@@ -257,10 +257,10 @@ fn the_hosts_end_frame_ends_the_link_without_an_end_back() {
 fn a_refused_open_leaves_the_connect_and_its_socket_working() {
     let (mut host, ports) = start();
     host.send(&json!({ "type": "op", "id": "2", "op": "cloud.machine.connect",
-        "args": { "machine": "vm_beta02" }, "origin": "user", "idempotency_key": "c-2",
+        "args": { "machine": "vm-beta02" }, "origin": "user", "idempotency_key": "c-2",
         "open_token": "tok-1" }));
     let result = next_where(&mut host, "connect result", |l| l["id"] == "2");
-    assert_eq!(result["result"]["socket"], "/tmp/cmux-test/vm_beta02-1.sock");
+    assert_eq!(result["result"]["socket"], "/tmp/cmux-test/vm-beta02-1.sock");
     let request = next_where(&mut host, "connector.open", |l| l["t"] == "host.request");
     host.send(&json!({ "t": "host.error", "id": request["id"], "code": "denied",
         "message": "denied: the app does not implement cmux.terminal.connector/1",
@@ -273,7 +273,7 @@ fn a_refused_open_leaves_the_connect_and_its_socket_working() {
 fn a_link_that_goes_down_ends_its_frame_link() {
     let (mut host, ports) = start();
     open_link(&mut host, &ports);
-    host.spawner.exit("vm_beta02", 1);
+    host.spawner.exit("vm-beta02", 1);
     let down = next_where(&mut host, "link down or end", |l| {
         l["event"] == "cloud.link.changed" || l["t"] == "end"
     });
@@ -285,7 +285,7 @@ fn a_link_that_goes_down_ends_its_frame_link() {
 
     // A new user connect opens a new frame link on the new carrier.
     host.send(&json!({ "type": "op", "id": "5", "op": "cloud.machine.connect",
-        "args": { "machine": "vm_beta02" }, "origin": "user", "idempotency_key": "c-5",
+        "args": { "machine": "vm-beta02" }, "origin": "user", "idempotency_key": "c-5",
         "open_token": "tok-2" }));
     let request = next_where(&mut host, "a second connector.open", |l| l["t"] == "host.request");
     assert_eq!(request["params"]["open_token"], "tok-2");
@@ -294,7 +294,7 @@ fn a_link_that_goes_down_ends_its_frame_link() {
     host.answer_of("6", "cloud.port.list", json!({}));
     assert_eq!(ports.count(), 2);
     let second = ports.port(1).lock().unwrap().socket.clone();
-    assert_eq!(second, PathBuf::from("/tmp/cmux-test/vm_beta02-2.sock"));
+    assert_eq!(second, PathBuf::from("/tmp/cmux-test/vm-beta02-2.sock"));
 }
 
 #[test]

@@ -88,7 +88,7 @@ def run_agent():
 
         def chunk(t):
             fake.update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": t}})
-            time.sleep(gap)  # sleep-ok: a model's token pace, the stream being measured
+            time.sleep(gap)  # bench: a model's token pace
 
         def prose(words):
             for i in range(words):
@@ -228,21 +228,6 @@ def segments(home):
     return {n: os.path.getsize(os.path.join(d, n)) for n in names}
 
 
-def settle_writes(d, hold=1.0, bound=30.0):
-    """Until the setup's journal writes are done: the journal segments' sizes hold for
-    `hold` s. Bounded: a daemon that never holds still (a periodic writer) is measured as it is after `bound` s."""
-    read = lambda: segments(d.home)
-    deadline, last, since = time.monotonic() + bound, read(), time.monotonic()
-    while time.monotonic() - since < hold:
-        if time.monotonic() >= deadline:
-            log(f"settle: the journal kept being written for {bound:g} s; the window opens anyway")
-            return
-        time.sleep(0.1)  # the poll interval of the segment sizes
-        now = read()
-        if now != last:
-            last, since = now, time.monotonic()
-
-
 def parse_region(path, start, end, into):
     """Records and markers in bytes [start, end) of a segment (start at an entry boundary)."""
     with open(path, "rb") as f:
@@ -332,10 +317,10 @@ def case_idle(args, Daemon):
             v = Client(d.sock)
             attach(v, sid)
             viewers.append(v)
-        settle_writes(d, hold=2.0)  # the setup's writes are done before the window opens
+        time.sleep(5)  # bench: let the setup's writes settle before the window opens
         probe = Probe(d)
         a = probe.snap()
-        time.sleep(args.idle)  # sleep-ok: the idle window itself, the span the writes are counted over
+        time.sleep(args.idle)  # bench: the idle window itself
         b = probe.snap()
         for v in viewers:
             v.close()
@@ -370,7 +355,7 @@ def case_stream(args, Daemon):
                 except RuntimeError as exc:
                     log(f"app: {exc}")
 
-        settle_writes(d)  # the setup's writes are done before the window opens
+        time.sleep(2)  # bench: the setup settles
         probe = Probe(d)
         a = probe.snap()
         threading.Thread(target=app, daemon=True).start()
@@ -399,7 +384,7 @@ def case_typing(args, Daemon):
         c = Client(d.sock)
         sid = new_chat(c, d, "typing")
         c.call("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "hello"}]})
-        settle_writes(d)  # the setup's writes are done before the window opens
+        time.sleep(2)  # bench: the setup settles
         probe = Probe(d)
         a = probe.snap()
         deadline = time.monotonic() + args.typing

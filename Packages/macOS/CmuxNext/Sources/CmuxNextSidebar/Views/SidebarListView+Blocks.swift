@@ -39,8 +39,6 @@ struct SidebarSettlingDrop {
 struct SidebarListBlocks: Equatable {
     /// The transient item a gap holds: drawn invisible, it makes the block's items make way.
     static let gapID = LayoutItemID(LayoutItemID.transientPrefix + "sidebar-gap")
-    /// The room under the top section (the Chief's row), on top of the list's row gap: 8 pt at Default, with the density.
-    static var topSectionGap: CGFloat { Metrics.space4 }
 
     var sections: [String: LayoutSection]
     var infos: [LayoutItemID: SidebarItemInfo]
@@ -54,7 +52,7 @@ struct SidebarListBlocks: Equatable {
     /// `joinsAbove`: a block drawn right before it, so the two keep one band's spacing (the list's row gap between them,
     /// or a section gap and its line in a lines look; the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
     /// spacing (or the next block's top edge) under the last item, so the rows under the pins follow as rows follow
-    /// rows (Leo 2026-10-21). The Chief's top section is the one exception: a small gap sets it apart from the list.
+    /// rows (Leo 2026-10-21).
     /// `joinsHome`: that block is Home's section, so no line separates them (Lawrence 2026-11-13); the gap stays.
     func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false, joinsHome: Bool = false) -> SidebarRegionView.Content? {
         guard var section = sections[id] else { return nil }
@@ -73,9 +71,7 @@ struct SidebarListBlocks: Equatable {
         if joinsAbove {
             (edges.topPadding, edges.leadingSeparator) = look.separatesSections ? (metrics.sectionGap, !joinsHome) : (metrics.rowGap, false)
         }
-        // The Chief's section (the top one) keeps a small gap under it, so the Chief row stands apart from the
-        // workspaces below (Lucas 2026-11-23); every other block has none.
-        edges.bottomPadding = id == SidebarLayoutDocument.topSectionID.rawValue ? Self.topSectionGap : 0
+        edges.bottomPadding = 0
         return SidebarRegionView.Content(sections: [section], infos: infos, collapsed: collapsed, look: look, metrics: edges,
                                          drawsLines: drawsLines, appHeights: appHeights)
     }

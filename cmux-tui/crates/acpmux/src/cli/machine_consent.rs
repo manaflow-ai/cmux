@@ -16,10 +16,7 @@ pub(super) struct Authority {
 
 impl Authority {
     pub(super) fn current(legacy: PathBuf) -> Result<Self> {
-        Ok(Self {
-            root: crate::config::resolve_supervised_home(&account_home()?).join("machine-consent"),
-            legacy,
-        })
+        Ok(Self { root: account_home()?.join(".acpmux/machine-consent"), legacy })
     }
 
     fn validate_namespace(&self) -> Result<()> {

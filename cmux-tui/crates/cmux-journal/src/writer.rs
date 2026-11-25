@@ -108,7 +108,6 @@ impl Drop for Ended {
         let panicked = std::thread::panicking();
         self.0.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         self.0.written_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
-        self.0.space_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         {
             let mut state = self.0.lock();
             state.ended = true;
@@ -133,10 +132,7 @@ pub(crate) struct Writer {
     next_seq: u64,
     /// Every record taken from `pending` and not yet durable, encoded, in LSN order.
     retained: Vec<u8>,
-    /// A batch taken while `retained` held records, appended to it off the journal's lock
-    /// ([`Writer::merge_taken`]); empty otherwise. Its emptied buffer is the next `pending`.
-    taken: Vec<u8>,
-    /// The LSN of the last record in `retained` (and `taken`).
+    /// The LSN of the last record in `retained`.
     retained_last: Lsn,
     retained_ack: bool,
     /// `retained` holds a kept record: synced once the journal is quiet ([module docs](self)).
@@ -184,7 +180,6 @@ impl Writer {
             next_seq: tail.seq.saturating_add(1),
             active: Some(Active { file: tail.file, size: tail.size }),
             retained: Vec::new(),
-            taken: Vec::new(),
             retained_last: durable,
             retained_ack: false,
             retained_kept: false,
@@ -208,7 +203,6 @@ impl Writer {
         let _ended = Ended(Arc::clone(&self.shared));
         loop {
             let job = self.next_job();
-            self.merge_taken();
             if let Err(failure) = self.work(job.close) {
                 self.fail(failure);
             }
@@ -283,15 +277,8 @@ impl Writer {
         if self.retained.is_empty() {
             // The emptied buffer goes back as the next pending one.
             std::mem::swap(&mut self.retained, &mut state.pending);
-        } else if self.taken.is_empty() {
-            // Unsynced records are held (a stream batch waits out its delay): the batch joins
-            // them after the lock goes (`merge_taken`). Copied here, every append waited for the
-            // copy, and for the page faults of `retained` growing to its sync (8 MiB and more):
-            // 15 chats streaming into one store reached 0.56 of the rate of the same chats in
-            // stores of their own (`acpmux` `stress::ingest`).
-            std::mem::swap(&mut self.taken, &mut state.pending);
         } else {
-            self.taken.extend_from_slice(&state.pending);
+            self.retained.extend_from_slice(&state.pending);
             state.pending.clear();
         }
         self.retained_last = state.pending_last;
@@ -302,14 +289,6 @@ impl Writer {
         state.pending_ack = false;
         state.pending_kept = false;
         true
-    }
-
-    /// Appends the batch `take` set aside to `retained`, off the journal's lock: before each job.
-    fn merge_taken(&mut self) {
-        if !self.taken.is_empty() {
-            self.retained.extend_from_slice(&self.taken);
-            self.taken.clear();
-        }
     }
 
     /// A waiter asked for a sync ([`crate::Journal::wait_durable`]): the records held now are
@@ -513,14 +492,12 @@ impl Writer {
         let advanced = self.publish(|stats| {
             let advanced = durable > stats.durable_lsn;
             stats.durable_lsn = durable;
-            self.shared.durable_lsn.store(durable, std::sync::atomic::Ordering::Release);
             stats.full_durable_lsn = full_durable;
             match level {
                 SyncLevel::Barrier => stats.barrier_syncs = stats.barrier_syncs.saturating_add(1),
                 SyncLevel::Full => stats.full_syncs = stats.full_syncs.saturating_add(1),
             }
             stats.failing = None;
-            stats.out_of_space = false;
             advanced
         });
         self.shared.durable.notify_all();
@@ -603,39 +580,16 @@ impl Writer {
         self.retry_at = Instant::now().checked_add(self.backoff);
         self.backoff = self.backoff.saturating_mul(2).min(self.shared.config.retry_max);
         let text = error.to_string();
-        let full = out_of_space(&error);
-        let began = self.publish(|stats| {
+        self.publish(|stats| {
             stats.failures = stats.failures.saturating_add(1);
             stats.failing = Some(text);
-            let began = full && !stats.out_of_space;
-            stats.out_of_space = full;
-            began
         });
         self.shared.durable.notify_all();
-        if began {
-            let listeners =
-                self.shared.space_listeners.lock().unwrap_or_else(PoisonError::into_inner).clone();
-            for listener in listeners {
-                listener();
-            }
-        }
     }
 
     fn publish<T>(&self, change: impl FnOnce(&mut crate::JournalStats) -> T) -> T {
         change(&mut self.shared.lock().stats)
     }
-}
-
-/// A full disk or quota.
-fn out_of_space(error: &io::Error) -> bool {
-    if matches!(error.kind(), io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded) {
-        return true;
-    }
-    #[cfg(unix)]
-    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
-        return true;
-    }
-    false
 }
 
 /// A failed append: the segment is cut back to its size before it. A failed cut ends the

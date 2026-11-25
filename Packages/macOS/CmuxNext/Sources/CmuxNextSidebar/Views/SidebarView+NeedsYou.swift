@@ -8,9 +8,8 @@ extension SidebarView {
     func buildNeedsYou() {
         addSubview(needsYouTray)
         needsYouTray.onOpen = { [weak self] id in
-            guard let self else { return }
-            SidebarSessionTree.shared.reveal(id, lists: self.model.listsHolding(id))
-            self.model.click(id)
+            SidebarSessionTree.shared.reveal(id)
+            self?.model.click(id)
         }
         // Keep the list's row patch handler first: it updates the realized row in place. The tray gets
         // the old/new values separately and refreshes only when the row crosses a needs-you state.
@@ -41,8 +40,7 @@ extension SidebarView {
 
     func refreshNeedsYou() {
         let before = needsYouTray.preferredHeight
-        let tree = SidebarNeedsYou.trayTree(SidebarSessionTree.shared.drawn, sessionTree: DesignSettings.shared.sidebarSections.sessionTree)
-        needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: tree))
+        needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: SidebarSessionTree.shared.drawn))
         if needsYouTray.preferredHeight != before { needsLayout = true }
     }
 

@@ -204,7 +204,7 @@ final class SidebarNoticeCardView: NSView {
                 addItems(notice.dismissMenu[...], to: menu)
             }
         }
-        return NSMenu.withoutSystemItems(menu.items.isEmpty ? nil : menu)
+        return menu.items.isEmpty ? nil : menu
     }
 
     /// The x's menu (the tip's Hide / Mute / Never), or nil when the x dismisses at once.
@@ -278,12 +278,11 @@ final class SidebarNoticeCardView: NSView {
 
     // MARK: Geometry
 
-    /// The card's padding (``Metrics/cardPadding``): every row and button starts it in from the edges.
-    private static var padding: CGFloat { Metrics.cardPadding }
+    private static var padding: CGFloat { Metrics.space3 }
     /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
-    static var cardCornerRadius: CGFloat { Metrics.cardCornerRadius }
+    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
     private static var lineHeight: (caption: CGFloat, body: CGFloat) {
-        (ceil(Typography.cardBody.boundingRectForFont.height), ceil(Typography.cardTitle.boundingRectForFont.height))
+        (ceil(Typography.caption.boundingRectForFont.height), ceil(Typography.bodyEmphasized.boundingRectForFont.height))
     }
     private static let barHeight: CGFloat = 3
     /// List lines a notice shows.
@@ -331,7 +330,7 @@ final class SidebarNoticeCardView: NSView {
 
     /// A loading card's detail counts (bytes, seconds): tabular digits keep each count's width.
     private static func detailFont(_ notice: SidebarNoticeCard?) -> NSFont {
-        notice?.progress != nil ? Typography.cardBodyDigits : Typography.cardBody
+        notice?.progress != nil ? Typography.captionDigits : Typography.caption
     }
 
     /// A label that wraps at its width with no line limit and never truncates.
@@ -378,9 +377,9 @@ final class SidebarNoticeCardView: NSView {
         let dismissWidth = notice.dismissTitle == nil ? 0 : dismissButton.fittingWidth
         let trailingWidth = notice.trailing == nil ? 0 : trailingButton.fittingWidth
         let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth, placement: glyphPlacement,
-                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.cardRowGap, Metrics.space4, Metrics.cardTextGap,
-                                    Typography.cardBody.pointSize, Typography.cardCaption.pointSize, Typography.cardTitle.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
-                            faces: [Typography.cardBody.fontName, Typography.cardTitle.fontName, SidebarUpdateButton.font.fontName])
+                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Typography.caption.pointSize,
+                                    Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
+                            faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
         if let measured, measured.key == key { return measured.frames }
         let frames = Self.measureFrames(for: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth,
                                         placement: glyphPlacement, measuring: measuring)
@@ -434,19 +433,19 @@ final class SidebarNoticeCardView: NSView {
         // The title shares the x's row when nothing is above it, and the text button's (``SidebarNoticeCard/dismissTitle``) always.
         let titleHasX = !frames.glyphRow && (notice.eyebrow == nil || notice.dismissTitle != nil)
         let titleWidth = max(0, width - pad - titleX - (titleHasX ? closeRoom : 0))
-        let titleHeight = max(line.body, textHeight(notice.title, font: Typography.cardTitle, width: titleWidth, in: measuring))
+        let titleHeight = max(line.body, textHeight(notice.title, font: Typography.bodyEmphasized, width: titleWidth, in: measuring))
         frames.title = CGRect(x: titleX, y: y, width: titleWidth, height: titleHeight)
         y += titleHeight
         let bodyWidth = max(0, width - pad - bodyX)
         if let detail = notice.detail {
             let height = max(2 * line.caption, textHeight(detail, font: detailFont(notice), width: bodyWidth, in: measuring))
-            frames.detail = CGRect(x: bodyX, y: y + Metrics.cardTextGap, width: bodyWidth, height: height)
-            y += Metrics.cardTextGap + height
+            frames.detail = CGRect(x: bodyX, y: y + Metrics.space1, width: bodyWidth, height: height)
+            y += Metrics.space1 + height
         }
         let lines = notice.lines.prefix(maxLines)
         if !lines.isEmpty { y += Metrics.space1 }
         for text in lines {
-            let height = max(line.caption, textHeight(Self.bullet + text, font: Typography.cardBody, width: bodyWidth, in: measuring))
+            let height = max(line.caption, textHeight(Self.bullet + text, font: Typography.caption, width: bodyWidth, in: measuring))
             frames.lines.append(CGRect(x: bodyX, y: y, width: bodyWidth, height: height))
             y += height
         }
@@ -458,7 +457,7 @@ final class SidebarNoticeCardView: NSView {
             y += barHeight
         }
         if !notice.actions.isEmpty {
-            y += Metrics.cardRowGap
+            y += Metrics.space2
             let rowEnd = width - pad, row = max(0, rowEnd - bodyX)
             var x = bodyX
             for action in notice.actions.filter({ !$0.isSwitch }).prefix(2) {
@@ -474,9 +473,7 @@ final class SidebarNoticeCardView: NSView {
             frames.lastRow = (y, x)
             y += SidebarUpdateButton.height
         }
-        // On the half-point grid (the 2x pixel), not a whole point: a whole-point ceil left the last row up to a point
-        // more than the padding from the bottom at a density whose spacing is a half point (Compact, Comfortable).
-        frames.height = (2 * (y + pad)).rounded(.up) / 2
+        frames.height = ceil(y + pad)
         return frames
     }
 
@@ -492,12 +489,12 @@ final class SidebarNoticeCardView: NSView {
         content.layer?.cornerRadius = Self.cardCornerRadius
         content.layer?.cornerCurve = .continuous
         content.frame = b
-        eyebrowLabel.font = Typography.cardCaption
-        titleLabel.font = Typography.cardTitle
+        eyebrowLabel.font = Typography.caption
+        titleLabel.font = Typography.bodyEmphasized
         // The exit shows the last notice as it was.
         let shown = notice ?? laidOut
         detailLabel.font = Self.detailFont(shown)
-        shortcutLabel.font = Typography.cardCaption
+        shortcutLabel.font = Typography.caption
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let rows = shown.map { frames(for: $0, width: b.width) } ?? Frames()
         eyebrowLabel.frame = rows.eyebrow ?? .zero
@@ -506,7 +503,7 @@ final class SidebarNoticeCardView: NSView {
         titleLabel.frame = rows.title
         detailLabel.frame = rows.detail ?? .zero
         for (label, frame) in zip(lineLabels, rows.lines) {
-            label.font = Typography.cardBody
+            label.font = Typography.caption
             label.frame = frame
         }
         // The text button sits on the first row: the glyph's own, else the title's.
@@ -630,7 +627,7 @@ final class SidebarNoticeCardView: NSView {
             shortcutLabel.textColor = Palette.textTertiary
             actionSwitch?.applyColors()
             icon.contentTintColor = Palette.textSecondary
-            icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.cardTitle.pointSize)) }
+            icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor
             // The bar is the theme's accent (the primary text with none chosen), never a fixed gray.
             bar.backgroundColor = Palette.accentFill.cgColor

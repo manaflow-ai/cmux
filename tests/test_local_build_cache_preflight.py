@@ -327,7 +327,7 @@ class PreflightTests(unittest.TestCase):
                 raise RuntimeError("clone unavailable")
             return original_run(command, deadline, **kwargs)
         def slow_in_process(*args, **kwargs):
-            time.sleep(1)  # sleep-ok: a simulated slow copy, past the deadline under test
+            time.sleep(1)
             return original_copy(*args, **kwargs)
         started = time.monotonic()
         with patch.object(preflight.platform, "system", return_value="Darwin"), \
@@ -351,7 +351,7 @@ class PreflightTests(unittest.TestCase):
             'time.sleep(1); bundle.extract(member, destination, filter="data")'))
         original_extract = tarfile.TarFile.extract
         def slow_in_process(*args, **kwargs):
-            time.sleep(1)  # sleep-ok: a simulated slow extract, past the deadline under test
+            time.sleep(1)
             return original_extract(*args, **kwargs)
         started = time.monotonic()
         with patch.object(preflight, "__file__", str(slow)), \

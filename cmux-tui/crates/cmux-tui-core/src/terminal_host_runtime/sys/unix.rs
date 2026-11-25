@@ -35,9 +35,7 @@ pub(crate) use listener::HostListener;
 pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
-pub(crate) use pty_readiness::{
-    pty_readable_now, pty_reads_without_waiting, wait_for_pty_readable_or_forced_drain,
-};
+pub(crate) use pty_readiness::{pty_readable_now, wait_for_pty_readable_or_forced_drain};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) use record_root_watch::follow_record_root_removal;
 
@@ -96,27 +94,6 @@ pub(crate) fn pty_poll_handle(master: &dyn cmux_pty::MasterPty) -> anyhow::Resul
     use anyhow::Context;
 
     master.as_raw_fd().context("open terminal-host PTY poll fd")
-}
-
-/// Sets the PTY non-blocking and returns its input writer, which waits for
-/// room the way a blocking write did. `O_NONBLOCK` belongs to the open file
-/// description that the reader, the writer and every dup share, so once the
-/// reader drains without polling the writer must wait on `WouldBlock`: a
-/// paste is never cut.
-pub(crate) fn nonblocking_pty_writer(
-    pty: PtyPollHandle,
-    writer: Box<dyn std::io::Write + Send>,
-) -> anyhow::Result<Box<dyn std::io::Write + Send>> {
-    use std::os::fd::BorrowedFd;
-
-    // SAFETY: fcntl on the live master the caller owns.
-    let flags = unsafe { libc::fcntl(pty, libc::F_GETFL) };
-    if flags < 0 || unsafe { libc::fcntl(pty, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    // SAFETY: the caller keeps the master open for this call; the dup is owned.
-    let master = unsafe { BorrowedFd::borrow_raw(pty) }.try_clone_to_owned()?;
-    Ok(Box::new(crate::pty_write::WaitingWriter { inner: writer, master }))
 }
 
 /// The session id of an adopted (non-child) process.

@@ -246,23 +246,14 @@ async fn exec(
     if let Some(stdin) = stdin {
         body.insert("stdin".into(), json!(BASE64.encode(stdin)));
     }
-    let budget = Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15));
-    let deadline = tokio::time::Instant::now() + budget;
     let response = client
         .post(url)
         .header(IDENTITY_HEADER, &grant.token)
-        // Held open past about 120 s, the provider's edge cuts the call while the command runs on.
-        .header(crate::background::AFTER_HEADER, crate::background::AFTER_SECS)
-        .timeout(budget)
+        .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
         .json(&body)
         .send()
         .await
         .map_err(|e| if e.is_connect() { Failure::NotSent } else { Failure::Unavailable })?;
-    let identity = (IDENTITY_HEADER, grant.token.as_str());
-    let response =
-        crate::background::settle(client, &grant.api_base_url, identity, response, deadline)
-            .await
-            .map_err(|crate::background::Lost| Failure::Unavailable)?;
     let status = response.status().as_u16();
     if status == 401 || status == 403 {
         return Err(Failure::Auth);

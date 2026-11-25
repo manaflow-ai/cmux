@@ -37,15 +37,6 @@ public extension DaemonService {
                 }
             }
         }
-        let quietSeconds = Double(quietInput.components.seconds) + Double(quietInput.components.attoseconds) / 1e18
-        let userInputActive = Self.secondsSinceInput() < quietSeconds
-        return UpdateRelaunchBlockers(busyAgentCount: busyAgents.count,
-                                      runningCommandCount: runningCommands.count,
-                                      userInputActive: userInputActive)
-    }
-
-    /// Seconds since the last keyboard, pointer or scroll input anywhere in this login session.
-    nonisolated static func secondsSinceInput() -> Double {
         let inputTimes = [
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved),
@@ -54,6 +45,10 @@ public extension DaemonService {
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .otherMouseDown),
         ]
-        return inputTimes.min() ?? .infinity
+        let quietSeconds = Double(quietInput.components.seconds) + Double(quietInput.components.attoseconds) / 1e18
+        let userInputActive = inputTimes.min() ?? .infinity < quietSeconds
+        return UpdateRelaunchBlockers(busyAgentCount: busyAgents.count,
+                                      runningCommandCount: runningCommands.count,
+                                      userInputActive: userInputActive)
     }
 }

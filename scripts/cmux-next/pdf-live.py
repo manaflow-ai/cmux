@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 import kit_downloads  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -133,12 +132,7 @@ def to_workspace():
     """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-    # The workspace's pane comes up: a focused pane is listed, and the panes stop changing.
-    def panes():
-        return [[(p.get("id"), bool(p.get("focused"))) for p in w.get("panes") or []]
-                for w in rpc("debug.surfaces").get("windows") or []]
-    wait_for(lambda: any(focused for w in panes() for _, focused in w), "the new workspace's focused pane", 20)
-    wait_stable(panes, "the new workspace's panes", timeout=10, interval=0.1, raise_on_timeout=False)
+    time.sleep(1)  # the workspace's pane comes up
 
 
 def tab_title():

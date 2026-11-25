@@ -46,8 +46,7 @@ if os.environ.get("FAKE_CODEX_ARGS"):
     with open(os.environ["FAKE_CODEX_ARGS"], "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
 args = sys.argv[1:]
-# Global options before the subcommand, as codex takes them (`-m <model> app-server`).
-while len(args) >= 2 and args[0] in ("-c", "--config", "-m", "--model", "-p", "--profile"):
+while len(args) >= 2 and args[0] in ("-c", "--config"):
     args = args[2:]
 if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")

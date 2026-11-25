@@ -31,9 +31,7 @@ base="$(git rev-parse "$sha^")"
 # Some linux-guard tests need fish; the lane runner refuses to start without it.
 command -v fish >/dev/null || sudo apt-get install -y -qq fish >/dev/null 2>&1 || echo "measure: fish not installed"
 if [[ "$python_only" == 0 ]] && ! command -v cargo-nextest >/dev/null; then
-  # the gates' pinned build, not get.nexte.st/latest: a measurement runs the nextest CI runs
-  PATH="$(bash scripts/ci/install-nextest.sh):$PATH"
-  export PATH
+  curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
 fi
 scope=""
 [[ "$python_only" == 1 ]] || scope="$(python3 scripts/ci/cargo_affected.py --root . --base "$base")"

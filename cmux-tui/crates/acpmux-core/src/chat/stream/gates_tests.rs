@@ -1217,7 +1217,6 @@ impl View {
                     self.keep(row);
                 }
                 ChatOp::Text { seq, .. } | ChatOp::Queue { seq, .. } => self.seq(*seq, false),
-                ChatOp::Presence { .. } => {}
             }
         }
     }

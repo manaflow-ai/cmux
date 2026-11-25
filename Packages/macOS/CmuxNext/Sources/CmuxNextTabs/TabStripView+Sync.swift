@@ -14,10 +14,12 @@ extension TabStripView {
     /// A strip in a window but out of sight (a parked workspace's, a hidden screen bar) lays
     /// nothing out and animates nothing: a script that reorders, renames or moves tabs in
     /// background workspaces costs it no work until it shows, then one sync to the final state
-    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted"). A strip whose pane leaves after a close
-    /// keeps the tabs it shows until the pane goes (``TabStripSyncHold``).
+    /// (``syncShown(_:)``; CLAUDE.md "Go past Chrome where cmux is scripted").
     public func syncFromModel() {
-        if syncHold.holds(self, atRest: isAtRest(closing: true)) { return }
+        if window != nil, !isShownInWindow {
+            modelChangedWhileHidden = true
+            return
+        }
         layOutPaneIfOneTabChanged()
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput {

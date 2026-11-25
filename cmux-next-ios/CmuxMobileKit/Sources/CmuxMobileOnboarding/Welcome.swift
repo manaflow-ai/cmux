@@ -20,7 +20,6 @@ public struct LaunchMarkView: View {
         // screen as iOS centers the launch image, not in the safe area.
         CmuxLogoMark(chevronHeight: 72)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear { LaunchMarks.shared.markNextFrame("first_frame") }
     }
 }
 

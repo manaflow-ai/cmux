@@ -1,3 +1,0 @@
-[
-  {"key": "cmd+semicolon", "command": "agentPane.sideQuestion", "when": "agentPaneFocused"}
-]

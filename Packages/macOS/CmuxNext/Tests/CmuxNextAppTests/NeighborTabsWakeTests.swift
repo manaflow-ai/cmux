@@ -250,6 +250,5 @@ import Testing
 
     @MainActor final class Pane: SurfacePresenter {
         func surfaceWasDisplaced(_ key: String) {}
-        func surfaceIsFree(_ key: String) {}
     }
 }

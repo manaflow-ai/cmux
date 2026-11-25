@@ -6,7 +6,6 @@ network, no cargo, no zig)."""
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -187,43 +186,14 @@ class ToolchainNoticesTest(unittest.TestCase):
         return app
 
     def test_install_copies_every_text_under_the_bundle_dir(self) -> None:
-        # Zig's LICENSE as is; Rust's COPYRIGHT-library.html gzip-compressed,
-        # decompressing to the reviewed bytes.
         app = self.app_with(b"")
         bundled = app / "Contents/Resources/toolchain-licenses"
-        expected = {rel + (".gz" if rel.startswith("rust-") else ""): data for rel, data in self.fx.files.items()}
         self.assertEqual(
             sorted(p.relative_to(bundled).as_posix() for p in bundled.rglob("*") if p.is_file()),
-            sorted(expected),
+            sorted(self.fx.files),
         )
-        for rel, data in expected.items():
-            raw = (bundled / rel).read_bytes()
-            self.assertEqual(gzip.decompress(raw) if rel.endswith(".gz") else raw, data)
-
-    def test_install_is_deterministic(self) -> None:
-        # gzip with no name and mtime 0: the same bytes on every build, so a
-        # signed bundle does not change when nothing else did.
-        first = self.app_with(b"") / "Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html.gz"
-        before = first.read_bytes()
-        self.assertEqual(before[4:8], b"\0\0\0\0")
-        self.app_with(b"")
-        self.assertEqual(first.read_bytes(), before)
-
-    def test_rust_std_fails_on_an_uncompressed_or_corrupt_bundled_text(self) -> None:
-        binary = b"/rustc/" + COMMIT_A.encode() + b"/library/a.rs"
-        app = self.app_with(binary)
-        gz = app / "Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html.gz"
-        gz.write_bytes(b"not gzip")
-        [problem] = tn.rust_std_problems(self.fx.load(), app, "Contents/Resources/bin/tool")
-        self.assertIn("not a readable gzip", problem)
-        gz.write_bytes(gzip.compress(b"<html>edited</html>\n"))
-        [problem] = tn.rust_std_problems(self.fx.load(), app, "Contents/Resources/bin/tool")
-        self.assertIn("differs from the reviewed text", problem)
-        # The plain text in place of the .gz is not what the bundle ships.
-        gz.unlink()
-        (gz.parent / "COPYRIGHT-library.html").write_bytes(self.fx.files["rust-1.95.0/COPYRIGHT-library.html"])
-        [problem] = tn.rust_std_problems(self.fx.load(), app, "Contents/Resources/bin/tool")
-        self.assertIn("COPYRIGHT-library.html.gz is not bundled", problem)
+        for rel, data in self.fx.files.items():
+            self.assertEqual((bundled / rel).read_bytes(), data)
 
     def test_install_replaces_an_old_tree(self) -> None:
         stale = self.fx.root / "x.app/Contents/Resources/toolchain-licenses/rust-1.80.0/COPYRIGHT-library.html"
@@ -252,9 +222,9 @@ class ToolchainNoticesTest(unittest.TestCase):
     def test_rust_std_needs_the_bundled_text_of_every_linked_toolchain(self) -> None:
         binary = b"/rustc/" + COMMIT_A.encode() + b"/library/a.rs\0/rustc/" + COMMIT_B.encode() + b"/library/b.rs"
         app = self.app_with(binary)
-        (app / "Contents/Resources/toolchain-licenses/rust-1.88.0/COPYRIGHT-library.html.gz").unlink()
+        (app / "Contents/Resources/toolchain-licenses/rust-1.88.0/COPYRIGHT-library.html").unlink()
         [problem] = tn.rust_std_problems(self.fx.load(), app, "Contents/Resources/bin/tool")
-        self.assertIn("rust-1.88.0/COPYRIGHT-library.html.gz", problem)
+        self.assertIn("rust-1.88.0/COPYRIGHT-library.html", problem)
 
     def test_rust_std_fails_when_the_binary_names_no_rustc_commit(self) -> None:
         app = self.app_with(b"no rust here")

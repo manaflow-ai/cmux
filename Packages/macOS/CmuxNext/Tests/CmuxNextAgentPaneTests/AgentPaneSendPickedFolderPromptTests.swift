@@ -7,9 +7,7 @@ import Testing
 /// then starts the chat there and sends its first prompt. The pick spent the Send's only gesture to
 /// make the folder a root, so the start carried none and the first prompt came back
 /// `transport.gesture_required`: "Not sent. Press Retry to send it." The gesture a pick spends now
-/// goes on to the chat's start and first prompt, as a start's own gesture does. A prompt needs no
-/// gesture at all now (Leo, 2026-11-17, on "Not sent: it needs your own key press or click.": "go
-/// remove this").
+/// goes on to the chat's start and first prompt, as a start's own gesture does.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneSendPickedFolderPromptTests {
@@ -88,8 +86,8 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(await start(pane, id: 1) == nil)
         #expect(await prompt(pane, id: 2) == nil, "the pick spent the Send's gesture: the first prompt is Not sent")
 
-        // A second prompt with no new gesture goes too: a send needs none.
-        #expect(await prompt(pane, id: 3) == nil)
+        // Still one prompt per gesture: a second prompt with no new gesture is refused.
+        #expect(await prompt(pane, id: 3) == .gestureRequired)
     }
 
     /// The Cloud too-big card's repository or browsed folder (#40957): the click picks the folder, which spends its
@@ -159,10 +157,10 @@ struct AgentPaneSendPickedFolderPromptTests {
 
         #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
         #expect(pane.model.transport.addedRoots.isEmpty)
-        // The page then starts a chat by itself in a folder that is already a root: its first
-        // prompt goes, as every send does now, and the pick still trusted nothing.
+        // The page then starts a chat by itself in a folder that is already a root: the pick gave
+        // that start nothing to carry, so its first prompt still needs the person.
         #expect(await start(pane, id: 1, in: pane.root) == nil)
-        #expect(await prompt(pane, id: 2) == nil)
+        #expect(await prompt(pane, id: 2) == .gestureRequired)
         #expect(pane.server.peers.first?.frames.contains { $0.contains("acp.trust.set") } != true)
     }
 
@@ -476,5 +474,30 @@ struct AgentPaneSendPickedFolderPromptTests {
         #expect(status(await pane.model.respond(to: .useFolder(pane.root, confirm: false))) == "ok")
         #expect(await start(pane, id: 1, in: pane.root) == nil)
         #expect(await prompt(pane, id: 2) == nil)
+    }
+
+    /// A pick passes its gesture only to a chat that starts: with no start after it, a prompt into
+    /// the pane's chat gets nothing from it.
+    @Test func aPickWithoutAStartGivesAPromptNothing() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+
+        #expect(await start(pane, id: 1, in: pane.root) == nil) // a chat the page started by itself
+        pane.model.transport.gestures.record(click: true) // a folder picked in the menu, no Send
+        #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        #expect(pane.model.transport.addedRoots == [pane.folder]) // the pick took the click
+        #expect(await prompt(pane, id: 2) == .gestureRequired)
+    }
+
+    /// The carried gesture lasts as long as a start's own (``AgentPaneTransport/startCreditLifetime``).
+    @Test func theCarriedGestureEndsWithTheStartCredit() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+
+        pane.model.transport.gestures.record()
+        #expect(status(await pane.model.respond(to: .useFolder(pane.folder, confirm: false))) == "ok")
+        #expect(await start(pane, id: 1) == nil)
+        pane.clock.now += AgentPaneTransport.startCreditLifetime + 1
+        #expect(await prompt(pane, id: 2) == .gestureRequired)
     }
 }

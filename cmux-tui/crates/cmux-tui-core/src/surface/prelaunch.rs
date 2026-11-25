@@ -86,10 +86,9 @@ impl Surface {
         // With the holder on, the new shell runs there as a new terminal's
         // does: a respawn never brings back a host process per tab. The
         // surface is active at once; the respawn's install and activation
-        // treat it as an adopted one (`activate_hosted_launch_stream`). A
-        // holder that cannot start sends it to a host of its own.
+        // treat it as an adopted one (`activate_hosted_launch_stream`).
         #[cfg(unix)]
-        if crate::holder_runtime::serves(&root) {
+        if crate::holder_runtime::enabled() {
             return Self::spawn_on_holder(HolderSpawn {
                 id,
                 opts,

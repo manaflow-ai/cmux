@@ -347,8 +347,7 @@ import UIKit
         let rowsDown = rig.screen.hostLayout.visibleRows
 
         // The soft keyboard shows and settles (UIKit's notifications, in this
-        // app's screen coordinates): the TUI keeps its rows (the keyboard
-        // never resizes the Mac's terminal) and the grid is inset above it.
+        // app's screen coordinates): the TUI gets the rows above the composer.
         let screen = rig.window.screen.bounds
         let shown = CGRect(x: screen.minX, y: screen.maxY - 336, width: screen.width, height: 336)
         let hidden = CGRect(x: screen.minX, y: screen.maxY, width: screen.width, height: 336)
@@ -365,10 +364,10 @@ import UIKit
         post(UIResponder.keyboardWillShowNotification, shown)
         post(UIResponder.keyboardDidChangeFrameNotification, shown)
         post(UIResponder.keyboardDidShowNotification, shown)
-        rig.screen.view.setNeedsLayout()
-        rig.screen.view.layoutIfNeeded()
+        try await TerminalPredictionInputTests.waitUntil(2) { rig.screen.hostLayout.visibleRows < rowsDown }
         let rowsUp = rig.screen.hostLayout.visibleRows
-        #expect(rowsUp == rowsDown, "the keyboard changed the TUI's rows \(rowsDown) -> \(rowsUp)")
+        try #require(rowsUp < rowsDown, "the TUI kept its \(rowsDown) keyboard-down rows (the keyboard never settled)")
+        try #require(rowsUp > 13, "only \(rowsUp) rows above the composer: no room for the note")
 
         try await TerminalPredictionInputTests.waitUntil(2) { rig.visibleLabel(note) != nil }
         let view = rig.screen.view!

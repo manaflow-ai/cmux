@@ -20,11 +20,10 @@ struct NewTabHoldFocusTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// One workspace, two panes side by side. The first has one tab; the second has 2 and shows its first (its second
-    /// is for the page of the opening: `NewTabHoldByHandOpening`).
+    /// One workspace, two panes side by side, each with one tab.
     private static func tree() -> DaemonTree {
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
-        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [UInt64(2), 102].map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
+        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~")])
         let layout: LayoutNode = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [first, second])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
@@ -73,10 +72,10 @@ struct NewTabHoldFocusTests {
         let other = try #require(content.paneController(key: models[1].id))
         for _ in 0..<100 where other.currentTabKey == nil { try await Task.sleep(for: .milliseconds(10)) }
         if other.currentTabKey == nil { other.showSelected() }
-        let key = try NewTabHoldByHandOpening.pagesTab(of: other)
+        let key = try #require(other.currentTabKey, "the second pane shows no tab")
         pageKey = key
 
-        // The second pane's second tab is a New Tab page whose field has not reported ready yet. The pane shows that tab after the hold began (below).
+        // The second pane's tab is a New Tab page whose field has not reported ready yet.
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: "index.html")
         try Data("<html><body><input></body></html>".utf8).write(to: file)
@@ -100,7 +99,7 @@ struct NewTabHoldFocusTests {
         input.holdLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in Task {} }
         let token = try #require(input.begin(for: other))
-        try await NewTabHoldByHandOpening.showsItsPage(in: key, of: other, hold: input, controller: controller, focused: focused, keyboard: nil)
+        input.didShow(in: window)
         let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]
         for event in typed { #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(event.characters ?? "")") }
         #expect(input.isHolding(in: window))

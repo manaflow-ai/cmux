@@ -3,7 +3,7 @@
   "id": "local/standup",
   "name": "Standup",
   "version": "1.0.0",
-  "description": "A slash command, a mention provider and a context chip for the agent chat composer.",
+  "description": "A slash command and a mention provider for the agent chat composer.",
   "engines": { "cmux": "^2.0" },
   "implements": {
     "cmux.composer.command/1": {
@@ -12,13 +12,6 @@
         "commands": [
           { "name": "standup", "description": "Ask for today's standup notes", "insert": "Write my standup: what I did yesterday, what I do today, what blocks me." },
           { "name": "review-pr", "description": "Review a pull request", "hint": "<number>", "insert": "Review pull request #" }
-        ]
-      }
-    },
-    "cmux.composer.chip/1": {
-      "options": {
-        "chips": [
-          { "id": "branch", "label": "Branch", "detail": "Name the current git branch", "insert": "Work on the current git branch." }
         ]
       }
     },

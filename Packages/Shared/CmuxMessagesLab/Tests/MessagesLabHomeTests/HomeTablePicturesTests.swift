@@ -11,7 +11,9 @@ import UniformTypeIdentifiers
 @Suite(.serialized) struct HomeTablePicturesTests {
     init() {
         HomeMarkdownPolicy.install()
-        HomeTableRowProvider.reinstall()
+        CustomRows.unregister(HomeTableRowProvider.kind)
+        CustomRows.unregister(HomePlanRowProvider.kind)
+        HomeTableRowProvider.install()
     }
 
     /// A gray PNG of `width` × `height` pixels at `url`.

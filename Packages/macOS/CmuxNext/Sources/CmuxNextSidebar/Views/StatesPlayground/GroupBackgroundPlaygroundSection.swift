@@ -60,23 +60,23 @@ struct GroupBackgroundPlaygroundSection {
     }
 
     private enum Strings {
-        static var title: String { String(localized: "sidebar.groupBackgroundPlayground.title", defaultValue: "Group backgrounds", bundle: .localizedModule) }
-        static var solid: String { String(localized: "sidebar.groupBackgroundPlayground.solid", defaultValue: "Solid", bundle: .localizedModule) }
-        static var glass: String { String(localized: "sidebar.groupBackgroundPlayground.glass", defaultValue: "Glass", bundle: .localizedModule) }
+        static var title: String { String(localized: "sidebar.groupBackgroundPlayground.title", defaultValue: "Group backgrounds", bundle: .module) }
+        static var solid: String { String(localized: "sidebar.groupBackgroundPlayground.solid", defaultValue: "Solid", bundle: .module) }
+        static var glass: String { String(localized: "sidebar.groupBackgroundPlayground.glass", defaultValue: "Glass", bundle: .module) }
         static var solidHovered: String {
-            String(localized: "sidebar.groupBackgroundPlayground.solidHovered", defaultValue: "Solid, hovered", bundle: .localizedModule)
+            String(localized: "sidebar.groupBackgroundPlayground.solidHovered", defaultValue: "Solid, hovered", bundle: .module)
         }
         static var glassHovered: String {
-            String(localized: "sidebar.groupBackgroundPlayground.glassHovered", defaultValue: "Glass, hovered", bundle: .localizedModule)
+            String(localized: "sidebar.groupBackgroundPlayground.glassHovered", defaultValue: "Glass, hovered", bundle: .module)
         }
         static var sections: String {
-            String(localized: "sidebar.groupBackgroundPlayground.sections", defaultValue: "Sections", bundle: .localizedModule)
+            String(localized: "sidebar.groupBackgroundPlayground.sections", defaultValue: "Sections", bundle: .module)
         }
         static var sectionsHovered: String {
-            String(localized: "sidebar.groupBackgroundPlayground.sectionsHovered", defaultValue: "Sections, hovered", bundle: .localizedModule)
+            String(localized: "sidebar.groupBackgroundPlayground.sectionsHovered", defaultValue: "Sections, hovered", bundle: .module)
         }
         static func name(_ tint: GroupTint) -> String {
-            tint.isNone ? String(localized: "sidebar.groupBackgroundPlayground.noColor", defaultValue: "No color", bundle: .localizedModule) : tint.wire
+            tint.isNone ? String(localized: "sidebar.groupBackgroundPlayground.noColor", defaultValue: "No color", bundle: .module) : tint.wire
         }
     }
 }

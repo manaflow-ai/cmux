@@ -1,6 +1,5 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
-import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationStateSignedBy } from "./integration-callback"
 import { teamHeaders } from "./team-scope"
 
 /**
@@ -124,19 +123,16 @@ export type ApiResult<T> = { readonly status: number; readonly body: T }
  */
 const postImpl = <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => callImpl<T>("POST", path, payload, team)
 
-/** One request to an API with `token` (GET sends no body). */
-const sendImpl = async <T,>(method: "GET" | "POST" | "PUT", url: string, payload: unknown, team: string | undefined, token: string): Promise<ApiResult<T>> => {
-  const res = await fetch(url, {
-    method,
-    headers: { ...(method !== "GET" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
-    ...(method !== "GET" ? { body: JSON.stringify(payload) } : {})
-  })
-  return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
-}
-
 /** One API call with the cookie's access token (GET sends no body); refreshes once on a missing token or a 401. */
 const callImpl = async <T,>(method: "GET" | "POST" | "PUT", path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
-  const send = (token: string) => sendImpl<T>(method, `${apiUrl()}${path}`, payload, team, token)
+  const send = async (token: string) => {
+    const res = await fetch(`${apiUrl()}${path}`, {
+      method,
+      headers: { ...(method !== "GET" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
+      ...(method !== "GET" ? { body: JSON.stringify(payload) } : {})
+    })
+    return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
+  }
   const at = getCookie(ACCESS)
   if (at) {
     const first = await send(at)
@@ -156,52 +152,6 @@ export const mutate = createServerFn({ method: "POST" })
     requireSameOrigin()
     return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" }, data.team)
   })
-
-/**
- * integration.complete for the callback page. The API comes from the state, never the page: a development
- * state on the staging console finishes on the development API (integration-callback.ts integrationCompletionApi),
- * and only when the development API's published key signed it for this session's own person; every other state
- * on this console's own API, which verifies it.
- */
-export const completeIntegration = createServerFn({ method: "POST" })
-  .validator((d: { params: { state: string; code?: string; installation_id?: string; setup_action?: string }; idempotency_key: string; team?: string }) => d)
-  .handler(async ({ data }) => {
-    requireSameOrigin()
-    const api = integrationCompletionApi({ api: apiUrl(), host: getRequestHeader("x-forwarded-host") ?? getRequestHeader("host") }, data.params.state)
-    const frame = { op: "integration.complete", params: data.params, idempotency_key: data.idempotency_key, origin: "user" }
-    if (api.environment !== "development") return { ...(await callImpl<OpResponse>("POST", "/v1/ops", frame, data.team)), environment: null }
-    const refused = (error: { code: string; message: string }): ApiResult<OpResponse> & { environment: "development" } => ({
-      status: 400,
-      body: { ok: false, op: frame.op, error: { ...error, retryable: false }, transaction: "", idempotency_key: data.idempotency_key, replayed: false, stream: "", sequence: 0 },
-      environment: "development"
-    })
-    // This console's own session, refreshed here if it ran out: the development API gets one token, once.
-    const cookie = getCookie(ACCESS)
-    const token = accessTokenSubject(cookie)?.fresh ? cookie : await refreshAccess()
-    const subject = accessTokenSubject(token)?.subject
-    if (!token || !subject) return { status: 401, body: { error: "signed out" } as unknown as OpResponse, environment: "development" as const }
-    // The session leaves this console's own API only for a state the development API signed for this same person:
-    // the issuer is a claim anyone can put in a link, and someone else's genuine state is a link anyone can send.
-    const project = process.env.CMUX_STACK_PROJECT_ID
-    if (!project) throw new Error("Stack project is not configured")
-    const user = await apiUserId(project, subject)
-    if (!(await integrationStateSignedBy(data.params.state, await developmentJwks(), { issuer: DEVELOPMENT_STATE_ISSUER, user }))) {
-      return refused({ code: "integration.state_invalid", message: "This link expired, was not issued by the development Cloud, or belongs to someone else. Start the connection again." })
-    }
-    const r = await sendImpl<OpResponse>("POST", `${api.url}/v1/ops`, frame, data.team, token)
-    const refusal = developmentRefusal(r.status)
-    return refusal ? refused(refusal) : { ...r, environment: "development" as const }
-  })
-
-/** The development API's published signing keys (/.well-known/jwks.json, no session sent); undefined when it does not answer in time. */
-const developmentJwks = async (): Promise<unknown> => {
-  try {
-    const res = await fetch(`${DEVELOPMENT_API_URL}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5_000) })
-    return res.ok ? await res.json() : undefined
-  } catch {
-    return undefined
-  }
-}
 
 /**
  * team_vm.retired.export (cx-lyvg): sends the op with the session, then answers the absolute

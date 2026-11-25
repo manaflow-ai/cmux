@@ -149,15 +149,6 @@ impl Mux {
             if !incognito {
                 self.record_terminal_relaunch(&terminal_hex, launched);
             }
-            // Lazy start: a plain shell nobody shows gets no host until its
-            // first need (`terminal_respawn/lazy.rs`).
-            #[cfg(unix)]
-            if prelaunched.is_none()
-                && !incognito
-                && self.lazy_create_allowed(workspace_key, reservation_env)
-            {
-                return self.create_lazy_terminal(id, opts, tab_id, &terminal_hex, workspace_key);
-            }
             let spawned = match prelaunched {
                 Some(prelaunched) => Surface::spawn_prelaunched(
                     prelaunched.into_host().with_tab_id(tab_id),

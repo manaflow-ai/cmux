@@ -92,11 +92,8 @@ import Testing
         #expect(search.minX >= chip.maxX - 0.25, "search \(search) covers the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).
-        // The margin is whole device pixels, rounded up: a density's half-point margin (#44449) is 3.5 pt on a 2x screen
-        // and 4 on a 1x one, where the line cannot end between two pixels (`SidebarFooterBand.bottomMargin`).
         let lineBottom = max(search.maxY, chip.maxY)
-        let scale = h.window.backingScaleFactor
-        let floor = h.sidebar.bounds.maxY - (SidebarStyle.bottomInset * scale).rounded(.up) / scale
+        let floor = h.sidebar.bounds.maxY - SidebarStyle.bottomInset
         #expect(abs(lineBottom - floor) <= 0.25, "the footer line ends at \(lineBottom), the margin at \(floor)")
     }
 

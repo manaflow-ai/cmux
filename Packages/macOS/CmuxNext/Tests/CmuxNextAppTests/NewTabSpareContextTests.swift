@@ -23,16 +23,7 @@ struct NewTabSpareContextTests {
         return page
     }
 
-    /// The row is for the pool's path. The app starts on a New Tab page that the person did not touch, and the tab
-    /// of a New Tab key takes that page's view before the pool's spare (`AgentTabStore.idlePage`). So the row counts
-    /// each New Tab page of the app as used before its key (`NewTabOpenFramesTests.useEachNewTabPage`).
-    ///
-    /// `used` false, the second form (`NewTabHoldMovesItsPageTests.theIdlePage`): the app's first New Tab page stays
-    /// untouched, and the window then shows the row's workspace, so no window shows that page. Want: the tab of the
-    /// key in the row's terminal pane takes a page view that was there before the key and is not the pool's, that
-    /// page view then has the context that the key gives (the focused pane's folder), and the pool keeps its page
-    /// with the screen that it drew.
-    @Test(arguments: [true, false]) func theParkedSpareDrawsTheFocusedPanesContextBeforeCmdT(used: Bool) async throws {
+    @Test func theParkedSpareDrawsTheFocusedPanesContextBeforeCmdT() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-context")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -40,12 +31,6 @@ struct NewTabSpareContextTests {
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)
             window.orderFrontRegardless()
-            // The second form: the app's first New Tab page, read while its window still shows it.
-            var first: AgentPaneView?
-            if !used {
-                let start = try await NewTabOpenFramesTests.focusedPane(services).1
-                first = try await NewTabHoldMovesItsPageTests.theIdlePage(of: start, services)
-            }
             let folder = FileManager.default.temporaryDirectory.appending(path: "sf-spare-\(UUID().uuidString.prefix(8))")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let html = folder.appending(path: "index.html")
@@ -120,31 +105,6 @@ struct NewTabSpareContextTests {
 
             // Cmd-T adopts it, and the screen it drew is the screen the tab gets: no remount after the key.
             let drawn = Self.screen(spare.model.newTab)
-            if let first {
-                let tabs = services.agentTabs, before = tabs.views.values.map { $0 }, openings = pool.openings.count, left = pane.currentTabKey
-                try #require(first.isUntouchedNewTab && Self.screen(first.model.newTab) != Self.screen(keyPage),
-                             "setup: the app's first New Tab page is not untouched before the key, or it has the context of the key already")
-                NewTabPage.open(in: pane, seed: nil)
-                let inTheTurn = NewTabHoldMovesItsPageTests.afterAKey(in: pane, left: left, services, openings: openings)
-                await NewTabPageAtItsFrameTests.frame(services)
-                let took = pane.currentTabKey.flatMap { $0 == left ? nil : tabs.existingView($0) }
-                let wasThere = before.contains { $0 === took }
-                print("""
-                    NewTabSpareContextTests: the second form, a New Tab key in a terminal pane while no window shows the app's first \
-                    New Tab page: the new tab has a page view at the return of the key's call: \(inTheTurn.took != nil), after one \
-                    frame: \(took != nil); it is the first page's view: \(took === first), a view that was there before the key: \
-                    \(wasThere), the pool's page: \(took === spare); the open's record says `idle`: \
-                    \(inTheTurn.record.map { String($0.idle) } ?? "no record"); the page view has the context of the key: \
-                    \(Self.screen(took?.model.newTab) == Self.screen(keyPage)) (folder \(took?.model.newTab?.cwd ?? "none"), the key gives \
-                    \(keyPage.cwd ?? "none")); the pool kept its page: \(pool.spare?.view === spare)
-                    """)
-                #expect(wasThere && took !== spare, "the new tab did not take a page view that was there before the key and is not the pool's")
-                #expect(inTheTurn.record?.idle == true && inTheTurn.record?.spare == false, "the record of the open does not say `idle` and not `spare`")
-                #expect(Self.screen(took?.model.newTab) == Self.screen(keyPage), "the page view that the new tab took does not have the context that the key gives")
-                #expect(pool.spare?.view === spare && Self.screen(spare.model.newTab) == drawn, "the pool gave its page away, or its page changed its screen, at a key whose tab took an idle page view")
-                return
-            }
-            NewTabOpenFramesTests.useEachNewTabPage(services) // the pool's path: no idle page that the key's tab takes first
             NewTabPage.open(in: pane, seed: nil)
             #expect(pool.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
             #expect(Self.screen(spare.model.newTab) == drawn, "the adoption changed the screen the spare drew before the key")

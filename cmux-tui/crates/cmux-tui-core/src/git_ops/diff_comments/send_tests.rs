@@ -39,7 +39,7 @@ fn session(name: &str) -> Session {
         .iter()
         .map(|id| json!({"id": id, "message": id}).as_object().unwrap().clone())
         .collect();
-    store.write(ROOT, &File { root: ROOT.into(), comments, review: None }).unwrap();
+    store.write(ROOT, &File { root: ROOT.into(), comments }).unwrap();
     Session { mux, store, directory }
 }
 

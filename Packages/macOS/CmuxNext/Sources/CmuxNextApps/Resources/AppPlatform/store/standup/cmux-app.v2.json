@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/standup",
+  "name": { "en": "Standup", "ja": "スタンドアップ" },
+  "version": "1.0.0",
+  "description": {
+    "en": "A command-only app: jot what you did, list it at standup, clear it after. No UI; every command is in the palette and the CLI.",
+    "ja": "コマンドだけのアプリ: やったことをメモし、スタンドアップで一覧表示し、終わったら消します。UI はなく、すべてのコマンドはパレットと CLI にあります。"
+  },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "checklist" },
+  "categories": ["productivity"],
+  "keywords": ["standup", "notes", "commands", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog/standup-catalog.json",
+  "scopes": {
+    "storage:local": "Keep your standup notes on this Mac."
+  },
+  "files": ["dist/", "catalog/"]
+}

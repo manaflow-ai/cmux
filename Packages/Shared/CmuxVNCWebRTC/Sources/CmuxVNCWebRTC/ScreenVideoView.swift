@@ -151,11 +151,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
             CFDictionarySetValue(dictionary, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
                                  Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
         }
-        // No jitter buffer: when the layer has frames still waiting (it is not
-        // ready for more), they are already late, so drop them and show this
-        // one. `flush()` keeps the picture on screen; queueing would add
-        // latency that never drains while the stream outpaces the display.
-        if renderer.status == .failed || !renderer.isReadyForMoreMediaData { renderer.flush() }
+        if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
     }
 

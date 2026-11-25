@@ -34,15 +34,15 @@ enum VoiceRoomHandlers {
 enum VoiceRoomStrings {
     static var off: String {
         String(localized: "voiceRoom.refusal.off", defaultValue: "Voice Room is a Labs feature: turn it on in Settings > Advanced > Labs.",
-               table: "VoiceRoom", bundle: .module.inAppLanguage)
+               table: "VoiceRoom", bundle: .module)
     }
 
     static var badAddress: String {
         String(localized: "voiceRoom.refusal.address", defaultValue: "The Voice Room address in Settings is not a web address.",
-               table: "VoiceRoom", bundle: .module.inAppLanguage)
+               table: "VoiceRoom", bundle: .module)
     }
 
     static var notOpen: String {
-        String(localized: "voiceRoom.refusal.notOpen", defaultValue: "No Voice Room is open.", table: "VoiceRoom", bundle: .module.inAppLanguage)
+        String(localized: "voiceRoom.refusal.notOpen", defaultValue: "No Voice Room is open.", table: "VoiceRoom", bundle: .module)
     }
 }

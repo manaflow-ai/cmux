@@ -60,13 +60,3 @@ pub fn hid_to_evdev(usage: u32) -> Option<u16> {
 pub fn hid_to_x(usage: u32) -> Option<u8> {
     hid_to_evdev(usage).and_then(|e| u8::try_from(e + 8).ok())
 }
-
-/// X keycode to a HID usage: the inverse of `hid_to_x` (Xvfb and evdev keymaps, keycode = evdev + 8).
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub fn x_to_hid(code: u8) -> Option<u32> {
-    (0x04..=0xe7).map(|id| 0x0007_0000 | id).find(|&u| hid_to_x(u) == Some(code))
-}
-
-#[cfg(test)]
-#[path = "keymap_tests.rs"]
-mod tests;

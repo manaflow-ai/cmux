@@ -439,7 +439,6 @@ pub(super) fn audit(
         prompt,
         permission = text("permissionId"),
         option = text("optionId"),
-        choice = text("choiceId"),
         refused = reason,
         "carrier request"
     );
@@ -665,7 +664,6 @@ pub async fn serve_attested_link(
         Some(who),
         None,
         link,
-        None,
     )
     .await
 }

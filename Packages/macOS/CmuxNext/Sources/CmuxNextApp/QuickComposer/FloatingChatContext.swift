@@ -32,11 +32,11 @@ enum FloatingChatContext {
 
     /// An untitled tab's chip name.
     private static var untitled: String {
-        String(localized: "floatingChat.context.untitled", defaultValue: "Focused tab", table: "FloatingChat", bundle: .module.inAppLanguage)
+        String(localized: "floatingChat.context.untitled", defaultValue: "Focused tab", table: "FloatingChat", bundle: .module)
     }
 
     private static func selectionName(_ title: String) -> String {
-        String(localized: "floatingChat.context.selection", defaultValue: "\(title) (selection)", table: "FloatingChat", bundle: .module.inAppLanguage)
+        String(localized: "floatingChat.context.selection", defaultValue: "\(title) (selection)", table: "FloatingChat", bundle: .module)
     }
 
     private static func trimmed(_ text: String?) -> String? {

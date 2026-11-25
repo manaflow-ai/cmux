@@ -28,7 +28,7 @@ final class CloudPageService: InternalPageProvider {
     }
 
     var page: InternalPageID { .cloud }
-    var title: String { String(localized: "cloud.page.title", defaultValue: "Cloud", table: "Cloud", bundle: .module.inAppLanguage) }
+    var title: String { String(localized: "cloud.page.title", defaultValue: "Cloud", table: "Cloud", bundle: .module) }
     var symbol: String { "cloud" }
     var icon: IconName? { .cloud }
 

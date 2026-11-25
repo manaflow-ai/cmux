@@ -19,8 +19,6 @@ actor FakeBillingAPI: BillingAPI {
     /// Errors returned by successive submissions; empty means accept.
     var submitErrors: [BillingAPIError] = []
     var receiptPlan: BillingPlanID = .pro
-    /// The receipt every accepted submission returns; nil uses `receiptPlan`.
-    var receipt: BillingTransactionReceipt?
     private(set) var submitted: [String] = []
     private(set) var accountLoads = 0
 
@@ -31,10 +29,6 @@ actor FakeBillingAPI: BillingAPI {
 
     func setSubmitErrors(_ errors: [BillingAPIError]) {
         submitErrors = errors
-    }
-
-    func setReceipt(_ receipt: BillingTransactionReceipt) {
-        self.receipt = receipt
     }
 
     func setAccount(_ account: BillingAccount) {
@@ -53,7 +47,7 @@ actor FakeBillingAPI: BillingAPI {
         if !submitErrors.isEmpty {
             throw submitErrors.removeFirst()
         }
-        return receipt ?? BillingTransactionReceipt(planID: receiptPlan, status: "active", expiresAt: nil)
+        return BillingTransactionReceipt(planID: receiptPlan, status: "active", expiresAt: nil)
     }
 }
 

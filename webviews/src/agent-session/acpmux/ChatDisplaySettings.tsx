@@ -6,7 +6,6 @@
 // removes every key.
 import { useEffect, useId, useRef, useState } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
-import { Switch } from "../../ui/Switch";
 import { type StringKey, useT } from "./i18n";
 import { CHAT_UI_FONT_KEY, CHAT_UI_FONTS, type ChatUiFont, DEFAULT_CHAT_UI_FONT } from "./chatUiFont";
 import {
@@ -54,9 +53,6 @@ const UI_FONT_LABEL: Record<ChatUiFont, StringKey> = {
   "source-sans": "chatDisplay.uiFontSourceSans",
   geist: "chatDisplay.uiFontGeist",
   "cmux-sans": "chatDisplay.uiFontCmuxSans",
-  "cmux-sans-squat": "chatDisplay.uiFontCmuxSansSquat",
-  "cmux-sans-candy": "chatDisplay.uiFontCmuxSansCandy",
-  "cmux-sans-open": "chatDisplay.uiFontCmuxSansOpen",
   hanken: "chatDisplay.uiFontHanken",
   atkinson: "chatDisplay.uiFontAtkinson",
   "system-ui": "chatDisplay.uiFontSystemUi",
@@ -95,13 +91,13 @@ export function ChatDisplayRows() {
         onChange={(value) => changeChatDisplay(c.width.key, value)}
       />
       <label className="acpmux-display-row acpmux-display-check">
-        <span>{t("chatDisplay.fullWidth")}</span>
-        <Switch
-          size="sm"
+        <input
+          type="checkbox"
           aria-label={t("chatDisplay.fullWidth")}
           checked={display.fullWidth}
-          onCheckedChange={(on) => changeChatDisplay(c.fullWidth.key, on ? true : null)}
+          onChange={(event) => changeChatDisplay(c.fullWidth.key, event.currentTarget.checked ? true : null)}
         />
+        <span>{t("chatDisplay.fullWidth")}</span>
       </label>
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.font")}</span>

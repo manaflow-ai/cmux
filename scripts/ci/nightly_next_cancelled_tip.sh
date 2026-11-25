@@ -28,11 +28,7 @@ if [[ -z "$runs" ]]; then
   echo "nightly-next tip ${tip:0:12}: no nightly run yet"
   exit 0
 fi
-# Only the newest run describes the tip's current build. An older run may still
-# be finishing after a newer run was cancelled; treating that stale activity as
-# current leaves the cancelled tip stranded forever.
-newest_status="$(awk 'NR == 1 { print $2 }' <<<"$runs")"
-if [[ "$newest_status" != completed ]]; then
+if grep -qv ' completed ' <<<"$runs"; then
   echo "nightly-next tip ${tip:0:12}: a nightly run is building"
   exit 0
 fi

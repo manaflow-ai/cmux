@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "680cce2c42a88a1c7a0b51f9ffa12011e4e9ce0340f125e413282192d52f9a92",
+  "catalog_sha256": "c65200d278b09825f2210804a789f11d213d2bbe7840c416dfe36fa86180d2b3",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -106,12 +106,6 @@
     "chat.pin": {
       "class": "mutation"
     },
-    "chief.automation.list": {
-      "class": "read"
-    },
-    "chief.automation.update": {
-      "class": "mutation"
-    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -195,12 +189,6 @@
     },
     "cloud.machine.chat_access": {
       "class": "read"
-    },
-    "cloud.machine.chief_resize": {
-      "class": "mutation"
-    },
-    "cloud.machine.chief_start": {
-      "class": "mutation"
     },
     "cloud.machine.io": {
       "class": "mutation"
@@ -421,15 +409,6 @@
     "git.push": {
       "class": "mutation"
     },
-    "git.review.comment": {
-      "class": "mutation"
-    },
-    "git.review.post": {
-      "class": "mutation"
-    },
-    "git.review.start": {
-      "class": "mutation"
-    },
     "git.status": {
       "class": "read"
     },
@@ -444,9 +423,6 @@
     },
     "git.worktree.setup": {
       "class": "read"
-    },
-    "git.worktree.setup.run": {
-      "class": "mutation"
     },
     "history.backups.purge": {
       "class": "mutation"
@@ -495,9 +471,6 @@
     },
     "keybindings.set": {
       "class": "mutation"
-    },
-    "language_packs.ensure": {
-      "class": "read"
     },
     "layout.bulk": {
       "class": "mutation"
@@ -597,9 +570,6 @@
     },
     "participant.avatar.set": {
       "class": "mutation"
-    },
-    "project.actions.list": {
-      "class": "read"
     },
     "project.add": {
       "class": "mutation"

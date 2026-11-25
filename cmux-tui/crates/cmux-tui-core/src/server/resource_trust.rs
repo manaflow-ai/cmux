@@ -77,7 +77,6 @@ pub(super) const fn handles_resource_connection_operation(operation: ResourceOpe
             | ResourceOperation::SidebarViewAttach
             | ResourceOperation::StreamCancel
             | ResourceOperation::OriginConfirmationIssue
-            | ResourceOperation::LanguagePacksEnsure
     ) || super::conversation_resource::handles(operation)
         || super::chief_control::handles(operation)
         || super::chief_registry_resource::handles(operation)

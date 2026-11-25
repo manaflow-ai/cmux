@@ -5,10 +5,10 @@ import Testing
 /// Full verify D1 (2026-10-19): Stack refuses team creation from the
 /// client, so the phone creates teams through the cmux service.
 @Suite struct ServiceTeamCreationTests {
-    let creation = ServiceTeamCreation(apiBase: URL(string: "https://api.example")!, buildSpace: .nightly)
+    let creation = ServiceTeamCreation(apiBase: URL(string: "https://api.example")!)
 
     @Test func theRequestGoesToTheServiceWithTheName() throws {
-        let request = try creation.request(accessToken: "tok", name: "fv team")
+        let request = creation.request(accessToken: "tok", name: "fv team")
         #expect(request.url?.absoluteString == "https://api.example/v1/teams")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer tok")
@@ -81,20 +81,5 @@ import Testing
         let localhost = URL(string: "http://localhost:3000")!
         #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: localhost, mobileServiceBase: devMobile).billingOrigin == nil)
         #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: nil, mobileServiceBase: nil).billingOrigin == nil)
-    }
-
-    @Test func aDebugLaunchOverrideNamesTheBillingOrigin() {
-        let staging = URL(string: "https://cmux-staging.vercel.app")!
-        let dev = TeamCreationRoute(productionAccount: false, teamAPIBase: URL(string: "http://localhost:3000")!, mobileServiceBase: devMobile)
-        #expect(dev.billingOrigin(launchOverride: "https://cmux-staging.vercel.app") == staging)
-        #expect(dev.billingOrigin(launchOverride: nil) == nil)
-        #expect(dev.billingOrigin(launchOverride: "") == nil)
-        #expect(dev.billingOrigin(launchOverride: "cmux-staging.vercel.app") == nil)
-        #expect(dev.billingOrigin(launchOverride: "file:///tmp") == nil)
-        #expect(dev.billingOrigin(launchOverride: "http://127.0.0.1:4517") == URL(string: "http://127.0.0.1:4517")!)
-        #expect(dev.billingOrigin(launchOverride: "https://cmux-staging.vercel.app/api") == nil)
-        #expect(dev.billingOrigin(launchOverride: "https://cmux-staging.vercel.app?x=1") == nil)
-        let production = TeamCreationRoute(productionAccount: true, teamAPIBase: web, mobileServiceBase: nil)
-        #expect(production.billingOrigin(launchOverride: nil) == web)
     }
 }

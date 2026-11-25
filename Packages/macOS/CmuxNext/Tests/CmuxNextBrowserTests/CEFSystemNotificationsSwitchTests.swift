@@ -22,9 +22,8 @@ import Testing
     /// asked again about twice per second, then denied the site. `disable-notifications` takes both
     /// interfaces out of every page, which no desktop Chrome does: Chrome with the two interfaces
     /// deleted loops the same way, and with them it passes after one reload. The switch must stay
-    /// off the command line; a page reads the permission as `default`, as in Chrome, until the
-    /// prompt bar answers it (`CEFPermissionPrompts`), and an allowed site's notifications show as
-    /// cmux banners (`BrowserWebNotificationScript`), not through Chromium's bridge.
+    /// off the command line; a page then reads the permission as `default`, as in Chrome, and no
+    /// notification is ever shown because nothing grants it.
     @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debug.tag"])
     func pagesKeepTheWebNotificationInterfacesChromeHas(bundle: String) {
         let switches = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: [:])
@@ -36,8 +35,8 @@ import Testing
     /// feature of either name (components/permissions at 154 and the shipped 157 framework hold
     /// neither string): its count of ignored prompts has no switch at all
     /// (PermissionDecisionAutoBlocker::RecordIgnoreAndEmbargo). The two switches did nothing and
-    /// said otherwise, so they must not be on the command line; notification prompts now go to the
-    /// host's prompt bar, which answers every one (permission_prompt_policy.h).
+    /// said otherwise, so they must not be on the command line; the shim clears the site's count
+    /// itself (shim_permissions.mm).
     @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debug.tag"])
     func noSwitchNamesAnEmbargoFeatureChromiumDoesNotHave(bundle: String) {
         let switches = CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: [:])

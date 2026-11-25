@@ -3,7 +3,6 @@ import { meteredOwner } from "../model-gateway/routes.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import { freestyleCustomer } from "../providers/freestyle/customer.ts"
 import { freestyleIdleSeconds } from "../auto-pause.ts"
-import { BACKGROUND_AFTER, settleBackground } from "../providers/freestyle/background.ts"
 
 /** The environment tag in provider machine names (cmuxnp-<tag>-...). */
 const cloudEnvTag = (environment: string | undefined): string | null =>
@@ -89,19 +88,9 @@ export const vmNetwork = async (env: Env, vm: string): Promise<{ vm: string; ip_
   return { vm, ip_mode: str(r?.ipMode), egress_ipv4: str(r?.egressIpv4), egress_ipv6: str(r?.egressIpv6) }
 }
 
-/**
- * Runs `command` as root with `stdin`; the exit code and stdout (the guest's stderr is never read back). Without
- * stdin a call past 60 s goes to the background (background.ts), so the provider edge's ~125 s hold cannot cut it;
- * one with stdin (the boot's tailnet key, a turn's input) never does, and its 202 fails it.
- */
+/** Runs `command` as root with `stdin`; the exit code and stdout (the guest's stderr is never read back). */
 export const execRoot = async (env: Env, vm: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<{ exit: number; stdout: string }> => {
-  const deadlineAt = Date.now() + timeoutMs + 15_000
-  const sent = await freestyle(env, "POST", `/v5/vms/${encodeURIComponent(vm)}/exec-await`, { command, timeoutMs, linuxUser: "root", ...(stdin ? { stdin: b64(stdin) } : {}) }, timeoutMs + 15_000, stdin ? {} : BACKGROUND_AFTER)
-  const res = stdin
-    ? sent
-    : (await settleBackground(sent, base(env), { authorization: `Bearer ${env.CHIEF_CC_FREESTYLE_API_KEY}` }, deadlineAt).catch(() => {
-        throw new CcError("exec: no answer by the deadline (the command may have run)")
-      })).res
+  const res = await freestyle(env, "POST", `/v5/vms/${encodeURIComponent(vm)}/exec-await`, { command, timeoutMs, linuxUser: "root", ...(stdin ? { stdin: b64(stdin) } : {}) }, timeoutMs + 15_000)
   if (res.status !== 200) {
     await res.body?.cancel().catch(() => undefined)
     throw new CcError(`exec: ${res.status}`)

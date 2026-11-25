@@ -24,7 +24,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 1;
 pub const OK: i32 = 0;
 pub const ERR_NULL: i32 = -1;
 pub const ERR_INVALID: i32 = -2;

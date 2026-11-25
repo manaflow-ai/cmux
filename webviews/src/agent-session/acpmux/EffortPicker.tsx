@@ -129,12 +129,7 @@ export function EffortPicker({
           <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
-        <MenuPopup
-          side={newTab ? "bottom" : "top"}
-          align="start"
-          className="acpmux-effort-menu"
-          resize={{ id: "composer.effort" }}
-        >
+        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-effort-menu">
           {sliding && (
             <ReasoningSlider
               title={t("picker.reasoning")}

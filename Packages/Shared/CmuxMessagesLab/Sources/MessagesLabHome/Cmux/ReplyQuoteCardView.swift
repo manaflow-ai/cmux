@@ -35,7 +35,7 @@ final class ReplyQuoteCardView: NSView {
         remove.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.replyQuoteRemove)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
         remove.contentTintColor = .tertiaryLabelColor
-        remove.setHomeToolTip(CmuxStrings.replyQuoteRemove)
+        remove.toolTip = CmuxStrings.replyQuoteRemove
         remove.setAccessibilityLabel(CmuxStrings.replyQuoteRemove)
         remove.target = self
         remove.action = #selector(removeClicked)
@@ -54,7 +54,7 @@ final class ReplyQuoteCardView: NSView {
         HomeContentMenu().textItems(excerpt.stringValue, selection: nil).forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(MenuAction(title: CmuxStrings.replyQuoteRemove, symbol: "xmark.circle") { [weak self] in self?.onRemove() })
-        return NSMenu.systemFree(menu)
+        return menu
     }
 
     override func viewDidChangeEffectiveAppearance() {

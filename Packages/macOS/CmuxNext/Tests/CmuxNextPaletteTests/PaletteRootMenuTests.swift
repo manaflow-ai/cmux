@@ -104,16 +104,15 @@ struct PaletteRootMenuTests {
             registry.context.formUnion(descriptor.requires)
             if descriptor.id != "newWindow" { registry.bindEffect(descriptor.id) { _ in .done } }
         }
-        try #require(registry.bind("newWindow") {})
-        ActionTargetTitles.setPaletteTitle("newWindow", in: registry) { canOpen.on ? "New Window" : "New Window Again" }
+        try #require(registry.bind("newWindow", isEnabled: { canOpen.on }) {})
         let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
         let first = try items(in: palette.commandsPage())
         let window = try #require(first.first { $0.id == "rootFamily:window" })
-        #expect(try members(of: window).first { $0.actionID == "newWindow" }?.title == "New Window")
+        #expect(try members(of: window).first { $0.actionID == "newWindow" }?.isEnabled == true)
         canOpen.on = false
         _ = try items(in: palette.commandsPage())
         let row = try #require(try members(of: window).first { $0.actionID == "newWindow" }, "New Window left its family page")
-        #expect(row.title == "New Window Again", "the family page lists the rows as its row's first open built them")
+        #expect(!row.isEnabled, "the family page lists the rows as its row's first open built them")
     }
 
     @Test func rootExcludesUnboundDebugAndNewLongTailActionsButIncludesOverrides() throws {

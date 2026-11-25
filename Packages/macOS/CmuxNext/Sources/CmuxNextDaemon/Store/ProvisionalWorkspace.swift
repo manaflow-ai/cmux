@@ -177,10 +177,7 @@ extension DaemonStore {
 /// records hold under the key:
 /// - nothing: the provisional workspace (its one model) is inserted with its screen;
 /// - the daemon's workspace without a tab (`create-workspace` answered, the first tab not yet):
-///   the provisional screen is shown inside it in place of the daemon's own screens, so the window never
-///   draws an empty workspace, nor two screens: the daemon's screen comes with an empty pane, and beside
-///   the stand-in's it showed the screen bar and an empty screen until the first tab (Leo, 2026-11-18: "a 2
-///   part animation going from as if it had an invisible split, then into the main page new page display");
+///   the provisional screen is shown inside it, so the window never draws an empty workspace;
 /// - the daemon's workspace with a tab: nothing (the intent has nothing left to show).
 @MainActor struct ProvisionalWorkspaceOverlay {
     static func apply(_ provisional: ProvisionalWorkspace, index: Int?, to store: DaemonStore) -> IntentUndo? {
@@ -195,15 +192,10 @@ extension DaemonStore {
         let confirmed = store.workspacesByKey[provisional.key]
         if let confirmed, confirmed.screens.contains(where: { $0.panes.contains { !$0.tabs.isEmpty } }) { return nil }
         if confirmed == nil, store.tabsBySurface[provisional.tab.surface] != nil { return nil }
-        var inserted = false, hidden: [ScreenModel] = []
+        var inserted = false
         let workspace: WorkspaceModel
-        let screen = store.provisionalWorkspaces.screensByID[provisional.key.rawValue] ?? ScreenModel(provisional.screenSnapshot)
         if let confirmed {
             workspace = confirmed
-            // Its screens hold no tab (above): they leave the records while the stand-in shows; the undo puts them back.
-            hidden = confirmed.screens.filter { $0 !== screen }
-            for daemonScreen in hidden { store.index.remove(daemonScreen) }
-            confirmed.screens.removeAll { $0 !== screen }
         } else {
             workspace = model ?? WorkspaceModel(provisional.workspaceSnapshot)
             store.provisionalWorkspaces.workspacesByID[provisional.key.rawValue] = workspace
@@ -213,11 +205,12 @@ extension DaemonStore {
             store.sidebarNeedsRecompute = true
             inserted = true
         }
+        let screen = store.provisionalWorkspaces.screensByID[provisional.key.rawValue] ?? ScreenModel(provisional.screenSnapshot)
         store.provisionalWorkspaces.screensByID[provisional.key.rawValue] = screen
         // A reserved model already holds its screen (an undo took it out of every other).
         if !workspace.screens.contains(where: { $0 === screen }) { workspace.screens.append(screen) }
         store.indexed(screen, in: workspace)
-        return .createdWorkspace(key: provisional.key, inserted: inserted, hidden: HiddenScreens(hidden))
+        return .createdWorkspace(key: provisional.key, inserted: inserted)
     }
 
     /// The daemon's pane that took Cmd-N's stand-in pane over: in the daemon's workspace `key`, the pane that holds the
@@ -252,7 +245,7 @@ extension DaemonStore {
         return workspace.tookOverStandIn?.firstTab
     }
 
-    static func undo(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens, in store: DaemonStore) {
+    static func undo(key: WorkspaceKey, inserted: Bool, in store: DaemonStore) {
         guard let workspace = store.workspacesByKey[key] ?? store.provisionalWorkspaces.workspacesByID[key.rawValue] else {
             return store.reportMirrorViolation("intent overlay undo found workspace \(key) missing")
         }
@@ -260,20 +253,9 @@ extension DaemonStore {
             store.index.remove(screen)
             workspace.screens.removeAll { $0 === screen }
         }
-        workspace.screens.insert(contentsOf: hidden.screens, at: 0)
-        for daemonScreen in hidden.screens { store.indexed(daemonScreen, in: workspace) }
         guard inserted else { return }
         store.index.remove(workspace)
         store.workspaces.removeAll { $0 === workspace }
         store.sidebarNeedsRecompute = true
     }
-}
-
-/// The daemon's tabless screens a create's overlay took out of its workspace while the stand-in shows, in order.
-struct HiddenScreens: Equatable {
-    let screens: [ScreenModel]
-
-    init(_ screens: [ScreenModel]) { self.screens = screens }
-
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.screens.elementsEqual(rhs.screens, by: ===) }
 }

@@ -3,9 +3,7 @@
 //! sort alone. The start's `list order` phase (`daemon status` `gauges.startup`) is the handle:
 //! with the log load held by the load-delay seam, the phase has run and ended, and no log phase
 //! has begun. Without the step the phase never shows and this fails.
-// Debug builds only, as daemon_lifecycle.rs's seam tests: the load-delay seam that holds the
-// log load exists only with debug assertions.
-#![cfg(all(unix, debug_assertions))]
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -18,8 +16,7 @@ use std::time::{Duration, Instant};
 
 /// How long the seam holds the log load (`ACPMUX_TEST_DELAY_LOAD_LOGS_MS`, at most 10 s).
 const HELD: Duration = Duration::from_secs(10);
-/// The sort of an empty home ends in milliseconds; well inside the hold. Counted from the
-/// daemon's first status answer, so a slow spawn on a loaded machine is not charged to the sort.
+/// The sort of an empty home ends in milliseconds; well inside the hold.
 const SORTED_WITHIN: Duration = Duration::from_secs(6);
 
 fn status(socket: &std::path::Path) -> Value {
@@ -61,8 +58,7 @@ fn the_start_task_sorts_the_list_order_before_any_log_is_read() {
         .stderr(std::process::Stdio::inherit())
         .spawn()
         .unwrap();
-    // The hold starts after the spawn, so time since the spawn bounds it from above.
-    let spawned = Instant::now();
+    let started = Instant::now();
     let stdout = child.stdout.take().unwrap();
     // The readiness line, then the rest of stdout drained, so a log line never blocks the daemon.
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -75,10 +71,8 @@ fn the_start_task_sorts_the_list_order_before_any_log_is_read() {
     let ready = ready_rx.recv_timeout(Duration::from_secs(30)).unwrap_or(false);
     let outcome = std::panic::catch_unwind(|| {
         assert!(ready, "the daemon became ready");
-        let mut first_answer = None;
         loop {
             let gauges = status(&socket)["gauges"].clone();
-            let answered = *first_answer.get_or_insert_with(Instant::now);
             let sorted = phase(&gauges, "list order").is_some_and(|p| p["ms"].is_u64());
             if sorted {
                 // The log load is still held: no log phase has begun.
@@ -86,11 +80,11 @@ fn the_start_task_sorts_the_list_order_before_any_log_is_read() {
                     let begun = phase(&gauges, logs);
                     assert!(begun.is_none(), "{logs} began before the sort: {gauges}");
                 }
-                assert!(spawned.elapsed() < HELD, "the hold ended before this read: {gauges}");
+                assert!(started.elapsed() < HELD, "the hold ended before this read: {gauges}");
                 return;
             }
             assert!(
-                answered.elapsed() < SORTED_WITHIN,
+                started.elapsed() < SORTED_WITHIN,
                 "the start task sorted no list order while the logs were held: {gauges}"
             );
             std::thread::sleep(Duration::from_millis(50));

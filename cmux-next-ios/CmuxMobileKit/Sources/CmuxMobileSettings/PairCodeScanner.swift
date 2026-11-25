@@ -8,15 +8,18 @@ import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// Settings → Devices → "Scan QR on your Mac": the camera reads a Mac's invite for a new machine
-/// (Pair Another Machine…, `https://cmux.com/pair?i=…`) and opens ``MachineInviteSheet`` here, with
-/// its code filled in. This iPhone itself needs no code: signed in to the Mac's account, it pairs
-/// on its own and the Mac allows it.
+/// Settings → Devices → "Scan QR on your Mac": the camera reads the pairing
+/// code cmux shows on the Mac and hands its text to `open`
+/// (``SettingsDeviceDirectory/openPairingCode(_:)``). A Mac's invite for a new
+/// machine (Pair Another Machine…, `https://cmux.com/pair?i=…`) opens
+/// ``MachineInviteSheet`` here, with its code filled in.
 struct PairCodeScannerSheet: View {
+    /// Takes a scanned code's text; true when the app took it as a pairing code.
+    let open: (String) -> Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var access = AVCaptureDevice.authorizationStatus(for: .video)
-    /// A code was read that is no machine invite.
+    /// A code was read that is no live pairing code for this account.
     @State private var rejected = false
     /// A scanned invite for a new machine: the sheet shows it in place of the camera.
     @State private var invite: MachineInvite?
@@ -48,9 +51,7 @@ struct PairCodeScannerSheet: View {
                 PairCodeCameraView { code in
                     if let scanned = MachineInvite(text: code) {
                         invite = scanned
-                    } else {
-                        rejected = true
-                    }
+                    } else if open(code) { dismiss() } else { rejected = true }
                 }
                 .ignoresSafeArea()
                 .overlay(alignment: .bottom) { hint }
@@ -74,8 +75,8 @@ struct PairCodeScannerSheet: View {
 
     private var hint: some View {
         Text(rejected
-             ? "That isn't a cmux invite. On your Mac, choose Pair Another Machine… to show one."
-             : "Point the camera at the invite code cmux shows on your Mac.")
+             ? "That isn't a pairing code for this account, or it expired. Show a new code on your Mac."
+             : "Point the camera at the pairing code cmux shows on your Mac.")
             .font(theme.type.meta)
             .multilineTextAlignment(.center)
             .padding()

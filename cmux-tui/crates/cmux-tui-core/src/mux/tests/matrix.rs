@@ -23,7 +23,6 @@ const CONSERVING_OPS: [&str; 6] = [
 /// The case file, or `None` in a cmux-tui tree without the app beside it
 /// (a published tree): the matrix belongs to the monorepo.
 fn case_file() -> Option<Value> {
-    // affected-reads: Packages/macOS/CmuxNext/Tests/Matrix/cases.json
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     if !root.join("Packages/macOS/CmuxNext").is_dir() {
         return None;

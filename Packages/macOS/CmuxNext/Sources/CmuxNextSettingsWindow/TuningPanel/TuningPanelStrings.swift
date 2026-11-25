@@ -17,6 +17,6 @@ public nonisolated struct TuningPanelStrings {
     public static var browserChrome: String { text("tuningPanel.browserChrome", "Browser Chrome by Density") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .localizedModule)
+        String(localized: key, defaultValue: value, bundle: .module)
     }
 }

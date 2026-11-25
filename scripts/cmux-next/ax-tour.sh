@@ -74,14 +74,8 @@ if [ -n "$app" ]; then
     sleep 0.1
   done
   [ -n "$launched_pid" ] || { echo "ax-tour: $app did not start" >&2; exit 2; }
-  # Until the launched process has a window (30 s). Best effort: the tour's first step also waits for its
-  # own control, so a miss here is logged and the tour still runs.
-  for _ in $(seq 1 300); do
-    n="$(osascript -e "tell application \"System Events\" to count windows of (first process whose unix id is $launched_pid)" 2>/dev/null || true)"
-    [ "${n:-0}" -gt 0 ] 2>/dev/null && break
-    sleep 0.1
-  done
-  [ "${n:-0}" -gt 0 ] 2>/dev/null || echo "ax-tour: $app (pid $launched_pid) showed no window within 30 s; touring anyway" >&2
+  # The tour's first step waits for its own control; give the window time to appear.
+  sleep 5
 fi
 
 # On the GUI build host the job has no Screen Recording grant of its own; its capture helper has.

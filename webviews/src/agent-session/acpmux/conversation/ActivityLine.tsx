@@ -15,9 +15,6 @@ import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { StatusVerb } from "./StatusVerb";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";
-import { LiveShimmer } from "./LiveShimmer";
-import { RowShimmer } from "./ShimmerText";
-import { AgentTag } from "./AgentTag";
 
 export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
@@ -31,10 +28,8 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
     return (
       <div className="cv-activity cv-tool">
         <span className="cv-tool__icon" aria-hidden="true" />
-        <output className="cv-activity__label cv-thinking is-shimmer" data-waiting={waiting}>
-          <span className="cv-shimmer__row">
-            <LiveShimmer label={t(WAITING_LABEL[waiting])} />
-          </span>
+        <output className="cv-activity__label cv-waiting" data-waiting={waiting}>
+          {t(WAITING_LABEL[waiting])}
         </output>
       </div>
     );
@@ -49,18 +44,11 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
         name={sendName}
         after={after}
         meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
-        className="cv-activity-row is-live"
+        className="cv-activity-row"
         // It opens nothing, so it draws no chevron (a row shows one only with something to show).
         chevron={false}
         ariaLabel={t("send.sending", { target: sendName })}
-      >
-        {/* Sending is live work: it shimmers as "Thinking" does (Leo, 2026-11-22). */}
-        <RowShimmer>
-          {before}
-          <AgentTag name={sendName} />
-          {after}
-        </RowShimmer>
-      </TranscriptActivityRow>
+      />
     );
   }
   return (
@@ -70,10 +58,8 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
       </span>
       {row.text ? (
         <>
-          <span ref={words} className="cv-activity__label cv-thinking is-shimmer">
-            <span className="cv-shimmer__row">
-              <LiveShimmer label={row.text} />
-            </span>
+          <span ref={words} className="cv-activity__label">
+            {row.text}
           </span>
           <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
         </>

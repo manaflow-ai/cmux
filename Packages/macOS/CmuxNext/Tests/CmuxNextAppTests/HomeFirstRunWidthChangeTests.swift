@@ -66,14 +66,14 @@ import Testing
         let before = panel.measurePasses
         for width: CGFloat in [380, 360, 340, 320] { resize(panel, width: width) }
         #expect(panel.measurePasses == before, "a hidden panel (a conversation with messages) measures nothing in a resize")
-        panel.setIntro("Hi, I am your Chief.")
+        panel.setMemoryOffer("Bring your memory from Claude Code")
         panel.layoutSubtreeIfNeeded()
         #expect(panel.measurePasses == before, "nor when what it will show changes")
         panel.isHidden = false
         panel.layoutSubtreeIfNeeded()
         #expect(panel.measurePasses == before + 1, "it measures once when it shows again")
         let fresh = makePanel(width: 320)
-        fresh.setIntro("Hi, I am your Chief.")
+        fresh.setMemoryOffer("Bring your memory from Claude Code")
         fresh.layoutSubtreeIfNeeded()
         #expect(places(panel) == places(fresh), "and each part is where a first layout at 320 pt puts it")
     }

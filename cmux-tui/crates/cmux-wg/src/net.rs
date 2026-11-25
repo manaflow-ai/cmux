@@ -258,32 +258,6 @@ impl WgNet {
         self.send_rebind(Rebind::Keep).await
     }
 
-    /// The peer said it moved to a new network: send toward it at once, as
-    /// `refresh` does, even while held. A peer that says it moved is awake,
-    /// and the send opens this side's NAT toward its new address.
-    pub async fn reach_moved_peer(&self) -> Result<(), WgError> {
-        self.send_rebind(Rebind::PeerMoved).await
-    }
-
-    /// Hold the tunnel for a peer that goes silent on purpose (a phone the OS
-    /// suspends in the background), or release it with `None`. While held,
-    /// nothing goes out on its own: no TCP keepalive probe, no WireGuard
-    /// keepalive (persistent or passive), and no reassertion after this
-    /// side's own rebind or refresh (it goes out at the release instead), so
-    /// a parked peer's radio is never woken; and a TCP connection waits
-    /// `hold` for the peer instead of its user timeout. Data the owner
-    /// writes, `reach_moved_peer` and a handshake retry still go out. Release
-    /// once the peer was heard again ([`crate::tcp_stack::TcpStack::set_hold`]
-    /// says why).
-    pub async fn hold(&self, hold: Option<Duration>) -> Result<(), WgError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.commands
-            .send(Command::Hold { hold, reply: reply_tx })
-            .await
-            .map_err(|_| WgError::Shutdown)?;
-        reply_rx.await.map_err(|_| WgError::Shutdown)
-    }
-
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -368,11 +342,9 @@ enum Command {
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
-    Hold { hold: Option<Duration>, reply: oneshot::Sender<()> },
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
-    SendLiveness { from_port: u16, to: SocketAddr, payload: Vec<u8>, answer: bool },
     Rebind { rebind: Rebind, reply: oneshot::Sender<()> },
     Shutdown,
 }
@@ -381,8 +353,6 @@ enum Rebind {
     Underlay(Box<dyn Underlay>),
     Socket(UdpSocket),
     Keep,
-    /// The peer moved: reassert even while held.
-    PeerMoved,
 }
 
 struct Driver {
@@ -408,32 +378,8 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
-    /// When the peer's last authenticated data arrived, and whether it came
-    /// after a silence of [`RESUME_GAP`] (a blackout ending on the same path).
-    last_inbound: Option<Instant>,
-    resumed: bool,
     wakeups: Arc<AtomicU64>,
-    /// A rebind while held owes the peer its reassertion at the release.
-    reassert_at_release: bool,
     scratch: Vec<u8>,
-}
-
-/// A peer silent this long and then heard again counts as a path change for
-/// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
-/// (doubling up to 60 s) exactly as a dead route does, and nothing else tells
-/// the stack the route came back. With nothing in flight it does nothing.
-const RESUME_GAP: Duration = Duration::from_secs(2);
-
-/// Authenticated data from the peer: the watchdog's answer, and the end of a
-/// silence long enough to call the route back. Fields, not `&mut Driver`: the
-/// packet still borrows the scratch buffer.
-fn note_inbound(watchdog: &mut Watchdog, last_inbound: &mut Option<Instant>, resumed: &mut bool) {
-    watchdog.on_inbound_data();
-    let now = Instant::now();
-    if last_inbound.is_some_and(|last| now.saturating_duration_since(last) >= RESUME_GAP) {
-        *resumed = true;
-    }
-    *last_inbound = Some(now);
 }
 
 enum Event {
@@ -491,10 +437,7 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
-            last_inbound: None,
-            resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
-            reassert_at_release: false,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -523,7 +466,6 @@ impl Driver {
                 self.pace_deadline,
                 watchdog,
                 hello,
-                self.stack.release_deadline(),
             ]
             .into_iter()
             .flatten()
@@ -605,7 +547,7 @@ impl Driver {
                     // (Done for other messages, a cookie reply, proves less.)
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
-                        note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                        self.watchdog.on_inbound_data();
                     }
                     break;
                 }
@@ -653,7 +595,7 @@ impl Driver {
                         self.underlay.set_metered(self.negotiation.metered());
                     }
                     self.underlay.authenticated(origin);
-                    note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                    self.watchdog.on_inbound_data();
                     if hello.is_some() || off_path.is_some() {
                         // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
@@ -733,9 +675,7 @@ impl Driver {
     /// bytes between sockets and streams, then poll again so anything the
     /// streams produced leaves in the same pass.
     fn service(&mut self) {
-        // Both are taken every pass, so neither carries over.
-        let roamed = self.underlay.take_path_change();
-        if std::mem::take(&mut self.resumed) | roamed {
+        if self.underlay.take_path_change() {
             self.stack.path_changed();
         }
         loop {
@@ -782,15 +722,6 @@ impl Driver {
             Command::LastHandshake { reply } => {
                 let _ = reply.send(self.tunn.time_since_last_handshake());
             }
-            Command::Hold { hold, reply } => {
-                self.stack.set_hold(hold);
-                let keepalive = self.config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
-                self.schedule.set_persistent_keepalive(keepalive && hold.is_none());
-                if hold.is_none() && std::mem::take(&mut self.reassert_at_release) {
-                    self.reassert();
-                }
-                let _ = reply.send(());
-            }
             Command::BindDatagram { port, reply } => {
                 let _ = reply.send(self.bind_datagram(port));
             }
@@ -802,11 +733,7 @@ impl Driver {
             Command::SendDatagram { from_port, to, payload, priority } => {
                 self.send_datagram(from_port, to, &payload, priority);
             }
-            Command::SendLiveness { from_port, to, payload, answer } => {
-                self.send_liveness(from_port, to, &payload, answer);
-            }
             Command::Rebind { rebind, reply } => {
-                let moved_peer = matches!(rebind, Rebind::PeerMoved);
                 match rebind {
                     Rebind::Underlay(underlay) => {
                         self.underlay.replace(underlay);
@@ -818,15 +745,9 @@ impl Driver {
                         let peer = self.underlay.peer_hint();
                         self.underlay.replace(Box::new(SocketPath::new(socket, peer)));
                     }
-                    Rebind::Keep | Rebind::PeerMoved => {}
+                    Rebind::Keep => {}
                 }
-                // A held peer is suspended: a send now would wake it (or be
-                // lost), so this side's own move waits for the release.
-                if self.stack.hold().is_some() && !moved_peer {
-                    self.reassert_at_release = true;
-                } else {
-                    self.reassert();
-                }
+                self.reassert();
                 let _ = reply.send(());
             }
             Command::Shutdown => {}

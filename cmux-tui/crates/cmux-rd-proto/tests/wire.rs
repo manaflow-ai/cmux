@@ -159,12 +159,7 @@ fn large_frames_without_parity_are_accepted_and_large_fec_blocks_refused() {
         .encode()
     };
     assert!(DatagramHeader::decode(&header(300, 0, 299, DatagramKind::Video)).is_ok());
-    // Parity past one block is split across interleaved blocks (`fec_blocks`): valid while
-    // every block fits 255 shards and there is no more parity than data.
-    assert!(DatagramHeader::decode(&header(300, 1, 300, DatagramKind::Fec)).is_ok());
-    assert!(DatagramHeader::decode(&header(300, 30, 329, DatagramKind::Fec)).is_ok());
-    assert!(DatagramHeader::decode(&header(300, 301, 300, DatagramKind::Fec)).is_err());
-    assert!(DatagramHeader::decode(&header(300, 30, 330, DatagramKind::Fec)).is_err());
+    assert!(DatagramHeader::decode(&header(300, 1, 300, DatagramKind::Fec)).is_err());
     assert!(DatagramHeader::decode(&header(254, 1, 254, DatagramKind::Fec)).is_ok());
     assert!(DatagramHeader::decode(&header(4097, 0, 0, DatagramKind::Video)).is_err());
 }

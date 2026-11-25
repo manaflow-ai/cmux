@@ -3,7 +3,7 @@ import Testing
 
 /// `debug.cef` `tracker` is built from `CEFTrackerStats.reportFields` (moved out of the App's `DebugCEF`, #34252): the
 /// keys pane-perf-terminal.py reads stay, each with its counter, and the times are milliseconds. The detached-hosting
-/// counters (`detaches`, `attaches`, #36541) and the window frame sync fence counters (#44537) are in the report too.
+/// counters (`detaches`, `attaches`, #36541) are in the report too.
 @Suite struct CEFTrackerStatsReportTests {
     @Test func everyTrackerKeyReportsItsCounterAndTimesInMilliseconds() {
         var stats = CEFTrackerStats()
@@ -18,16 +18,10 @@ import Testing
         stats.geometrySkips = 9
         stats.detaches = 10
         stats.attaches = 11
-        stats.resizeFences = 12
-        stats.resizeFenceJoined = 13
-        stats.resizeFencePresented = 14
-        stats.resizeFenceMissed = 15
-        stats.resizeFencesExpired = 16
         #expect(stats.reportFields == [
             "clip_reads": 1, "occlusion_reads": 2, "clip_builds": 3, "clip_hits": 4, "clip_ms": 125,
             "geometry_posts": 6, "hosted_pages": 7, "hosting_refused": 8, "geometry_skips": 9,
             "detaches": 10, "attaches": 11,
-            "fences": 12, "fence_joined": 13, "fence_presented": 14, "fence_missed": 15, "fences_expired": 16,
         ])
     }
 }

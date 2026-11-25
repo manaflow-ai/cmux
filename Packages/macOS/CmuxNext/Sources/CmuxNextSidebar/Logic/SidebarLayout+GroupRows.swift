@@ -72,17 +72,8 @@ nonisolated extension SidebarLayout {
             return
         }
         let fold = SidebarDoneFoldID(section: section, group: group.id)
-        let memberWorkspace: (Int) -> SidebarWorkspace? = { if case let .workspace(ws) = members[$0] { ws } else { nil } }
-        let memberTree = treeRows(workspaceIDs(members), workspace: memberWorkspace, tree: o.sessionTree, filtering: filtering)
-        // Only parents carry a chevron or a roll-up, so only they are looked up: a 10k-member group with
-        // no lineage hashes nothing here (SidebarHugeGroupTests.oneGroup10k's open).
-        let memberTreeRow = Dictionary(memberTree.lazy.filter { $0.fold != nil }.map { ($0.index, $0) },
-                                       uniquingKeysWith: { first, _ in first })
-        // `treeRows` already applies the session-tree fold predicate. Reusing its
-        // filtered order keeps descendants of collapsed/deep-folded parents out of
-        // the drawn rows while retaining their roll-up metadata.
-        let drawn = foldingDone(memberTree.map { (index: $0.index, depth: $0.depth) },
-                                workspace: memberWorkspace, fold: fold, options: o)
+        let drawn = foldingDone(treeOrder(workspaceIDs(members), parents: o.sessionTree?.parents),
+                                workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
         let foldedGap = gapEntry(drawn, gap: o.gap, section: section, group: group.id, count: members.count)
         for (position, (childIndex, depth)) in drawn.enumerated() {
             if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(gap.index) }
@@ -92,7 +83,7 @@ nonisolated extension SidebarLayout {
                 continue
             }
             let member = members[childIndex]
-            if foldedGap == nil { openGapIfNeeded(childIndex) }
+            openGapIfNeeded(childIndex)
             guard case let .workspace(ws) = member else {
                 guard case let .item(item) = member else { continue }
                 // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
@@ -109,7 +100,6 @@ nonisolated extension SidebarLayout {
             }
             var content = o.rowContent(ws, machine: machineLabel)
             content.treeDepth = depth
-            (content.treeFold, content.rollUp) = (memberTreeRow[childIndex]?.fold, memberTreeRow[childIndex]?.rollUp)
             let h = m.height(for: content)
             rows.append(SidebarRow(
                 key: .workspace(ws.id), y: y, height: h, section: section,
@@ -119,7 +109,6 @@ nonisolated extension SidebarLayout {
             ))
             y += h + m.rowSpacing
         }
-        if foldedGap == gapAtEnd, let gap = o.gap { openGapIfNeeded(gap.index) }
         // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
         openGapIfNeeded(members.count)
     }

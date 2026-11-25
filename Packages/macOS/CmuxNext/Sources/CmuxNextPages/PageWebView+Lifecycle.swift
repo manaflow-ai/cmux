@@ -157,7 +157,6 @@ extension PageWebView {
         guard chromiumSession == nil else { return reloadPage() }
         // Chromium ended while the notice showed: the page reopens in WebKit now.
         webKitLoadsOnReload = false
-        documentStarted()
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 }

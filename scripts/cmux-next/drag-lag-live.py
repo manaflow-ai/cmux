@@ -13,9 +13,6 @@ log is read for `timed out` errors. Prints one JSON summary; writes it to OUT/dr
 """
 import argparse, json, os, socket, statistics, subprocess, sys, tempfile, threading, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable, wait_until  # noqa: E402
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--moves", type=int, default=120)
@@ -156,23 +153,7 @@ def launch():
     subprocess.run(["open", "-n", APP, *[arg for pair in pairs for arg in ("--env", pair)]], check=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         sys.exit("FAIL the app did not come up")
-    # The window settled: its surfaces hold still.
-    wait_stable(lambda: rpc("debug.surfaces"), "the first window's surfaces", timeout=15, interval=0.2,
-                raise_on_timeout=False)
-
-
-def layout_now():
-    return rpc("debug.surfaces"), (rpc("debug.layers") or {}).get("windows")
-
-
-def act_and_settle(name):
-    """Runs a layout action, then waits until the layout changed and holds still (best effort)."""
-    before = layout_now()
-    action(name, focus=True)
-    if not wait_until(lambda: layout_now() != before, f"the layout to change after {name}", timeout=10,
-                      interval=0.1, raise_on_timeout=False):
-        print(f"note: the layout did not change after {name}", flush=True)
-    wait_stable(layout_now, f"the layout after {name}", timeout=15, interval=0.2, raise_on_timeout=False)
+    time.sleep(2)  # test harness: let the window settle
 
 
 def column_edges():
@@ -214,11 +195,15 @@ since = time.strftime("%Y-%m-%d %H:%M:%S")
 try:
     for index in range(30):
         cli("workspace", "create", "--name", f"Workspace {index:02d}")
-    act_and_settle("newTab")
+    action("newTab", focus=True)
+    time.sleep(2)
     for _ in range(4):
-        act_and_settle("newColumn")
-    act_and_settle("splitRight")
-    act_and_settle("newSurface")
+        action("newColumn", focus=True)
+        time.sleep(1.5)
+    action("splitRight", focus=True)
+    time.sleep(1.5)
+    action("newSurface", focus=True)
+    time.sleep(2)
     SUMMARY["daemon_idle"] = daemon_round_trip()
 
     edges = wait(column_edges, 20)
@@ -227,7 +212,7 @@ try:
         with DaemonProbe() as probe:
             SUMMARY["column_drag"] = paced_drag(x, y, x + 240, y, opts.moves)
             SUMMARY["column_drag_back"] = paced_drag(x + 240, y, x, y, opts.moves)
-            time.sleep(3)  # sleep-ok: the probe's measured 3 s after the drags (the summary's "3s_after")
+            time.sleep(3)
         SUMMARY["daemon_during_and_3s_after_column_drags"] = probe.summary()
     else:
         SUMMARY["column_drag"] = {"error": "no column edge"}
@@ -243,7 +228,7 @@ try:
             tx, ty = center(target)
             with DaemonProbe() as probe:
                 SUMMARY["tab_drag"] = paced_drag(sx, sy, tx, ty + 200, opts.moves)
-                time.sleep(2)  # sleep-ok: the probe's measured tail after the drag
+                time.sleep(2)
             SUMMARY["daemon_during_tab_drag"] = probe.summary()
     SUMMARY.setdefault("tab_drag", {"error": f"no two-tab strip: {json.dumps(strips())[:400]}"})
 
@@ -256,10 +241,9 @@ try:
             _, ty = center(far)
             with DaemonProbe() as probe:
                 SUMMARY["sidebar_drag"] = paced_drag(sx, sy, sx, ty, opts.moves)
-                time.sleep(2)  # sleep-ok: the probe's measured tail after the drag
+                time.sleep(2)
             SUMMARY["daemon_during_sidebar_drag"] = probe.summary()
     SUMMARY.setdefault("sidebar_drag", {"error": f"rows={len(rows)}"})
-    # sleep-ok: the window in which an operation the drags started can still time out and log it.
     time.sleep(2)
     SUMMARY["app_errors"] = app_errors(since)
 finally:

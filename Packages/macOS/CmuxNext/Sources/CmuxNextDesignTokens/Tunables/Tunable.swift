@@ -29,18 +29,6 @@ public nonisolated struct Tunable<Value: TunableValueConvertible>: Sendable {
 
     public func value(in store: TunableStore) -> Value { override(in: store) ?? defaultValue }
     public func override(in store: TunableStore) -> Value? { store.override(key).flatMap(Value.init(tunableValue:)) }
-
-    /// The override, else the default, for a read at a launch step that cannot wait for the store's
-    /// main-actor load (`TunableStore.settledOverride`: Chromium's launch switches, `CEFRuntime`).
-    ///
-    /// `value` can race that load and answer the default, which for a launch-time switch is worse than
-    /// a wrong value: the app launches without the switch while the store later reports it on, so an A/B
-    /// labels an arm by what it stored rather than by what it launched with (the trap cmux#45709 shipped).
-    public var settledValue: Value { settledValue(in: .shared) }
-
-    public func settledValue(in store: TunableStore) -> Value {
-        store.settledOverride(key).flatMap(Value.init(tunableValue:)) ?? defaultValue
-    }
 }
 
 /// A tunable whose default code derives (a density metric): callers pass
@@ -74,15 +62,10 @@ nonisolated extension Tunable where Value: BinaryFloatingPoint {
 }
 
 nonisolated extension Tunable where Value == Bool {
-    /// `readCadence: .launch` for a flag the app reads once while starting
-    /// (a Chromium switch): changing it then needs a relaunch, and every
-    /// surface says so rather than reporting a change that did nothing.
     public static func toggle(_ key: String, _ section: TunableSection, _ label: String, help: String,
-                              default value: Bool, code: String? = nil,
-                              readCadence: TunableReadCadence = .live) -> Tunable {
+                              default value: Bool, code: String? = nil) -> Tunable {
         Tunable(descriptor: TunableDescriptor(key: key, section: section, label: label, help: help, kind: .bool,
-                                              defaultSource: .fixed(.bool(value)), codeName: code,
-                                              readCadence: readCadence),
+                                              defaultSource: .fixed(.bool(value)), codeName: code),
                 defaultValue: value)
     }
 }
@@ -107,12 +90,10 @@ nonisolated extension Tunable where Value == SpringParameters {
 
 nonisolated extension Tunable where Value: TunableChoice {
     public static func choice(_ key: String, _ section: TunableSection, _ label: String, help: String,
-                              default value: Value, code: String? = nil,
-                              readCadence: TunableReadCadence = .live) -> Tunable {
+                              default value: Value, code: String? = nil) -> Tunable {
         Tunable(descriptor: TunableDescriptor(key: key, section: section, label: label, help: help,
                                               kind: .choice(Value.tunableOptions),
-                                              defaultSource: .fixed(value.tunableValue), codeName: code,
-                                              readCadence: readCadence),
+                                              defaultSource: .fixed(value.tunableValue), codeName: code),
                 defaultValue: value)
     }
 }

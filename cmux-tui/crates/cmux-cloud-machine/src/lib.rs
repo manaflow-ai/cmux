@@ -19,7 +19,6 @@ mod json;
 pub mod limits;
 pub mod list_facts;
 pub mod models;
-pub mod power;
 pub mod preview;
 pub mod push;
 pub mod record;

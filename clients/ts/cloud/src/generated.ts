@@ -13,6 +13,18 @@ export type AddressId = string
 
 export type AgentId = string
 
+export type AppKvApp = string
+
+export type AppKvKey = string
+
+export type AppKvRow = {
+  readonly app: string
+  readonly key: string
+  readonly value: unknown
+  readonly revision: number | "Infinity" | "-Infinity" | "NaN"
+  readonly updated_ms: number | "Infinity" | "-Infinity" | "NaN"
+}
+
 export type Automation = {
   readonly id: AutomationId
   readonly owner: TeamId
@@ -54,17 +66,6 @@ export type AutomationAuditEntry = {
 
 /** An automation definition, owned by its team's SchedulerDO. */
 export type AutomationId = string
-
-/** An environment variable name: capital letters, digits and _, starting with a letter (at most 64). */
-export type AutomationSecretName = string
-
-export type AutomationSecretState = {
-  readonly name: AutomationSecretName
-  readonly hint: string | null
-  readonly generation: number
-  readonly updated_at: number
-  readonly updated_by: UserId
-}
 
 export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
@@ -267,18 +268,7 @@ export type CloudMachine = {
   readonly notice?: CloudRetentionNotice | null
   readonly paused_by?: "spend_cap"
   readonly spend_cap_pause_at?: number
-  readonly origin?: CloudMachineOrigin
-  readonly expires_at?: number
   readonly revision: Revision
-}
-
-export type CloudMachineOrigin = {
-  readonly kind?: "workflow" | "lane" | "agent" | "person"
-  readonly label: string
-  readonly url?: string
-  readonly run?: string
-  readonly workflow?: string
-  readonly lane?: string
 }
 
 /** A machine size. The plan decides which sizes are allowed (cloud.size.locked). */
@@ -410,30 +400,6 @@ export type CloudSnapshot = {
   readonly revision: Revision
 }
 
-export type CloudSurgePreview = {
-  readonly count: number
-  readonly ttl_seconds: number
-  readonly provider: string | null
-  readonly available: boolean
-  readonly reason: string
-  readonly estimated_cost_usd: number | "Infinity" | "-Infinity" | "NaN" | null
-}
-
-export type CloudSurgeReceipt = {
-  readonly count: number
-  readonly ttl_seconds: number
-  readonly slots: ReadonlyArray<CloudSurgeSlot>
-}
-
-export type CloudSurgeSlot = {
-  readonly index: number
-  readonly status: "created" | "queued" | "refused"
-  readonly machine_id: MachineId | null
-  readonly provider: string | null
-  readonly reason: string
-  readonly retryable: boolean
-}
-
 export type CloudVmNetwork = {
   readonly tenant: NativeTenantId
   readonly mesh: NativeMeshId
@@ -509,7 +475,6 @@ export type Connection = {
   readonly sharing: "private" | "team"
   readonly resources?: {
     readonly repos: ReadonlyArray<string> | null
-    readonly linked_by_github_id?: number
   }
   readonly created_at: number
   readonly updated_at: number
@@ -1722,6 +1687,39 @@ export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
+  /** Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds. */
+  readonly "appkv.delete": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+    }
+    readonly result: {
+      readonly app: string
+      readonly key: string
+      readonly existed: boolean
+    }
+  }
+  /** Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000). */
+  readonly "appkv.list": {
+    readonly params: {
+      readonly after_revision?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly rows: ReadonlyArray<AppKvRow>
+      readonly next_after_revision: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly revision: string
+    }
+  }
+  /** Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins. */
+  readonly "appkv.set": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+      readonly value: unknown
+    }
+    readonly result: AppKvRow
+  }
   /** The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
   readonly "automation.audit.list": {
     readonly params: {
@@ -1831,37 +1829,6 @@ export interface CloudOps {
       readonly runs: ReadonlyArray<Run>
       readonly revision: string
     }
-  }
-  /** The names of an automation's secrets (who may edit it). Never returns a value. */
-  readonly "automation.secret.list": {
-    readonly params: {
-      readonly automation: AutomationId
-    }
-    readonly result: {
-      readonly automation: AutomationId
-      readonly secrets: ReadonlyArray<AutomationSecretState>
-    }
-  }
-  /** Remove one secret of an automation (its creator, editors and team admins). */
-  readonly "automation.secret.remove": {
-    readonly params: {
-      readonly automation: AutomationId
-      readonly name: AutomationSecretName
-    }
-    readonly result: {
-      readonly automation: AutomationId
-      readonly name: AutomationSecretName
-      readonly removed: boolean
-    }
-  }
-  /** Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned. */
-  readonly "automation.secret.set": {
-    readonly params: {
-      readonly automation: AutomationId
-      readonly name: AutomationSecretName
-      readonly value: string
-    }
-    readonly result: AutomationSecretState
   }
   /** Read the team's automation settings (default limit of agent runs). */
   readonly "automation.settings.get": {
@@ -2123,15 +2090,13 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
       readonly size: CloudMachineSize
       readonly image?: string
       readonly from_snapshot?: SnapshotId
-      readonly origin?: CloudMachineOrigin
-      readonly ttl_seconds?: number
     }
     readonly result: {
       readonly machine: CloudMachine
@@ -2327,22 +2292,6 @@ export interface CloudOps {
     readonly result: {
       readonly machine: CloudMachine
     }
-  }
-  /** Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first. */
-  readonly "cloud.surge.create": {
-    readonly params: {
-      readonly count: number
-      readonly ttl_seconds: number
-    }
-    readonly result: CloudSurgeReceipt
-  }
-  /** Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
-  readonly "cloud.surge.preview": {
-    readonly params: {
-      readonly count: number
-      readonly ttl_seconds: number
-    }
-    readonly result: CloudSurgePreview
   }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.attention.emit": {
@@ -3301,7 +3250,6 @@ export interface CloudOps {
       readonly sharing: "private" | "team"
       readonly resources?: {
         readonly repos: ReadonlyArray<string> | null
-        readonly linked_by_github_id?: number
       }
       readonly created_at: number
       readonly updated_at: number
@@ -4517,6 +4465,9 @@ export type CloudOpName = keyof CloudOps
 
 /** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */
 export const cloudOpMeta = {
+  "appkv.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "appkv.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "appkv.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "automation.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.create": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
@@ -4526,9 +4477,6 @@ export const cloudOpMeta = {
   "automation.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.runs.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
-  "automation.secret.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
-  "automation.secret.remove": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
-  "automation.secret.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.settings.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.teleport.abort": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
@@ -4575,8 +4523,6 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.surge.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.surge.preview": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },

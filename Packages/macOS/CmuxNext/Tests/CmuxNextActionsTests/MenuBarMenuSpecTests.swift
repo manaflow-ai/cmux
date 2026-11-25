@@ -17,7 +17,6 @@ struct MenuBarMenuSpecTests {
             case .header(let title): "header:\(title)"
             case .chat(let chat): "chat:\(chat.id)"
             case .command(let command, _, _): "command:\(command)"
-            case .sessionAction(let id, let session, _, _): "\(id.rawValue)@\(session)"
             case .computerUse(let app, _, _): "computerUse:\(app ?? "")"
             }
         }
@@ -164,10 +163,7 @@ struct MenuBarMenuSpecTests {
     /// Unread and Running chats under their headers, each capped with More…, before the account.
     @Test func computerUseThenUnreadThenRunningOnTop() throws {
         let chats = (1...10).map { MenuBarMenuState.Chat(id: "c\($0)", title: "Chat \($0)", harness: "codex") }
-        let state = MenuBarMenuState(computerUse: .init(sessions: [
-                                         .init(id: "s1", agent: "Claude Code", appName: "Calculator", bundleID: "com.apple.calculator", acting: true),
-                                         .init(id: "s2", agent: "Codex"),
-                                     ]),
+        let state = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", appName: "Calculator", bundleID: "com.apple.calculator")),
                                      unread: .init(Array(chats.prefix(2))), running: .init(chats))
         let items = MenuBarMenuSpec().items(for: state, isBound: Self.everything)
         let ids = Self.ids(items)
@@ -180,27 +176,14 @@ struct MenuBarMenuSpecTests {
         #expect(items[15] == .action("search.chats", title: "More…", symbol: "ellipsis"))
         guard case .computerUse(_, let bundleID, let sub) = items[0] else { throw CancellationError() }
         #expect(bundleID == "com.apple.calculator")
-        // Per agent session (user 2026-11-09): its line (who, on which app; acting now or not), then
-        // Stop, Show Cursor and Show Window for that agent; then the rows for every agent. No Take
-        // Over: the person takes over by using the mouse or keyboard.
-        #expect(Self.ids(sub) == [
-            "info:Claude Code in Calculator", "computerUseStop@s1", "command:computerUseShowCursor(\"s1\")", "computerUseFocus@s1", "-",
-            "info:Codex", "computerUseStop@s2", "command:computerUseShowCursor(\"s2\")", "computerUseFocus@s2", "-",
-            "computerUseFocusCallingTerminal", "computerUseStop", "-", "agentActivity.open",
-        ])
-        #expect(sub[0] == .info("Claude Code in Calculator", symbol: "cursorarrow.motionlines", avatar: false))
-        #expect(sub[1] == .sessionAction("computerUseStop", session: "s1", title: "Stop", symbol: "stop.circle"))
-        #expect(sub[2] == .command(.computerUseShowCursor("s1"), title: "Show Cursor", symbol: "scope"))
-        #expect(sub[3] == .sessionAction("computerUseFocus", session: "s1", title: "Show Window", symbol: "macwindow"))
-        #expect(sub[5] == .info("Codex", symbol: "cursorarrow", avatar: false))
-        #expect(sub[11] == .action("computerUseStop", title: "Stop All Agents", symbol: "stop.circle"))
-        let many = MenuBarMenuState(computerUse: .init(sessions: (1...8).map { .init(id: "s\($0)", appName: "App \($0)") }))
-        guard case .computerUse(let app, _, let manySub) = MenuBarMenuSpec().items(for: many, isBound: Self.everything)[0] else {
+        #expect(Self.ids(sub) == ["command:takeOver(\"s1\")", "computerUseFocus", "computerUseFocusCallingTerminal",
+                                  "computerUseStop", "-", "agentActivity.open"])
+        let paused = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", paused: true)))
+        guard case .computerUse(let app, _, let pausedSub) = MenuBarMenuSpec().items(for: paused, isBound: Self.everything)[0] else {
             throw CancellationError()
         }
-        #expect(app == "App 1")
-        #expect(manySub.filter { if case .info = $0 { true } else { false } }.count == MenuBarMenuSpec.computerUseSessionLimit)
-        #expect(MenuBarMenuSpec.sessionLine(.init(id: "x")) == "An agent")
+        #expect(app == nil)
+        #expect(pausedSub.first == .command(.handBack("s1"), title: "Hand Back", symbol: "arrow.uturn.backward"))
     }
 
     /// No Computer Use (off or not set up) and no chats: none of the new rows. Computer Use on with
@@ -217,23 +200,7 @@ struct MenuBarMenuSpecTests {
         guard case .computerUse(_, _, let trimmed) = MenuBarMenuSpec().items(for: some, isBound: { bound.contains($0) })[0] else {
             throw CancellationError()
         }
-        #expect(Self.ids(trimmed) == ["info:An agent", "computerUseStop@s", "command:computerUseShowCursor(\"s\")", "-", "computerUseStop"])
-    }
-
-    /// A stopped agent: its line says Stopped, Resume replaces Stop, and it never counts as acting.
-    @Test func aStoppedSessionOffersResume() throws {
-        let state = MenuBarMenuState(computerUse: .init(sessions: [
-            .init(id: "s1", agent: "Claude Code", appName: "Notes", acting: false, stopped: true),
-        ]))
-        guard case .computerUse(_, _, let sub) = MenuBarMenuSpec().items(for: state, isBound: Self.everything)[0] else {
-            throw CancellationError()
-        }
-        #expect(Self.ids(Array(sub.prefix(4))) == [
-            "info:Claude Code in Notes (Stopped)", "command:computerUseResume(\"s1\")", "command:computerUseShowCursor(\"s1\")",
-            "computerUseFocus@s1",
-        ])
-        #expect(sub[0] == .info("Claude Code in Notes (Stopped)", symbol: "stop.circle", avatar: false))
-        #expect(sub[1] == .command(.computerUseResume("s1"), title: "Resume", symbol: "play.circle"))
+        #expect(Self.ids(trimmed) == ["command:takeOver(\"s\")", "computerUseStop"])
     }
 
     /// The builder: native section headers, chat rows that run their command with the harness
@@ -245,30 +212,24 @@ struct MenuBarMenuSpecTests {
         let target = MenuBarCommandTarget { ran.append($0) }
         let mark = NSImage(size: NSSize(width: 14, height: 14))
         let menu = NSMenu()
-        let state = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", agent: "Claude Code", appName: "Notes")),
+        let state = MenuBarMenuState(computerUse: .init(session: .init(id: "s1", appName: "Notes")),
                                      unread: .init([.init(id: "a", title: "Fix the sidebar", harness: "claude-code")]))
         MenuBarMenuBuilder(registry: registry).fill(menu, state: state, commands: target, chatImage: { _ in mark })
         #expect(menu.items[0].title == "Computer Use")
         #expect(menu.items[0].badge?.stringValue == "Notes")
         let sub = try #require(menu.items[0].submenu)
-        #expect(sub.items.map(\.title) == ["Claude Code in Notes", "Stop", "Show Cursor", "", "Stop All Agents"])
-        #expect(!sub.items[0].isEnabled, "a session line is information, not a command")
-        #expect(sub.items[1].indentationLevel == 1 && sub.items[2].indentationLevel == 1, "an agent's rows sit under its line")
-        let stop = try #require(sub.items[1].representedObject as? ActionMenuPayload)
-        #expect(stop.id == "computerUseStop" && stop.arguments["session"] == .string("s1"), "Stop names its agent's session")
-        _ = sub.items[2].target?.perform(sub.items[2].action, with: sub.items[2])
-        #expect(ran == [.computerUseShowCursor("s1")])
-        ran.removeAll()
+        #expect(sub.items.map(\.title) == ["Take Over", "Stop Computer Use"])
         #expect(menu.items[2].isSectionHeader && menu.items[2].title == "Unread")
         let chat = menu.items[3]
         #expect(chat.title == "Fix the sidebar" && chat.image === mark)
         _ = chat.target?.perform(chat.action, with: chat)
-        #expect(ran == [.openChat("a")])
+        _ = sub.items[0].target?.perform(sub.items[0].action, with: sub.items[0])
+        #expect(ran == [.openChat("a"), .takeOver("s1")])
 
-        // The worker's sessions change while the menu is open: the row is rewritten in place.
-        MenuBarMenuBuilder(registry: registry).updateComputerUse(in: menu, .init(session: .init(id: "s2", agent: "Codex")), commands: target)
+        // The host's answer after opening rewrites the row in place: paused shows Hand Back.
+        MenuBarMenuBuilder(registry: registry).updateComputerUse(in: menu, .init(session: .init(id: "s1", paused: true)), commands: target)
         #expect(menu.items[0].badge == nil)
-        #expect(menu.items[0].submenu?.items.first?.title == "Codex")
+        #expect(menu.items[0].submenu?.items.first?.title == "Hand Back")
         #expect(menu.items[2].title == "Unread", "no other row moves")
     }
 }

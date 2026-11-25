@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "manaflow-ai/cmux-docs",
+  "name": { "en": "cmux Docs", "ja": "cmux ドキュメント" },
+  "version": "1.0.0",
+  "description": {
+    "en": "A web app: the cmux docs pinned in the sidebar, opening as a tab in your workspace. The whole app is this manifest.",
+    "ja": "Web アプリ: cmux のドキュメントをサイドバーに固定し、ワークスペースのタブとして開きます。アプリはこのマニフェストだけです。"
+  },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "book" },
+  "categories": ["developer-tools"],
+  "keywords": ["docs", "web", "example"],
+  "engines": { "cmux": "^2.0" },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 140 },
+    "screen": "app",
+    "tab": true,
+    "web": { "url": "https://cmux.com/docs", "profile": "app" }
+  }
+}

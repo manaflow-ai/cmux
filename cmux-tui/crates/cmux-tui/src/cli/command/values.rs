@@ -486,17 +486,3 @@ pub(super) fn validate_operation_name(value: &str) -> Result<(), UsageError> {
     }
     Ok(())
 }
-
-/// `--purpose <line>` of a workspace, space or tab create: what it is for, kept in its
-/// `created_by` (`created-by-detail-v1`). From an agent session the CLI names the session too and
-/// defaults the purpose to its title (`wire/created_by_stamp.rs`); elsewhere it is a script's.
-pub(super) fn insert_purpose(params: &mut Map<String, Value>, flags: &mut Flags) {
-    let Some(purpose) = flags.take("purpose").filter(|purpose| !purpose.trim().is_empty()) else {
-        return;
-    };
-    let created_by =
-        params.entry("created_by").or_insert_with(|| serde_json::json!({"kind": "script"}));
-    if let Some(created_by) = created_by.as_object_mut() {
-        created_by.insert("purpose".into(), Value::String(purpose));
-    }
-}

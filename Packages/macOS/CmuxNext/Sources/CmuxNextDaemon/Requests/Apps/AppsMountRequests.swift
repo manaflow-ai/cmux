@@ -14,19 +14,16 @@ public struct AppsMountRequest: DaemonRequest, VerbatimFieldsRequest {
     public var interface: String
     public var mountID: String
     public var context: JSONValue
-    /// Who asked; nil sends none (the daemon reads `cli`). An overlay needs `user` (`apps/overlay.rs`).
-    public var origin: AppsRunRequest.Origin?
 
-    public init(app: String, interface: String, mountID: String, context: JSONValue, origin: AppsRunRequest.Origin? = nil) {
+    public init(app: String, interface: String, mountID: String, context: JSONValue) {
         self.app = app
         self.interface = interface
         self.mountID = mountID
         self.context = context
-        self.origin = origin
     }
 
     enum CodingKeys: String, CodingKey {
-        case app, interface, origin, mountID = "mountId"
+        case app, interface, mountID = "mountId"
     }
 
     var verbatimFields: [String: JSONValue] { ["context": context] }

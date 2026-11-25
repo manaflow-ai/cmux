@@ -164,34 +164,3 @@ fn a_handshake_with_no_answer_times_out() {
     assert!(matches!(result, LinkError::HandshakeTimeout));
     assert!(resent >= 30, "message 1 was retried until the timeout ({resent})");
 }
-
-#[test]
-fn a_viewer_ends_a_link_whose_host_went_silent() {
-    let (mut viewer, mut host, mut now) = pair();
-    let mut net = Net { seed: 5, loss_percent: 0 };
-    run(&mut viewer, &mut host, &mut net, &mut now, 5);
-    assert!(viewer.is_established());
-    viewer.set_peer_lost(Some(90_000_000));
-    // A 60 s gap, then the host is heard: the link stays up.
-    now += 60_000_000;
-    viewer.poll_transmit(now).unwrap();
-    let packet = host.seal_datagram(b"frame").unwrap();
-    assert_eq!(viewer.on_packet(&packet, now).unwrap(), vec![Event::Datagram(b"frame".to_vec())]);
-    // The deadline follows the last packet heard, and polling up to it keeps the link.
-    assert_eq!(viewer.next_deadline_us(), Some(now + 90_000_000));
-    viewer.poll_transmit(now + 89_999_999).unwrap();
-    // Nothing more from the host: the link ends at the bound, with its silence.
-    let result = viewer.poll_transmit(now + 90_000_000);
-    assert!(matches!(result, Err(LinkError::PeerLost { silent_us: 90_000_000 })), "{result:?}");
-    assert!(!viewer.is_established());
-}
-
-#[test]
-fn a_link_without_the_bound_waits_for_a_silent_peer() {
-    let (mut viewer, mut host, mut now) = pair();
-    let mut net = Net { seed: 6, loss_percent: 0 };
-    run(&mut viewer, &mut host, &mut net, &mut now, 5);
-    now += 600_000_000;
-    assert!(viewer.poll_transmit(now).is_ok());
-    assert!(viewer.is_established(), "the host side keeps its own grace");
-}

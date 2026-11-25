@@ -193,7 +193,11 @@ public struct LiveCallScreen: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-            InPlaceSelectionLabel(failure.detail, textStyle: .callout, color: .secondaryLabel, alignment: .center)
+            Text(failure.detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
                 .accessibilityIdentifier("chief.call.failure")
             Spacer()
         }
@@ -439,10 +443,10 @@ public struct LiveCallPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .cmuxMobilePressBackground(Color.green, in: .capsule)
+            .background(Color.green, in: .capsule)
             .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(LiveCallText.pillAccessibility)
         .accessibilityIdentifier("chief.call.pill")
     }

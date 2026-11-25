@@ -173,7 +173,6 @@ describe("team policy over the API (workerd)", () => {
 
     const read = await call("/v1/read", session, { op: "team.policy.get", params: {} })
     expect(read.json.value.policy.values).toEqual({
-      "cloud.idlePause": { value: true, mode: "default" },
       "computerUse.allowed": { value: false, mode: "enforced" },
       "telemetry.level": { value: "crash_only", mode: "default" }
     })

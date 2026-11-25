@@ -22,29 +22,6 @@ final class CloudMachinesCaptureUITests: XCTestCase {
     @MainActor
     func testCloudMachinesPageDark() throws { try walk(.dark, "dark") }
 
-    /// Audit 20 (ceremony): an action held for approval in the Feed is a quiet status on its row
-    /// (and a "New Cloud Machine" row for a held create), not a "Waiting for approval" alert.
-    @MainActor
-    func testCloudMachinesHeldForApproval() throws {
-        for (appearance, name) in [(XCUIDevice.Appearance.light, "light"), (.dark, "dark")] {
-            XCUIDevice.shared.appearance = appearance
-            let app = XCUIApplication()
-            app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-            app.launchArguments += ["-cmux-mobile-recovery-gallery", "cloudmachines-held", "-cmux-mobile-no-restore",
-                                    "-cmux-mobile-gallery-appearance", name]
-            app.launch()
-            XCTAssertTrue(app.navigationBars["Cloud Machines"].waitForExistence(timeout: 30), "page\n\(app.debugDescription)")
-            XCTAssertTrue(app.staticTexts["Nightly evals"].waitForExistence(timeout: 10), "rows\n\(app.debugDescription)")
-            XCTAssertTrue(app.descendants(matching: .any)["cloudMachines.held.new"].exists, "the held new machine's row")
-            XCTAssertEqual(app.alerts.count, 0, "no alert")
-            shot(app, "held-\(name)-01-list")
-            app.staticTexts["Nightly evals"].tap()
-            XCTAssertTrue(app.navigationBars["Nightly evals"].waitForExistence(timeout: 10), "detail\n\(app.debugDescription)")
-            shot(app, "held-\(name)-02-machine")
-            app.terminate()
-        }
-    }
-
     @MainActor
     private func walk(_ appearance: XCUIDevice.Appearance, _ name: String) throws {
         XCUIDevice.shared.appearance = appearance

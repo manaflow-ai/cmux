@@ -146,19 +146,9 @@ fn unwritten_changes_never_escape_before_a_same_boot_restart() {
             "--nocapture",
         ])
         .env(CHILD, dir.path())
-        // Pipes, not the suite's own stdout: under `ulimit -f 0` a write to an inherited log
-        // file fails (EFBIG), so the child's first line panicked it (exit 101) in CI.
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
+        .status()
         .unwrap();
-    assert!(
-        status.status.success(),
-        "append failure child: {}\n{}{}",
-        status.status,
-        String::from_utf8_lossy(&status.stdout),
-        String::from_utf8_lossy(&status.stderr)
-    );
+    assert!(status.success(), "append failure child: {status}");
 }
 
 #[test]

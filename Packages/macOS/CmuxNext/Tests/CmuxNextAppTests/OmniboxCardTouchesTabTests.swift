@@ -41,8 +41,6 @@ import Testing
         root.addSubview(strip)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         let chrome = BrowserChromeView(tab: tab)
-        // The strip sits right above the row (`PaneContentView` sets this flag in its layout).
-        chrome.meetsTabStrip = true
         chrome.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - stripHeight)
         root.addSubview(chrome)
         root.layoutSubtreeIfNeeded()
@@ -87,7 +85,6 @@ import Testing
         design.tabBarPosition = .top
         design.verticalTabs = false
         design.tabBarOrder = .aboveToolbar
-        chrome.meetsTabStrip = true
         #expect(OmnibarStyle.cardTopOutset(bar: chrome.addressBar) > 0)
     }
 }

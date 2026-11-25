@@ -1,0 +1,31 @@
+{
+  "actions": {
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Legacy File New Terminal",
+      "subtitle": "Loaded from legacy/cmux.json",
+      "command": "echo 'LEGACY NEW TERMINAL'; echo 'SOURCE=legacy/cmux.json'; pwd",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+3",
+      "icon": { "type": "image", "path": "./icons/legacy-terminal.svg" }
+    },
+    "legacy.echo": {
+      "type": "command",
+      "title": "Legacy Echo",
+      "subtitle": "Fallback cmux.json demo",
+      "command": "echo 'LEGACY ECHO'; echo 'SOURCE=legacy/cmux.json'; pwd",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+l",
+      "icon": { "type": "emoji", "value": "📄", "scale": 0.8 }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "legacy.echo",
+        "cmux.splitDown"
+      ]
+    }
+  }
+}

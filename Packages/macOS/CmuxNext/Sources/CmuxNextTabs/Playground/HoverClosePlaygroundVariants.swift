@@ -11,11 +11,11 @@ struct HoverClosePlaygroundVariants {
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.hoverClose.crossFade", defaultValue: "The x takes the status's slot, cross-fading with it",
-                           bundle: .localizedModule), .crossFade, shipped: true),
+                           bundle: .module), .crossFade, shipped: true),
             variant(String(localized: "tabs.playground.hoverClose.instant", defaultValue: "The status gives way at once, as a sidebar row",
-                           bundle: .localizedModule), .instant),
-            variant(String(localized: "tabs.playground.hoverClose.disc", defaultValue: "Cross-fade, the x on its hover fill", bundle: .localizedModule), .disc),
-            variant(String(localized: "tabs.playground.hoverClose.beside", defaultValue: "Before: the x beside the status", bundle: .localizedModule), .beside),
+                           bundle: .module), .instant),
+            variant(String(localized: "tabs.playground.hoverClose.disc", defaultValue: "Cross-fade, the x on its hover fill", bundle: .module), .disc),
+            variant(String(localized: "tabs.playground.hoverClose.beside", defaultValue: "Before: the x beside the status", bundle: .module), .beside),
         ]
     }
 

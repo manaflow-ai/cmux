@@ -13,11 +13,11 @@ import Testing
         let settle = LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), firstFrame: firstFrame,
                                   imageHold: LaunchImageHold())
         var ran: [String] = []
-        #expect(LaunchCleanup().jobs.count == 3, "the download temp files, the Phone Access leftovers and the retired TCC rows")
-        LaunchCleanup(jobs: [{ ran.append("downloads") }, { ran.append("phone access") }, { ran.append("tcc rows") }]).schedule(on: settle)
+        #expect(LaunchCleanup().jobs.count == 2, "the download temp files and the Phone Access leftovers")
+        LaunchCleanup(jobs: [{ ran.append("downloads") }, { ran.append("phone access") }]).schedule(on: settle)
         #expect(ran.isEmpty)
         settle.settle()
         firstFrame.open()
-        #expect(ran == ["downloads", "phone access", "tcc rows"])
+        #expect(ran == ["downloads", "phone access"])
     }
 }

@@ -67,7 +67,6 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
-import { cloudIntroCheckoutResponse } from "../../../../services/billing/cloudIntroCheckout";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -232,13 +231,6 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   ) {
     return NextResponse.redirect(appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl));
   }
-  // The cmux Cloud $1 pass. Null when its flag is off, so `plan=intro` stays
-  // an unknown plan below, exactly as before.
-  const introResponse = await cloudIntroCheckoutResponse(request, {
-    stackServerApp: checkoutStackServerApp,
-    signInRedirect: checkoutSignInRedirect,
-  });
-  if (introResponse) return introResponse;
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   const intervalError = unavailableIntervalResponse(request, plan);

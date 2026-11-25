@@ -3,7 +3,7 @@ import Foundation
 /// Session vault strings (table Vault.xcstrings).
 enum VaultStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Vault", bundle: .module.inAppLanguage)
+        String(localized: key, defaultValue: value, table: "Vault", bundle: .module)
     }
 
     static var title: String { t("vault.title", "Vault") }

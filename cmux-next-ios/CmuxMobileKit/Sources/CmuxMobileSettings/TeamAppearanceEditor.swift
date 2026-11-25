@@ -174,12 +174,9 @@ public struct TeamAppearanceEditor: View {
                             Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
                         }
                         .frame(width: 44, height: 44)
-                        // The wash is a 44 pt disc around the selection ring, so a selected
-                        // swatch shows its press too.
-                        .cmuxMobilePressBackground(Color.clear, in: .circle)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.cmuxPressFillInLabel)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel(Text(color.name))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
@@ -210,10 +207,9 @@ public struct TeamAppearanceEditor: View {
                 Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
             }
             .frame(width: 44, height: 44)
-            .cmuxMobilePressBackground(Color.clear, in: .circle)
             .contentShape(.circle)
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!available)
         .opacity(available ? 1 : 0.35)
         .accessibilityLabel(Text("Transparent"))

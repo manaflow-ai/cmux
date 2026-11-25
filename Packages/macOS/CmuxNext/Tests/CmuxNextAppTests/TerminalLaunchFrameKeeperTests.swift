@@ -20,11 +20,11 @@ import Testing
         /// The suite runner's windows are occluded (no screen): Ghostty draws there only with this on.
         let drew = WindowDrawPolicy.drawsWhenOccluded
 
-        init(size: NSSize = NSSize(width: 480, height: 240)) async throws {
+        init() async throws {
             _ = NSApplication.shared
             WindowDrawPolicy.drawsWhenOccluded = true
             session = TerminalSession(io: io)
-            window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 200, y: 200), size: size), styleMask: [.borderless],
+            window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = session.view
@@ -192,15 +192,6 @@ import Testing
         }
         let again = try await Self.eventually(3) { frames.keepSaves > saves + extra }
         #expect(again, "a terminal that keeps changing was never saved again: its kept frame grows stale without bound")
-    }
-
-    /// Leo's NIGHTLY, 2026-11-21: terminals that never went quiet encoded a full-window PNG every 6 s each. Saves taken
-    /// while still changing back off to one a minute; a quiet save starts again at the interval.
-    @Test func aTerminalThatNeverGoesQuietSavesLessAndLessOften() {
-        let intervals = (0...6).map(TerminalLaunchFrameKeeper.interval(afterBusySaves:))
-        #expect(intervals == [.seconds(5), .seconds(10), .seconds(20), .seconds(40), .seconds(60), .seconds(60), .seconds(60)])
-        #expect(TerminalLaunchFrameKeeper.interval(afterBusySaves: 0) == TerminalLaunchFrameKeeper.interval)
-        #expect(TerminalLaunchFrameKeeper.interval(afterBusySaves: 1_000) == TerminalLaunchFrameKeeper.busiestInterval)
     }
 
     /// REOPEN VIDEO on build d77b7cfc (6 of 30 kill cycles): a split resized a terminal after its frame was saved, the

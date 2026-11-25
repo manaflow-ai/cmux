@@ -30,8 +30,7 @@ nonisolated enum ChromiumPageWindowMain {
     static func installPageRules(on pageClass: AnyClass) -> Bool {
         let main = keepOutOfMain(pageClass)
         let occlusion = ChromiumPageWindowOcclusion.keepOutOfOcclusionChecks(pageClass)
-        let visibility = ChromiumPageWindowVisibility.followParentWindow(pageClass)
-        return main && occlusion && visibility
+        return main && occlusion
     }
 
     /// Installs the page window rules on `CefNSWindow` once CEF's classes exist.

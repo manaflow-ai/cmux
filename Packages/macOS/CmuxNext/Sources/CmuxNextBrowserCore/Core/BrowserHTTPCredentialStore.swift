@@ -40,20 +40,17 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
 
     package func save(_ login: BrowserHTTPRememberedLogin, for key: BrowserHTTPCredentialKey) {
         guard let data = try? JSONEncoder().encode(login) else { return }
-        // No UI: a refused update is not errSecItemNotFound, so it never adds a second item.
-        loginKeychain.withoutUI {
-            if SecItemUpdate(base(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
-                var add = base(key)
-                add[kSecValueData as String] = data
-                add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-                add[kSecAttrLabel as String] = "cmux sign-in for \(key.host)"
-                SecItemAdd(add as CFDictionary, nil)
-            }
+        if SecItemUpdate(base(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
+            var add = base(key)
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            add[kSecAttrLabel as String] = "cmux sign-in for \(key.host)"
+            SecItemAdd(add as CFDictionary, nil)
         }
     }
 
     package func forget(_ key: BrowserHTTPCredentialKey) {
-        _ = loginKeychain.withoutUI { SecItemDelete(base(key) as CFDictionary) }
+        SecItemDelete(base(key) as CFDictionary)
     }
 
     package init(service: String, loginKeychain: LoginKeychain) {

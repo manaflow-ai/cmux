@@ -1,8 +1,7 @@
-import { envForObject } from "./build-space.ts"
 import type { Principal } from "@cmux/ownership"
 import { DurableObject } from "cloudflare:workers"
 import { authenticate } from "./auth.ts"
-import type { Env, RawEnv } from "./env.ts"
+import type { Env } from "./env.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 
 /**
@@ -52,10 +51,6 @@ interface TicketRecord {
  * one ticket opens at most one socket. The alarm deletes tickets that were never spent.
  */
 export class WireTicketDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, raw: RawEnv) {
-    super(ctx, envForObject(ctx, raw))
-  }
-
   async put(key: string, record: TicketRecord): Promise<void> {
     await this.ctx.storage.put(key, record)
     const alarm = await this.ctx.storage.getAlarm()

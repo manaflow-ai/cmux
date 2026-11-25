@@ -22,8 +22,6 @@ public nonisolated enum ManagedPreferencesManifest {
         public let defaultValue: JSONValue?
         /// `timeRange` dictionaries: their string members.
         public let members: [String]
-        /// `json` rows: the value's JSON Schema (the Jamf schema uses it as is).
-        public var shape: JSONValue?
     }
 
     public static let title = "cmux"
@@ -66,12 +64,6 @@ public nonisolated enum ManagedPreferencesManifest {
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: ["start", "end"])
         case .stringMap, .soundRules:
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
-        case .json(let shape):
-            // A nested value: the profile holds it as a plist array or dictionary; the daemon checks its shape.
-            let more = help.isEmpty ? "" : " "
-            let extra = "\(more)Nested; see `cmux settings schema` for its shape."
-            let type: Entry.ValueType = shape["type"]?.stringValue == "object" ? .dictionary : .array
-            return Entry(name: d.id, title: d.title, help: help + extra, type: type, choices: [], range: nil, defaultValue: d.defaultValue, members: [], shape: shape)
         }
     }
 
@@ -92,9 +84,7 @@ public nonisolated enum ManagedPreferencesManifest {
             if !e.help.isEmpty { key["pfm_description"] = e.help }
             if let value = e.defaultValue.flatMap(propertyList) { key["pfm_default"] = value }
             if e.type == .array {
-                // A nested list (a `json` row) holds lists.
-                let itemType = e.shape?["items"]?["type"]?.stringValue == "array" ? "array" : "string"
-                var item: [String: Any] = ["pfm_name": "Item", "pfm_type": itemType]
+                var item: [String: Any] = ["pfm_name": "Item", "pfm_type": "string"]
                 if !e.choices.isEmpty { item["pfm_range_list"] = e.choices }
                 key["pfm_subkeys"] = [item]
             } else if !e.choices.isEmpty {
@@ -140,12 +130,6 @@ public nonisolated enum ManagedPreferencesManifest {
         var properties: [String: Any] = [:]
         for e in entries {
             var p: [String: Any] = ["title": e.title, "description": e.help.isEmpty ? e.name : e.help]
-            if let rules = e.shape?.objectValue {
-                // A nested value: its own JSON Schema, as the daemon checks it.
-                for (rule, value) in rules { p[rule] = propertyList(value) }
-                properties[e.name] = p
-                continue
-            }
             switch e.type {
             case .boolean: p["type"] = "boolean"
             case .string: p["type"] = "string"

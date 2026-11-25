@@ -26,8 +26,6 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
             for await value in ObservationStream({ setup.stepPermissions }) {
                 continuation.yield(value)
             }
-            // The step ended (its window closed): a drop's restart-once no longer applies.
-            setup.endGrantWatch()
             continuation.finish()
         }
         continuation.onTermination = { _ in task.cancel() }
@@ -50,9 +48,5 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
 
     func recheck() {
         setup.recheck()
-    }
-
-    func recheckAfterGrant() {
-        setup.recheckAfterGrant()
     }
 }

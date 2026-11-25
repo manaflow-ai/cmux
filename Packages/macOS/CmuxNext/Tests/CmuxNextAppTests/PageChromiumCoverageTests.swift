@@ -24,9 +24,10 @@ import Testing
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions),
         (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
+        (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
-        (.serverCards, ServerPanelPopover.engineOptions),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
+        (.serverCards, WebCardPanel.engineOptions),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).

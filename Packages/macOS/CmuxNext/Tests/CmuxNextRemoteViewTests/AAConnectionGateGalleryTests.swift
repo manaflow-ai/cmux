@@ -18,6 +18,6 @@ import Testing
         let cards = Self.variants.map { RemoteViewUnavailableView.text(for: .confirmTarget($0)) }
         #expect(cards.count >= 3)
         #expect(Set(cards.map(\.title)).count == cards.count)
-        #expect(cards.allSatisfy { !$0.title.contains("vm_") && $0.detail == nil })
+        #expect(cards.allSatisfy { !$0.title.contains("vm_") && !$0.detail.contains("machine:") })
     }
 }

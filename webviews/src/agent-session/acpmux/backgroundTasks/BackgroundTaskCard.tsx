@@ -17,7 +17,6 @@ import { TerminalSquare } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import "./backgroundTaskCard.css";
-import { WithFacts } from "../chips/FactsHoverCard";
 
 /// How many of the last lines of output a card shows.
 const CARD_TAIL_LINES = 12;
@@ -125,22 +124,18 @@ export function BackgroundTaskCard({
       data-focused={openAt !== undefined || undefined}
     >
       <div className="acpmux-bg-card__head">
-        <WithFacts facts={[{ value: command, code: true }]}>
-          {(facts) => (
-            <button
-              {...facts}
-              type="button"
-              className="acpmux-bg-card__toggle"
-              aria-expanded={open}
-              onClick={() => setOpen(!open)}
-            >
-              <span className="acpmux-bg-card__disclosure" aria-hidden="true">
-                <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
-              </span>
-              <span className="acpmux-bg-card__title">{title}</span>
-            </button>
-          )}
-        </WithFacts>
+        <button
+          type="button"
+          className="acpmux-bg-card__toggle"
+          aria-expanded={open}
+          title={command}
+          onClick={() => setOpen(!open)}
+        >
+          <span className="acpmux-bg-card__disclosure" aria-hidden="true">
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+          </span>
+          <span className="acpmux-bg-card__title">{title}</span>
+        </button>
         {time !== undefined && <span className="acpmux-bg-card__time">{time}</span>}
         {stop}
       </div>

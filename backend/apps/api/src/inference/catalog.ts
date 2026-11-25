@@ -7,11 +7,11 @@
  * price, so a projected maximum cost from the card is an upper bound. Actual cost uses the
  * provider-reported cost when the provider sends one, else the card.
  *
- * Open-source models (Lawrence, 2026-10-10), plus Gemini 4 Neon on our own Vertex AI (user, 2026-11-19). Provider ids come from each provider's own model
+ * Open-source models only (Lawrence, 2026-10-10). Provider ids come from each provider's own model
  * list (2026-10-10, read with our keys); a model a provider does not list has no route there.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai", "particle", "vertex"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai", "particle"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -139,47 +139,6 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
       { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }
     ]
   },
-  {
-    // Gemini 4 Neon (Google, 2026-11-18; user 2026-11-19: "use gemini neon with cmux pro, set up our gcp").
-    // Served from our own GCP project on Vertex AI (global region only: us-central1 has no Neon), keyless:
-    // the dashboard's Vertex relay trades its Vercel OIDC token for a short-lived service-account token
-    // (providers.ts "vertex"). Vertex is its only route on purpose (our GCP, our billing labels). List price
-    // $3 / $15 per million (models.dev google-vertex, 2026-11-19); Vertex reports no cost, so the card is
-    // charged and equals the list price. Reasoning tokens bill as output (providers.ts parseUsage).
-    id: "google/gemini-4-neon",
-    name: "Gemini 4 Neon",
-    card: { input: 3, output: 15 },
-    context: 1_048_576,
-    maxOutput: 65_536,
-    defaultMaxTokens: 16_384,
-    tools: true,
-    routes: [{ provider: "vertex", id: "google/gemini-4-neon", list: { input: 3, output: 15 } }]
-  },
-  {
-    // Gemini 4 Carbon (Google, 2026-11-10): proposed by the model scout (scripts/models/scout.ts) on 2026-11-19.
-    // It answered a tool-call smoke turn on our Vertex AI (global). Price: the models.dev list price, decided 2026-11-19 (chat 40603); staging only.
-    id: "google/gemini-4-carbon",
-    name: "Gemini 4 Carbon",
-    card: { input: 2, output: 10 },
-    context: 1_048_576,
-    maxOutput: 65_536,
-    defaultMaxTokens: 16_384,
-    tools: true,
-    routes: [{ provider: "vertex", id: "google/gemini-4-carbon", list: { input: 2, output: 10 } }]
-  },
-  {
-    // Gemini 4 Hydrogen (Google, 2026-11-12): proposed by the model scout (scripts/models/scout.ts) on 2026-11-19.
-    // It answered a tool-call smoke turn on our Vertex AI (global). Price: the models.dev list price, decided 2026-11-19 (chat 40603); staging only.
-    id: "google/gemini-4-hydrogen",
-    name: "Gemini 4 Hydrogen",
-    card: { input: 1.5, output: 7.5 },
-    context: 1_048_576,
-    maxOutput: 65_536,
-    defaultMaxTokens: 16_384,
-    tools: true,
-    routes: [{ provider: "vertex", id: "google/gemini-4-hydrogen", list: { input: 1.5, output: 7.5 } }]
-  },
-  // models-scout: new Vertex models go above this line.
   {
     id: "qwen/qwen3.7-flash",
     name: "Qwen3.7 Flash",

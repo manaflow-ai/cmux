@@ -99,34 +99,18 @@ impl UserGit<'_> {
         arguments: &[S],
         extra: &[(&str, &str)],
     ) -> Result<UserRun, GitFailure> {
-        self.run_program(OsStr::new("git"), arguments, extra, None)
-    }
-
-    /// Runs another of the user's programs (`gh` for a pull request review)
-    /// the way git runs: in the repository, in the user's environment, never
-    /// prompting, under the same deadline. `input` is written to its stdin.
-    pub(super) fn run_program<S: AsRef<OsStr>>(
-        &self,
-        program: &OsStr,
-        arguments: &[S],
-        extra: &[(&str, &str)],
-        input: Option<Vec<u8>>,
-    ) -> Result<UserRun, GitFailure> {
         let remaining = self.deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(GitFailure::TimedOut);
         }
-        let mut command = Command::new(program);
+        let mut command = Command::new("git");
         command
             .args(arguments)
             .current_dir(self.root)
             .env_clear()
             .envs(environment())
             .envs(extra.iter().copied())
-            .stdin(match input {
-                Some(input) => Stdio::from(input_file(&input)?),
-                None => Stdio::null(),
-            })
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(unix)]
@@ -146,9 +130,7 @@ impl UserGit<'_> {
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             terminate(&mut child);
-            return Err(GitFailure::Unavailable(
-                "the program started without its output pipes".into(),
-            ));
+            return Err(GitFailure::Unavailable("git started without its output pipes".into()));
         };
         let stdout = Pipe::read(stdout, MAX_STDOUT_BYTES);
         let stderr = Pipe::read(stderr, MAX_STDERR_BYTES);
@@ -173,24 +155,6 @@ impl UserGit<'_> {
             stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
         })
     }
-}
-
-/// `input` in an unlinked temporary file at its start, for a program's
-/// stdin: the program reads it at its own pace, so no writer thread or full
-/// pipe ever holds the deadline. `create_new` never follows a planted link.
-fn input_file(input: &[u8]) -> Result<std::fs::File, GitFailure> {
-    use std::io::{Seek as _, SeekFrom, Write as _};
-    let unavailable = |error: std::io::Error| GitFailure::Unavailable(error.to_string());
-    let path = std::env::temp_dir().join(format!("cmux-input-{}", uuid::Uuid::new_v4()));
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true).write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&path).map_err(unavailable)?;
-    let _ = std::fs::remove_file(&path);
-    file.write_all(input).map_err(unavailable)?;
-    file.seek(SeekFrom::Start(0)).map_err(unavailable)?;
-    Ok(file)
 }
 
 /// The inherited environment without git state or prompts, plus the

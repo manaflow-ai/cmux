@@ -1,8 +1,7 @@
 public import Foundation
 
 /// The toast style the person picked in the Toast Playground (``CmuxToastStyle``), kept in `defaults` so the
-/// pick lasts across launches. Nothing picked (or a style a later build dropped): the style cmux.json names
-/// (`notifications.toast.style`, ``configure(_:)``), else ``CmuxToastStyle/standard``.
+/// pick lasts across launches. Nothing picked (or a style a later build dropped): ``CmuxToastStyle/standard``.
 ///
 /// The shared ``CmuxToastCenter`` keeps one over `UserDefaults.standard` and restyles every toast showing
 /// when it changes; views that draw a toast of their own follow it (``follow(_:)``). Tests pass a suite of
@@ -19,39 +18,21 @@ public final class CmuxToastStyleStore {
     public static let key = "cmux.toasts.style"
 
     private let defaults: UserDefaults?
-    /// The style picked in the Toast Playground; nil: none.
-    private var picked: CmuxToastStyle?
-    /// The style cmux.json names (`notifications.toast.style`, a theme hook): the style while nothing is picked.
-    public private(set) var configured: CmuxToastStyle = .standard
-    /// The picked style, else the configured one.
-    public var style: CmuxToastStyle { picked ?? configured }
+    /// The picked style.
+    public private(set) var style: CmuxToastStyle
     private let followers = NSHashTable<AnyObject>.weakObjects()
 
     /// - Parameter defaults: Where the pick persists; nil keeps it in memory only.
     public init(defaults: UserDefaults?) {
         self.defaults = defaults
-        picked = defaults?.string(forKey: Self.key).flatMap(CmuxToastStyle.init(rawValue:))
+        style = defaults?.string(forKey: Self.key).flatMap(CmuxToastStyle.init(rawValue:)) ?? .standard
     }
 
-    /// Makes `style` the style of every toast, now and after a relaunch, and tells every follower. Picking the
-    /// configured style clears the pick, so the toasts follow cmux.json again.
+    /// Makes `style` the style of every toast, now and after a relaunch, and tells every follower.
     public func pick(_ style: CmuxToastStyle) {
         guard style != self.style else { return }
-        picked = style == configured ? nil : style
-        if let picked { defaults?.set(picked.rawValue, forKey: Self.key) } else { defaults?.removeObject(forKey: Self.key) }
-        tellFollowers()
-    }
-
-    /// Makes `style` the style while nothing is picked (`notifications.toast.style`); followers hear it only
-    /// when the style drawn changes.
-    public func configure(_ style: CmuxToastStyle) {
-        let before = self.style
-        configured = style
-        if self.style != before { tellFollowers() }
-    }
-
-    private func tellFollowers() {
-        let style = self.style
+        self.style = style
+        if style == .standard { defaults?.removeObject(forKey: Self.key) } else { defaults?.set(style.rawValue, forKey: Self.key) }
         for case let follower as any CmuxToastStyleFollowing in followers.allObjects { follower.toastStyleDidChange(style) }
     }
 

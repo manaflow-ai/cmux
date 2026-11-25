@@ -28,8 +28,6 @@ final class FilesPaneService: InternalPageProvider {
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
     private let icons = FileIconProvider()
-    /// How Files tabs and the file explorer read folders: under cmux Files (dev) in a DEV build (docs/cmux-files-host.md).
-    let directoryLister = DirectoryLister(outOfProcess: .forThisBuild())
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
     private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)
     private var volumeWatch: [Task<Void, Never>] = []
@@ -63,7 +61,7 @@ final class FilesPaneService: InternalPageProvider {
 
     func title(for key: String) -> String {
         guard let folder = tabs[key]?.model.folder else { return title }
-        return folder.path == "/" ? "/" : FolderDisplayName().name(of: folder)
+        return folder.path == "/" ? "/" : FileManager.default.displayName(atPath: folder.path)
     }
 
     func history(for key: String) -> (any PageHistory)? { tabs[key]?.history }
@@ -100,7 +98,9 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private func makeTab(_ folder: URL) -> Tab {
-        let model = FilesPaneView.model(folder: folder, lister: directoryLister)
+        let model = FileBrowserModel(folder: folder, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
+                                                                                   aliasWord: FilesPaneView.aliasWord)),
+                                     memory: FolderViewMemory(defaults: .standard))
         return Tab(model: model, view: nil, history: FilesPaneHistory(model: model))
     }
 

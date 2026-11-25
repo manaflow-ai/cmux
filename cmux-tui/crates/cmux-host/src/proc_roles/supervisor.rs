@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Child;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -9,8 +10,7 @@ use std::time::{Duration, Instant};
 use cmux_server_core::role_proc::{Action, Input, RoleHealth, RoleProc, RoleState};
 use cmux_server_core::role_spec::{RoleSet, RoleSpec};
 
-use super::RolePaths;
-use super::spawn::{self, RoleChild};
+use super::{RolePaths, spawn};
 
 /// A fact or a request for the supervisor thread.
 pub enum Msg {
@@ -53,7 +53,7 @@ enum Next {
 struct Entry {
     spec: RoleSpec,
     proc: RoleProc,
-    child: Option<RoleChild>,
+    child: Option<Child>,
     wake: Option<Instant>,
     next: Next,
 }
@@ -161,12 +161,10 @@ impl Loop {
             match msg {
                 None => self.fire_due(now, tx),
                 Some(Msg::Gone { name, pid }) => {
-                    // End what the exited role left behind in its group
-                    // (children that ignore SIGTERM, children of a crashed
-                    // role) before reaping it.
-                    if let Some(entry) = self.entries.get(&name) {
-                        signal_group(entry, pid, libc_sig::KILL);
-                    }
+                    // The leader is a zombie and still holds the group id:
+                    // end what it left behind (children that ignore SIGTERM,
+                    // children of a crashed role) before reaping it.
+                    signal_group(pid, libc_sig::KILL);
                     if let Some(code) = self.reap(&name, pid, tx) {
                         self.input(&name, Input::Exited { pid, code }, now, tx);
                     }
@@ -204,7 +202,7 @@ impl Loop {
                     // rebind, a park): no role process may outlive it.
                     for entry in self.entries.values().filter(|e| !e.proc.is_down()) {
                         if let Some(pid) = entry.proc.pid() {
-                            signal_group(entry, pid, libc_sig::KILL);
+                            signal_group(pid, libc_sig::KILL);
                         }
                     }
                     stop.killed = true;
@@ -308,8 +306,8 @@ impl Loop {
                         }
                         Err(error) => queue.push(Input::SpawnFailed { error }),
                     },
-                    Action::Terminate { pid } => signal_group(entry, pid, libc_sig::TERM),
-                    Action::Kill { pid } => signal_group(entry, pid, libc_sig::KILL),
+                    Action::Terminate { pid } => signal_group(pid, libc_sig::TERM),
+                    Action::Kill { pid } => signal_group(pid, libc_sig::KILL),
                     Action::WakeAt(at) => entry.wake = Some(at),
                 }
             }
@@ -321,7 +319,7 @@ impl Loop {
     fn reap(&mut self, name: &str, pid: u32, tx: &Sender<Msg>) -> Option<Option<i32>> {
         let entry = self.entries.get_mut(name)?;
         let mut child = entry.child.take_if(|c| c.id() == pid)?;
-        match child.child.try_wait() {
+        match child.try_wait() {
             Ok(Some(status)) => Some(status.code()),
             Ok(None) => {
                 entry.child = Some(child);
@@ -336,8 +334,8 @@ impl Loop {
     fn kill_all_and_reap(&mut self) {
         for entry in self.entries.values_mut() {
             if let Some(mut child) = entry.child.take() {
-                child.signal_group(libc_sig::KILL);
-                let _ = child.child.wait();
+                signal_group(child.id(), libc_sig::KILL);
+                let _ = child.wait();
             }
         }
     }
@@ -378,12 +376,16 @@ mod libc_sig {
     pub const KILL: i32 = 9;
 }
 
-/// Signals the process group of the entry's child `pid` (none when the
-/// entry holds no such child: its group is gone with it).
-fn signal_group(entry: &Entry, pid: u32, signal: i32) {
-    if let Some(child) = entry.child.as_ref().filter(|c| c.id() == pid) {
-        child.signal_group(signal);
+/// Signals the role's process group (the child leads it). The child is not
+/// reaped before the supervisor handles its exit, so the id is still ours.
+fn signal_group(pid: u32, signal: i32) {
+    #[cfg(unix)]
+    // SAFETY: kill with a negative pid signals that process group only.
+    unsafe {
+        libc::kill(-(pid as libc::pid_t), signal);
     }
+    #[cfg(not(unix))]
+    let _ = (pid, signal);
 }
 
 /// Reads `<state>/roles/status.json` (for `cmux host roles`).

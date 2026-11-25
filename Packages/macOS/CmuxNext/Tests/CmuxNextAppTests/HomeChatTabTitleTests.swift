@@ -58,7 +58,7 @@ import Testing
 
     @Test func homesYourAgentsNeverListsAChatAsHome() throws {
         let services = try Self.services()
-        let titles = services.machines.allWorkspaces.flatMap { HomeAgentGlances(services: services).glances(in: $0.0) }.map(\.title)
+        let titles = HomeAgentGlances(services: services).current.map(\.title)
         #expect(titles.sorted() == [AgentPaneModel.tabTitle, "Fleet uploader"].sorted(), "Your agents listed \(titles)")
     }
 }

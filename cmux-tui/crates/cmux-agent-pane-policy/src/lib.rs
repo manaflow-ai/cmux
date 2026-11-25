@@ -73,7 +73,6 @@ pub mod gesture;
 pub mod json_keys;
 pub mod params;
 pub mod reply;
-pub mod service_wait;
 pub mod sessions;
 pub mod share_roles;
 

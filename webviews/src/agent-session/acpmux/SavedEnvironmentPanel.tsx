@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
-import { Switch } from "../../ui/Switch";
 import { browseFailureMessage } from "./browseFailureModel";
 import { ChevronIcon } from "./ComposerPickers";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
+import { type BrowseRequest } from "./AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "./addProjectPanelModel";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
@@ -255,11 +255,11 @@ export function SavedEnvironmentPanel({
         )}
         {!ssh && draft.folder && (
           <label className="acpmux-env-check">
-            <Switch
-              size="sm"
+            <input
+              type="checkbox"
               aria-label={t("environment.useWorktree")}
               checked={draft.worktree === true}
-              onCheckedChange={(on) => update({ worktree: on })}
+              onChange={(event) => update({ worktree: event.target.checked })}
             />
             <span>{t("environment.useWorktree")}</span>
           </label>

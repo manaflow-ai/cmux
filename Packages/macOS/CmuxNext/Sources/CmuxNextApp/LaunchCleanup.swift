@@ -1,5 +1,4 @@
 import CmuxNextBrowser
-import CmuxNextMacScreen
 import CmuxNextPhoneAccess
 
 /// Cleanup the launch defers until it settles (`LaunchSettle`): it must
@@ -11,10 +10,11 @@ import CmuxNextPhoneAccess
 struct LaunchCleanup {
     /// In order: the temporary download files earlier runs left (`BrowserDownloadTempFiles`, off the
     /// main actor, never this run's downloads), then the removed Phone Access listener's own leftover
-    /// (`PhoneAccessLeftovers`, off the main actor), then the Privacy & Security rows of retired
-    /// helpers (`RetiredPermissionRows`, once per app version, off the main actor).
-    var jobs: [@MainActor () -> Void] = [{ BrowserDownloadTempFiles.shared.cleanUpLeftovers() },
-                                          { _ = PhoneAccessLeftovers().cleanUpInBackground() }, { _ = RetiredPermissionRows().cleanUpInBackground() }]
+    /// (`PhoneAccessLeftovers`, off the main actor).
+    var jobs: [@MainActor () -> Void] = [
+        { BrowserDownloadTempFiles.shared.cleanUpLeftovers() },
+        { _ = PhoneAccessLeftovers().cleanUpInBackground() },
+    ]
 
     /// Runs each cleanup once, when `settle` settles (at once when it has).
     func schedule(on settle: LaunchSettle) {

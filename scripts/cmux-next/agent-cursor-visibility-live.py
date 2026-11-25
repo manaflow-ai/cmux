@@ -33,8 +33,6 @@ an argument); `newBrowserWorkspace` takes no arguments (an unknown `url`
 argument refuses the whole run).
 """
 import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -187,9 +185,8 @@ failures = []
 
 
 def step(name, target, expect_kind, expect_anchor=None, expect_reason=None, ask_window=None):
-    # The resolver's answer once springs (scroll, workspace swap) end: the same report three reads in a row.
-    entry = wait_stable(lambda: visibility(target), f"the agent cursor's visibility at {name}", timeout=10,
-                        interval=0.1, raise_on_timeout=False) or visibility(target)
+    time.sleep(1.0)  # let springs settle (scroll, workspace swap)
+    entry = visibility(target)
     result = entry.get("visibility") or {}
     record = {"step": name, "target": target, "visibility": result, "placements": entry.get("placements")}
     ok = result.get("kind") == expect_kind

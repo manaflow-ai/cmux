@@ -54,7 +54,6 @@ struct LayoutDragBench {
                 switch intent {
                 case .setSplitRatio(_, _, _, let phase), .setColumnWidth(_, _, _, _, let phase):
                     if phase == .ended { ended += 1 } else { changed += 1 }
-                case .setLayoutSizes: ended += 1
                 default: break
                 }
             }

@@ -25,7 +25,6 @@
 //! fsmonitor or transport from the repository runs.
 
 pub mod archive;
-pub mod caches;
 pub mod disk;
 mod finished_memo;
 mod git;

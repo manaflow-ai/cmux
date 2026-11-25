@@ -13,7 +13,6 @@ mod binary;
 mod db;
 mod lifecycle;
 mod pairing;
-mod session_service;
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -46,13 +45,6 @@ pub struct Context<'a> {
     pub reexec_guard: Option<String>,
     pub env: LayoutEnv,
     pub now_ms: u64,
-    /// The binary the session service copies into place; `None`: this
-    /// process's own executable.
-    pub self_exe: Option<std::path::PathBuf>,
-    /// The daemon socket of the cmux terminal this command runs in
-    /// (`CMUX_TUI_SOCKET`, with `CMUX_TUI_TERMINAL_ID` set): uninstall ends
-    /// that daemon's session's terminals, so it refuses to run in one.
-    pub terminal_socket: Option<std::path::PathBuf>,
 }
 
 impl Context<'_> {
@@ -96,12 +88,6 @@ pub fn run_code(args: &[String], guard: Option<String>, running_cmux: &str) -> u
         reexec_guard: guard.filter(|v| !v.is_empty()),
         env: host::layout_env(),
         now_ms: host::now_ms(),
-        self_exe: None,
-        terminal_socket: std::env::var_os("CMUX_TUI_TERMINAL_ID")
-            .filter(|id| !id.is_empty())
-            .and_then(|_| std::env::var_os("CMUX_TUI_SOCKET"))
-            .filter(|socket| !socket.is_empty())
-            .map(Into::into),
     };
     run_with_code(&ctx, args)
 }
@@ -132,10 +118,6 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
             let reason =
                 messages.explain(&e.message).map(|text| format!(": {text}")).unwrap_or_default();
             fail(false, &Error::new(e.kind, format!("{}{reason} ({})", messages.failed, e.message)))
-        }
-        Err(e) if parsed.verb.first().is_some_and(|verb| verb == "unpair") && !parsed.json => {
-            let messages = crate::pairing::messages::current();
-            fail(false, &Error::new(e.kind, format!("{} ({})", messages.unpair_failed, e.message)))
         }
         Err(e) => fail(parsed.json, &e),
     }
@@ -185,11 +167,9 @@ pub fn dispatch(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     match verb.as_slice() {
         ["pair"] => pairing::begin(ctx, args),
         ["pair", "status"] => pairing::status(ctx),
-        ["unpair"] => pairing::unpair(ctx, args),
         ["install"] => lifecycle::install(ctx, args),
         ["uninstall"] => lifecycle::uninstall(ctx, args),
         ["status"] => lifecycle::status(ctx, args),
-        ["logs"] => lifecycle::logs(ctx, args),
         ["up"] => lifecycle::up(ctx, args),
         ["down"] => lifecycle::down(ctx, args),
         ["upgrade"] => lifecycle::upgrade(ctx, args),

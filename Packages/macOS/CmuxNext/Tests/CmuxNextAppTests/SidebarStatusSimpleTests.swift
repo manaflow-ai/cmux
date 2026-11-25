@@ -106,9 +106,8 @@ import Testing
         let asking = try Self.badge(sidebar, Self.asking)
         #expect(asking.states == [.waiting], "a question is needs you: the yellow dot, not the blue one beside it")
         #expect(asking.look == .plain && !asking.drawsBackdrop, "no disc behind the dot")
-        // VoiceOver still hears what waits; the row's hover card shows it (no tooltip on a row).
-        #expect(asking.accessibilityHelp()?.contains(Strings.unreadCount(2)) == true)
-        #expect(asking.themedToolTip == nil)
+        // The tooltip still says what waits.
+        #expect(asking.themedToolTip?.contains(Strings.unreadCount(2)) == true)
         #expect(try Self.badge(sidebar, Self.failing).states == [.error], "an error is red (Lawrence msg 11983)")
         #expect(try Self.badge(sidebar, Self.busy).states == [.working], "work is the one spinner")
     }

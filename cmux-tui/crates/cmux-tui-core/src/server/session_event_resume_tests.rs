@@ -386,7 +386,7 @@ fn a_connection_that_does_not_ask_keeps_the_two_field_cursor_and_gets_every_live
 }
 
 /// Measurement: ONE resume at rest on a session of 826 workspaces
-/// (a large session) where 798 terminals have a live fact, for a connection
+/// (Lawrence's size) where 798 terminals have a live fact, for a connection
 /// that does not ask (`plain`) and one that does (`live_cursor`).
 ///
 /// Run it by name:

@@ -14,8 +14,7 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     var commandsRunning = 0
     /// `sessions.keepAwakeForCommands`: those commands count, as `agents` allows.
     var commands = SessionSettings.keepAwakeForCommandsDefault
-    /// iPhone connections (`mobile.allowIPhoneConnections`) are on for a signed-in account that has
-    /// allowed at least one phone on this Mac (``IPhoneHostService/updateKeepAwake()``).
+    /// iPhone connections (`mobile.allowIPhoneConnections`) are on for a signed-in account.
     var iPhoneServing = false
     /// `phone.keepAwake`.
     var phone: PhoneKeepAwakeSetting = SessionSettings.phoneKeepAwakeDefault

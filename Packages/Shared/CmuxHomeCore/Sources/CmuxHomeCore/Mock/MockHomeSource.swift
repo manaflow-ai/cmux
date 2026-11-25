@@ -39,8 +39,8 @@ public actor MockHomeSource: HomeSource {
     /// What ``agentSessions(_:of:)`` answers (``setAgentSessions(_:)``).
     private var agentSessionRefs: [HomeAgentSessionRef] = []
     /// What ``agentStarts()`` yields (``setStartedAgents(_:)``), and its readers.
-    private var startedAgentPeers = HomeAgentStarts()
-    private var agentStartReaders: [UUID: AsyncStream<HomeAgentStarts>.Continuation] = [:]
+    private var startedAgentPeers: Set<String> = []
+    private var agentStartReaders: [UUID: AsyncStream<Set<String>>.Continuation] = [:]
 
     private let options: Options
     private let clock: any Clock<Duration>
@@ -492,13 +492,11 @@ public actor MockHomeSource: HomeSource {
     }
 
     /// Posts `parts` as `author` under `key`, in `threadRoot`'s thread when one is given (a Chief's
-    /// done marker answers the message it closes), and returns its seq. `parent` is the message of
-    /// that thread the post answers (a nested reply, conversation-tree-v1); nil answers the root.
+    /// done marker answers the message it closes), and returns its seq.
     @discardableResult
     public func post(_ parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey,
-                     threadRoot: MessageID? = nil, parent: MessageID? = nil) -> Seq? {
-        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot,
-                                  parent: parent)) != nil else { return nil }
+                     threadRoot: MessageID? = nil) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot)) != nil else { return nil }
         return conversations[conversation]?.lastSeq
     }
 
@@ -566,16 +564,16 @@ public actor MockHomeSource: HomeSource {
         agentSessionRefs.filter { peers.contains($0.peer) }
     }
 
-    /// Sets the mock Chief's agents that have a session, and when each began; every ``agentStarts()`` reader gets them.
+    /// Sets the mock Chief's agents that have a session; every ``agentStarts()`` reader gets the new set.
     ///
-    /// - Parameter starts: The agent ids (`a<n>`) with a session, and their session starts.
-    public func setStartedAgents(_ starts: HomeAgentStarts) {
-        startedAgentPeers = starts
-        for reader in agentStartReaders.values { reader.yield(starts) }
+    /// - Parameter peers: The agent ids (`a<n>`) with a session.
+    public func setStartedAgents(_ peers: Set<String>) {
+        startedAgentPeers = peers
+        for reader in agentStartReaders.values { reader.yield(peers) }
     }
 
-    public func agentStarts() async -> AsyncStream<HomeAgentStarts> {
-        let (stream, continuation) = AsyncStream.makeStream(of: HomeAgentStarts.self, bufferingPolicy: .bufferingNewest(1))
+    public func agentStarts() async -> AsyncStream<Set<String>> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Set<String>.self, bufferingPolicy: .bufferingNewest(1))
         let id = UUID()
         agentStartReaders[id] = continuation
         continuation.yield(startedAgentPeers)
@@ -918,13 +916,8 @@ public actor MockHomeSource: HomeSource {
         return result
     }
 
-    /// The inbox as the real owner lists it (`WireHomeSource.inboxSnapshot`): most recently updated first. Ties go
-    /// by id, so every mock over one seed lists it in one order (a dictionary's order is seeded per dictionary).
     private func inboxSnapshot() -> InboxSnapshot {
-        let ordered = conversations.values.sorted {
-            $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id.rawValue < $1.id.rawValue
-        }
-        return InboxSnapshot(me: me, conversations: ordered, rev: inboxRev)
+        InboxSnapshot(me: me, conversations: Array(conversations.values), rev: inboxRev)
     }
 
     private func publish(_ event: HomeEvent) {

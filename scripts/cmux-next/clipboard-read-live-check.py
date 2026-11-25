@@ -32,7 +32,6 @@ Exit 1 on a failed check; an UNVERIFIED Allow alone is not a failure.
 import argparse, glob, json, os, plistlib, re, secrets, shlex, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
-from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -180,17 +179,6 @@ def start_read(surface, name, timeout):
     return reply
 
 
-def shell_ready(surface, readers_done):
-    """The terminal's screen shows the shell (text, `readers_done` reader lines printed) and stopped changing:
-    its prompt is up. Best effort, as the fixed wait was."""
-    def screen():
-        text = cli("terminal", surface, "screen", "read").stdout
-        return text if text.strip() and text.count("clipboard-read reader:") >= readers_done else None
-    if not wait(screen, 20, 0.2):
-        safe_print(f"note: the terminal showed no prompt ({readers_done} reader line(s)) in 20 s", flush=True)
-    wait_stable(screen, "the shell prompt", timeout=10, interval=0.3, raise_on_timeout=False)
-
-
 def read_reply(path, seconds):
     if not wait(lambda: os.path.exists(path), seconds, 0.5):
         return None
@@ -288,7 +276,7 @@ try:
     if not surface:
         sys.exit("no terminal: " + report.get("workspace_create", ""))
     report["surface"] = surface
-    shell_ready(surface, 0)  # the shell printed its prompt before the reader runs
+    time.sleep(3)  # let the shell print its prompt before the reader runs
 
     # Round 1: Deny (a socket dismissal refuses the read).
     reply_path = start_read(surface, "deny", 60)
@@ -310,8 +298,8 @@ try:
           json.dumps(reply)[:300])
     report["deny_screen"] = cli("terminal", surface, "screen", "read").stdout[-1500:]
 
-    # Round 2: Allow (Computer Use only), once round 1's reader printed its line and the prompt is back.
-    shell_ready(surface, 1)
+    # Round 2: Allow (Computer Use only).
+    time.sleep(1)
     reply_path = start_read(surface, "allow", opts.allow_timeout)
     dialog = wait(clipboard_dialog, 30, 0.25)
     report["allow_dialog"] = dialog

@@ -20,6 +20,10 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
+/// The generated backend catalog (embedded: the tree key lists it,
+/// scripts/cmux-next/cmux-tui-tree-inputs.txt).
+const CATALOG: &str = include_str!("../../../../../backend/catalog/cloud-operations.json");
+
 /// Ops no app server may run, whatever its manifest says.
 const NEVER_ROUTED: &[&str] = &["cloud.machine.link_token"];
 
@@ -35,9 +39,7 @@ pub(super) struct Policy {
 fn rows() -> &'static BTreeMap<String, Value> {
     static ROWS: OnceLock<BTreeMap<String, Value>> = OnceLock::new();
     ROWS.get_or_init(|| {
-        let catalog: Value =
-            serde_json::from_str(&crate::packed_catalogs::CLOUD_OPERATIONS.inflate())
-                .unwrap_or(Value::Null);
+        let catalog: Value = serde_json::from_str(CATALOG).unwrap_or(Value::Null);
         catalog
             .get("operations")
             .and_then(Value::as_object)

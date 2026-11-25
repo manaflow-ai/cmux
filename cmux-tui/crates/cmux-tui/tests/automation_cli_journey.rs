@@ -32,7 +32,6 @@ impl Env {
             .env("LANG", "C")
             .env("HOME", &self.dir)
             .env("CMUX_AUTOMATIONS_DIR", self.dir.join("store"))
-            .env("CMUX_AUTOMATION_NOTIFY", "off")
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_BUNDLE_ID")
@@ -110,30 +109,6 @@ fn automation_journey_create_run_history_logs_pause_edit_delete() {
     assert_eq!(failed["reason"], "exit_7");
     let only_failed = env.json(&["automation", "history", "--state", "failed"]);
     assert_eq!(only_failed["runs"].as_array().unwrap().len(), 1);
-    // A history row says whose it is and where its log is (the Automations page opens it).
-    let row = &only_failed["runs"][0];
-    assert_eq!(row["automation_name"], "Echo check");
-    assert!(
-        row["log_path"]
-            .as_str()
-            .unwrap()
-            .ends_with(&format!("{}.log", row["id"].as_str().unwrap()))
-    );
-    assert!(row.get("session").is_none(), "a command run has no agent chat");
-
-    // The failure is unread until the automation is seen.
-    let listed = env.json(&["automation", "list"]);
-    assert_eq!(listed["automations"][0]["unread_failures"], 1, "{listed}");
-    assert_eq!(listed["runner"]["health"], "stopped");
-    let seen = env.json(&["automation", "seen", &id]);
-    assert_eq!(seen["unread_failures"], 0);
-    assert!(seen["seen_at"].as_i64().unwrap() > 0);
-
-    // No runner: status says so, in JSON with its health.
-    let status = env.run(&["--json", "automation", "runner", "status"]);
-    assert_eq!(status.status.code(), Some(1));
-    let status: Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert_eq!(status["health"], "stopped");
 
     let paused = env.json(&["automation", "pause", &id]);
     assert_eq!(paused["enabled"], false);
@@ -149,36 +124,6 @@ fn automation_journey_create_run_history_logs_pause_edit_delete() {
     env.json(&["automation", "delete", &id]);
     let list = env.json(&["automation", "list"]);
     assert!(list["automations"].as_array().unwrap().is_empty());
-}
-
-/// A prompt run is an agent chat: history names it, and a launcher that cannot
-/// start fails the run with a reason the runner retries (not a body failure).
-#[test]
-fn automation_prompt_run_names_its_chat_and_a_launcher_that_cannot_start_is_retryable() {
-    let env = Env::new("prompt");
-    let created = env.json(&["automation", "create", "Brief", "--prompt", "Say hi", "--manual"]);
-    let id = created["id"].as_str().unwrap().to_string();
-    let out = Command::new(env.dir.join("bin/cmux"))
-        .args(["--json", "automation", "run", &id, "--wait", "--key", "p1"])
-        .env("LC_ALL", "C")
-        .env("HOME", &env.dir)
-        .env("CMUX_AUTOMATIONS_DIR", env.dir.join("store"))
-        .env("CMUX_AUTOMATION_ACPMUX", env.dir.join("no-such-launcher"))
-        .env("CMUX_AUTOMATION_NOTIFY", "off")
-        .env_remove("CMUX_TUI_SOCKET")
-        .env_remove("CMUX_SOCKET_PATH")
-        .output()
-        .unwrap();
-    let run: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(run["state"], "failed", "{run}");
-    assert!(run["reason"].as_str().unwrap().starts_with("error:"), "{run}");
-    let history = env.json(&["automation", "history", &id]);
-    let row = &history["runs"][0];
-    let session = row["session"].as_str().unwrap();
-    assert!(
-        session.starts_with("auto-") && session.len() == "auto-12345678-12345678".len(),
-        "{session}"
-    );
 }
 
 #[test]

@@ -530,133 +530,133 @@
       "comment": "Browser-data import offer: closes it for good on this channel."
     },
     "browserImportOffer.cookies.title": {
-      "comment": "Cookie import banner in browser tabs: title. It brings the person's signed-in sessions (cookies) over, not passwords. %@ is the detected browser, for example Google Chrome.",
+      "comment": "Cookie import banner in browser tabs: title. %@ is the detected browser, for example Google Chrome.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import sign-ins from %@"
+            "value": "Import cookies from %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استيراد جلسات تسجيل الدخول من %@"
+            "value": "استيراد ملفات تعريف الارتباط من %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uvezi prijave iz %@"
+            "value": "Uvezi kolačiće iz %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importér logins fra %@"
+            "value": "Importér cookies fra %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anmeldungen aus %@ importieren"
+            "value": "Cookies aus %@ importieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importar inicios de sesión de %@"
+            "value": "Importar cookies de %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importer les connexions depuis %@"
+            "value": "Importer les cookies de %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importa gli accessi da %@"
+            "value": "Importa i cookie da %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ からサインイン情報を読み込む"
+            "value": "%@ から Cookie を読み込む"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "នាំចូលការចូលគណនីពី %@"
+            "value": "នាំចូលខូគីពី %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 로그인 정보 가져오기"
+            "value": "%@에서 쿠키 가져오기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importer pålogginger fra %@"
+            "value": "Importer informasjonskapsler fra %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importuj sesje logowania z %@"
+            "value": "Importuj pliki cookie z %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importar logins de %@"
+            "value": "Importar cookies do %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Импортировать сеансы входа из %@"
+            "value": "Импортировать файлы cookie из %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "นำเข้าการลงชื่อเข้าใช้จาก %@"
+            "value": "นำเข้าคุกกี้จาก %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ oturumlarını içe aktar"
+            "value": "Çerezleri %@ uygulamasından içe aktar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Імпортувати сеанси входу з %@"
+            "value": "Імпортувати файли cookie з %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nhập thông tin đăng nhập từ %@"
+            "value": "Nhập cookie từ %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从 %@ 导入登录信息"
+            "value": "从 %@ 导入 Cookie"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從 %@ 匯入登入資訊"
+            "value": "從 %@ 匯入 Cookie"
           }
         }
       }

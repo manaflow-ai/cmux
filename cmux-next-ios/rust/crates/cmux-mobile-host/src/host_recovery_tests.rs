@@ -89,7 +89,6 @@ async fn recovery_sample(wake: bool) -> Duration {
     let dir = tempfile::tempdir().unwrap();
     let config = HostConfig {
         base_url,
-        build_space: None,
         team_id: "team".into(),
         device_id: "mac".into(),
         device_name: "Test Mac".into(),

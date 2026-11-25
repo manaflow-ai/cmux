@@ -87,12 +87,10 @@ def main():
 
     events = []
     lock = threading.Lock()
-    subscribed = threading.Event()
 
     def subscriber():
         c = Conn(args.socket)
-        c.reply(c.send({"cmd": "subscribe", "tree_events": "deltas"}), timeout=30)  # the daemon acknowledged it
-        subscribed.set()
+        c.send({"cmd": "subscribe", "tree_events": "deltas"})
         while True:
             try:
                 m = c.line(timeout=3600)
@@ -105,8 +103,7 @@ def main():
     ctl = Conn(args.socket)
     caps = set((ctl.reply(ctl.send({"cmd": "identify"})).get("data") or {}).get("capabilities") or [])
     threading.Thread(target=subscriber, daemon=True).start()
-    if not subscribed.wait(30):
-        raise SystemExit("the tree-event subscription got no reply in 30 s")
+    time.sleep(0.3)
 
     def first_pane():
         tree = ctl.reply(ctl.send({"cmd": "list-workspaces"}))["data"]
@@ -119,10 +116,8 @@ def main():
     pane = first_pane()
     if pane is None:
         ctl.reply(ctl.send({"cmd": "new-workspace"}))
-        deadline = time.monotonic() + 15
-        while pane is None and time.monotonic() < deadline:  # the new workspace's pane is listed
-            time.sleep(0.05)
-            pane = first_pane()
+        time.sleep(1.0)
+        pane = first_pane()
     if pane is None:
         raise SystemExit("no pane to split")
 

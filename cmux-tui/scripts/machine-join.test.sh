@@ -5,19 +5,13 @@
 # and whether CMUX_JOIN or any cmj_ value is in its environment) before the
 # real tool runs; curl is a fake that serves a fixture channel, and the
 # acpmux it "downloads" is a fake that records its argv and stdin. Runs the
-# script under sh, and under bash --posix and dash when present. On Linux the
-# CLI (and, in phase 1b, acpmux) come from a signed release file: the script
-# runs with a generated test key in place of the release keys
-# (linux-release-verify-gen.py --render), and serve_dir signs the fixture.
+# script under sh, and under bash --posix and dash when present.
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
+script="$here/machine-join.sh"
 root="$(mktemp -d "${TMPDIR:-/tmp}/machine-join-test.XXXXXX")"
 trap 'rm -rf "$root"' EXIT INT TERM
-. "$here/linux-release-fixture.sh"
-lrf_key "$root/key"
-script="$root/machine-join.sh"
-python3 "$here/linux-release-verify-gen.py" --render "$here/machine-join.sh" --keys "$root/key/keys.json" >"$script"
 
 token="cmj_TestToken-0123456789_abcdefXYZ"
 origin="https://platform.example.test"
@@ -45,8 +39,8 @@ fi
 shims="$root/shims"
 fakes="$root/fakes"
 mkdir -p "$shims" "$fakes"
-for tool in awk basename bash cat chmod cp cut date dirname grep head hostname id install loginctl \
-  mkdir mktemp mv openssl rm sed shasum sha256sum sort tr uniq wc launchctl systemctl; do
+for tool in awk basename bash cat chmod cp grep head hostname id install loginctl \
+  mkdir mktemp mv rm sed shasum sha256sum tr launchctl systemctl; do
   real="$(command -v "$tool" 2>/dev/null || true)"
   case "$tool" in
     loginctl | launchctl | systemctl) real="" ;;
@@ -72,37 +66,17 @@ real_rm="$(command -v rm)"
   printf 'exec "%s" "$@"\n' "$real_rm"
 } >"$shims/rm"
 chmod 755 "$shims/rm"
-# install and mv of cmux-rd's temp file fail when ~/rd-install-fail or ~/rd-mv-fail
-# exists: a ~/.local/bin that cannot be written (read-only, or a full disk).
-for tool in install mv; do
-  real="$(command -v "$tool")"
-  {
-    printf '#!/bin/sh\n'
-    printf '. "%s/record.sh"\n' "$fakes"
-    printf 'case "$*" in *.cmux-rd.new*) [ ! -f "$HOME/rd-%s-fail" ] || { echo "%s: Read-only file system" >&2; exit 1; } ;; esac\n' "$tool" "$tool"
-    # With ~/rd-install-changes, the copy in bin is not the file that was checked (another
-    # writer of ~/.local/bin, a disk that flipped a byte): it must not be moved into place.
-    if [ "$tool" = install ]; then
-      printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-install-changes" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; echo changed >>"$last"; exit 0; fi ;; esac\n' "$real"
-      # With ~/rd-dir-appears, a directory appears where cmux-rd goes after the script
-      # looked (another writer of ~/.local/bin): nothing may be moved inside it.
-      printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-dir-appears" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; mkdir -p "${last%%/*}/cmux-rd"; exit 0; fi ;; esac\n' "$real"
-    fi
-    printf 'exec "%s" "$@"\n' "$real"
-  } >"$shims/$tool"
-  chmod 755 "$shims/$tool"
-done
 # A printf on PATH would only run if the script exec'd one: it must not.
 cp "$shims/cat" "$shims/printf"
 real_env="$(command -v env)"
 real_grep="$(command -v grep)"
 cat >"$fakes/record.sh" <<EOF
 # Sourced by every shim and fake: record argv and the environment check.
-# One write per line: a pipeline's tools (curl | head) record at the same
-# time, and a line written in pieces interleaves with the other's.
-jt_line="\${0##*/}"
-for a in "\$@"; do jt_line="\$jt_line \$a"; done
-printf '%s\n' "\$jt_line" >>"\$JT_LOG/argv"
+{
+  printf '%s' "\${0##*/}"
+  for a in "\$@"; do printf ' %s' "\$a"; done
+  printf '\n'
+} >>"\$JT_LOG/argv"
 if [ -n "\${CMUX_JOIN+x}" ] || "$real_env" | "$real_grep" -q cmj_; then
   printf '%s\n' "\${0##*/}" >>"\$JT_LOG/env-leak"
 fi
@@ -116,29 +90,7 @@ case "\$1" in -s) echo "\$JT_OS" ;; -m) echo "\$JT_ARCH" ;; *) echo fake ;; esac
 EOF
 chmod 755 "$shims/uname"
 
-# The fake systemctl: JT_UNIT=1 has acpmux.service loaded, and JT_UNIT_UP=0
-# keeps it from coming up; otherwise nothing is loaded and every call is a no-op.
-cat >"$shims/systemctl" <<EOF
-#!/bin/sh
-. "$fakes/record.sh"
-[ "\${JT_UNIT:-0}" = 1 ] || exit 0
-case "\$*" in
-  "--user show -p LoadState --value acpmux.service") echo loaded ;;
-  "--user is-active --quiet acpmux.service") [ "\${JT_UNIT_UP:-1}" = 1 ] ;;
-esac
-EOF
-chmod 755 "$shims/systemctl"
-
-# sleep records its argv and returns at once: a retry's wait costs the suite nothing.
-cat >"$shims/sleep" <<EOF
-#!/bin/sh
-. "$fakes/record.sh"
-EOF
-chmod 755 "$shims/sleep"
-
 # The fake curl: serves \$JT_SERVE/<kind> by the URL's shape, honours -o.
-# \$JT_LOG/curl-fails, one curl exit code per line: the acpmux download
-# fails with each in turn (a reset is 56, an HTTP status 22), then succeeds.
 cat >"$shims/curl" <<EOF
 #!/bin/sh
 . "$fakes/record.sh"
@@ -147,29 +99,18 @@ url=""
 while [ "\$#" -gt 0 ]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
-    --proto | --proto-redir | --max-filesize | --max-time) shift 2 ;;
+    --proto | --max-time) shift 2 ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
   esac
 done
 case "\$url" in
-  https://files.cmux.com/cmux-tui/channels/linux-*.json) src="\$JT_SERVE/linux-channel.json" ;;
   https://files.cmux.com/cmux-tui/channels/*.json) src="\$JT_SERVE/channel.json" ;;
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-acpmux-*) src="\$JT_SERVE/acpmux" ;;
-  https://files.cmux.com/cmux-tui/tree/*/cmux-tui-rd-*) src="\$JT_SERVE/cmux-rd" ;;
   https://files.cmux.com/cmux-tui/latest/manifest.json) src="\$JT_SERVE/manifest.json" ;;
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
   https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
-esac
-case "\$url" in
-  */tree/*/cmux-tui-acpmux-*)
-    if [ -s "\$JT_LOG/curl-fails" ]; then
-      code="\$("$(command -v head)" -n 1 "\$JT_LOG/curl-fails")"
-      "$(command -v sed)" 1d "\$JT_LOG/curl-fails" >"\$JT_LOG/curl-fails.next"
-      "$(command -v mv)" "\$JT_LOG/curl-fails.next" "\$JT_LOG/curl-fails"
-      exit "\$code"
-    fi ;;
 esac
 [ -f "\$src" ] || exit 22
 if [ -n "\$out" ]; then "$(command -v cat)" "\$src" >"\$out"; else "$(command -v cat)" "\$src"; fi
@@ -203,7 +144,7 @@ case "\$*" in
     esac ;;
   "daemon restart") [ "\${JT_RESTART:-ok}" != fail ] || exit 1 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
-  "host doctor --here --fix") echo '{"step":"credential","state":"ok"}' ;;
+  "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
     inc=false
     [ ! -f "\$JT_PENDING" ] || inc=true
@@ -275,34 +216,15 @@ esac
 EOF
 
 # Fixtures served by the fake curl.
-# serve_dir DIR [WRONG_SHA [RD_SHA]]: RD_SHA "none" leaves cmux-rd out of the
-# channel; another value is the channel's cmux-rd sha256 instead of the served one's.
-serve_dir() {
+serve_dir() { # serve_dir DIR [WRONG_SHA]
   mkdir -p "$1"
   cp "$root/acpmux.src" "$1/acpmux"
   s="$(sha "$1/acpmux")"
   [ -z "${2:-}" ] || s="$2"
-  # The fake cmux-rd, served at tree/<key>/cmux-tui-rd-<target>: it records its
-  # argv; `openh264-install` fails when ~/oh264-fail exists.
-  cat >"$1/cmux-rd" <<EOS
-#!/bin/sh
-. "$fakes/record.sh"
-# the channel's cmux-rd
-case "\$1" in openh264-install) [ ! -f "\$HOME/oh264-fail" ] ;; esac
-EOS
-  r="$(sha "$1/cmux-rd")"
-  [ -z "${3:-}" ] || r="$3"
-  rd_lines=""
-  if [ "$r" != none ]; then
-    rd_lines="
-    \"cmux-tui-rd-aarch64-unknown-linux-gnu\": \"$r\",
-    \"cmux-tui-rd-x86_64-unknown-linux-gnu\": \"$r\","
-  fi
   cat >"$1/channel.json" <<EOF
 {
   "binaries": {
     "cmux-tui-acpmux-aarch64-apple-darwin": "$s",
-    "cmux-tui-acpmux-aarch64-unknown-linux-musl": "$s",$rd_lines
     "cmux-tui-acpmux-x86_64-unknown-linux-musl": "$s"
   },
   "commit": "0bb2eda1a2029e41086d6ef6d2afadd85e99235f",
@@ -336,35 +258,6 @@ EOS
   cp "$1/codex" "$1/codex dir/codex"
   c="$(sha "$1/cmux")"
   printf '{"commit": "a6d89d443f5f9ffb66c296d7a9680e307bbe6c58", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
-  sign_channel "$1" 1
-}
-
-# sign_channel DIR PHASE: DIR/linux-channel.json, the signed release file of
-# feat-cmux-next (cmuxterm-hq docs/design/linux-signed-packages.md). Phase 1
-# names cmux-tui for the gnu targets only; phase 1b adds a sequence, a
-# tree_key, URLs under tree/<key>/ and cmux-tui-acpmux for the musl targets.
-sign_channel() {
-  commit=a6d89d443f5f9ffb66c296d7a9680e307bbe6c58
-  tree=121e0512465089798aba4eea7eba48644ecac9a9
-  if [ "$2" = 1 ]; then
-    base="https://files.cmux.com/cmux-tui/$commit"
-    extra=""
-    musl=""
-  else
-    base="https://files.cmux.com/cmux-tui/tree/$tree"
-    extra='"sequence":20261102000000,'
-    musl=""
-    for t in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-      musl="$musl,\"$t\":{$(lrf_entry cmux-tui-acpmux "$base/cmux-tui-acpmux-$t" "$1/acpmux")}"
-    done
-  fi
-  targets=""
-  for t in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-    targets="$targets${targets:+,}\"$t\":{$(lrf_entry cmux-tui "$base/cmux-tui-$t" "$1/cmux")}"
-  done
-  printf '{"channel":"feat-cmux-next","commit":"%s","expires_at":%s,"purpose":"cmux-linux-release","schema":1,%s"targets":{%s%s},%s"version":"1.0.0+20261101000000.a6d89d443f5f"}' \
-    "$commit" "$(($(date +%s) + 86400))" "$extra" "$targets" "$musl" "$([ "$2" = 1 ] || printf '"tree_key":"%s",' "$tree")" >"$1/linux-payload.json"
-  lrf_sign "$1/linux-payload.json" "$root/key" "$1/linux-channel.json"
 }
 
 # A fresh case: its own HOME, log and fixtures.
@@ -377,7 +270,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
-  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok JT_UNIT=0 JT_UNIT_UP=1
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok
   : >"$d/log/argv"
 }
 
@@ -391,7 +284,7 @@ run_join() {
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
     JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
-    JT_UNIT="$JT_UNIT" JT_UNIT_UP="$JT_UNIT_UP" CMUX_PLATFORM_URL="$origin" "$@"
+    CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
     env) "$@" CMUX_JOIN="$token" $shell_cmd -s <"$script_under_test" >"$d/out" 2>&1 || rc=$? ;;
@@ -416,21 +309,6 @@ out_has() { grep -qF -- "$1" "$d/out"; }
 rc_is() { [ "$rc" = "$1" ]; }
 installed() { [ -x "$d/home/.local/bin/acpmux" ]; }
 fetched_binary() { grep -q 'tree/.*/cmux-tui-acpmux-' "$d/log/argv"; }
-fetched_rd() { grep -q '^curl .*tree/.*/cmux-tui-rd-' "$d/log/argv"; }
-rd_is_channels() {
-  f="$d/home/.local/bin/cmux-rd"
-  [ -f "$f" ] && [ ! -L "$f" ] && [ "$(sha "$f")" = "$(sha "$d/serve/cmux-rd")" ] &&
-    [ "$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f")" = 755 ]
-}
-rd_state() { printf '%s' "$d/home/.acpmux/share-host/cmux-rd-install"; }
-rd_lines() { grep -c 'cmux-rd did not install' "$d/out"; }
-# An earlier cmux-rd in place, which a failure must leave as it is.
-old_rd() {
-  mkdir -p "$d/home/.local/bin"
-  printf '#!/bin/sh\n# the old cmux-rd\n' >"$d/home/.local/bin/cmux-rd"
-  chmod 755 "$d/home/.local/bin/cmux-rd"
-}
-old_rd_kept() { grep -q "the old cmux-rd" "$d/home/.local/bin/cmux-rd"; }
 
 n=0
 suite() {
@@ -444,9 +322,7 @@ suite() {
   check "acpmux installed" installed
   check "joins with --hub and --name" grep -q -- "--hub $origin --name" "$d/log/joins"
   check "the cmux CLI installed" test -x "$d/home/.cmux/bin/cmux"
-  check "linux: cmux-rd installed from the channel" rd_is_channels
-  check "linux: says the screen is shared with nothing to do" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here."
-  check "linux: no consent line (cmux-rd's host serves your own account)" eval '! out_has "Screen sharing and control are off"'
+  check "the consent line" out_has "Screen sharing and control are off on this machine."
   check "no token in output" no_token_in_output
   check "no printf binary was exec'd (it is a builtin)" eval '! grep -q "^printf" "$d/log/argv"'
 
@@ -549,45 +425,11 @@ suite() {
   check "the temp dir was kept for the disk check" eval 'ls "$d/tmp"/cmux-join.*/join.err >/dev/null 2>&1'
   check "acpmux's stderr is redacted before it reaches disk" no_token_on_disk
 
-  # A transport reset is retried (run 44192875334: a 23 s blip reset every
-  # connection); an HTTP status the server sent is not.
-  new_case fetch-reset
-  printf '56\n56\n' >"$d/log/curl-fails"
-  run_join env
-  check "two resets, then the download: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "one line per retry" test "$(grep -c 'retrying in' "$d/out")" = 2
-  check "the retry line names the curl exit" out_has "(curl exit 56); retrying in 2 s"
-  check "waits 2 s, then 8 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 "
-  check "three tries of the download" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 3
-  check "acpmux installed" installed
-  check "the token reaches acpmux on stdin, once" token_on_stdin_once
-  check "no token in output" no_token_in_output
-
-  new_case fetch-reset-gives-up
-  printf '56\n7\n28\n35\n' >"$d/log/curl-fails"
-  run_join env
-  check "four transport failures: exit 1 (got $rc)" rc_is 1
-  check "it stops after four tries" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 4
-  check "waits 2, 8 and 20 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 sleep 20 "
-  check "it says the download failed" out_has "cannot download acpmux for x86_64-unknown-linux-musl"
-  check "nothing installed" eval '! installed'
-  check "nothing redeemed" no_redeem
-
-  new_case fetch-http-status
-  printf '22\n' >"$d/log/curl-fails"
-  run_join env
-  check "an HTTP status: exit 1 (got $rc)" rc_is 1
-  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 1
-  check "no wait" eval '! grep -q "^sleep" "$d/log/argv"'
-  check "no retry line" eval '! out_has "retrying in"'
-  check "nothing redeemed" no_redeem
-
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
   run_join env
   check "mismatch fails (got $rc)" rc_is 1
   check "mismatch says so" out_has "checksum verification failed for acpmux"
-  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/.*/cmux-tui-acpmux-' "$d/log/argv")" = 1
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
 
@@ -602,76 +444,7 @@ suite() {
   check "the channel build replaced it" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
   check "the old one kept as acpmux.prev" grep -q "a different build" "$d/home/.local/bin/acpmux.prev"
   check "the replaced daemon restarted" grep -q "^acpmux daemon restart" "$d/log/argv"
-  check "replace and redeem restart the daemon once, not twice" test "$(grep -c "^acpmux daemon restart" "$d/log/argv")" = 1
   check "token on stdin of the verified binary" token_on_stdin_once
-
-  # acpmux.prev still runs (processes started before an earlier update): on
-  # Linux, writing over it fails with "Text file busy"; the join goes on.
-  if [ "$(uname -s)" = Linux ]; then
-    new_case prev-busy
-    bin="$d/home/.local/bin"
-    mkdir -p "$bin"
-    { cat "$root/acpmux.src"; echo "# a different build"; } >"$bin/acpmux"
-    chmod 755 "$bin/acpmux"
-    cp "$(command -v sleep)" "$bin/acpmux.prev"
-    chmod 755 "$bin/acpmux.prev"
-    "$bin/acpmux.prev" 120 &
-    busy=$!
-    tries=0
-    while [ "$(readlink "/proc/$busy/exe" 2>/dev/null)" != "$bin/acpmux.prev" ] && [ "$tries" -lt 50 ]; do
-      sleep 0.1
-      tries=$((tries + 1))
-    done
-    # Live: the copy-over this replaced fails on this file.
-    check "prev-busy: acpmux.prev is running, so cp over it fails" eval '! cp "$bin/acpmux" "$bin/acpmux.prev" 2>/dev/null'
-    run_join env
-    kill "$busy" 2>/dev/null || :
-    wait "$busy" 2>/dev/null || :
-    check "prev-busy: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-    check "prev-busy: the channel build replaced it" test "$(sha "$bin/acpmux")" = "$(sha "$d/serve/acpmux")"
-    check "prev-busy: the old one kept as acpmux.prev" grep -q "a different build" "$bin/acpmux.prev"
-    check "prev-busy: no staged copy left" test ! -e "$bin/.acpmux.prev.new"
-    check "prev-busy: token on stdin" token_on_stdin_once
-  fi
-
-  # systemd's acpmux.service runs the daemon: restarts go through it after
-  # reset-failed, once per run (two within seconds hit its start limit).
-  new_case unit-replace-join
-  JT_UNIT=1
-  mkdir -p "$d/home/.local/bin"
-  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
-  chmod 755 "$d/home/.local/bin/acpmux"
-  run_join env
-  check "unit: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "unit: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
-  check "unit: reset-failed before it" grep -q "^systemctl --user reset-failed acpmux.service" "$d/log/argv"
-  check "unit: never acpmux daemon restart or start" eval '! grep -qE "^acpmux daemon (restart|start)" "$d/log/argv"'
-  check "unit: the restart comes after the redeem" eval '[ "$(grep -n "^acpmux host join --hub" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^systemctl --user restart" "$d/log/argv" | cut -d: -f1)" ]'
-  check "unit: says it is active" out_has "restarted acpmux.service; it is active"
-  : >"$d/log/argv"
-  run_join env
-  check "unit re-run: exit 0 (got $rc)" rc_is 0
-  check "unit re-run: no restart" eval '! grep -q "^systemctl --user restart" "$d/log/argv"'
-
-  # A replaced binary on a joined machine (nothing redeemed) still restarts, once.
-  new_case unit-replace-joined
-  JT_UNIT=1
-  mkdir -p "$d/home/.local/bin"
-  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
-  chmod 755 "$d/home/.local/bin/acpmux"
-  : >"$d/home/joined"
-  run_join env
-  check "unit, joined: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "unit, joined: nothing redeemed" no_redeem
-  check "unit, joined: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
-
-  # The unit does not come back: fail with the way out.
-  new_case unit-down
-  JT_UNIT=1
-  JT_UNIT_UP=0
-  run_join env
-  check "unit down: exit 1 (got $rc)" rc_is 1
-  check "unit down: names reset-failed and start" out_has "systemctl --user reset-failed acpmux.service; systemctl --user start acpmux.service"
 
   # Without a token (repair), a capable different build is kept.
   new_case capable-mismatch-repair
@@ -710,17 +483,11 @@ suite() {
   check "bad token downloads nothing" eval '! grep -q "^curl" "$d/log/argv"'
 
   new_case no-token
-  # cmux-rd is installed, but nothing joined this machine: its screen is not shared.
-  mkdir -p "$d/home/.local/bin"
-  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
-  chmod 755 "$d/home/.local/bin/cmux-rd"
   run_join none
   check "no token: exit 0 (got $rc)" rc_is 0
   check "no token: installed" installed
   check "no token: service and daemon" grep -q "^acpmux daemon start" "$d/log/argv"
   check "no token: nothing redeemed" no_redeem
-  check "no token, not joined: the screen is not shared" out_has "This machine is not joined, so its screen is not shared."
-  check "no token, not joined: never says it is shared" eval '! out_has "Your own account can view this machine'"'"'s screen"'
 
   new_case doctor
   JT_DOCTOR=1
@@ -747,7 +514,7 @@ suite() {
   JT_RESTART=fail
   run_join env
   check "restart fails: still joins (got $rc)" rc_is 0
-  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the new acpmux or the join, so it sends no heartbeat yet"
+  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the join, so it sends no heartbeat yet"
 
   new_case no-service
   JT_SERVICE=0
@@ -761,210 +528,6 @@ suite() {
   run_join env
   check "macos exit 0 (got $rc): $(cat "$d/out")" rc_is 0
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
-  check "macos: the consent line" out_has "Screen sharing and control are off on this machine."
-
-  # Linux: cmux-rd from the channel, where the screen host unit runs it; the
-  # daemon finds it and shares the screen with the joining account by itself.
-  new_case linux-cmux-rd
-  run_join env
-  check "linux-cmux-rd exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "linux-cmux-rd: fetched from the channel's tree" grep -q "^curl .*tree/121e0512465089798aba4eea7eba48644ecac9a9/cmux-tui-rd-x86_64-unknown-linux-gnu" "$d/log/argv"
-  check "linux-cmux-rd: installed, mode 755, the channel's sha256" rd_is_channels
-  check "linux-cmux-rd: through a temp name, moved into place" grep -q "^mv -f $d/home/.local/bin/.cmux-rd.new $d/home/.local/bin/cmux-rd" "$d/log/argv"
-  check "linux-cmux-rd: says so" out_has "installed cmux-rd to $d/home/.local/bin/cmux-rd"
-  check "linux-cmux-rd: no failure state" test ! -e "$(rd_state)"
-  check "linux-cmux-rd: Cisco's OpenH264 fetched through cmux-rd" grep -q "^cmux-rd openh264-install" "$d/log/argv"
-  check "linux-cmux-rd: cmux-rd only for openh264-install" eval '[ "$(grep -c "^cmux-rd" "$d/log/argv")" = 1 ]'
-  check "linux-cmux-rd: before the vault and sign-in" eval '[ "$(grep -n "^cmux-rd openh264-install" "$d/log/argv" | cut -d: -f1)" -lt "$(grep -n "^acpmux host join --status$\|^acpmux host doctor" "$d/log/argv" | tail -n 1 | cut -d: -f1)" ]'
-  check "linux-cmux-rd: your own account, nothing to do here" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
-  check "linux-cmux-rd: no consent line" eval '! out_has "Screen sharing and control are off"'
-  check "linux-cmux-rd: the daemon restarts onto the join" grep -q "^acpmux daemon restart" "$d/log/argv"
-  check "linux-cmux-rd: no env leak" no_env_leak
-  check "linux-cmux-rd: no cmj_ in any argv" no_token_in_argv
-  # Again: the installed one already has the channel's sha256, so nothing is fetched.
-  : >"$d/log/argv"
-  run_join env
-  check "linux-cmux-rd again: exit 0 (got $rc)" rc_is 0
-  check "linux-cmux-rd again: no cmux-rd download" eval '! fetched_rd'
-  check "linux-cmux-rd again: still the channel's" rd_is_channels
-
-  # An older cmux-rd is replaced by the channel's, on aarch64 too.
-  new_case linux-cmux-rd-update-arm64
-  JT_ARCH=aarch64
-  old_rd
-  # Joined before (a repair run, no token): the rerun brings cmux-rd too.
-  : >"$d/home/joined"
-  run_join none
-  check "rd update: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd update: the aarch64 gnu build" grep -q "^curl .*cmux-tui-rd-aarch64-unknown-linux-gnu" "$d/log/argv"
-  check "rd update: replaced" rd_is_channels
-
-  # A failed OpenH264 download is one warning; cmux-rd stays installed.
-  new_case linux-cmux-rd-openh264-fails
-  mkdir -p "$d/home"
-  : >"$d/home/oh264-fail"
-  run_join env
-  check "openh264 fails: exit 0 (got $rc)" rc_is 0
-  check "openh264 fails: installed anyway" rd_is_channels
-  check "openh264 fails: one warning" eval '[ "$(grep -c "OpenH264 did not download" "$d/out")" = 1 ]'
-
-  # The channel's sha256 is not the served file's: nothing replaced, the join goes on.
-  new_case linux-cmux-rd-mismatch
-  serve_dir "$d/serve" "" "1111111111111111111111111111111111111111111111111111111111111111"
-  old_rd
-  run_join env
-  check "rd mismatch: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd mismatch: joined" token_on_stdin_once
-  check "rd mismatch: one line" eval '[ "$(rd_lines)" = 1 ]'
-  check "rd mismatch: says checksum" out_has "cmux-rd did not install (checksum verification failed for cmux-rd"
-  check "rd mismatch: the old cmux-rd untouched" old_rd_kept
-  check "rd mismatch: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
-  check "rd mismatch: the state file holds the reason" grep -q "^checksum verification failed for cmux-rd" "$(rd_state)"
-  check "rd mismatch: OpenH264 not fetched" eval '! grep -q "^cmux-rd openh264-install" "$d/log/argv"'
-  # Then a channel that matches: installed, the state file gone.
-  serve_dir "$d/serve"
-  run_join none
-  check "rd mismatch then ok: installed" rd_is_channels
-  check "rd mismatch then ok: state file removed" test ! -e "$(rd_state)"
-
-  # The download fails: the same.
-  new_case linux-cmux-rd-fetch-fails
-  rm "$d/serve/cmux-rd"
-  run_join env
-  check "rd fetch fails: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd fetch fails: one line" eval '[ "$(rd_lines)" = 1 ]'
-  check "rd fetch fails: says download" out_has "cmux-rd did not install (cannot download cmux-rd for x86_64-unknown-linux-gnu)"
-  check "rd fetch fails: nothing installed" test ! -e "$d/home/.local/bin/cmux-rd"
-  check "rd fetch fails: the state file holds the reason" grep -qx "cannot download cmux-rd for x86_64-unknown-linux-gnu" "$(rd_state)"
-  check "rd fetch fails: step 8 says why the screen is not shared" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd (cannot download cmux-rd for x86_64-unknown-linux-gnu)."
-  # ACPMUX_HOME moves the state file with acpmux's home.
-  run_join none ACPMUX_HOME="$d/home/other-acpmux"
-  check "rd fetch fails, ACPMUX_HOME: state file there" test -f "$d/home/other-acpmux/share-host/cmux-rd-install"
-
-  # A channel with no cmux-rd yet.
-  new_case linux-cmux-rd-not-in-channel
-  serve_dir "$d/serve" "" none
-  old_rd
-  run_join env
-  check "rd not in channel: exit 0 (got $rc)" rc_is 0
-  check "rd not in channel: one line" eval '[ "$(rd_lines)" = 1 ]'
-  check "rd not in channel: says so" out_has "cmux-rd did not install (the feat-cmux-next channel has no cmux-rd build for x86_64-unknown-linux-gnu)"
-  check "rd not in channel: nothing fetched" eval '! fetched_rd'
-  check "rd not in channel: the old cmux-rd untouched" old_rd_kept
-  check "rd not in channel: the state file holds the reason" grep -q "has no cmux-rd build" "$(rd_state)"
-
-  # A symlinked cmux-rd (a test harness's own build) is kept.
-  new_case linux-cmux-rd-symlink
-  mkdir -p "$d/home/.local/bin" "$d/own"
-  printf '#!/bin/sh\n# my own build\n' >"$d/own/cmux-rd"
-  chmod 755 "$d/own/cmux-rd"
-  ln -s "$d/own/cmux-rd" "$d/home/.local/bin/cmux-rd"
-  run_join env
-  check "rd symlink: exit 0 (got $rc)" rc_is 0
-  check "rd symlink: kept" test -L "$d/home/.local/bin/cmux-rd"
-  check "rd symlink: nothing fetched" eval '! fetched_rd'
-
-  # The channel's cmux-rd in place but not executable (the daemon refuses it): made
-  # executable, not downloaded again.
-  new_case linux-cmux-rd-not-executable
-  mkdir -p "$d/home/.local/bin"
-  cp "$d/serve/cmux-rd" "$d/home/.local/bin/cmux-rd"
-  chmod 644 "$d/home/.local/bin/cmux-rd"
-  run_join env
-  check "rd not executable: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd not executable: now mode 755, the channel's" rd_is_channels
-  check "rd not executable: nothing fetched" eval '! fetched_rd'
-  check "rd not executable: no failure state" test ! -e "$(rd_state)"
-
-  # A symlink to nothing, or to a directory, is no cmux-rd: replaced by the channel's.
-  for to in nothing dir; do
-    new_case "linux-cmux-rd-symlink-to-$to"
-    mkdir -p "$d/home/.local/bin"
-    [ "$to" = dir ] && mkdir -p "$d/own"
-    ln -s "$d/own" "$d/home/.local/bin/cmux-rd"
-    run_join env
-    check "rd symlink to $to: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-    check "rd symlink to $to: replaced by the channel's" rd_is_channels
-    check "rd symlink to $to: nothing put inside its target" test ! -e "$d/own/cmux-rd"
-  done
-
-  # ~/.local/bin cannot be written: one line and the state file, the join goes on, the
-  # old cmux-rd kept and no temp file left.
-  for step in install mv; do
-    new_case "linux-cmux-rd-$step-fails"
-    old_rd
-    : >"$d/home/rd-$step-fail"
-    run_join env
-    check "rd $step fails: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
-    check "rd $step fails: joined" token_on_stdin_once
-    check "rd $step fails: one line" eval '[ "$(rd_lines)" = 1 ]'
-    check "rd $step fails: says so" out_has "cmux-rd did not install (cannot write it to $d/home/.local/bin)"
-    check "rd $step fails: the state file holds the reason" grep -qx "cannot write it to $d/home/.local/bin" "$(rd_state)"
-    check "rd $step fails: the old cmux-rd untouched" old_rd_kept
-    check "rd $step fails: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
-    check "rd $step fails: the join's last step ran" grep -q "^acpmux daemon restart" "$d/log/argv"
-  done
-
-  # The file in bin is checked, not only the download: a copy that differs from the
-  # channel's sha256 is never moved into place, and the old cmux-rd stays.
-  new_case linux-cmux-rd-copy-changed
-  old_rd
-  : >"$d/home/rd-install-changes"
-  run_join env
-  check "rd copy changed: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd copy changed: one line" eval '[ "$(rd_lines)" = 1 ]'
-  check "rd copy changed: says so" out_has "cmux-rd did not install (checksum verification failed for the copy in $d/home/.local/bin"
-  check "rd copy changed: the old cmux-rd untouched" old_rd_kept
-  check "rd copy changed: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
-
-  # A directory that appears where cmux-rd goes after the script looked: nothing is moved
-  # inside it, the join says cmux-rd did not install, and never that the screen is shared.
-  new_case linux-cmux-rd-directory-appears
-  : >"$d/home/rd-dir-appears"
-  run_join env
-  check "rd dir appears: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd dir appears: one line" eval '[ "$(rd_lines)" = 1 ]'
-  check "rd dir appears: says so" out_has "cmux-rd did not install ($d/home/.local/bin/cmux-rd is not a file: remove it, then run the line again)"
-  check "rd dir appears: nothing moved inside it" eval '[ -d "$d/home/.local/bin/cmux-rd" ] && [ -z "$(ls -A "$d/home/.local/bin/cmux-rd")" ]'
-  check "rd dir appears: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
-  check "rd dir appears: never says the screen is shared" eval '! grep -q "can view this machine" "$d/out"'
-  check "rd dir appears: says it is not shared" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd"
-
-  # A directory where cmux-rd goes: one clear line, left as it is, nothing fetched.
-  new_case linux-cmux-rd-directory
-  mkdir -p "$d/home/.local/bin/cmux-rd"
-  run_join env
-  check "rd directory: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd directory: one line" eval '[ "$(rd_lines)" = 1 ]'
-  check "rd directory: says so" out_has "cmux-rd did not install ($d/home/.local/bin/cmux-rd is not a file: remove it, then run the line again)"
-  check "rd directory: left as it is, nothing inside" eval '[ -d "$d/home/.local/bin/cmux-rd" ] && [ -z "$(ls -A "$d/home/.local/bin/cmux-rd")" ]'
-  check "rd directory: nothing fetched" eval '! fetched_rd'
-  check "rd directory: the state file holds the reason" grep -q "is not a file" "$(rd_state)"
-
-  # No cmux-rd before the join finished, nor on a machine that is not joined.
-  new_case linux-cmux-rd-not-joined
-  JT_JOIN_EXIT=3
-  run_join env
-  check "rd, join refused: nothing fetched" eval '! fetched_rd'
-
-  # CMUX_JOIN_STEP=cmux-rd: only the install (a test of the install path runs it after its own join).
-  new_case cmux-rd-step
-  run_join none CMUX_JOIN_STEP=cmux-rd
-  check "rd step: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "rd step: installed" rd_is_channels
-  check "rd step: no acpmux, no service, no join" eval '! grep -q "^acpmux\|tree/.*/cmux-tui-acpmux-" "$d/log/argv"'
-  run_join env CMUX_JOIN_STEP=cmux-rd
-  check "rd step with a token: exit 2 (got $rc)" rc_is 2
-  check "rd step with a token: no token in output" no_token_in_output
-
-  # macOS: no cmux-rd at all.
-  new_case macos-no-cmux-rd
-  JT_OS=Darwin JT_ARCH=arm64
-  run_join env
-  check "macos rd: exit 0 (got $rc)" rc_is 0
-  check "macos rd: nothing fetched" eval '! fetched_rd'
-  check "macos rd: nothing installed" test ! -e "$d/home/.local/bin/cmux-rd"
-  check "macos rd: no state" test ! -e "$(rd_state)"
 
   # A join cut off after redeem (joinIncomplete) wins over a present
   # credential: the rerun resumes through acpmux, never "already joined".
@@ -1067,7 +630,7 @@ suite() {
   check "revoked, no token: no join attempted" test ! -e "$d/log/joins"
 
   # Once joined: Claude Code from its own installer, Codex from acpmux's
-  # runtime (macOS and Linux), and a sign-in line for each, through its own flow.
+  # runtime (macOS), and a sign-in line for each, through its own flow.
   new_case harnesses
   JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
   run_join env
@@ -1098,20 +661,16 @@ suite() {
   check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
 
   new_case harnesses-none
-  # A fixed name: the host name (gcp-codex-lane-11) would put "codex" in the join's argv.
-  run_join env CMUX_JOIN_HARNESSES=none CMUX_JOIN_NAME=box
+  run_join env CMUX_JOIN_HARNESSES=none
   check "none: exit 0 (got $rc)" rc_is 0
   check "none: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
   check "none: no codex" eval '! grep -q "codex" "$d/log/argv"'
   check "none: no sign-in" eval '! out_has "sign in to"'
 
   new_case harnesses-linux
-  JT_CODEX_RT=1 JT_DOCTOR=1
   run_join env CMUX_JOIN_HARNESSES=codex
   check "linux codex: exit 0 (got $rc)" rc_is 0
-  check "linux codex: installed" test -f "$d/home/codex-ready"
-  check "linux codex: uses managed installer" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
-  check "linux sandbox: join repairs prerequisites" grep -q "^acpmux host doctor --here --fix$" "$d/log/argv"
+  check "linux codex: says how" out_has "Codex is not installed: npm install -g @openai/codex"
   check "linux codex: no claude" eval '! grep -q "claude.ai" "$d/log/argv"'
 
   new_case harnesses-bad
@@ -1187,51 +746,6 @@ suite() {
   check "signin step with a token: no token in output" no_token_in_output
   run_join none CMUX_JOIN_STEP=bogus
   check "unknown step: exit 2 (got $rc)" rc_is 2
-
-  # Linux: the CLI comes from the signed release file, at the URL it names.
-  new_case signed-cli
-  run_join env
-  check "signed cli: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "signed cli: read the signed file" grep -q '^curl .*channels/linux-feat-cmux-next.json' "$d/log/argv"
-  check "signed cli: not the unsigned manifest" eval '! grep -q "^curl .*latest/manifest.json" "$d/log/argv"'
-  check "signed cli: the CLI from the URL the file names" grep -q '^curl .*/a6d89d443f5f9ffb66c296d7a9680e307bbe6c58/cmux-tui-x86_64-unknown-linux-gnu' "$d/log/argv"
-  check "signed cli: recorded the build" grep -qF '"sequence":20261101000000' "$d/home/.cmux/installed.json"
-  check "signed cli: acpmux still from the channel (phase-1b pending)" fetched_binary
-
-  # Phase 1b: acpmux too comes from the signed file, under tree/<key>/.
-  new_case signed-acpmux
-  sign_channel "$d/serve" 1b
-  run_join env
-  check "phase 1b: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "phase 1b: acpmux installed" installed
-  check "phase 1b: acpmux at the URL the signed file names" grep -q '^curl .*tree/121e0512465089798aba4eea7eba48644ecac9a9/cmux-tui-acpmux-x86_64-unknown-linux-musl' "$d/log/argv"
-  check "phase 1b: recorded its sequence" grep -qF '"sequence":20261102000000' "$d/home/.cmux/installed.json"
-  # The unsigned channel's acpmux sha256 is not used once the signed file names it.
-  serve_dir "$d/serve" 0000000000000000000000000000000000000000000000000000000000000000
-  sign_channel "$d/serve" 1b
-  rm -f "$d/home/.local/bin/acpmux"
-  run_join env
-  check "phase 1b: the unsigned channel's sha256 is not used (got $rc): $(cat "$d/out")" rc_is 0
-
-  # A signed file that does not verify ends the join, with a next: line last, before any token use.
-  new_case bad-signature
-  lrf_key "$d/other"
-  lrf_sign "$d/serve/linux-payload.json" "$d/other" "$d/serve/linux-channel.json"
-  run_join env
-  check "bad signature: exit 1 (got $rc)" rc_is 1
-  check "bad signature: says why" out_has "not signed by a cmux release key"
-  check "bad signature: next: last" eval 'tail -n 1 "$d/out" | grep -q "^next: "'
-  check "bad signature: no acpmux, no join" eval '! installed && no_redeem'
-  check "bad signature: no CLI" eval '[ ! -e "$d/home/.cmux/bin/cmux" ]'
-
-  # A lower sequence than the installed build is refused too.
-  new_case lower-sequence
-  mkdir -p "$d/home/.cmux"
-  printf '{"commit":"%s","sequence":20991231000000,"version":"x"}\n' 2222222222222222222222222222222222222222 >"$d/home/.cmux/installed.json"
-  run_join env
-  check "lower sequence: exit 1 (got $rc)" rc_is 1
-  check "lower sequence: next: last" eval 'tail -n 1 "$d/out" | grep -q "^next: "'
-  check "lower sequence: no join" no_redeem
 
   new_case unsupported
   JT_OS=FreeBSD

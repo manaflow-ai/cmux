@@ -1,7 +1,7 @@
 //! Bounded writes shared by image paste and clear-history keyboard fallback.
 
-use std::io::{self, Write};
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::io;
+use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -102,64 +102,5 @@ impl NonblockingFdGuard {
 impl Drop for NonblockingFdGuard {
     fn drop(&mut self) {
         let _ = self.restore();
-    }
-}
-
-/// The input writer on a master that is read non-blocking (the holder's
-/// custody master, a terminal host's PTY), and `O_NONBLOCK` belongs to the open file
-/// description every dup shares, so a write the PTY's input queue (about 1
-/// KiB on macOS) cannot take returns `WouldBlock`. This writer then waits
-/// for room, as a write on a blocking master does: a paste or a burst of
-/// mouse reports is never cut.
-pub(crate) struct WaitingWriter {
-    pub(crate) inner: Box<dyn Write + Send>,
-    /// A dup of the master to wait on.
-    pub(crate) master: OwnedFd,
-}
-
-impl Write for WaitingWriter {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        loop {
-            match self.inner.write(buffer) {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    wait_writable(self.master.as_raw_fd())?;
-                }
-                result => return result,
-            }
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        loop {
-            match self.inner.flush() {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    wait_writable(self.master.as_raw_fd())?;
-                }
-                result => return result,
-            }
-        }
-    }
-}
-
-/// Block until the master takes input again. A master whose terminal ended
-/// is an error rather than a wait that never ends.
-fn wait_writable(master: RawFd) -> io::Result<()> {
-    loop {
-        let mut poll_fd = libc::pollfd { fd: master, events: libc::POLLOUT, revents: 0 };
-        // SAFETY: polls one live pollfd; -1 waits like a blocking write.
-        let ready = unsafe { libc::poll(&mut poll_fd, 1, -1) };
-        if ready < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error);
-        }
-        if poll_fd.revents & libc::POLLOUT == 0
-            && poll_fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
-        {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "the terminal's PTY closed"));
-        }
-        return Ok(());
     }
 }

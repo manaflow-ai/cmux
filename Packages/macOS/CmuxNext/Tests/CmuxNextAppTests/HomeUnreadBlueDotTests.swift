@@ -54,7 +54,7 @@ struct HomeUnreadBlueDotTests {
                                            adoptRef: { _ in nil })
             sidebar = SidebarView(model: model, design: DesignSettings.shared)
             sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 300)
-            window = TwoXWindow(contentRect: NSRect(x: 200, y: 200, width: width, height: 300), styleMask: [.borderless],
+            window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: width, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

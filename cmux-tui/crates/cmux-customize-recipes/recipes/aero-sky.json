@@ -1,9 +1,0 @@
-{
-  "cmuxProfile": 1,
-  "name": "aero-sky",
-  "description": "The living Aero wallpaper behind light glass, sky blue and a bright blue accent, floating panes.",
-  "settings": {
-    "appearance.themeFile": "aero-sky",
-    "agentPane.display.font.ui": "system-ui"
-  }
-}

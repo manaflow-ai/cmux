@@ -39,8 +39,6 @@ fn key_for(profile: &HarnessProfile, model: Option<&str>) -> PoolKey {
         account: None,
         machine: None,
         prompt_suggestions: None,
-        tool_servers: String::new(),
-        settings_file: PathBuf::new(),
         model,
         effort,
     }

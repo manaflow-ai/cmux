@@ -65,13 +65,10 @@ fn spawn_echo_mac(mac: SignalingClient) {
 }
 
 /// The phone's path to the service: half of [`RTT`] each way, and `cut` silences every
-/// connection open now (bytes vanish, nothing closes), as a sleeping phone's do. With
-/// `blackhole` on, a new connection is accepted and then hears nothing (a new route that drops
-/// its packets), while the connections already open keep working.
+/// connection open now (bytes vanish, nothing closes), as a sleeping phone's do.
 struct PhonePath {
     url: String,
     generation: Arc<AtomicU64>,
-    blackholed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl PhonePath {
@@ -80,19 +77,9 @@ impl PhonePath {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let generation = Arc::new(AtomicU64::new(0));
-        let blackholed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shared = Arc::clone(&generation);
-        let holes = Arc::clone(&blackholed);
         tokio::spawn(async move {
             while let Ok((phone, _)) = listener.accept().await {
-                if holes.load(Ordering::SeqCst) {
-                    // Held open, never answered: the dial waits on it as on a dropped SYN.
-                    tokio::spawn(async move {
-                        let _phone = phone;
-                        std::future::pending::<()>().await;
-                    });
-                    continue;
-                }
                 let born = shared.load(Ordering::SeqCst);
                 let Ok(service) = TcpStream::connect(&target).await else { continue };
                 let (phone_read, phone_write) = phone.into_split();
@@ -101,15 +88,11 @@ impl PhonePath {
                 tokio::spawn(pump(service_read, phone_write, born, Arc::clone(&shared)));
             }
         });
-        Self { url, generation, blackholed }
+        Self { url, generation }
     }
 
     fn cut(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
-    }
-
-    fn blackhole(&self, on: bool) {
-        self.blackholed.store(on, Ordering::SeqCst);
     }
 }
 
@@ -318,26 +301,6 @@ async fn a_network_change_waits_on_the_old_socket_only_a_few_round_trips() {
     assert!(roamed_ms < 800.0, "the roam took {roamed_ms} ms: {roamed:?}");
 }
 
-/// Regression (ask-48f698fc26): a network change is proof that the old path's socket is gone, as
-/// Chromium treats an IP address change for its TCP sockets (`ERR_NETWORK_CHANGED`): the phone
-/// reaches the chat's first event within two round trips plus the dial itself, with no wait on
-/// the old socket (before: four of its round trips, about 500 ms at an 80 ms round trip).
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "timed rig: run alone with --ignored"]
-async fn a_network_change_reaches_the_first_event_within_two_round_trips_and_a_dial() {
-    let rig = Rig::start().await;
-    rig.settle().await;
-    rig.path.cut();
-    let steps = rig.network_change().await;
-    let outside_the_dial = steps["first_event"] - (steps["dialed"] - steps["roamed"]);
-    let budget = 2.0 * ms(RTT) + 40.0;
-    assert!(!steps.contains_key("roam:signaling:stale"), "the roam waited on the old socket: {steps:?}");
-    assert!(
-        outside_the_dial <= budget,
-        "the first event came {outside_the_dial} ms past the dial's own time (budget {budget} ms): {steps:?}"
-    );
-}
-
 /// A network change in the foreground (Wi-Fi to cellular): the old path's socket is silent, the
 /// app roams (`network_changed`) and then dials, as `.networkChanged` does for a link that failed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -348,150 +311,6 @@ async fn network_change() {
     for sample in 0..SAMPLES {
         rig.settle().await;
         rig.path.cut();
-        let steps = rig.network_change().await;
-        println!("RECONNECT {}", json!({"scenario": "network_change", "sample": sample, "steps": steps}));
-        samples.push(steps);
-    }
-    summarize("network_change", &samples);
-}
-
-/// How long a roam may take when the new route drops everything and the old socket still
-/// answers: the open's budget after a network change (`NETWORK_OPEN_FLOOR`, 1 s at an 80 ms
-/// round trip) plus scheduling.
-const BLACKHOLE_ROAM_BOUND_MS: f64 = 1500.0;
-/// Where a timed rig gives up on a roam that never ends (base: the open waits on the OS).
-const ROAM_CAP: Duration = Duration::from_secs(5);
-
-/// Regression (ask-48f698fc26): after a network change the new signaling socket's open is
-/// bounded. When the new route drops everything and the old socket still answers, the roam
-/// keeps the old socket within [`BLACKHOLE_ROAM_BOUND_MS`] instead of waiting for the OS to give
-/// up on the open (minutes on iOS; never, in this rig).
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "timed rig: run alone with --ignored"]
-async fn a_blackholed_new_route_keeps_the_live_old_socket_within_a_bound() {
-    let rig = Rig::start().await;
-    rig.settle().await;
-    rig.path.blackhole(true);
-    let start = Instant::now();
-    let roamed = tokio::time::timeout(
-        ROAM_CAP,
-        rig.pool.network_changed(
-            rig.path.url.clone(),
-            "user:alice".into(),
-            "team".into(),
-            rig.device.clone(),
-        ),
-    )
-    .await;
-    let roamed_ms = ms(start.elapsed());
-    let roamed = roamed.unwrap_or_else(|_| panic!("the roam never ended: cut off after {roamed_ms} ms"));
-    let names: Vec<_> = roamed.iter().map(|mark| mark.name.as_str()).collect();
-    assert!(names.contains(&"signaling:alive"), "the roam did not keep the old socket: {names:?}");
-    assert!(roamed_ms <= BLACKHOLE_ROAM_BOUND_MS, "the roam took {roamed_ms} ms: {names:?}");
-}
-
-/// Regression (ask-48f698fc26): two network changes at once (path updates come in bursts) open
-/// one new signaling socket between them. The second waits for the first's open and then uses
-/// that socket; it never opens another, and never falls back onto the socket it saw before the
-/// first replaced it. Here the second's own open would fail (a refused token stands for a
-/// network that flapped again), which before sent it back to the replaced socket.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "timed rig: run alone with --ignored"]
-async fn two_network_changes_at_once_end_on_the_one_new_socket() {
-    let rig = Rig::start().await;
-    rig.settle().await;
-    rig.path.cut();
-    let first = rig.pool.network_changed(
-        rig.path.url.clone(),
-        "user:alice".into(),
-        "team".into(),
-        rig.device.clone(),
-    );
-    let second = async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        rig.pool
-            .network_changed(rig.path.url.clone(), "refused".into(), "team".into(), rig.device.clone())
-            .await
-    };
-    let (first, second) = tokio::time::timeout(ROAM_CAP, async { tokio::join!(first, second) })
-        .await
-        .expect("the two roams never ended");
-    let names =
-        |marks: &[cmux_mobile_link_ffi::TimingMark]| marks.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
-    let (first, second) = (names(&first), names(&second));
-    let opened = first.iter().chain(&second).filter(|name| *name == "signaling:signaling_open").count();
-    assert_eq!(opened, 1, "two changes opened {opened} sockets: first {first:?}, second {second:?}");
-    assert!(
-        second.iter().any(|name| name == "signaling:signaling_joined"),
-        "the second change did not end on the first's socket: {second:?}"
-    );
-    assert!(
-        !second.iter().any(|name| name == "signaling:alive" || name == "signaling:failed"),
-        "the second change fell back to the socket it saw before: {second:?}"
-    );
-}
-
-/// A network change whose new route drops everything while the old socket still answers (a
-/// captive Wi-Fi, a VPN that came up half way): roam, then dial, then the first event. A roam
-/// that never ends is cut off at [`ROAM_CAP`] and counted (`roam_capped`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "timed rig: run alone with --ignored"]
-async fn network_change_blackholed_route() {
-    let rig = Rig::start().await;
-    let mut samples = Vec::new();
-    for sample in 0..SAMPLES {
-        rig.path.blackhole(false);
-        rig.settle().await;
-        rig.path.blackhole(true);
-        let start = Instant::now();
-        let roamed = tokio::time::timeout(
-            ROAM_CAP,
-            rig.pool.network_changed(
-                rig.path.url.clone(),
-                "user:alice".into(),
-                "team".into(),
-                rig.device.clone(),
-            ),
-        )
-        .await;
-        let mut steps = BTreeMap::new();
-        match roamed {
-            Ok(marks) => {
-                for mark in marks {
-                    steps.insert(format!("roam:{}", mark.name), mark.millis);
-                }
-            }
-            Err(_) => {
-                steps.insert("roam_capped".into(), ms(ROAM_CAP));
-            }
-        }
-        steps.insert("roamed".into(), ms(start.elapsed()));
-        let dial_at = ms(start.elapsed());
-        let handle = rig.pool.connect(rig.request(), None).await.expect("dial");
-        for mark in handle.timings() {
-            steps.insert(mark.name, dial_at + mark.millis);
-        }
-        steps.insert("dialed".into(), ms(start.elapsed()));
-        let channel = handle.open_channel("echo".into(), String::new()).await.expect("channel");
-        channel.send(b"first".to_vec()).await.unwrap();
-        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"first".to_vec() });
-        steps.insert("first_event".into(), ms(start.elapsed()));
-        handle.close();
-        println!(
-            "RECONNECT {}",
-            json!({"scenario": "network_change_blackholed_route", "sample": sample, "steps": steps})
-        );
-        samples.push(steps);
-    }
-    rig.path.blackhole(false);
-    summarize("network_change_blackholed_route", &samples);
-}
-
-impl Rig {
-    /// What `.networkChanged` does after the path changed: roam, then dial, then the first
-    /// channel's first event. Every step in ms from the change.
-    async fn network_change(&self) -> BTreeMap<String, f64> {
-        let rig = self;
         let start = Instant::now();
         let roamed = rig
             .pool
@@ -513,6 +332,8 @@ impl Rig {
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"first".to_vec() });
         steps.insert("first_event".into(), ms(start.elapsed()));
         handle.close();
-        steps
+        println!("RECONNECT {}", json!({"scenario": "network_change", "sample": sample, "steps": steps}));
+        samples.push(steps);
     }
+    summarize("network_change", &samples);
 }

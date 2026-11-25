@@ -36,9 +36,6 @@ public nonisolated struct LaunchMarkSink: Sendable {
         self.fd = fd
     }
 
-    /// Whether a launch harness reads the marks: work that exists only to measure a launch runs only then.
-    public var isActive: Bool { fd != nil }
-
     public func write(name: String, ms: Double) {
         guard let fd else { return }
         let line = "\(name) \(String(format: "%.1f", ms))\n"

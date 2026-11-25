@@ -78,9 +78,7 @@ from a herdr checkout with `git show`, never the update endpoint. The daily
   retention fix (`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`) is adapted as a
   local output-revision fence because the generic host API cannot clear OSC
   state. The one-second evaluation pacer, activity-expiry debt and same-name
-  process-group replacement edge are cmux changes. So is the rule that output
-  on an agent's own idle prompt does not start work, with its exception for a
-  manifest whose idle rule is above each of its working rules.
+  process-group replacement edge are cmux changes.
 * `src/manifest_update.rs`: versioned update and status concepts from herdr
   `src/detect/manifest_update.rs`. The explicit-only network policy, HTTPS
   checks, response bounds, per-agent failures and atomic cache writes are cmux

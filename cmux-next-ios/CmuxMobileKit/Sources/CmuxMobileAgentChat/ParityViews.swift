@@ -569,11 +569,28 @@ struct HandoffScreen: View {
     }
 }
 
-/// A round agent mark, as the Feed's avatars (`AgentAvatarMark`): the agent's own mark on its tinted circle.
+/// A round agent mark: the harness glyph on a raised circle (as Feed avatars).
 struct AgentGlyph: View {
     let harness: String
 
-    var body: some View { AgentAvatar(harness: harness, side: 32) }
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .medium))
+            .frame(width: 32, height: 32)
+            .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+            .accessibilityHidden(true)
+    }
+
+    private var symbol: String {
+        switch harness {
+        case "claude": "asterisk"
+        case "codex": "chevron.left.forwardslash.chevron.right"
+        case "cursor": "cursorarrow.rays"
+        case "gemini": "sparkles"
+        case "opencode": "curlybraces"
+        default: "sparkle"
+        }
+    }
 }
 
 /// Review of one continuation: what it carries, the capsule text, the checkpoint attestation.
@@ -765,7 +782,7 @@ struct SessionArtifactsSheet: View {
     let surface: AgentChatSurface
 
     var body: some View {
-        let collected = store.artifacts
+        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
         ArtifactsBrowser(
             title: "Files and Artifacts",
             artifacts: collected.artifacts,

@@ -104,12 +104,11 @@ impl Mux {
         let layout_changed = self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
-            // A focus that changes the floating panes (one comes to the front, the quick terminal shows)
-            // changes the layout fields too.
+            // A focus that brings a floating pane to the front changes the layout fields too.
             ((screen.active_pane != pane
                 && (screen.root.contains_stack_pane(screen.active_pane)
                     || screen.root.contains_stack_pane(pane)))
-                || screen.focus_changes_floating_panes(pane))
+                || screen.floating_pane_is_behind(pane))
             .then_some(screen.id)
         });
         let Some(selectors) = self.ordinary_pane_selectors(pane) else { return false };
