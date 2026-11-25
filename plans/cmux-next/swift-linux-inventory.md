@@ -35,6 +35,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | `Packages/Shared/CmuxChiefVoiceCore` | 2 | 0 | 0 | CI swift-linux-packages (2 of 2 targets) |
 | `Packages/Shared/CmuxConnectivityTelemetry` | 0 | 2 | 0 | - |
 | `Packages/Shared/CmuxDeviceHub` | 0 | 0 | 2 | - |
+| `Packages/Shared/CmuxFeedPushCore` | 2 | 0 | 0 | CI swift-linux-packages (2 of 2 targets) |
 | `Packages/Shared/CmuxGhosttyKit` | 0 | 2 | 0 | - |
 | `Packages/Shared/CmuxHomeCore` | 1 | 0 | 2 | - |
 | `Packages/Shared/CmuxHomeRender` | 0 | 0 | 2 | - |
@@ -157,6 +158,13 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | --- | --- | --- | --- | --- | --- |
 | CmuxDeviceHub | target | mac | scan | imports Security; shim CryptoKit, os | IOKit |
 | CmuxDeviceHubTests | testTarget | mac | scan | imports Security; shim CryptoKit | - |
+
+## `Packages/Shared/CmuxFeedPushCore`
+
+| Target | Kind | Class | Proof | Why | Guarded |
+| --- | --- | --- | --- | --- | --- |
+| CmuxFeedPushCore | target | linux | CI swift-linux-packages | - | - |
+| CmuxFeedPushCoreTests | testTarget | linux | CI swift-linux-packages | - | - |
 
 ## `Packages/Shared/CmuxGhosttyKit`
 
