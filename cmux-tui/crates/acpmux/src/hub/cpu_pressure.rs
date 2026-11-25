@@ -129,8 +129,7 @@ impl Hub {
     }
 
     /// The person waits on this chat's turn: their own prompt started it, a person shows and
-    /// attends the chat, and the turn has not ended. Keeping the whole turn at the agent tier
-    /// protects tool calls after the first output token as well as the initial response.
+    /// attends the chat, and no message, thought, or completed tool result has arrived yet.
     pub(super) fn cpu_waited_on(&self, session: &Session) -> bool {
         let person_turn = session
             .turn
@@ -138,7 +137,10 @@ impl Hub {
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .is_some_and(|turn| turn.persons && !turn.trigger);
-        person_turn && self.attended(session) && self.person_has_shown(session)
+        person_turn
+            && session.awaiting_reply.load(std::sync::atomic::Ordering::SeqCst)
+            && self.attended(session)
+            && self.person_has_shown(session)
     }
 
     /// `session info`'s `cpuClass` for `session`: its harness's class and demotions, whether the
