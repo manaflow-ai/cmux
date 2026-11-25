@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
-// Every line in an opened "Worked for" group sits on the one 22px pitch (--cv-tool-row-height,
+// Every line in an opened "Worked for" group sits on the one row pitch (--cv-tool-row-height,
 // design/chat-transcript.md "One-line row pitch"), whatever the line is: a thought first, a tool
 // run, a background task's notice and the run the agent did after it. Leo, 2026-11-16, on two
 // opened groups: "why is the spacing different on the first thinking tool call?" and "why is the
@@ -242,7 +242,7 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
       return { out, dump };
     });
 
-  test("every line of an opened Worked group sits one 22px pitch from the next", async () => {
+  test("every line of an opened Worked group sits one row pitch from the next", async () => {
     const page = await open();
     const { out: measured, dump } = await lines(page);
     const pitches = measured
@@ -257,10 +257,21 @@ await requireBrowserLane("agent-pane-worked-group-pitch-browser.test.ts", async 
     // Base drew thought->next 26 and notice->next 54 (cmux#44818). WORKED_GROUP_PITCH_LOG=1 prints the rows.
     if (process.env.WORKED_GROUP_PITCH_LOG === "1") console.log(`rows\n${dump.join("\n")}\n${JSON.stringify(pitches)}`);
     const thought = pitches.find((pitch) => pitch.from.startsWith("The question is about Linux"));
-    const notice = pitches.find((pitch) => pitch.from.includes("Background command finished"));
+    // A received notice is a message row (#37653): it closes its run, so it is the line a pitch ends on.
+    const notice = pitches.find((pitch) => pitch.to.includes("Background command finished"));
     expect(thought).toBeDefined();
     expect(notice).toBeDefined();
-    for (const pitch of pitches) expect({ ...pitch, pitch: Math.round(pitch.pitch) }).toEqual({ ...pitch, pitch: 22 });
+    // One pitch: --cv-tool-row-height (22px plus --cv-row-air since #50376), read off the page.
+    const row = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.height = "var(--cv-tool-row-height)";
+      document.querySelector(".acpmux-row")!.append(probe);
+      const height = probe.getBoundingClientRect().height;
+      probe.remove();
+      return Math.round(height);
+    });
+    expect(row).toBeGreaterThanOrEqual(22);
+    for (const pitch of pitches) expect({ ...pitch, pitch: Math.round(pitch.pitch) }).toEqual({ ...pitch, pitch: row });
     await page.close();
   });
 });
