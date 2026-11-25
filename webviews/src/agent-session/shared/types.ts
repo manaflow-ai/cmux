@@ -58,10 +58,6 @@ export type AgentSessionTheme = {
   /// e.g. `{ "chat.thinkingIndicator": "counting-dots" }` (slots/registry.ts). Absent, or an id no
   /// variant has, draws each slot's default.
   slots?: Record<string, string>;
-  /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
-  /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
-  /// false keeps the transcript's group cards and the agents pill.
-  subagentTray?: boolean;
   /// Running tray placement; absent keeps the tray above the composer. The alternate is
   /// fixture/Labs-driven until a native setting owns it.
   subagentTrayPlacement?: "tray" | "after-latest-message";

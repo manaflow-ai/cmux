@@ -365,6 +365,9 @@ pub enum Exit {
 pub trait Platform {
     /// End remote authority before a potentially blocking clone/metadata read.
     fn invalidate_remote_authority(&self) {}
+    /// A resume: read the agent harnesses' executables back into the page cache the pause dropped
+    /// (`cloud/page_in.rs`), off the poll loop.
+    fn page_in_harnesses(&self) {}
     /// Blocks until at least one wake.
     fn wait(&mut self) -> io::Result<Vec<Wake>>;
     /// Collects exits after a [`Wake::ProcessExit`].
@@ -467,6 +470,8 @@ pub struct Agent<P: Platform> {
     log: ActionLog,
     last_wake: &'static str,
     wakes: u64,
+    /// (first agent start on this VM disk, an earlier agent already ran): the marker read once at start.
+    first_start: (u64, bool),
 }
 
 impl<P: Platform> Agent<P> {
@@ -479,7 +484,23 @@ impl<P: Platform> Agent<P> {
         log: ActionLog,
     ) -> Self {
         let roles = Roles::new(roles, install);
-        Self { platform, machine: Machine::new(), roles, log, last_wake: "start", wakes: 0 }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let first_start = crate::status::MachineFacts::mark(
+            std::path::Path::new(crate::config::MACHINE_MARKER),
+            now,
+        );
+        Self {
+            platform,
+            machine: Machine::new(),
+            roles,
+            log,
+            last_wake: "start",
+            wakes: 0,
+            first_start,
+        }
     }
 
     pub fn machine(&self) -> &Machine {
@@ -549,6 +570,7 @@ impl<P: Platform> Agent<P> {
                 }
                 Wake::ClockSet | Wake::Paused => {
                     self.platform.invalidate_remote_authority();
+                    self.platform.page_in_harnesses();
                     resumed = true;
                     observe = true;
                     clone_signal = true;
@@ -768,6 +790,10 @@ impl<P: Platform> Agent<P> {
             last_wake: self.last_wake.to_owned(),
             wakes: self.wakes,
             restart_budget: self.platform.restart_budget(),
+            machine: Some(crate::status::MachineFacts::live(
+                self.first_start.0,
+                self.first_start.1,
+            )),
         };
         if let Err(err) = self.platform.write_status(&status) {
             self.log.line(&format!("status write failed: {err}"));

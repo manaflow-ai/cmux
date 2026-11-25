@@ -14,15 +14,17 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
-    Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
+    Ack, AckState, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode, OutMessage,
+    Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
 };
 use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::Message;
-use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
+use acpmux::server::mesh_relay::{
+    ControlHook, MeshControlHook, MeshRelay, RefuseControl, RelayOptions, relay_connection,
+};
 use acpmux::server::{Origin, serve_connection_with};
 use acpmux::store::{EventRecord, MemoryStore, SessionStatus, Store};
 use futures::future::BoxFuture;
@@ -409,6 +411,127 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     assert_eq!(p["fromSessionId"], "s-remote-1", "{found}");
     assert!(p.get("fromHarness").is_none(), "{found}");
     relay.stop().await;
+}
+
+/// The provenance of `prompt_id` in `session`, once it is recorded: as the turn's user message,
+/// or as an inbox entry, where a relay's message to a chat that did not delegate to it waits
+/// (`hub/inbox.rs`), as it does over a peer link.
+async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str) -> Value {
+    for _ in 0..600 {
+        let page = local
+            .call(
+                "_acpmux/events",
+                json!({"sessionId": session, "kinds": ["user_message", "inbox"]}),
+            )
+            .await;
+        let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == prompt_id) {
+            return e["msg"]["_meta"]["provenance"].clone();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{prompt_id} never reached {session}");
+}
+
+/// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
+/// the machine the hub proved, verified: it read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the
+/// sender to confirm. The sending daemon's relay record names the session when it names the same
+/// machine; one that names another machine is not believed.
+#[tokio::test]
+async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_verified() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let sessionless = |id: &str, relay: Option<Value>| {
+        let mut m = message(id, "dep-land", Kind::Prompt);
+        m.from.name = None;
+        m.from.relay = relay;
+        m
+    };
+    fake.lease(sessionless("msg-bare", None));
+    fake.lease(sessionless(
+        "msg-relay",
+        Some(json!({"by": "lane-gh", "machine": "gcp-lane", "session": "coord"})),
+    ));
+    fake.lease(sessionless(
+        "msg-other",
+        Some(json!({"by": "lane-gh", "machine": "elsewhere", "session": "coord"})),
+    ));
+    for (id, shown) in
+        [("msg-bare", "gcp-lane"), ("msg-relay", "gcp-lane/coord"), ("msg-other", "gcp-lane")]
+    {
+        fake.until("the ack", |s| !s.acked(id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(id)), vec![Ack::delivered(id, None)], "{id}");
+        let p = delivered_provenance(&mut local, &session, id).await;
+        assert_eq!(p["fromName"], shown, "{id}: {p}");
+        let record = acpmux::prompt_provenance::sender_record(Some(&p), None, None);
+        assert_eq!(record["verification"], "verified", "{id}: {record}");
+        assert_eq!(record["authenticated"], true, "{id}: {record}");
+        assert_eq!(record["relay"]["machine"], "gcp-lane", "{id}: {record}");
+    }
+    relay.stop().await;
+}
+
+/// A send from no session (a relay on this machine's unix socket) carries its relay record to the
+/// hub, so the receiving machine can name the session it came from; a proven session's send
+/// carries none, whatever it wrote.
+#[tokio::test]
+async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+        cwd: None,
+        title: None,
+        title_source: None,
+        name_given: None,
+        model: None,
+        agent_session_id: None,
+        host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let relayed = |id: &str| {
+        let mut request = send_queue("dep-land", id);
+        request["request"]["_meta"]["acpmux"]["fromRelay"] =
+            json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"});
+        request
+    };
+    let mut broker = Client::local(&a);
+    broker.call("initialize", json!({"protocolVersion": 1})).await;
+    let queued = broker.call("_acpmux/send_queue", relayed("prompt-relay-1")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id, None, "{from:?}");
+    assert_eq!(
+        from.relay,
+        Some(json!({"by": "lane-gh", "machine": "vm-1", "session": "coord"})),
+        "{from:?}"
+    );
+
+    let mut as_lane = Client::local(&a);
+    let token = acpmux::hub::person::caller_token(&lane);
+    let caller = json!({"callerSession": {"sessionId": lane, "token": token}});
+    as_lane.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    let queued = as_lane.call("_acpmux/send_queue", relayed("prompt-relay-2")).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+    assert_eq!(from.relay, None, "{from:?}");
 }
 
 /// A relayed message's sender claim reaches the chat as the sender's own word: a `checked` it
@@ -1162,17 +1285,35 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     );
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
+    // `HOST/ID` the same way, by the session's id (a chat just moved there is named so): never
+    // looked up here as a name and refused as "no session HOST/ID on this machine".
+    let by_id = format!("fs-peer-1/{session}");
+    let far = sender.call("_acpmux/send_queue", send_queue(&by_id, "prompt-0006")).await;
+    assert!(
+        far.pointer("/result/deliveryId")
+            .and_then(Value::as_str)
+            .is_some_and(|d| d.starts_with("mesh:")),
+        "{far}"
+    );
+    let to = fake.with(|s| s.sent.last().unwrap().to.clone());
+    assert_eq!(
+        (to.host.as_deref(), to.session_id.as_deref(), to.name.as_deref()),
+        (Some("fs-peer-1"), Some(session.as_str()), None),
+        "{to:?}"
+    );
 
-    // A supersede key cannot cross the hub: the send is refused, not sent without it.
+    // A supersede key cannot cross the hub: the send goes without it and says so, as the
+    // sender would have sent it again anyway (cmuxterm-hq
+    // docs/findings/2026-11-23-mcp-tool-error-census.md).
     let posted = fake.with(|s| s.sent.len());
     let mut keyed = send_queue("dep-land", "prompt-0004");
     keyed["request"]["_meta"]["acpmux"]["supersede"] = json!("status");
     let keyed = sender.call("_acpmux/send_queue", keyed).await;
-    assert_eq!(keyed.pointer("/error/data/reason"), Some(&json!("mesh.no_supersede")), "{keyed}");
-    // `acpmux send` reads "no session" in an error as not found and drops the rest of it.
-    let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
+    assert_eq!(keyed.pointer("/result/supersedeDropped"), Some(&json!(true)), "{keyed}");
+    let said = keyed.pointer("/result/note").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("no supersede key"), "{keyed}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a keyed send did not reach the hub");
+    let posted = posted + 1;
     // A class but result has no field on the hub's message: it goes as the text's first line,
     // and the sender's row says so (`server/mesh_send.rs`, #49350), never as a plain result.
     let mut block = send_queue("dep-land", "prompt-0005");
@@ -1252,6 +1393,9 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         model: None,
         agent_session_id: None,
         host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1294,6 +1438,9 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         model: None,
         agent_session_id: None,
         host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1355,6 +1502,9 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         model: None,
         agent_session_id: None,
         host_build: None,
+        handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1486,4 +1636,47 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     fake.until("delivered", |s| s.receipts[&message].state == "delivered").await;
     relay.stop().await;
     b.shutdown_all().await;
+}
+
+/// A relayed start runs under the owner's grant for its sender (`maxPolicy`): an entry without one
+/// holds an approve-all start to `ask` as a remote chain, and only an entry granting approve-all
+/// (what `host join` writes for the person's own machines) starts this machine's own chat in the
+/// policy it names (cmux#50026).
+#[tokio::test]
+async fn a_relayed_start_runs_under_the_senders_max_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let hub = Hub::new(config, Box::new(MemoryStore::default()));
+    let start = |id: &str| {
+        let mut request = message(id, "", Kind::Control);
+        request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": id, "policy": "approve-all"}}}})
+        .to_string();
+        request
+    };
+    let entry = |extra: Value| {
+        let mut entry = json!({"daemonId": "inst_a"});
+        entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value::<MeshControlFrom>(entry).unwrap()
+    };
+    for (id, extra, policy, remote) in [
+        ("capped-default", json!({}), "ask", true),
+        ("capped-edits", json!({"maxPolicy": "approve-edits"}), "approve-edits", true),
+        ("owner-grant", json!({"maxPolicy": "approve-all"}), "approve-all", false),
+    ] {
+        let hook =
+            MeshControlHook::new(vec![entry(extra)], Some(dir.path().join(format!("{id}.json"))));
+        let ack = hook.control(&hub, &start(id)).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{id}: {ack:?}");
+        let meta = hub.resolve(id).unwrap().meta();
+        assert_eq!(meta.permission_policy.as_deref(), Some(policy), "{id}");
+        assert_eq!(meta.remote_origin, remote, "{id}");
+    }
+    hub.shutdown_all().await;
 }

@@ -17,7 +17,7 @@ fn letting_go_of_a_hold_wakes_the_held_turn() {
     h.connect();
     h.say("user_local", "one");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The held turn's thread is waiting by now.
     std::thread::sleep(Duration::from_millis(200));

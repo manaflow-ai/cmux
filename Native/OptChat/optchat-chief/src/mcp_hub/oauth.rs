@@ -281,7 +281,63 @@ pub fn with_scope_delimiter(url: &str, delimiter: &str) -> String {
     u.to_string()
 }
 
-const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Signed in</title><body style=\"font:15px -apple-system,system-ui;margin:3em\"><h2>Signed in</h2><p>cmux Chief is connecting the server. You can close this tab.</p>";
+/// The cmux NEXT sign-in page's frame (web/app/handler: `cmux-sign-in.tsx`'s `Page` and
+/// `Heading`, `auth-error/page.tsx`'s body, the "Last used" chip for the code) with the tokens of
+/// web/app/globals.css, for a page a loopback listener serves with no web build behind it.
+/// Keep in step with the copies in acpmux's `chatgpt::oauth` and coderouter's `oauth`.
+fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>) -> String {
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("<p class=\"body\">{}</p>", escape(detail))
+    };
+    let code = code
+        .map(|c| format!("<p class=\"code\">{}</p>", escape(c)))
+        .unwrap_or_default();
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><meta name=\"robots\" content=\"noindex\">\
+<title>{title} \u{b7} cmux</title><style>{AUTH_PAGE_CSS}</style></head>\
+<body><main><section data-auth-state=\"{state}\"><h1>{title}</h1>{detail}{code}</section></main></body></html>",
+        title = escape(title),
+        state = if ok { "ok" } else { "error" },
+    )
+}
+
+/// web/app/globals.css's tokens and the Tailwind classes of the sign-in page, written out, in
+/// the site's Geist (system fonts until it loads, or offline).
+const AUTH_PAGE_CSS: &str = "\
+@import url(\"https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono&display=swap\");\
+:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5}\
+@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626}}\
+*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
+html{line-height:1.5;-webkit-text-size-adjust:100%;\
+font-family:Geist,ui-sans-serif,system-ui,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\";\
+-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
+body{background:var(--background);color:var(--foreground)}\
+main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
+section{width:100%;max-width:340px}\
+h1{font-size:22px;font-weight:600;letter-spacing:-0.02em}\
+.body{margin-top:6px;font-size:14px;line-height:24px;color:var(--muted)}\
+.code{display:inline-block;margin-top:24px;border:1px solid var(--border);padding:0 6px;\
+font-family:\"Geist Mono\",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:18px;\
+color:var(--muted)}";
+
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
 
 /// Waits on the loopback listener for the redirect, then trades the code
 /// for tokens. Blocks (run it on its own thread).
@@ -316,10 +372,23 @@ pub fn wait(started: Started) -> Result<OAuthTokens, String> {
         };
         let code = pending.auth.callback_code(query, &pending.state);
         let (status, page) = match &code {
-            Ok(_) => ("200 OK", DONE_PAGE.to_owned()),
+            Ok(_) => (
+                "200 OK",
+                auth_page(
+                    true,
+                    "Signed in",
+                    "cmux Chief is connecting the server. You can close this tab.",
+                    None,
+                ),
+            ),
             Err(e) => (
                 "400 Bad Request",
-                format!("<!doctype html><meta charset=utf-8><p>Sign-in failed: {e}"),
+                auth_page(
+                    false,
+                    "Sign-in failed",
+                    "Return to cmux and try again.",
+                    Some(&e.to_string()),
+                ),
             ),
         };
         let _ = write!(
