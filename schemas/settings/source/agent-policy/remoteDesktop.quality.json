@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Where a new Screen Sharing session's quality, frame rate and bitrate start; the toolbar still changes each session."
+}

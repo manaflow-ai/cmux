@@ -15,3 +15,9 @@ function rule(selector: string): string {
 test("an approval's command keeps its line breaks and spacing", () => {
   expect(rule(".feed-code-text")).toMatch(/white-space:\s*pre-wrap;/);
 });
+
+test("a hub approval row is a request row's height, as the pinned section's frame gives it", () => {
+  // FeedNeedsYouSection.hubCardHeight (Swift) is its rowHeight, 40.
+  expect(rule(":root")).toContain("--feed-needs-row: 40px;");
+  expect(rule(".feed-hub-row")).toMatch(/height:\s*var\(--feed-needs-row\);/);
+});

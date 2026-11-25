@@ -158,6 +158,15 @@ impl ProfileFile {
 }
 
 impl LinkProfile {
+    /// The name a result row carries: `lte@1`, or `lte@1+relay-80@1` behind a relay hop
+    /// ([`Shaper::start_through`]).
+    pub fn label(&self, relay: Option<&LinkProfile>) -> String {
+        match relay {
+            Some(hop) => format!("{}@{}+{}@{}", self.name, self.version, hop.name, hop.version),
+            None => format!("{}@{}", self.name, self.version),
+        }
+    }
+
     fn one_way(&self) -> Duration {
         Duration::from_micros(self.rtt_ms * 500)
     }
@@ -359,6 +368,28 @@ impl Shaper {
         });
     }
 
+    /// The phone's link to a peer one more hop away: `profile` in front of `relay` (a second
+    /// shaped link, the relay between a Mac and its Cloud machine) in front of `upstream`. Each
+    /// hop ends its own TCP connection, as a relaying host does. The first shaper is the phone's
+    /// link (its address, counters and disruptions); the second is the hop, alive as long as
+    /// the caller keeps it. Without `relay` it is [`Shaper::start`].
+    pub async fn start_through(
+        upstream: SocketAddr,
+        profile: LinkProfile,
+        relay: Option<&LinkProfile>,
+        seed: u64,
+        trace: &Trace,
+    ) -> std::io::Result<(Self, Option<Self>)> {
+        let hop = match relay {
+            Some(relay) => {
+                Some(Self::start(upstream, relay.clone(), seed ^ 0x5E1A_7000, trace).await?)
+            }
+            None => None,
+        };
+        let upstream = hop.as_ref().map_or(upstream, Self::addr);
+        Ok((Self::start(upstream, profile, seed, trace).await?, hop))
+    }
+
     pub fn addr(&self) -> SocketAddr {
         self.addr
     }
@@ -467,7 +498,7 @@ async fn connection(
         return;
     }
     let ready = lock(&link).connect_at(Instant::now());
-    tokio::time::sleep_until(ready).await;
+    crate::timer::sleep_until(ready).await;
     if lock(&link).silent(index, path) {
         return;
     }
@@ -515,7 +546,7 @@ async fn direction(
     let writer_link = link.clone();
     let writer = async move {
         while let Some((at, segment)) = receive.recv().await {
-            tokio::time::sleep_until(at).await;
+            crate::timer::sleep_until(at).await;
             // Still on the air when the address changed (it goes to the old address too) or the
             // internet path died.
             if lock(&writer_link).silent(index, path) {
@@ -615,7 +646,7 @@ mod tests {
     fn every_profile_parses_and_names_its_source() {
         let file = ProfileFile::builtin();
         assert!(
-            file.profiles.len() >= 9,
+            file.profiles.len() >= 11,
             "{:?}",
             file.profiles.iter().map(|p| &p.name).collect::<Vec<_>>()
         );
@@ -628,6 +659,8 @@ mod tests {
             "elevator-30s",
             "2g-trickle",
             "lan",
+            "relay-30",
+            "relay-80",
             "internet-down-lan-up",
         ] {
             let profile = file.get(name).unwrap_or_else(|| panic!("no profile {name}"));
@@ -650,6 +683,28 @@ mod tests {
         let counters = shaper.counters();
         assert_eq!(counters.up_bytes, 120_010);
         assert_eq!(counters.down_bytes, 120_010);
+    }
+
+    #[tokio::test]
+    async fn a_relay_hop_adds_its_round_trip_behind_the_phone_link() {
+        let file = ProfileFile::builtin();
+        let lte = file.get("lte").unwrap().clone();
+        let relay = file.get("relay-80").unwrap();
+        assert_eq!(lte.label(None), "lte@1");
+        assert_eq!(lte.label(Some(relay)), "lte@1+relay-80@1");
+        let (shaper, hop) =
+            Shaper::start_through(echo_server().await, lte, Some(relay), 1, &Trace::new())
+                .await
+                .unwrap();
+        let hop = hop.expect("the relay hop");
+        let mut client = TcpStream::connect(shaper.addr()).await.unwrap();
+        let took = round_trip(&mut client, 10).await;
+        // 70 ms on the phone's link and 80 ms on the relay's.
+        assert!(took >= Duration::from_millis(150), "{took:?}");
+        assert!(took < Duration::from_millis(600), "{took:?}");
+        // Both hops carried the same bytes; each counts its own.
+        assert_eq!(shaper.counters().up_bytes, 10);
+        assert_eq!(hop.counters().down_bytes, 10);
     }
 
     #[tokio::test]

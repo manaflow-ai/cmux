@@ -74,6 +74,7 @@ fn rig() -> (Arc<FakeDesktop>, Engine) {
         a.fetch_add(t.as_millis() as u64, Ordering::SeqCst);
     });
     parts.clock = Arc::new(move || Duration::from_millis(b.load(Ordering::SeqCst)));
+    parts.config.settle = SettleMode::Adaptive;
     (d, Engine::new(parts))
 }
 
