@@ -38,8 +38,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
-    private var renameSession: SidebarRowInlineRenameSession?
-    var isEditing: Bool { renameSession != nil }
+    private(set) var renameSession: SidebarRowInlineRenameSession?
 
     override var isFlipped: Bool { true }
 
@@ -232,7 +231,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         // In compact status mode unread folds into the glyph (blue), so the
         // count badge stays off even when no member state rolls up.
-        statusGlyphView.isHidden = model.statusGlyph == nil
+        // Hidden while renaming: the editor spans the badge's slot.
+        let isRenaming = renameSession != nil
+        statusGlyphView.isHidden = model.statusGlyph == nil || isRenaming
         if let glyph = model.statusGlyph {
             statusGlyphView.configure(
                 glyph,
@@ -245,6 +246,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
         let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
+            && !isRenaming
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
@@ -581,6 +583,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         session.field.inlineRenameTextColor = nameField.textColor ?? .labelColor
         renameSession = session
         nameField.isHidden = true
+        unreadBadgeView.isHidden = true
+        statusGlyphView.isHidden = true
         // Frame the field before it enters the window: entering the hierarchy
         // takes focus and sizes the field editor from the current frame.
         needsLayout = true
@@ -602,6 +606,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         renameSession = nil
         session.field.removeFromSuperview()
         nameField.isHidden = false
+        if let model {
+            applyModel(model)
+        }
         needsLayout = true
     }
 
@@ -713,7 +720,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group..."),
-            action: { [weak self] in self?.beginInlineRename() }
+            action: { [weak self, groupId = model.groupId] in
+                // A retained menu must not start editing a group the cell
+                // was reused for after the menu opened.
+                guard let self, self.model?.groupId == groupId, self.actions != nil else { return }
+                self.beginInlineRename()
+            }
         ))
         menu.addItem(menuItem(
             model.isPinned

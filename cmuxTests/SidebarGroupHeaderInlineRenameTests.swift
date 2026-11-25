@@ -7,6 +7,11 @@ import Testing
 @Suite
 @MainActor
 struct SidebarGroupHeaderInlineRenameTests {
+    private static let renameMenuTitle = String(
+        localized: "workspaceGroup.contextMenu.rename",
+        defaultValue: "Rename Group..."
+    )
+
     @MainActor
     private final class Harness {
         let window: NSWindow
@@ -14,7 +19,7 @@ struct SidebarGroupHeaderInlineRenameTests {
         private(set) var committedNames: [String] = []
         private(set) var paletteRenameCount = 0
 
-        init(name: String = "Treasury") {
+        init(name: String = "Treasury", unreadCount: Int = 0) {
             cell = SidebarGroupHeaderTableCellView(
                 frame: NSRect(x: 0, y: 0, width: 320, height: 32)
             )
@@ -27,7 +32,7 @@ struct SidebarGroupHeaderInlineRenameTests {
             window.contentView = cell
             window.orderFront(nil)
             cell.configure(
-                model: Self.makeModel(name: name),
+                model: Self.makeModel(name: name, unreadCount: unreadCount),
                 actions: makeActions(),
                 isPointerHovering: false,
                 contextMenuDidOpen: {},
@@ -37,6 +42,7 @@ struct SidebarGroupHeaderInlineRenameTests {
 
         static func makeModel(
             name: String,
+            unreadCount: Int = 0,
             groupId: UUID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
         ) -> SidebarGroupHeaderRowModel {
             SidebarGroupHeaderRowModel(
@@ -46,7 +52,7 @@ struct SidebarGroupHeaderInlineRenameTests {
                 tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: false,
                 isMultiSelected: false,
                 multiSelectionBackgroundStyle: .clear,
-                memberCount: 1, anchorUnreadCount: 0, canMarkRead: false, canMarkUnread: false,
+                memberCount: 1, anchorUnreadCount: unreadCount, canMarkRead: false, canMarkUnread: false,
                 hasLatestNotifications: false, canMarkAllRead: false, canMarkAllUnread: false,
                 shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
                 fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
@@ -67,6 +73,29 @@ struct SidebarGroupHeaderInlineRenameTests {
                 onClearLatestNotifications: {}, onMarkAllRead: {}, onMarkAllUnread: {},
                 onUngroup: {}, onDelete: {}, onEditConfig: {}, onOpenDocs: {}
             )
+        }
+
+        var showsUnreadBadge: Bool {
+            cell.subviews.contains { $0 is SidebarRowUnreadBadgeView && !$0.isHidden }
+        }
+
+        func renameMenuIndex(in menu: NSMenu) -> Int? {
+            menu.items.firstIndex { $0.title == SidebarGroupHeaderInlineRenameTests.renameMenuTitle }
+        }
+
+        func headerMenu() throws -> NSMenu {
+            let event = try #require(NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ))
+            return try #require(cell.menu(for: event))
         }
 
         func renameFieldEditor(
@@ -92,7 +121,7 @@ struct SidebarGroupHeaderInlineRenameTests {
 
         harness.cell.beginInlineRename()
 
-        #expect(harness.cell.isEditing)
+        #expect(harness.cell.renameSession != nil)
         #expect(harness.committedNames.isEmpty)
         #expect(try harness.renameFieldEditor().string == "Treasury")
     }
@@ -108,7 +137,7 @@ struct SidebarGroupHeaderInlineRenameTests {
         editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
 
         #expect(harness.committedNames == ["Payouts"])
-        #expect(!harness.cell.isEditing)
+        #expect(harness.cell.renameSession == nil)
     }
 
     @Test
@@ -120,7 +149,7 @@ struct SidebarGroupHeaderInlineRenameTests {
         try harness.renameFieldEditor().doCommand(by: #selector(NSResponder.insertNewline(_:)))
 
         #expect(harness.committedNames.isEmpty)
-        #expect(!harness.cell.isEditing)
+        #expect(harness.cell.renameSession == nil)
     }
 
     @Test
@@ -135,7 +164,7 @@ struct SidebarGroupHeaderInlineRenameTests {
         editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
 
         #expect(harness.committedNames.isEmpty)
-        #expect(!harness.cell.isEditing)
+        #expect(harness.cell.renameSession == nil)
     }
 
     @Test
@@ -149,7 +178,7 @@ struct SidebarGroupHeaderInlineRenameTests {
         _ = harness.window.makeFirstResponder(nil)
 
         #expect(harness.committedNames == ["Focus loss"])
-        #expect(!harness.cell.isEditing)
+        #expect(harness.cell.renameSession == nil)
     }
 
     @Test
@@ -169,13 +198,13 @@ struct SidebarGroupHeaderInlineRenameTests {
         ))
         let menu = try #require(harness.cell.menu(for: event))
         let renameIndex = try #require(
-            menu.items.firstIndex { $0.title.hasPrefix("Rename Group") },
+            menu.items.firstIndex { $0.title == Self.renameMenuTitle },
             "The group header menu must offer Rename Group"
         )
 
         menu.performActionForItem(at: renameIndex)
 
-        #expect(harness.cell.isEditing)
+        #expect(harness.cell.renameSession != nil)
         #expect(try harness.renameFieldEditor().string == "Treasury")
         #expect(harness.committedNames.isEmpty)
         #expect(harness.paletteRenameCount == 0, "Rename Group must not open the palette prompt")
@@ -190,7 +219,7 @@ struct SidebarGroupHeaderInlineRenameTests {
 
         let postUpdateActions = harness.cell.detachPresentation(commitEdits: true)
 
-        #expect(!harness.cell.isEditing)
+        #expect(harness.cell.renameSession == nil)
         #expect(harness.committedNames.isEmpty)
         postUpdateActions.forEach { $0() }
         #expect(harness.committedNames == ["Deferred"])
@@ -211,7 +240,39 @@ struct SidebarGroupHeaderInlineRenameTests {
             contextMenuDidClose: {}
         )
 
-        #expect(!harness.cell.isEditing)
+        #expect(harness.cell.renameSession == nil)
         #expect(harness.committedNames.isEmpty)
+    }
+
+    @Test
+    func unreadBadgeHidesWhileRenamingAndReturnsAfter() throws {
+        let harness = Harness(unreadCount: 3)
+        defer { harness.tearDown() }
+        #expect(harness.showsUnreadBadge)
+
+        harness.cell.beginInlineRename()
+        #expect(!harness.showsUnreadBadge, "The badge must not sit inside the rename field")
+
+        try harness.renameFieldEditor().doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        #expect(harness.showsUnreadBadge)
+    }
+
+    @Test
+    func retainedMenuDoesNotRenameGroupTheCellWasReusedFor() throws {
+        let harness = Harness()
+        defer { harness.tearDown() }
+        let menu = try harness.headerMenu()
+        let renameIndex = try #require(harness.renameMenuIndex(in: menu))
+
+        harness.cell.configure(
+            model: Harness.makeModel(name: "Other", groupId: UUID()),
+            actions: harness.makeActions(),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        menu.performActionForItem(at: renameIndex)
+
+        #expect(harness.cell.renameSession == nil)
     }
 }
