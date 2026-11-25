@@ -39,6 +39,7 @@ const CLIENT_KEY_PREFIX: &str = "auto-webhook-";
 
 const VALUED: &[&str] = &[
     "on", "from", "repo", "prompt", "cwd", "harness", "events", "cooldown", "max-runs", "platform",
+    "match", "source",
     // Refused below with a reason: a Cloud webhook runs its prompt, on its own schedule.
     "if", "watch", "every", "command", "daily", "weekdays", "weekly", "at", "in", "cron", "when",
     "debounce",
@@ -66,7 +67,7 @@ pub(super) fn wants(args: &[String]) -> bool {
 }
 
 /// A checked create: everything the three requests need.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(super) struct Plan {
     pub name: String,
     pub slug: String,
@@ -75,10 +76,15 @@ pub(super) struct Plan {
     pub prompt: String,
     pub cwd: String,
     pub harness: String,
-    pub events: Vec<&'static str>,
+    /// `github` (a repository webhook) or `webhook` (any sender that signs with the secret).
+    pub source: &'static str,
+    /// GitHub's stored kinds, or a `webhook` source's own event names.
+    pub events: Vec<String>,
     pub cooldown_seconds: u64,
     pub max_runs: u64,
     pub platform: Option<String>,
+    /// `--match` conditions, as the platform's trigger takes them; every one must hold.
+    pub conditions: Vec<Value>,
 }
 
 impl Plan {
@@ -147,9 +153,16 @@ fn plan(args: &[String]) -> Result<Plan, Failure> {
     if !matches!(harness, "claude" | "codex") {
         return usage(m.webhook_bad_harness.replace("{value}", harness));
     }
-    let events = match a.value("events") {
-        Some(list) => parse_events(list)?,
-        None => vec!["ci_failure"],
+    let source = match a.value("source") {
+        None | Some("github") => "github",
+        Some("webhook") => "webhook",
+        Some(other) => return usage(m.webhook_bad_source.replace("{value}", other)),
+    };
+    let events = match (source, a.value("events")) {
+        ("webhook", Some(list)) => parse_hook_events(list)?,
+        ("webhook", None) => vec!["webhook".to_string()],
+        (_, Some(list)) => parse_events(list)?.into_iter().map(str::to_string).collect(),
+        (_, None) => vec!["ci_failure".to_string()],
     };
     let cwd = match a.value("cwd") {
         Some(cwd) if cwd.starts_with('/') && cwd.len() <= 4096 => cwd.to_string(),
@@ -173,6 +186,16 @@ fn plan(args: &[String]) -> Result<Plan, Failure> {
         },
         None => DEFAULT_MAX_RUNS,
     };
+    let conditions = a
+        .values_of("match")
+        .into_iter()
+        .map(|text| parse_match(text, source == "webhook"))
+        .collect::<Result<Vec<_>, _>>()?;
+    if conditions.len() > MAX_CONDITIONS {
+        return usage(
+            m.webhook_bad_match.replace("{value}", &format!("{} conditions", conditions.len())),
+        );
+    }
     // RFD 5.5: the fork carries everything on the source machine; the person says so first.
     if !a.flag("yes") {
         return usage(m.webhook_consent_needed.replace("{consent}", &consent_line(&from)));
@@ -185,11 +208,104 @@ fn plan(args: &[String]) -> Result<Plan, Failure> {
         prompt,
         cwd,
         harness: harness.to_string(),
+        source,
         events,
         cooldown_seconds,
         max_runs,
         platform: a.value("platform").map(str::to_string),
+        conditions,
     })
+}
+
+/// What a GitHub trigger's condition may read (cmux-platform src/server/triggers/Conditions.ts).
+const MATCH_FACTS: &[&str] = &[
+    "branch",
+    "base",
+    "workflow",
+    "conclusion",
+    "event",
+    "actor",
+    "author_association",
+    "labels",
+    "draft",
+    "pull_request",
+];
+const MAX_CONDITIONS: usize = 16;
+const MAX_MATCH_LIST: usize = 32;
+const MAX_MATCH_TEXT: usize = 256;
+
+/// A `--source webhook` condition's path into the JSON body: up to 8 dotted segments of letters,
+/// digits, `_` and `-` (`level`, `data.service`, `alerts.0.status`), as the platform takes it.
+fn hook_path_ok(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('.').collect();
+    segments.len() <= 8
+        && segments.iter().all(|s| {
+            !s.is_empty()
+                && s.len() <= 64
+                && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+}
+
+/// `--match` in the local webhook's form, with the platform's operators: `branch=main`,
+/// `branch=main,release` (any of them), `actor!=dependabot`, `workflow^=ci` (starts with),
+/// `labels~=agent` (contains), `pull_request>=100`, `draft?` (set) and `!draft` (unset).
+/// A `--source webhook` trigger reads its body by dotted path instead (`data.level=error`).
+fn parse_match(text: &str, hook: bool) -> Result<Value, Failure> {
+    let bad = || {
+        let m = messages();
+        usage(
+            if hook { m.webhook_bad_hook_match } else { m.webhook_bad_match }
+                .replace("{value}", text),
+        )
+    };
+    let text_ok =
+        |v: &str| !v.is_empty() && v.len() <= MAX_MATCH_TEXT && !v.chars().any(char::is_control);
+    let fact = |path: &str| if hook { hook_path_ok(path) } else { MATCH_FACTS.contains(&path) };
+    let trimmed = text.trim();
+    if let Some(path) = trimmed.strip_prefix('!').filter(|p| fact(p)) {
+        return Ok(json!({"path": path, "op": "missing"}));
+    }
+    if let Some(path) = trimmed.strip_suffix('?').filter(|p| fact(p)) {
+        return Ok(json!({"path": path, "op": "exists"}));
+    }
+    let in_path =
+        |c: char| c.is_ascii_alphanumeric() || c == '_' || (hook && (c == '.' || c == '-'));
+    let end = trimmed.find(|c: char| !in_path(c)).unwrap_or(trimmed.len());
+    let (path, rest) = trimmed.split_at(end);
+    if !fact(path) {
+        return bad();
+    }
+    const OPS: &[(&str, &str)] = &[
+        ("!=", "not_equals"),
+        ("^=", "prefix"),
+        ("~=", "contains"),
+        (">=", "gte"),
+        ("<=", "lte"),
+        ("=", "equals"),
+        (">", "gt"),
+        ("<", "lt"),
+    ];
+    let Some((op, value)) =
+        OPS.iter().find_map(|&(sign, op)| rest.strip_prefix(sign).map(|value| (op, value.trim())))
+    else {
+        return bad();
+    };
+    match op {
+        "gt" | "gte" | "lt" | "lte" => match value.parse::<i64>() {
+            Ok(n) => Ok(json!({"path": path, "op": op, "value": n})),
+            Err(_) => bad(),
+        },
+        "equals" | "not_equals" if value.contains(',') => {
+            let list: Vec<&str> = value.split(',').map(str::trim).collect();
+            if list.len() > MAX_MATCH_LIST || !list.iter().all(|v| text_ok(v)) {
+                return bad();
+            }
+            let op = if op == "equals" { "in" } else { "not_in" };
+            Ok(json!({"path": path, "op": op, "value": list}))
+        }
+        _ if text_ok(value) => Ok(json!({"path": path, "op": op, "value": value})),
+        _ => bad(),
+    }
 }
 
 /// `OWNER/REPO`, as the platform's trigger schema takes it.
@@ -225,6 +341,32 @@ fn parse_events(list: &str) -> Result<Vec<&'static str>, Failure> {
     Ok(out)
 }
 
+/// A `--source webhook` event name, as the platform takes it.
+pub(super) fn hook_event_ok(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.iter().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(b))
+}
+
+/// `--events a,b` for `--source webhook`: the sender's own names (the body's `event`), at most 32.
+fn parse_hook_events(list: &str) -> Result<Vec<String>, Failure> {
+    let mut out: Vec<String> = Vec::new();
+    for word in list.split(',').map(str::trim).filter(|w| !w.is_empty()) {
+        if !hook_event_ok(word) {
+            return usage(messages().webhook_bad_hook_event.replace("{value}", word));
+        }
+        if !out.iter().any(|w| w == word) {
+            out.push(word.to_string());
+        }
+    }
+    if out.is_empty() || out.len() > 32 {
+        return usage(messages().webhook_bad_hook_event.replace("{value}", list));
+    }
+    Ok(out)
+}
+
 /// Lowercase letters and digits, other runs turned into one `-`, at most [`SLUG_MAX`].
 fn slug(name: &str) -> String {
     let mut out = String::new();
@@ -248,10 +390,10 @@ fn consent_line(from: &str) -> String {
 }
 
 /// The GitHub webhook settings that send `events`.
-fn github_events(events: &[&str]) -> Vec<&'static str> {
+fn github_events(events: &[String]) -> Vec<&'static str> {
     let mut out = Vec::new();
     for kind in events {
-        let names: &[&'static str] = match *kind {
+        let names: &[&'static str] = match kind.as_str() {
             "ci_failure" => &["Workflow runs"],
             "pr_opened" => &["Pull requests"],
             "pr_review_comment" => &["Pull request reviews", "Pull request review comments"],
@@ -286,7 +428,7 @@ fn bind_body(plan: &Plan, fork: &str) -> Value {
 }
 
 fn trigger_body(plan: &Plan, fork: &str) -> Value {
-    json!({
+    let mut body = json!({
         "repository": plan.repository,
         "prompt": plan.prompt,
         "events": plan.events,
@@ -299,7 +441,16 @@ fn trigger_body(plan: &Plan, fork: &str) -> Value {
             "policy": "start_session",
         },
         "guardrails": {"cooldownSeconds": plan.cooldown_seconds, "maxRunsPerDay": plan.max_runs},
-    })
+    });
+    if let Some(fields) = body.as_object_mut() {
+        if plan.source == "webhook" {
+            fields.insert("source".into(), json!("webhook"));
+        }
+        if !plan.conditions.is_empty() {
+            fields.insert("conditions".into(), Value::Array(plan.conditions.clone()));
+        }
+    }
+    body
 }
 
 struct Registered {
@@ -401,9 +552,11 @@ fn created(plan: &Plan, origin: &str, done: &Registered) -> Value {
         "session": plan.session(),
         "repository": plan.repository,
         "events": plan.events,
-        "url": format!("{origin}{TRIGGERS_PATH}/{}/github", done.trigger),
+        "conditions": plan.conditions,
+        "source": plan.source,
+        "url": format!("{origin}{TRIGGERS_PATH}/{}/{}", done.trigger, if plan.source == "webhook" { "webhook" } else { "github" }),
         "content_type": "application/json",
-        "github_events": github_events(&plan.events),
+        "github_events": if plan.source == "webhook" { Vec::new() } else { github_events(&plan.events) },
         "secret": done.secret,
         "secret_shown_once": true,
     })
@@ -420,8 +573,9 @@ fn human_lines(plan: &Plan, created: &Value) -> Vec<String> {
         .and_then(Value::as_array)
         .map(|names| names.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
         .unwrap_or_default();
-    vec![
-        m.webhook_created.replace("{name}", &plan.name).replace("{id}", field(created, "id")),
+    let id = field(created, "id");
+    let mut lines = vec![
+        m.webhook_created.replace("{name}", &plan.name).replace("{id}", id),
         m.webhook_machine
             .replace("{machine}", field(created, "machine"))
             .replace("{from}", &plan.from)
@@ -429,10 +583,19 @@ fn human_lines(plan: &Plan, created: &Value) -> Vec<String> {
         consent_line(&plan.from),
         m.webhook_url.replace("{url}", field(created, "url")),
         m.webhook_content_type.to_string(),
-        m.webhook_github_events.replace("{events}", &github),
-        m.webhook_secret.replace("{secret}", field(created, "secret")),
-        m.webhook_secret_once.to_string(),
-    ]
+    ];
+    if plan.source == "webhook" {
+        lines.push(m.webhook_hook_sign.to_string());
+        lines.push(m.webhook_hook_fire.replace("{id}", id));
+    } else {
+        lines.push(m.webhook_github_events.replace("{events}", &github));
+    }
+    lines.push(m.webhook_secret.replace("{secret}", field(created, "secret")));
+    lines.push(
+        if plan.source == "webhook" { m.webhook_hook_secret_once } else { m.webhook_secret_once }
+            .to_string(),
+    );
+    lines
 }
 
 /// `--quiet` still prints what cannot be read again.
@@ -608,7 +771,7 @@ fn connect(
 }
 
 /// A trigger id: the platform's UUID shape, so it is safe in a path.
-fn trigger_id(word: &str) -> Result<&str, Failure> {
+pub(super) fn trigger_id(word: &str) -> Result<&str, Failure> {
     let groups: Vec<&str> = word.split('-').collect();
     let shaped = groups.len() == 5
         && groups
@@ -630,6 +793,7 @@ pub(super) fn webhook(args: &[String], global: &GlobalArgs, out: &Out) -> Outcom
             print!("{}", messages().webhook_usage);
             Ok(0)
         }
+        "fire" => super::automation_webhook_fire::fire(rest, out),
         "rm" | "delete" | "remove" => {
             let a = Args::parse(rest, &["platform"], &[])?;
             let id = trigger_id(a.one_word("TRIGGER")?)?.to_owned();
