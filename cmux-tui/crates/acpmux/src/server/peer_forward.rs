@@ -489,10 +489,14 @@ enum LinkWait {
     Request,
 }
 
-/// How a prompt from `conn` waits for its peer's link ([`LinkWait`]). Never asked for this
-/// daemon's own outbox, which does not wait: it keeps its delivery and tries it again the moment
-/// the link is ready (`Outbox::peer_ready`).
+/// How a prompt from `conn` waits for its peer's link ([`LinkWait`]). This daemon's own outbox
+/// is [`LinkWait::Brief`] and never held: it keeps its delivery and tries it again the moment the
+/// link is ready (`Outbox::peer_ready`), so holding its unsent refusal again (`holds_again`) would
+/// spin, since its link wait returns at once.
 fn link_wait(conn: &Conn) -> LinkWait {
+    if conn.socket_peer == crate::sender_harness::SocketPeer::Outbox {
+        return LinkWait::Brief;
+    }
     match conn.origin {
         Origin::Peer => LinkWait::Brief,
         _ if conn.declared().is_some() => LinkWait::Brief,
