@@ -38,6 +38,7 @@
 // "Subagent · <name>" with a back button (subagentScope.ts, SubagentScopeHeader.tsx).
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { useConnectionQuiet } from "../../../ui/lasting";
 import "../../../ui/controls.css";
 import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
@@ -645,7 +646,9 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const connectorSummary = summarizeConnectors(mcp);
+  // "N connecting" waits the shared bound: a server that connects within it reads loaded throughout.
+  const connectorsPendingShown = useConnectionQuiet(mcp.some((server) => server.status === "pending"));
+  const connectorSummary = summarizeConnectors(mcp, connectorsPendingShown);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.

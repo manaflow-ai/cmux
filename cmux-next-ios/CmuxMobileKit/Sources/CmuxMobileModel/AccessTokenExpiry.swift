@@ -14,8 +14,13 @@ public struct AccessTokenExpiry: Equatable, Sendable {
     /// When the token stops being accepted (nil: no readable `exp`).
     public let expiresAt: Date?
 
+    /// Stack's account ID for this token. A service request may be pinned to it.
+    public let accountID: String?
+
     public init(token: String) {
-        expiresAt = Self.expiry(of: token)
+        let claims = Self.claims(of: token)
+        accountID = claims?["sub"] as? String
+        expiresAt = (claims?["exp"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
     }
 
     /// The token is accepted for at least `margin` more seconds.
@@ -24,14 +29,13 @@ public struct AccessTokenExpiry: Equatable, Sendable {
         return expiresAt.timeIntervalSince(now) > margin
     }
 
-    private static func expiry(of token: String) -> Date? {
+    private static func claims(of token: String) -> [String: Any]? {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3 else { return nil }
         var base64 = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while base64.count % 4 != 0 { base64.append("=") }
         guard let data = Data(base64Encoded: base64),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        let exp = (object["exp"] as? NSNumber)?.doubleValue
-        return exp.map { Date(timeIntervalSince1970: $0) }
+        return object
     }
 }
