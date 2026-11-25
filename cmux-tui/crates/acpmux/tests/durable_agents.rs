@@ -19,6 +19,8 @@ mod bg_caller_restart;
 mod bg_replaced_binary;
 #[path = "durable_agents/caller_identity_restart.rs"]
 mod caller_identity_restart;
+#[path = "durable_agents/carried_overload.rs"]
+mod carried_overload;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[cfg(target_os = "linux")]
