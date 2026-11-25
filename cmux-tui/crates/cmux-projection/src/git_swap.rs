@@ -29,8 +29,7 @@
 //! and again just before the rename; a change between (a commit on the machine meanwhile) runs
 //! steps 2 and 3 again.
 //!
-//! A repository is left on projection when its remote cannot be read without credentials
-//! (`GIT_TERMINAL_PROMPT=0`), when it is shallow, has submodules' repositories in
+//! A repository is left on projection when carry is unavailable, when it is shallow, has submodules' repositories in
 //! `.git/modules`, or is mid-merge, rebase, cherry-pick or bisect.
 
 use std::io::Write as _;
@@ -253,25 +252,6 @@ pub fn prepare_carry(
         set.args(["config", key, value]);
         output(set)?;
     }
-    // A reachable public remote supplies the already-pushed history bloblessly. The carry pack
-    // still supplies the Mac's tip and staged objects; if this probe cannot authenticate, keep
-    // the carry path self-contained and fetch the projected repository below instead.
-    let seed_url = seed_remote(projected).map(|(_, url)| url);
-    let seed_url = if let Some(url) = seed_url.as_deref() {
-        for (key, value) in [
-            ("extensions.partialClone", SEED_REMOTE),
-            (&format!("remote.{SEED_REMOTE}.url"), url),
-            (&format!("remote.{SEED_REMOTE}.promisor"), "true"),
-            (&format!("remote.{SEED_REMOTE}.partialclonefilter"), "blob:none"),
-        ] {
-            let mut set = git(local);
-            set.args(["config", key, value]);
-            output(set)?;
-        }
-        fetch_remote(projected, local).ok().map(|_| url)
-    } else {
-        None
-    };
     write_atomic(&local.join("shallow"), format!("{base}\n").as_bytes())?;
     index_carry(local, pack)?;
     // A blobless pack intentionally omits the base tree's blobs. The projected repository is
@@ -288,7 +268,7 @@ pub fn prepare_carry(
 
     let mut fingerprint_now = before;
     for _ in 0..ATTEMPTS {
-        copy_mac_state(projected, local, seed_url)?;
+        copy_mac_state(projected, local, None)?;
         match fingerprint(projected)? {
             Some(after) if after == fingerprint_now => return Ok(after),
             Some(after) => fingerprint_now = after,
@@ -382,7 +362,8 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     if seed_url.is_some() {
         fetch.arg("--filter=blob:none");
     }
-    fetch.arg(projected).arg("+refs/*:refs/*");
+    // HEAD may be detached and unreachable from any named ref. Transfer it alongside refs.
+    fetch.arg(projected).args(["+refs/*:refs/*", "HEAD"]);
     output(fetch)?;
     // An index can name staged blobs that no ref reaches. Fetch those object IDs from the
     // projected repository explicitly; the carry pack stays blobless while staged work still

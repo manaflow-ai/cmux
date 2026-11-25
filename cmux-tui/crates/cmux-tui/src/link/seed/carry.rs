@@ -37,10 +37,10 @@ pub fn pack(folder: &Path, base: &str, out: &Path, max_bytes: u64) -> Result<u64
 }
 
 /// Writes the projection carry pack: commits and trees for the depth-one base while leaving blobs
-/// to the public promisor or projected fallback. Staged blobs are fetched explicitly from the
+/// to the projected repository. Staged blobs are fetched explicitly from the
 /// projected repository when the machine copies its index.
 pub fn pack_projection(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
-    pack_with_filter(folder, base, out, true, max_bytes())
+    pack_with_filter(folder, base, out, true, DEFAULT_MAX_MB * 1024 * 1024)
 }
 
 fn pack_with_filter(

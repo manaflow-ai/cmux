@@ -191,6 +191,39 @@ fn project(root: &Path) -> (Manifest, Disk) {
     (manifest, Disk(files))
 }
 
+// A serialized 4.4 Mbit/s link with 50 ms per request, including batched reads.
+// Only the measurement fixture enables this; ordinary correctness tests use local I/O.
+struct MeasuredLink {
+    disk: Disk,
+    duress: bool,
+    wire: std::sync::Mutex<()>,
+}
+
+impl MeasuredLink {
+    fn transfer(&self, bytes: usize) {
+        if self.duress {
+            let _wire = self.wire.lock().unwrap();
+            std::thread::sleep(std::time::Duration::from_secs_f64(
+                0.050 + bytes as f64 * 8.0 / 4_400_000.0,
+            ));
+        }
+    }
+}
+
+impl Fetch for MeasuredLink {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+        let result = self.disk.read(entry, offset, len);
+        self.transfer(result.as_ref().map_or(0, Vec::len));
+        result
+    }
+
+    fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        let result = self.disk.batch(entries);
+        self.transfer(result.iter().filter_map(|r| r.as_ref().ok()).map(Vec::len).sum());
+        result
+    }
+}
+
 struct Projected {
     overlay: Arc<Overlay>,
     mounted: crate::mount::Mounted,
@@ -205,6 +238,10 @@ impl Projected {
 }
 
 fn mount(mac: &Path) -> Option<Projected> {
+    mount_with_link(mac, false)
+}
+
+fn mount_with_link(mac: &Path, duress: bool) -> Option<Projected> {
     if !fuse_here() {
         println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
         return None;
@@ -214,8 +251,13 @@ fn mount(mac: &Path) -> Option<Projected> {
     let at = tempfile::tempdir().unwrap();
     let meta = std::fs::metadata(state.path()).unwrap();
     let overlay = Arc::new(
-        Overlay::open(Arc::new(manifest), state.path(), Arc::new(disk), (meta.uid(), meta.gid()))
-            .unwrap(),
+        Overlay::open(
+            Arc::new(manifest),
+            state.path(),
+            Arc::new(MeasuredLink { disk, duress, wire: std::sync::Mutex::new(()) }),
+            (meta.uid(), meta.gid()),
+        )
+        .unwrap(),
     );
     match crate::mount::mount(overlay.clone(), at.path()) {
         Ok(mounted) => Some(Projected { overlay, mounted, at, state }),
@@ -279,6 +321,45 @@ fn unpushed_commits_survive_the_swap() {
         run(&p.overlay, &p.forget(), p.at.path(), p.state.path()).unwrap(),
         Outcome::Already
     );
+}
+
+/// Carry must preserve staged work and detached history without needing remote credentials.
+#[test]
+fn carry_preserves_public_private_and_local_repositories() {
+    for kind in ["public", "private", "local"] {
+        let repo = repo(3, 64);
+        match kind {
+            "private" => {
+                sh(&repo.mac, &["remote", "set-url", "origin", "https://127.0.0.1:1/private.git"]);
+            }
+            "local" => {
+                sh(&repo.mac, &["remote", "remove", "origin"]);
+            }
+            _ => {}
+        }
+        // The carried HEAD is detached and no longer reachable from the branch tip.
+        let base = sh(&repo.mac, &["rev-parse", "HEAD"]).trim().to_owned();
+        sh(&repo.mac, &["checkout", "--detach", "--quiet"]);
+        sh(&repo.mac, &["branch", "-f", "main", "HEAD~2"]);
+        let expected_log = sh(&repo.mac, &["log", "--format=%H"]);
+        let expected_index = sh(&repo.mac, &["ls-files", "--stage"]);
+        let expected_diff = sh(&repo.mac, &["diff", "--cached"]);
+        let projected = repo.mac.join(".git");
+        let state = tempfile::tempdir().unwrap();
+        let local = state.path().join(LOCAL_DIR);
+        prepare_carry(&projected, &local, &projected.join(CARRY_PACK), &base).unwrap();
+        for (args, expected) in [
+            (vec!["log", "--format=%H"], expected_log),
+            (vec!["ls-files", "--stage"], expected_index),
+            (vec!["diff", "--cached"], expected_diff),
+        ] {
+            let mut command = git(&local);
+            command.args(args);
+            assert_eq!(text(command).unwrap(), expected, "kind={kind}");
+        }
+        let config = std::fs::read_to_string(local.join("config")).unwrap();
+        assert!(!config.contains(SEED_REMOTE), "carry must not add a promisor: {kind}");
+    }
 }
 
 /// Git can read the loose directory before the rename and packed-refs after it (or
@@ -393,7 +474,11 @@ fn bytes_over_the_mac_link_before_and_after_the_swap() {
     let projection_only = before.overlay.stats().remote_bytes;
     drop(before);
     let Some(after) = mount(&repo.mac) else { return };
-    run(&after.overlay, &after.forget(), after.at.path(), after.state.path()).unwrap();
+    let projected = after.at.path().join(".git");
+    let local = after.state.path().join(LOCAL_DIR);
+    let (_, url) = seed_remote(&projected).unwrap();
+    let ready = prepare(&projected, &local, &url).unwrap();
+    swap(&after.overlay, &after.forget(), &projected, &local, &ready).unwrap();
     workload(after.at.path());
     let swapped = after.overlay.stats().remote_bytes;
     let pack: u64 = std::fs::read_dir(repo.mac.join(".git/objects/pack"))
@@ -401,8 +486,63 @@ fn bytes_over_the_mac_link_before_and_after_the_swap() {
         .map(|entry| entry.unwrap().metadata().unwrap().len())
         .sum();
     println!("MEASURE mac_link_bytes git_dir_pack={pack} before={projection_only} after={swapped}");
-    // The carry pack and remote seed avoid retransmitting the whole projected history. The
-    // projected fallback still transfers the current branch's unpushed state, so require a
-    // measurable fivefold reduction rather than the old full-blob-pack's twentyfold target.
-    assert!(swapped * 5 < projection_only, "{swapped} vs {projection_only}");
+    // This measures the legacy public-remote path, not carry. Carry has no remote seed.
+    assert!(swapped * 20 < projection_only, "{swapped} vs {projection_only}");
+}
+
+/// One harness for readiness before/after carry, on a normal and a simulated constrained link.
+#[test]
+fn measure_carry_readiness_for_three_repository_kinds() {
+    for kind in ["public", "private", "local"] {
+        let repo = repo(4, 32 * 1024);
+        match kind {
+            "private" => {
+                sh(&repo.mac, &["remote", "set-url", "origin", "https://127.0.0.1:1/private.git"]);
+            }
+            "local" => {
+                sh(&repo.mac, &["remote", "remove", "origin"]);
+            }
+            _ => {}
+        }
+        let workload = |at: &Path| {
+            let log = sh(at, &["log", "--format=%H"]);
+            let status = sh(
+                at,
+                &[
+                    "-c",
+                    "core.checkStat=minimal",
+                    "-c",
+                    "core.trustctime=false",
+                    "status",
+                    "--porcelain",
+                ],
+            );
+            (log, status)
+        };
+        let expected = workload(&repo.mac);
+        for duress in [false, true] {
+            let Some(before) = mount_with_link(&repo.mac, duress) else { return };
+            let started = std::time::Instant::now();
+            assert_eq!(workload(before.at.path()), expected);
+            let before_ms = started.elapsed().as_millis();
+            let before_bytes = before.overlay.stats().remote_bytes;
+            drop(before);
+            let Some(after) = mount_with_link(&repo.mac, duress) else { return };
+            let started = std::time::Instant::now();
+            assert!(matches!(
+                run(&after.overlay, &after.forget(), after.at.path(), after.state.path()).unwrap(),
+                Outcome::Swapped(_)
+            ));
+            assert_eq!(workload(after.at.path()), expected);
+            let after_ms = started.elapsed().as_millis();
+            let after_bytes = after.overlay.stats().remote_bytes;
+            let started = std::time::Instant::now();
+            assert_eq!(workload(after.at.path()), expected);
+            let warm_ms = started.elapsed().as_millis();
+            assert_eq!(after.overlay.stats().remote_bytes, after_bytes);
+            println!(
+                "MEASURE carry_ready kind={kind} duress={duress} before_ms={before_ms} after_ms={after_ms} warm_ms={warm_ms} before_bytes={before_bytes} after_bytes={after_bytes}"
+            );
+        }
+    }
 }
