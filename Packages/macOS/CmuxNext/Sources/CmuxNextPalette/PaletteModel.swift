@@ -30,6 +30,15 @@ public final class PaletteModel {
     }
 
     public internal(set) var sections: [PaletteResultSection] = []
+    /// The palette experiments read when the palette opened (`PaletteSources.experiments`).
+    public internal(set) var experiments = PaletteExperiments()
+    /// The v2 rail (`PaletteV2Look.rail`) of the shown page: All, then each group its rows have, with its row count.
+    /// Empty when no rail shows (another look, or a page that does not group its rows).
+    public internal(set) var railEntries: [PaletteV2RailEntry] = []
+    /// The rail's chosen group, nil for All. Back to All on every other page (`railLevelID`).
+    public internal(set) var railFilter: PaletteV2Group?
+    /// The level `railFilter` was chosen on.
+    @ObservationIgnored var railLevelID: Int?
     /// The top level's selection (owned by the reducer).
     public internal(set) var selectedRowID: String? {
         didSet { if selectedRowID != oldValue { reportHighlight() } }
@@ -66,6 +75,9 @@ public final class PaletteModel {
     public internal(set) var pageCrumbs: [String] = []
     /// The current page's chosen values, drawn as chips before the query (`PalettePageSpec.tokens`).
     public internal(set) var pageTokens: [PaletteToken] = []
+    /// The v2 scope bar's typed tokens (`PaletteV2Look.scoped`): "Session contains: X" chips after `pageTokens`.
+    /// Every open from outside starts without any; switching segments keeps them.
+    public internal(set) var scopeTokens: [PaletteScopeToken] = []
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
@@ -264,6 +276,7 @@ public final class PaletteModel {
     /// above the root, so Backspace on its empty query shows the full
     /// palette. Without `scopePage` the page is the root itself.
     public func reset(to page: PalettePageSpec) {
+        scopeTokens = []
         let state = PageState(kind: .list(page))
         if page.scope == .root || scopePage == nil {
             suppliedPages[.root] = state
@@ -276,6 +289,7 @@ public final class PaletteModel {
 
     /// Opens `scope` of the graph (shortcut, menu, CLI) above the root.
     public func open(scope: PaletteScopeID, query: String = "") {
+        scopeTokens = []
         send(.open(scope: scope == .root ? nil : scope, query: query))
     }
 
