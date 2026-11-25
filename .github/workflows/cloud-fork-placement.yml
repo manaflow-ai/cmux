@@ -19,6 +19,10 @@ on:
       duress:
         description: "Forks of one parent at once after the timed runs (0 to 8)"
         default: "5"
+      divergence:
+        description: "Divergence mode: write 1 GiB on one copy, wait past a meter read, pause it, compare its paused rate with its parent's"
+        type: boolean
+        default: false
       split:
         description: "Non-empty: also time the fork's steps one at a time"
         default: ""
@@ -63,9 +67,15 @@ jobs:
           DURESS: ${{ inputs.duress || '5' }}
           PAUSED_RUNS: ${{ inputs.paused_runs || '10' }}
           SPLIT: ${{ inputs.split || '' }}
+          DIVERGENCE: ${{ inputs.divergence || false }}
         run: |
           set -o pipefail
-          bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --paused-runs "$PAUSED_RUNS" ${SPLIT:+--split} --duress "$DURESS" --out "$RUNNER_TEMP/fork-placement.json"
+          # Divergence (cmux-platform Divergence.ts): one fork, 1 GiB written, a meter read, a pause; about 16 min.
+          if [ "$DIVERGENCE" = "true" ]; then
+            bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs 1 --divergence --out "$RUNNER_TEMP/fork-placement.json"
+          else
+            bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" --paused-runs "$PAUSED_RUNS" ${SPLIT:+--split} --duress "$DURESS" --out "$RUNNER_TEMP/fork-placement.json"
+          fi
       - name: Verdict in the summary
         if: always()
         run: |

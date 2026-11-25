@@ -23,6 +23,9 @@
 //!   Auto store's lease when the store can take it, else the session transfer as before
 //!   ([`holder`] has the refusal table).
 //!
+//! Whether a start should be hybrid at all, and what it buys over a Cloud start, is simulated in
+//! [`crate::balance`] (a read-out; this module's rules do not consult it yet).
+//!
 //! Every wait here ends on an event (the machine's ready, a tool call's end, the move's commit),
 //! never on a clock. Served over the app FFI's JSON channel as ops `cloud_hybrid_*`.
 
