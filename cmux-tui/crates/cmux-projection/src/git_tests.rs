@@ -280,3 +280,41 @@ fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
     assert!(listed.contains("H README.md"), "{listed}");
     assert_eq!(git(&["diff-index", "--cached", "--name-only", &commit]), "", "nothing staged");
 }
+
+#[test]
+fn sixteen_parallel_reads_run_at_most_the_cap_of_git_processes() {
+    let (_dir, git_dir, commit) = repo();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
+    let readme = projection.manifest.resolve("README.md").unwrap();
+    let main_rs = projection.manifest.resolve("crate/src/main.rs").unwrap();
+    let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources.clone()));
+    assert_eq!(blobs.pooled(), 0, "a mount nobody read starts no git process");
+
+    let start = Arc::new(std::sync::Barrier::new(16));
+    let readers: Vec<_> = (0..16)
+        .map(|i| {
+            let (blobs, start) = (blobs.clone(), start.clone());
+            std::thread::spawn(move || {
+                start.wait();
+                for round in 0..50 {
+                    // Drop the recent blobs now and then so reads reach git.
+                    if (i + round) % 7 == 0 {
+                        blobs.held.recent.lock().unwrap().clear();
+                    }
+                    let at = if (i + round) % 2 == 0 { readme } else { main_rs };
+                    assert!(!blobs.read(at, 0, 100).unwrap().is_empty());
+                }
+            })
+        })
+        .collect();
+    for reader in readers {
+        reader.join().unwrap();
+    }
+    assert!(blobs.peak() >= 1);
+    assert!(blobs.peak() <= MAX_CATS, "peak {} past the cap {MAX_CATS}", blobs.peak());
+    assert!(blobs.pooled() <= MAX_CATS);
+
+    blobs.held.sweep(Instant::now() + IDLE, IDLE);
+    assert_eq!(blobs.pooled(), 0);
+    assert_eq!(blobs.held.pool.lock().unwrap().live, 0, "an idle mount holds no git process");
+}
