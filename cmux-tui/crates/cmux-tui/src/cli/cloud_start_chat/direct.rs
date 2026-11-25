@@ -21,6 +21,13 @@
 //! - `cloud exec --target machine:ID --command CMD --json`: the machine's client session exec (or
 //!   the cmux API's exec route on a provider with none), as `machine access exec` runs it.
 //!
+//! The machine's lifecycle takes the same route, so a lane VM pauses, resumes and deletes what it
+//! started with no app ([`run_if_requested`]): `cloud pause-machine|resume-machine|kill-machine
+//! --target machine:ID` (`vm:ID` too; kill needs `--yes`) answered from `cloud.machine.pause`,
+//! `cloud.machine.start` and `cloud.machine.delete` as `{machine_id, machine_name, status}` (kill:
+//! `{machine_id, deleted: true}`), and `cloud list-machines` as above. A message to a chat already
+//! running on a machine (`cmux chat send|read|wait SESSION`) runs its exec here too.
+//!
 //! Auth: `CMUX_CLOUD_ACCESS_TOKEN` (a cmux session's access token: `cmux-autocloud login`'s, or the
 //! agent test account's in CI) in the team `CMUX_CLOUD_TEAM` (absent: the session's personal team),
 //! on `CMUX_CLOUD_API_URL`. The credential goes only in request headers and is redacted from every
@@ -59,9 +66,36 @@ pub(super) struct Row {
     pub name: Option<String>,
     pub status: String,
     pub host: Option<String>,
+    /// When the platform made it (epoch ms), when it last began running (epoch ms), and its
+    /// `{cpu, memory_mb, disk_mb}`: what a reused machine's origin records.
+    pub created_at: Option<i64>,
+    pub running_since: Option<i64>,
+    pub size: Option<Value>,
 }
 
 impl Row {
+    /// How a machine that already existed came to this start: the status it had, how long it had
+    /// run (`uptime_s`, absent when it was not running), its age and size, so a proof can tell a
+    /// reused machine from a fresh one and what it was.
+    pub(super) fn reused(&self, now_ms: i64) -> Value {
+        let secs = |since: Option<i64>| {
+            since.filter(|t| *t > 0 && *t <= now_ms).map(|t| (now_ms - t) / 1000)
+        };
+        let mut origin = json!({"from": "existing", "status_before": self.status});
+        if self.status == "running"
+            && let Some(uptime) = secs(self.running_since)
+        {
+            origin["uptime_s"] = json!(uptime);
+        }
+        if let Some(age) = secs(self.created_at) {
+            origin["age_s"] = json!(age);
+        }
+        if let Some(size) = &self.size {
+            origin["size"] = size.clone();
+        }
+        origin
+    }
+
     fn listed(&self) -> Value {
         json!({
             "machine_id": self.id,
@@ -78,9 +112,22 @@ pub(super) trait Cloud {
     fn get(&mut self, machine: &str) -> Result<Row, Value>;
     fn create(&mut self, name: &str, key: &str) -> Result<Row, Value>;
     fn start(&mut self, machine: &str, key: &str) -> Result<Row, Value>;
+    fn pause(&mut self, machine: &str, key: &str) -> Result<Row, Value>;
+    /// Deleted, or already gone.
+    fn delete(&mut self, machine: &str, key: &str) -> Result<(), Value>;
     /// `{stdout, stderr, exit_code}`, the credential redacted.
     fn exec(&mut self, machine: &str, command: &str, timeout_ms: u64) -> Result<Value, Value>;
     fn team(&self) -> Option<String>;
+    /// How the last [`Cloud::create`] got its machine ([`spare_origin`]), when the platform said.
+    fn last_create(&self) -> Option<Value> {
+        None
+    }
+    /// The wall clock in epoch ms (a reused machine's uptime and age).
+    fn now_ms(&self) -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+    }
     fn new_key(&mut self) -> String {
         cmux_cloud_client::client_key()
     }
@@ -120,6 +167,28 @@ fn error(code: &str, message: impl Into<String>) -> Value {
     json!({"code": code, "message": message.into(), "retryable": false})
 }
 
+/// The machine `--target machine:ID` (or `vm:ID`, or a bare ID) names.
+fn target<'w>(args: &'w [String], verb: &str) -> Result<&'w str, Value> {
+    let Some(target) = flag(args, "--target") else {
+        return Err(error("usage.invalid", format!("cloud {verb} needs --target machine:ID")));
+    };
+    let id =
+        target.strip_prefix("machine:").or_else(|| target.strip_prefix("vm:")).unwrap_or(target);
+    if id.is_empty() || id.contains(':') {
+        return Err(error("usage.invalid", format!("cloud {verb} takes --target machine:ID")));
+    }
+    Ok(id)
+}
+
+fn lifecycle(row: &Row) -> Value {
+    json!({
+        "machine_id": row.id,
+        "machine_name": row.name,
+        "status": row.status,
+        "route": "direct",
+    })
+}
+
 fn flag<'w>(args: &'w [String], name: &str) -> Option<&'w str> {
     args.iter().position(|word| word == name).and_then(|at| args.get(at + 1)).map(String::as_str)
 }
@@ -142,8 +211,12 @@ impl DirectRunner<'_> {
         else {
             return refused(error("usage.invalid", "cloud exec needs --target and --command"));
         };
-        let Some(machine) = target.strip_prefix("machine:") else {
-            return refused(error("usage.invalid", "cloud exec takes --target machine:ID"));
+        let Some(machine) = target.strip_prefix("machine:").or_else(|| target.strip_prefix("vm:"))
+        else {
+            return refused(error(
+                "usage.invalid",
+                "cloud exec takes --target machine:ID or vm:ID",
+            ));
         };
         match self.cloud.exec(machine, command, EXEC_TIMEOUT_MS) {
             Ok(answer) => answered(answer),
@@ -151,25 +224,90 @@ impl DirectRunner<'_> {
         }
     }
 
+    fn pause_machine(&mut self, args: &[String]) -> Ran {
+        let id = match target(args, "pause-machine") {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let key = self.cloud.new_key();
+        match self.cloud.pause(id, &key) {
+            Ok(row) => answered(lifecycle(&row)),
+            // Already paused (or pausing): answer what it is now.
+            Err(e) if at(&e, "code") == "cloud.machine.not_running" => match self.cloud.get(id) {
+                Ok(row) => answered(lifecycle(&row)),
+                Err(error) => refused(error),
+            },
+            Err(error) => refused(error),
+        }
+    }
+
+    fn resume_machine(&mut self, args: &[String]) -> Ran {
+        let id = match target(args, "resume-machine") {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let key = self.cloud.new_key();
+        match self.cloud.start(id, &key) {
+            Ok(row) => answered(lifecycle(&row)),
+            // Already running (or starting): answer what it is now.
+            Err(e) if at(&e, "code") == "cloud.machine.not_paused" => match self.cloud.get(id) {
+                Ok(row) => answered(lifecycle(&row)),
+                Err(error) => refused(error),
+            },
+            Err(error) => refused(error),
+        }
+    }
+
+    fn kill_machine(&mut self, args: &[String]) -> Ran {
+        let id = match target(args, "kill-machine") {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        if !args.iter().any(|word| matches!(word.as_str(), "--yes" | "-y" | "--confirm")) {
+            return refused(error(
+                "usage.invalid",
+                format!("cloud kill-machine deletes vm:{id} and its disk: add --yes"),
+            ));
+        }
+        let key = self.cloud.new_key();
+        match self.cloud.delete(id, &key) {
+            Ok(()) => answered(json!({"machine_id": id, "deleted": true, "route": "direct"})),
+            Err(error) => refused(error),
+        }
+    }
+
     /// The machine `--name` or `--target` names, made or started, once it runs with a host.
-    fn machine(&mut self, args: &[String]) -> Result<Row, Value> {
-        let row = if let Some(target) = flag(args, "--target") {
-            let id = target.strip_prefix("machine:").unwrap_or(target);
-            self.cloud.get(id)?
+    /// Also how the machine came: `{"from": "existing"}`, or a create's [`spare_origin`].
+    fn machine(&mut self, args: &[String]) -> Result<(Row, Value), Value> {
+        let now = self.cloud.now_ms();
+        let (row, origin) = if let Some(target) = flag(args, "--target") {
+            let id = target
+                .strip_prefix("machine:")
+                .or_else(|| target.strip_prefix("vm:"))
+                .unwrap_or(target);
+            let row = self.cloud.get(id)?;
+            let origin = row.reused(now);
+            (row, origin)
         } else if let Some(name) = flag(args, "--name") {
             let found =
                 self.cloud.list()?.into_iter().find(|row| row.name.as_deref() == Some(name));
             match found {
-                Some(row) => row,
+                Some(row) => {
+                    let origin = row.reused(now);
+                    (row, origin)
+                }
                 None => {
                     let key = self.cloud.new_key();
-                    self.cloud.create(name, &key)?
+                    let row = self.cloud.create(name, &key)?;
+                    let origin =
+                        self.cloud.last_create().unwrap_or_else(|| json!({"from": "unknown"}));
+                    (row, origin)
                 }
             }
         } else {
             return Err(error("usage.invalid", "cloud start-session needs --name or --target"));
         };
-        self.running(row)
+        Ok((self.running(row)?, origin))
     }
 
     fn running(&mut self, mut row: Row) -> Result<Row, Value> {
@@ -221,8 +359,8 @@ impl DirectRunner<'_> {
             ));
         }
         let agent = flag(args, "--agent").unwrap_or("claude");
-        let row = match self.machine(args) {
-            Ok(row) => row,
+        let (row, origin) = match self.machine(args) {
+            Ok(made) => made,
             Err(error) => return refused(error),
         };
         let session = format!("chat-{}", &self.cloud.new_key().replace('-', "")[..12]);
@@ -260,6 +398,7 @@ impl DirectRunner<'_> {
             "workspace_id": Value::Null,
             "tab_id": Value::Null,
             "route": "direct",
+            "machine_origin": origin,
         }))
     }
 }
@@ -305,12 +444,21 @@ impl Runner for DirectRunner<'_> {
             (Some("cloud"), Some("list-machines")) => self.list_machines(),
             (Some("cloud"), Some("start-session")) => self.start_session(args),
             (Some("cloud"), Some("exec")) => self.cloud_exec(args),
+            (Some("cloud"), Some("pause-machine")) => self.pause_machine(args),
+            (Some("cloud"), Some("resume-machine")) => self.resume_machine(args),
+            (Some("cloud"), Some("kill-machine")) => self.kill_machine(args),
             _ => self.inner.cmux(args),
         }
     }
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
         match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
-            (Some("cloud"), Some("list-machines" | "start-session" | "exec")) => self.cmux(args),
+            (
+                Some("cloud"),
+                Some(
+                    "list-machines" | "start-session" | "exec" | "pause-machine" | "resume-machine"
+                    | "kill-machine",
+                ),
+            ) => self.cmux(args),
             _ => self.inner.cmux_by(args, until),
         }
     }
@@ -372,6 +520,8 @@ pub(super) struct Api {
     sessions: HashMap<String, (cmux_cloud_api::session::Session, Instant)>,
     /// Machines on a provider with no client sessions: the exec route.
     route_only: Vec<String>,
+    /// The last create's [`spare_origin`].
+    last_create: Option<Value>,
 }
 
 /// A client session is minted for this long and reused for most of it.
@@ -386,12 +536,70 @@ fn api_error(error: cmux_cloud_client::ApiError) -> Value {
     })
 }
 
+/// How a create's answer says its machine came (the platform's `spare_path` and `claim`, CloudCore withSpareAnswer):
+/// `from` is `spare` (a warm spare: `path` running or resumed), `fresh` (made new: `fallback` says why no spare), or
+/// `unknown` (the answer names no claim: a replayed create, or a caller the platform hands no spare).
+pub(super) fn spare_origin(answer: &Value) -> Value {
+    let claim = answer.get("claim");
+    let path = claim
+        .and_then(|c| c.get("path"))
+        .or_else(|| answer.get("spare_path"))
+        .and_then(Value::as_str);
+    let from = match path {
+        Some("running" | "resumed") => "spare",
+        Some("created") => "fresh",
+        _ => "unknown",
+    };
+    let fallback = claim
+        .and_then(|c| c.get("fallback"))
+        .filter(|v| !v.is_null())
+        .or_else(|| answer.get("spare_fallback").filter(|v| !v.is_null()));
+    let mut origin = json!({"from": from});
+    if let Some(path) = path {
+        origin["path"] = json!(path);
+    }
+    if let Some(fallback) = fallback {
+        origin["fallback"] = fallback.clone();
+    }
+    if let Some(ms) = claim.and_then(|c| c.get("ms")).filter(|v| v.is_number()) {
+        origin["claim_ms"] = ms.clone();
+    }
+    origin
+}
+
+/// cloud.machine.create read whole: the generated result keeps only `machine`, and the claim fields
+/// ([`spare_origin`]) ride beside it.
+struct CreateWhole;
+
+impl cmux_cloud_wire::Op for CreateWhole {
+    const NAME: &'static str = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::NAME;
+    const CLASS: cmux_cloud_wire::WireClass =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::CLASS;
+    const IDEMPOTENCY: cmux_cloud_wire::WireIdempotency =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::IDEMPOTENCY;
+    const OWNER: &'static str =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::OWNER;
+    const RISK: &'static str = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::RISK;
+    const PRINCIPALS: &'static [cmux_cloud_wire::WirePrincipal] =
+        <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::PRINCIPALS;
+    type Params = cmux_cloud_wire::CloudMachineCreateParams;
+    type Result = Value;
+    type Error = <cmux_cloud_wire::CloudMachineCreateOp as cmux_cloud_wire::Op>::Error;
+}
+
 fn row_of(machine: cmux_cloud_wire::CloudMachine) -> Row {
     Row {
         id: machine.id,
         name: machine.name,
         status: machine.status.as_str().to_owned(),
         host: machine.host,
+        created_at: Some(machine.created_at),
+        running_since: machine.running_since.flatten(),
+        size: Some(json!({
+            "cpu": machine.size.cpu,
+            "memory_mb": machine.size.memory_mb,
+            "disk_mb": machine.size.disk_mb,
+        })),
     }
 }
 
@@ -441,6 +649,7 @@ impl Api {
             team,
             sessions: HashMap::new(),
             route_only: Vec::new(),
+            last_create: None,
         })
     }
 
@@ -497,7 +706,7 @@ impl Cloud for Api {
     }
 
     fn create(&mut self, name: &str, key: &str) -> Result<Row, Value> {
-        use cmux_cloud_wire::{CloudMachineCreateOp, CloudMachineCreateParams, CloudMachineSize};
+        use cmux_cloud_wire::{CloudMachineCreateParams, CloudMachineSize};
         let (cpu, memory_mb, disk_mb) = super::super::cloud_journey::start_size_from_env();
         let params = CloudMachineCreateParams {
             name: Some(name.to_owned()),
@@ -511,7 +720,12 @@ impl Cloud for Api {
             origin: None,
             ttl_seconds: None,
         };
-        self.call::<CloudMachineCreateOp>(params, Some(key)).map(|made| row_of(made.machine))
+        let whole = self.call::<CreateWhole>(params, Some(key))?;
+        self.last_create = Some(spare_origin(&whole));
+        let machine = whole.get("machine").cloned().unwrap_or(Value::Null);
+        serde_json::from_value::<cmux_cloud_wire::CloudMachine>(machine).map(row_of).map_err(|e| {
+            error("cloud.bad_answer", format!("cmux: the create's machine did not parse: {e}"))
+        })
     }
 
     fn start(&mut self, machine: &str, key: &str) -> Result<Row, Value> {
@@ -521,6 +735,28 @@ impl Cloud for Api {
             Some(key),
         )
         .map(|started| row_of(started.machine))
+    }
+
+    fn pause(&mut self, machine: &str, key: &str) -> Result<Row, Value> {
+        use cmux_cloud_wire::{CloudMachinePauseOp, CloudMachinePauseParams};
+        self.call::<CloudMachinePauseOp>(
+            CloudMachinePauseParams { machine: machine.to_owned() },
+            Some(key),
+        )
+        .map(|paused| row_of(paused.machine))
+    }
+
+    fn delete(&mut self, machine: &str, key: &str) -> Result<(), Value> {
+        use cmux_cloud_wire::{CloudMachineDeleteOp, CloudMachineDeleteParams};
+        match self.call::<CloudMachineDeleteOp>(
+            CloudMachineDeleteParams { machine: machine.to_owned() },
+            Some(key),
+        ) {
+            Ok(_) => Ok(()),
+            // A retry whose first delete landed, or a machine already gone: deleted either way.
+            Err(e) if at(&e, "code") == "cloud.machine.not_found" => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     fn exec(&mut self, machine: &str, command: &str, timeout_ms: u64) -> Result<Value, Value> {
@@ -579,6 +815,9 @@ impl Cloud for Api {
         }))
     }
 
+    fn last_create(&self) -> Option<Value> {
+        self.last_create.clone()
+    }
     fn team(&self) -> Option<String> {
         self.team.clone()
     }
@@ -593,5 +832,52 @@ impl Cloud for Api {
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
             .map(|v| (name.to_owned(), v))
+    }
+}
+
+/// `cloud list-machines|pause-machine|resume-machine|kill-machine` on the direct route
+/// ([`Route::choose`]): answered by the cmux API and printed as the app prints them. `None` leaves
+/// every other command, and every command on the app route, where it went before.
+pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::super::parse_globals(args).ok()?;
+    let [cloud, verb, ..] = command_args.as_slice() else { return None };
+    if cloud != "cloud"
+        || !matches!(
+            verb.as_str(),
+            "list-machines" | "pause-machine" | "resume-machine" | "kill-machine"
+        )
+    {
+        return None;
+    }
+    if command_args.iter().any(|word| word == "--help" || word == "-h") {
+        return None;
+    }
+    if Route::choose(&global, |key| std::env::var(key).ok()) != Route::Direct {
+        return None;
+    }
+    let mut api = match Api::from_env(|key| std::env::var(key).ok()) {
+        Ok(api) => api,
+        Err(error) => return Some(super::super::wire::print_local_error(&error, global.output, 2)),
+    };
+    let mut inner = super::SelfRunner::new(&global);
+    let ran = DirectRunner { inner: &mut inner, cloud: &mut api }.cmux(&command_args);
+    Some(match super::step_result(&ran) {
+        Ok(answer) => super::super::wire::print_local_success(&answer, global.output),
+        Err(error) => super::super::wire::print_local_error(&error, global.output, 1),
+    })
+}
+
+/// Runs `body` on the route [`Route::choose`] takes: the app's verbs, or the cmux API's.
+pub(super) fn on_route(
+    global: &GlobalArgs,
+    runner: &mut dyn Runner,
+    body: impl FnOnce(&mut dyn Runner) -> super::Outcome,
+) -> super::Outcome {
+    match Route::choose(global, |key| std::env::var(key).ok()) {
+        Route::App => body(runner),
+        Route::Direct => match Api::from_env(|key| std::env::var(key).ok()) {
+            Ok(mut api) => body(&mut DirectRunner { inner: runner, cloud: &mut api }),
+            Err(error) => super::Outcome::Failed { error, exit: 2 },
+        },
     }
 }
