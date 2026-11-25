@@ -137,6 +137,7 @@
         "Say hi."
       ],
       "wait": 2.5,
+      "optional": "the capture Mac's acpmux daemon was not up (chat.create_failed, no socket, 2026-11-25); the marks still show on the terminal tabs",
       "shot": false
     },
     {
