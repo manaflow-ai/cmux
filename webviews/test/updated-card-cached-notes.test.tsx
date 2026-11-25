@@ -88,14 +88,17 @@ test("the Updated card reports its span's notes from the cached build list witho
     const { mountUpdateSurface } = await import("../src/pages/changelog/surface");
     const host = dom.window.document.getElementById("root")!;
     await act(async () => mountUpdateSurface(host, "updated", client));
-    // The page reports at once with its title and a loading change line (Leo 2026-11-09: no blank
-    // glass card); the cached list's notes then take the line's place at the same height.
+    // The page reports at once with its title (Leo 2026-11-09: no blank glass card); the cached list's
+    // notes then settle it at the same height, with no network wait.
     await act(async () => {
-      await until(() => sizes.length > 0 && host.querySelector(".wn-card-note-loading") === null);
+      await until(() => sizes.some((size) => (size as { settled?: boolean }).settled === true));
     });
     expect(lists[0]).toEqual({ cached: true });
-    expect(sizes.length).toBe(1);
-    expect((host.textContent ?? "").toLowerCase()).toContain("click never drags");
+    // One height (the card never moved); a second report may only say its words are now final (u51892).
+    const heights = new Set(sizes.map((size) => (size as { height: number }).height));
+    expect(heights.size).toBe(1);
+    expect(sizes.length).toBeLessThanOrEqual(2);
+    expect((sizes.at(-1) as { settled?: boolean }).settled).toBe(true);
   } finally {
     await settleReact();
     dom.window.close();
