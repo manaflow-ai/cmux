@@ -19,7 +19,7 @@ const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']((?:\.{1,2})?\/[^"'\s]+)["']/
 const SCRIPT = /<script\b[^>]*\bsrc=["']((?:\.{1,2})?\/[^"']+)["']/g;
 
 /** Requests `page` on `base` and every module it imports; returns how many modules it fetched. */
-export async function warmDevServer(base: string, page: string, { timeoutMs = 100_000, limit = 4_000, jobs = 8 } = {}) {
+export async function warmDevServer(base: string, page: string, { timeoutMs = 500_000, limit = 4_000, jobs = 8 } = {}) {
   const deadline = Date.now() + timeoutMs;
   const seen = new Set<string>();
   const queue: string[] = [];
