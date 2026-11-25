@@ -60,7 +60,8 @@ impl TranscriptCache {
             .unwrap_or(t.items.len());
         let split = t.items[..first_queued]
             .iter()
-            .rposition(|i| matches!(i, Item::User { queued: false, .. }))
+            // A turn's prompt, never a steer in it: `late_steers_last` reorders across a steer.
+            .rposition(|i| matches!(i, Item::User { queued: false, steer: false, .. }))
             .unwrap_or(0);
         let rebuild_prefix = reset || dirty < self.prefix_items || split < self.prefix_items;
         let changed_row = if rebuild_prefix { 0 } else { self.prefix_rows };
@@ -124,7 +125,13 @@ impl TranscriptCache {
 /// Animation changes paint, never document layout or scroll geometry.
 pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Line<'static>> {
     if t.status != "running" {
-        return None;
+        // A capacity wait's footer counts down while nothing runs.
+        return match t.capacity_wait.as_ref() {
+            Some(wait) if row.item == usize::MAX && !row.text.is_empty() => {
+                Some(super::transcript_rows::capacity_row(wait, c).line)
+            }
+            _ => None,
+        };
     }
     if row.item == usize::MAX && !row.text.is_empty() {
         return Some(working_row(t, c).line);
