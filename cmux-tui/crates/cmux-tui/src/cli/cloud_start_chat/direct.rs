@@ -383,18 +383,6 @@ pub(super) fn start_program(
     )
 }
 
-/// The app verbs this route answers itself.
-macro_rules! direct_verbs {
-    () => {
-        "list-machines"
-            | "start-session"
-            | "exec"
-            | "pause-machine"
-            | "resume-machine"
-            | "kill-machine"
-    };
-}
-
 impl Runner for DirectRunner<'_> {
     fn cmux(&mut self, args: &[String]) -> Ran {
         match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
@@ -409,7 +397,13 @@ impl Runner for DirectRunner<'_> {
     }
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
         match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
-            (Some("cloud"), Some(direct_verbs!())) => self.cmux(args),
+            (
+                Some("cloud"),
+                Some(
+                    "list-machines" | "start-session" | "exec" | "pause-machine" | "resume-machine"
+                    | "kill-machine",
+                ),
+            ) => self.cmux(args),
             _ => self.inner.cmux_by(args, until),
         }
     }
