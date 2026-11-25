@@ -8,6 +8,7 @@ public import CmuxNextDesignTokens
 public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarWidth
     case sidebarRowHeight
+    case spaceButtonSpacing
     case tabStripHeight
     case tabMaxWidth
     /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
@@ -339,6 +340,11 @@ public final class DesignSettings {
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `appearance.appFont`: the family cmux's interface draws in, nil for the system font. Every web
+    /// page takes it as its `--font-ui` live (``WebTheme/appFontStack(_:)``); native chrome text made
+    /// through ``Typography/system(_:size:weight:)`` takes it too while the `experiments.appFontChrome`
+    /// switch is on (``CheckedFont``), as each view makes its font again.
+    public var appFont: String?
     /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
     /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
     /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
@@ -437,6 +443,7 @@ public final class DesignSettings {
         switch key {
         case .sidebarWidth: 160...420
         case .sidebarRowHeight: 20...48
+        case .spaceButtonSpacing: 18...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
         case .tabMinActiveWidth: 32...200
