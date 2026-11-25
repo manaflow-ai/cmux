@@ -253,7 +253,7 @@ impl Hub {
                 return;
             }
         };
-        let fold = json!({"afterSeq": after_seq, "held": held.to_json(), "epoch": epoch,
+        let fold = json!({"afterSeq": after_seq, "held": held.into_json(), "epoch": epoch,
                           "native": native});
         if let Err(error) = crate::home_fs::write(root.join(FOLD_FILE), fold.to_string()) {
             tracing::debug!(session = %session.id, "prefix fold not written: {error}");

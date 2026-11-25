@@ -1154,6 +1154,13 @@ class ListWorkspacesKnown:
 
 
 @dataclass(frozen=True)
+class ListWorkspacesSince:
+    __cmux_schema_path__: ClassVar[str] = 'types/ListWorkspacesSince'
+    epoch: str
+    seq: int
+
+
+@dataclass(frozen=True)
 class LivePane:
     __cmux_schema_path__: ClassVar[str] = 'types/LivePane'
     active_tab: int
@@ -2467,10 +2474,16 @@ class TerminalResumeCommandResult:
 class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
+    changed: Union[List[Workspace], MissingType] = field(default=MISSING)
+    delta: Union[bool, MissingType] = field(default=MISSING)
+    epoch: Union[str, MissingType] = field(default=MISSING)
     generation: Union[str, MissingType] = field(default=MISSING)
     next: Union[int, MissingType] = field(default=MISSING)
+    order: Union[List[Id], MissingType] = field(default=MISSING)
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
+    removed: Union[List[Id], MissingType] = field(default=MISSING)
+    seq: Union[int, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     total: Union[int, MissingType] = field(default=MISSING)
     tree_revision: Union[str, MissingType] = field(default=MISSING)
@@ -2600,6 +2613,7 @@ class AttachSurfaceRequest:
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
     resume_generation: Union[str, None, MissingType] = field(default=MISSING)
+    resume_max_bytes: Union[int, None, MissingType] = field(default=MISSING)
     resume_offset: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
@@ -4165,6 +4179,7 @@ class ListWorkspacesRequest:
     after: Union[int, None, MissingType] = field(default=MISSING)
     known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    since: Union[ListWorkspacesSince, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6890,6 +6905,7 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'ListWorkspacesKnown',
+    'ListWorkspacesSince',
     'LivePane',
     'MachineListeningTcpResult',
     'MachinePlatform',
