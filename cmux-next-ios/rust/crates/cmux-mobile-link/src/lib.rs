@@ -31,11 +31,13 @@ mod liveness;
 pub mod local;
 pub mod local_dns;
 pub mod local_hub;
+pub mod mailbox_client;
 pub mod media;
 pub mod names;
 pub mod path_report;
 pub mod reconnect;
 mod send_queue;
+pub mod signal_dial;
 pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
