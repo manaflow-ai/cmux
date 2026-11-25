@@ -156,6 +156,19 @@ await requireBrowserLane("composer-hat-material.test.ts", async () => {
         "data-theme": colorScheme,
       });
       const bare = await style(page, "bare");
+      // DIAG(cvr-web-reds-3)
+      for (const id of ["bare", "goal", "question", "pinned", "hat", "hatted"])
+        console.log(`DIAG ${colorScheme} ${id} shadow=${(await style(page, id)).shadow}`);
+      console.log(
+        `DIAG ${colorScheme} vars ${await page.evaluate(() =>
+          ["goal", "question", "pinned", "bare"]
+            .map((id) => {
+              const cs = getComputedStyle(document.getElementById(id)!);
+              return `${id}: ${["--acpmux-stack-shadow", "--acpmux-composer-shadow", "--acpmux-composer-rim", "--glass-material-rim", "--acpmux-card-ring", "--elevation-1", "--elevation-2", "--glass-material-depth-composer", "--cmux-composer-hat-shadow", "--glass-material-specular", "--glass-material-sheen"].map((n) => `${n}=[${cs.getPropertyValue(n)}]`).join(" ")} class=${document.getElementById(id)!.className}`;
+            })
+            .join(" || "),
+        )}`,
+      );
       for (const id of ["goal", "question", "pinned"]) {
         const card = await style(page, id);
         for (const geometry of [SPECULAR_BAND, RETURN_BAND, SHEEN]) {

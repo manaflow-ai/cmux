@@ -517,6 +517,35 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         // Whatever draws at the action's centre must belong to the open picker: a row, the search
         // field, or the menu's own gaps (a separator, its padding), never the queued row. Asked of the
         // DOM, not matched on the hit's markup, so a separator over the action counts as the picker's.
+        // DIAG(cvr-web-reds-3): the picker's box, the actions' boxes and what draws at each.
+        console.log(
+          `DIAG ${engine} ${await page.evaluate((ROW) => {
+            const box = (el: Element | null) => {
+              if (!el) return "none";
+              const r = el.getBoundingClientRect();
+              const cs = getComputedStyle(el);
+              return `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} z=${cs.zIndex} pos=${cs.position}`;
+            };
+            const menus = [...document.querySelectorAll(".acpmux-quick-menu, [role=menu]")].map(
+              (m) => `${m.className} ${box(m)}`,
+            );
+            const acts = ['[data-action="steer"]', '[data-action="delete"]', '[data-menu="queued-more"]'].map((a) => {
+              const el = document.querySelector(`${ROW} ${a}`);
+              if (!el) return `${a}: missing`;
+              const r = el.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              const chain: string[] = [];
+              for (let n: Element | null = hit; n && chain.length < 8; n = n.parentElement) {
+                const cs = getComputedStyle(n);
+                chain.push(
+                  `${n.tagName.toLowerCase()}.${n.className.toString().split(" ").slice(0, 2).join(".")}[z=${cs.zIndex},pos=${cs.position},iso=${cs.isolation}]`,
+                );
+              }
+              return `${a}: ${box(el)} hit=${chain.join(" < ")}`;
+            });
+            return `menus=${JSON.stringify(menus)} acts=${JSON.stringify(acts)} row=${box(document.querySelector(ROW))}`;
+          }, ROW)}`,
+        );
         for (const action of ['[data-action="steer"]', '[data-action="delete"]', '[data-menu="queued-more"]']) {
           const { x, y } = await hitAt(page, `${ROW} ${action}`);
           const inPicker = await page.evaluate(

@@ -105,6 +105,10 @@ await requireBrowserLane("agent-pane-tool-call-renders.test.ts", async () => {
       sessionInfoChanges: panelChanges,
     };
     console.log(`TOOL-CALL-RENDERS ${JSON.stringify(report)}`);
+    // DIAG(cvr-web-reds-3): every composer counter, prop churn included.
+    console.log(
+      `DIAG renders ${JSON.stringify(Object.fromEntries(Object.entries(renders).filter(([k]) => /compos|pane|dock|stack|hat|tray/i.test(k))))}`,
+    );
     // The turn made tool calls, and the pane drew their rows.
     expect(report.tools).toBeGreaterThan(10);
     expect(report.pane).toBeGreaterThan(report.tools);

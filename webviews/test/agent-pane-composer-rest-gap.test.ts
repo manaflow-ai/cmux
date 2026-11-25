@@ -294,7 +294,29 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       document.body.append(probe);
       new ResizeObserver(() => {
         const gap = w.__restGap();
-        if (gap !== undefined) w.__frames.push({ t: Math.round(performance.now()), gap: Math.round(gap * 10) / 10 });
+        if (gap !== undefined) {
+          // DIAG(cvr-web-reds-3): the stack's parts and the newest row per frame.
+          const dock = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+          const parts = dock
+            ? [...dock.children]
+                .flatMap((part) => (part.classList.contains("acpmux-composer") ? [...part.children] : [part]))
+                .map((part) => {
+                  const r = part.getBoundingClientRect();
+                  const cs = getComputedStyle(part);
+                  return `${part.className.toString().split(" ")[0]}@${Math.round(r.top)}h${Math.round(r.height)}t${cs.translate}m${cs.marginTop}/${cs.marginBottom}`;
+                })
+                .join("|")
+            : "";
+          const scroller = document.querySelector(".acpmux-scroll");
+          (w.__frames as any[]).push({
+            t: Math.round(performance.now()),
+            gap: Math.round(gap * 10) / 10,
+            parts,
+            scrollTop: scroller ? Math.round(scroller.scrollTop) : -1,
+            scrollH: scroller ? Math.round(scroller.scrollHeight) : -1,
+            clientH: scroller ? Math.round(scroller.clientHeight) : -1,
+          });
+        }
       }).observe(probe);
       // Each frame's callbacks resize the probe, so its observer samples the gap once per frame,
       // after the pane's own observers (window.cmuxAfterPaint's drive runs in the frame callbacks).
@@ -395,6 +417,9 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const taken = await frames(page);
       const shifted = off(taken, settled!);
       console.log(
+        `DIAG ${name} busy frames ${JSON.stringify(taken.filter((f: any) => Math.abs(f.gap - settled!) > 1).concat(taken.slice(-2)))}`,
+      );
+      console.log(
         `${name} busy load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`,
       );
       expect(taken.length).toBeGreaterThan(0);
@@ -456,6 +481,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
         () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().top,
       );
       expect(trayTop).toBeLessThan(card);
+      console.log(`DIAG ${name} tray frames ${JSON.stringify(trayed)}`);
       console.log(`${name} tray: ${trayed.length} frames, gaps ${[...new Set(trayed.map((f) => f.gap))].join(", ")}`);
       seen.tray = await gap(page);
       // The frame the tray first draws in places the rows above it in that same frame.
