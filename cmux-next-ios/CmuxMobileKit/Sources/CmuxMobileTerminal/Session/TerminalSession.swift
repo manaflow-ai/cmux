@@ -91,11 +91,13 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// The title pill's subtitle once an outage lasted
     /// `QuietStatusGate.threshold` (nil: attached). A few words in place of
-    /// the working directory: the page itself gets no status row.
+    /// the working directory: the page itself gets no status row. A link still
+    /// coming back (connecting, reattaching) says nothing: the pill keeps the
+    /// working directory and the last frame stays (Leo, 2026-11-24: "let's just
+    /// keep optimistically connecting and reinforcing the connection").
     public var pillSubtitle: String? {
         switch self {
-        case .connecting: return "Connecting…"
-        case .reattaching: return "Reattaching…"
+        case .connecting, .reattaching: return nil
         case .offline: return "Mac offline"
         case .failed: return "Can't connect"
         case .attached: return nil
@@ -278,6 +280,13 @@ public protocol TerminalSession: AnyObject {
     func returnToLiveScreen()
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// Fit to Phone for the program in the foreground, the projection's one
+    /// exception (``TerminalProjectingSession``): whether the phone claims its
+    /// grid for it now; nil for a session that does not project.
+    var fitsToPhone: Bool? { get }
+    /// The title menu's Fit to Phone: fits the foreground program now (and
+    /// remembers it), or gives the Mac its grid back (and forgets it).
+    func toggleFitToPhone()
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
@@ -339,6 +348,10 @@ extension TerminalSession {
 
     public var underlyingSession: AnyObject { self }
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public var fitsToPhone: Bool? { nil }
+
+    public func toggleFitToPhone() {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 
