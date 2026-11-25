@@ -1482,7 +1482,13 @@ def supersede_for_unread(state, t, newest, supported_parts):
     # Only a measurement a day old gives way: parts land most days, so giving way at once restarted every Mac pass
     # before it finished (tip 12aa19c2, 2026-11-22: 4 Mac parts done, 17 superseded for tabs and typing 12 h in,
     # chat-size among them). Wall time, not active_hours: the stall this fixes was yielding to the fleet.
-    if hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
+    # The hold protects a Mac pass that is making headway. One that finished no Mac part (the build aside) has none to
+    # lose, so it gives way at once (tip b76703549055, 2026-11-24: 23 h in, 20 of them yielded to the fleet, its only
+    # Mac part launch-dock yielded, while web-ui-orchestrator, merged after it, kept NOW's
+    # competitive.orchestrator.p99_frame_ms_16_children unknown).
+    mac_done = any(name != "build" and not is_linux_part(name) and (rec or {}).get("state") == "done"
+                   for name, rec in cur.get("parts", {}).items())
+    if mac_done and hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
         return None
     have = [p for p in missing if p in supported_parts(newest)]
     if not have:

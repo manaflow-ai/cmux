@@ -123,6 +123,16 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
+    // (`perf_trace.rs`): no store, no peer.
+    if m == crate::perf_trace::METHOD_SPANS {
+        return Ok(crate::perf_trace::record_client_spans(&params));
+    }
+    if m == crate::perf_trace::METHOD_STATUS {
+        return Ok(
+            serde_json::json!({"enabled": crate::perf_trace::enabled(), "now_us": crate::perf_trace::now_us()}),
+        );
+    }
     hub.prepare_store_request(m, &params).await;
     // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
     super::remote_guard::note_vouched_phone(hub, conn, &params);
