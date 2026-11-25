@@ -148,6 +148,99 @@ import Testing
         #expect(resets["another tab and back"] == 0)
     }
 
+    /// Leo, 2026-11-17: "Surely we can just calculate a f***ing terminal and
+    /// resize whatever needs exceptions when it comes / Fall back if need be".
+    ///
+    /// htop already running in a Mac pane of 120x40: the phone attaches into
+    /// it, switches apps, locks, rotates and goes to another tab and back.
+    /// None of it resizes the Mac: the page shows the Mac's grid (zoomed by
+    /// the screen). Typing text into htop fits it (exactly one resize); `q`
+    /// releases it; htop started again fits at once, before any frame of it
+    /// at the Mac's grid.
+    @Test func theAlternateScreenIsShownAtTheMacsGridAndTypingFitsOnce() {
+        TerminalFitMemory.reset()
+        let mac = MacPaneMockSession(columns: 120, rows: 40, program: "htop")
+        // Settings → Terminal → Zoom Full-Screen Apps on (off by default).
+        let session = TerminalProjectingSession(inner: mac, zooms: true)
+        var grids: [(columns: Int, alternate: Bool)] = []
+        var alternate = false
+        var claim = Debounce()
+        var clock = ContinuousClock.now
+        func advance(_ duration: Duration) {
+            let end = clock.advanced(by: duration)
+            while true {
+                let (change, recheck) = claim.update(at: clock)
+                if let change { session.setClaimsSize(change) }
+                guard let recheck, recheck <= end else { break }
+                clock = recheck
+            }
+            clock = end
+            if let change = claim.update(at: clock).claims { session.setClaimsSize(change) }
+        }
+        var steps: [String] = []
+        var lastResizes = 0
+        var lastReplay = 0
+        func settle(_ name: String) -> Int {
+            let resizes = mac.ptyResizes - lastResizes
+            steps.append("\(name): mac PTY resizes \(resizes), replay bytes \(mac.replayBytes - lastReplay)")
+            lastResizes = mac.ptyResizes
+            lastReplay = mac.replayBytes
+            return resizes
+        }
+        claim.pageShown = true
+        advance(.zero)
+        session.resize(columns: 54, rows: 38)
+        session.start { event in
+            switch event {
+            case .alternateScreen(let on): alternate = on
+            case .hostGrid(let columns, _): grids.append((columns, alternate))
+            default: break
+            }
+        }
+        var viewing: [String: Int] = [:]
+        viewing["attach into htop"] = settle("attach into htop")
+        claim.appActive = false
+        advance(.seconds(3))
+        claim.appActive = true
+        advance(.zero)
+        viewing["app switch (3 s)"] = settle("app switch (3 s)")
+        claim.appActive = false
+        advance(.seconds(600))
+        claim.appActive = true
+        advance(.zero)
+        viewing["lock (10 min)"] = settle("lock (10 min)")
+        session.resize(columns: 116, rows: 16)
+        viewing["rotate to landscape"] = settle("rotate to landscape")
+        session.resize(columns: 54, rows: 38)
+        viewing["rotate back"] = settle("rotate back")
+        claim.pageShown = false
+        advance(.seconds(2))
+        claim.pageShown = true
+        advance(.zero)
+        viewing["another tab and back"] = settle("another tab and back")
+        session.send(Data("\u{1B}[B\u{1B}[B".utf8))
+        viewing["arrow keys"] = settle("arrow keys")
+        session.send(Data("abc".utf8))
+        let typed = settle("type abc into htop")
+        let fittedColumns = grids.last?.columns
+        session.send(Data("q".utf8))
+        let quit = settle("q (htop exits)")
+        let before = grids.count
+        session.send(Data("htop\r".utf8))
+        let again = settle("htop again (remembered)")
+        let macGridFrames = grids.dropFirst(before).filter { $0.alternate && $0.columns == 120 }.count
+        for step in steps { print("projection harness altproj: \(step)") }
+        print("projection harness altproj: total mac PTY resizes \(mac.ptyResizes) (\(mac.resizeLog.joined(separator: ", "))), claims sent \(mac.claimChanges), htop frames at the Mac's grid before the remembered fit \(macGridFrames)")
+        for (name, resizes) in viewing {
+            #expect(resizes == 0, "\(name) resized the Mac: \(mac.resizeLog)")
+        }
+        #expect(typed == 1, "typing text into htop fits it once: \(mac.resizeLog)")
+        #expect(fittedColumns == 54, "fitted at the phone's columns: \(grids)")
+        #expect(quit == 1, "htop exiting releases it: \(mac.resizeLog)")
+        #expect(again == 1, "htop again fits at once: \(mac.resizeLog)")
+        #expect(macGridFrames == 0, "no htop frame at the Mac's grid before the remembered fit: \(grids)")
+    }
+
     /// Leo, 2026-11-15: "i dont see the point of a narrower-than-iphone
     /// terminal". A Mac pane of 39x26, narrower than the phone: every grid the
     /// page is told is the phone's own (54 columns, 116 in landscape), never
