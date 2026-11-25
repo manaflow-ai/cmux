@@ -359,7 +359,22 @@ impl Git {
         on_line: &mut dyn FnMut(&str),
     ) -> Result<Vec<u8>, Failure> {
         let started = Instant::now();
-        let ran = self.run_untimed(cwd, credential, args, env, on_line);
+        let ran = self.run_untimed(cwd, credential, args, env, None, on_line);
+        count(&format!("git {}", subcommand(args)), started.elapsed());
+        ran
+    }
+
+    /// [`Self::run`] with `input` on git's stdin (`fetch --stdin`, `update-ref --stdin`).
+    pub fn run_input(
+        &self,
+        cwd: Option<&Path>,
+        credential: &Credential,
+        args: &[&str],
+        input: &[u8],
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<Vec<u8>, Failure> {
+        let started = Instant::now();
+        let ran = self.run_untimed(cwd, credential, args, &[], Some(input), on_line);
         count(&format!("git {}", subcommand(args)), started.elapsed());
         ran
     }
@@ -371,6 +386,7 @@ impl Git {
         credential: &Credential,
         args: &[&str],
         env: &[(&str, &std::ffi::OsStr)],
+        input: Option<&[u8]>,
         on_line: &mut dyn FnMut(&str),
     ) -> Result<Vec<u8>, Failure> {
         let mut command = self.command(cwd, credential);
@@ -378,8 +394,18 @@ impl Git {
         for (name, value) in env {
             command.env(name, value);
         }
+        if input.is_some() {
+            command.stdin(Stdio::piped());
+        }
         let mut child =
             command.spawn().map_err(|error| Failure::of(format!("cannot run git: {error}")))?;
+        // Written from its own thread: git may fill stderr before it reads all of stdin.
+        let writer = input.map(<[u8]>::to_vec).zip(child.stdin.take()).map(|(bytes, mut stdin)| {
+            std::thread::spawn(move || {
+                use std::io::Write as _;
+                let _ = stdin.write_all(&bytes);
+            })
+        });
         let mut stdout = child.stdout.take();
         let reader = std::thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -413,6 +439,9 @@ impl Git {
             }
         }
         let status = child.wait();
+        if let Some(writer) = writer {
+            let _ = writer.join();
+        }
         let stdout = reader.join().unwrap_or_default();
         match status {
             Ok(status) if status.success() => Ok(stdout),

@@ -102,6 +102,8 @@ struct World {
     remote: PathBuf,
     mac: PathBuf,
     base: String,
+    /// The machine's warm mirrors (on, as on a machine; `None`: every clone is direct).
+    mirrors: Option<PathBuf>,
 }
 
 impl World {
@@ -128,7 +130,8 @@ impl World {
         git(&remote, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
         git(&mac, &["remote", "add", "origin", remote.to_str().unwrap()]);
         git(&mac, &["fetch", "-q", "origin"]);
-        Self { home, remote, mac, base }
+        let mirrors = Some(home.join("mirrors"));
+        Self { home, remote, mac, base, mirrors }
     }
 
     fn service(&self) -> GitSeedService {
@@ -141,6 +144,7 @@ impl World {
                 ],
             },
             credentials: Some(vec![Credential::Anonymous]),
+            mirrors: self.mirrors.clone(),
         };
         GitSeedService::with_config(Roots::new([self.home.path.clone()]), config)
     }
@@ -752,6 +756,7 @@ mod dogfood;
 mod export;
 mod head_first;
 mod hold;
+mod mirror;
 mod moves;
 mod play;
 
