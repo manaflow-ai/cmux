@@ -1,7 +1,18 @@
+#if canImport(CommonCrypto)
 import CommonCrypto
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#if !canImport(CryptoKit)
+import _CryptoExtras
+#endif
+#endif
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Classic VNC authentication (security type 2, RFC 6143 section 7.2.2):
 /// DES-ECB over the 16-byte challenge, keyed by the first 8 password bytes
@@ -12,7 +23,14 @@ struct VNCPasswordAuthentication {
     func response(challenge: [UInt8]) -> [UInt8]? {
         var key = [UInt8](repeating: 0, count: 8)
         for (index, byte) in password.utf8.prefix(8).enumerated() { key[index] = Self.reverseBits(byte) }
+        #if canImport(CommonCrypto)
         return CipherECB(algorithm: CCAlgorithm(kCCAlgorithmDES), key: key).encrypt(challenge)
+        #else
+        guard challenge.count.isMultiple(of: 8) else { return nil }
+        let result = RFBDES.encrypt(challenge[...], key: key)
+        print("DESDEBUG", result.map { String(format: "%02x", $0) }.joined())
+        return result
+        #endif
     }
 
     static func reverseBits(_ byte: UInt8) -> UInt8 {
@@ -27,10 +45,7 @@ struct VNCPasswordAuthentication {
 }
 
 /// Apple Diffie-Hellman authentication (security type 30), macOS Screen
-/// Sharing. The client finishes the DH exchange, keys AES-128-ECB with
-/// MD5(shared secret), and sends the encrypted 128-byte credential block
-/// (user name and password, each NUL-terminated in 64 bytes of random
-/// padding) followed by its public key.
+/// Sharing. The client finishes the DH exchange, keys AES-128-ECB with MD5(shared secret), and sends the encrypted 128-byte credential block followed by its public key.
 struct AppleDHAuthentication {
     var generator: UInt16
     var prime: [UInt8]
@@ -43,6 +58,7 @@ struct AppleDHAuthentication {
 
     /// `privateKey` and `padding` make the result deterministic for tests.
     func response(username: String, password: String, privateKey: [UInt8]? = nil, padding: [UInt8]? = nil) -> Response? {
+        #if canImport(CommonCrypto) && canImport(Security)
         let length = prime.count
         guard length > 0, serverPublicKey.count == length, let math = ModularExponentiation(modulus: prime) else { return nil }
         let secret = privateKey ?? Self.randomBytes(length)
@@ -51,10 +67,39 @@ struct AppleDHAuthentication {
         let shared = math.power(serverPublicKey, secret)
         let key = Array(Insecure.MD5.hash(data: Data(shared)))
         let credentials = Self.credentials(username: username, password: password, padding: padding)
-        guard let encrypted = CipherECB(algorithm: CCAlgorithm(kCCAlgorithmAES128), key: key).encrypt(credentials),
-              encrypted.count == 128 else { return nil }
+        guard let encrypted = CipherECB(algorithm: CCAlgorithm(kCCAlgorithmAES128), key: key).encrypt(credentials), encrypted.count == 128 else { return nil }
         return Response(encryptedCredentials: encrypted, clientPublicKey: clientPublic)
+        #else
+        let length = prime.count
+        guard length > 0, serverPublicKey.count == length, let math = ModularExponentiation(modulus: prime) else { return nil }
+        let secret = privateKey ?? Self.randomBytes(length)
+        let generatorBytes = [UInt8(generator >> 8), UInt8(generator & 0xFF)]
+        let clientPublic = math.power(generatorBytes, secret)
+        let shared = math.power(serverPublicKey, secret)
+        let key = Array(Insecure.MD5.hash(data: Data(shared)))
+        let credentials = Self.credentials(username: username, password: password, padding: padding)
+        guard let encrypted = Self.encryptAES128ECB(credentials, key: key), encrypted.count == 128 else { return nil }
+        return Response(encryptedCredentials: encrypted, clientPublicKey: clientPublic)
+        #endif
     }
+
+    #if !canImport(CommonCrypto)
+    private static func encryptAES128ECB(_ plaintext: [UInt8], key: [UInt8]) -> [UInt8]? {
+        guard key.count == 16, plaintext.count.isMultiple(of: 16) else { return nil }
+        let symmetricKey = SymmetricKey(data: key)
+        var output = plaintext
+        do {
+            for offset in stride(from: 0, to: output.count, by: 16) {
+                var block = Array(output[offset ..< offset + 16])
+                try AES.permute(&block, key: symmetricKey)
+                output.replaceSubrange(offset ..< offset + 16, with: block)
+            }
+            return output
+        } catch {
+            return nil
+        }
+    }
+    #endif
 
     static func credentials(username: String, password: String, padding: [UInt8]?) -> [UInt8] {
         var block = padding.flatMap { $0.count == 128 ? $0 : nil } ?? randomBytes(128)
@@ -69,14 +114,16 @@ struct AppleDHAuthentication {
 
     static func randomBytes(_ count: Int) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: count)
-        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) != errSecSuccess {
-            var generator = SystemRandomNumberGenerator()
-            for index in bytes.indices { bytes[index] = UInt8.random(in: 0 ... 255, using: &generator) }
-        }
+        #if canImport(Security)
+        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess { return bytes }
+        #endif
+        var generator = SystemRandomNumberGenerator()
+        for index in bytes.indices { bytes[index] = UInt8.random(in: 0 ... 255, using: &generator) }
         return bytes
     }
 }
 
+#if canImport(CommonCrypto)
 /// One-shot ECB encryption with CommonCrypto (no padding).
 struct CipherECB {
     var algorithm: CCAlgorithm
@@ -99,9 +146,9 @@ struct CipherECB {
         return Array(output.prefix(moved))
     }
 }
+#endif
 
-/// The 16-byte VNC authentication response for a challenge (servers and
-/// test fixtures check a client's answer with it).
+/// The 16-byte VNC authentication response for a challenge (servers and test fixtures check a client's answer with it).
 public struct VNCPasswordResponse: Sendable, Equatable {
     public let bytes: [UInt8]
 

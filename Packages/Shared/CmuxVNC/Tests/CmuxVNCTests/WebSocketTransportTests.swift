@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics) && canImport(CoreText) && canImport(Network)
 import CmuxVNCDemoServer
 import Foundation
 import Testing
@@ -173,3 +174,5 @@ struct WebSocketTransportTests {
         #expect(WebSocketRFBTransport.accept(for: "dGhlIHNhbXBsZSBub25jZQ==") == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
     }
 }
+
+#endif

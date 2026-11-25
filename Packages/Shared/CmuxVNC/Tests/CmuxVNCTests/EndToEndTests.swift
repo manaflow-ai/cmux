@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics) && canImport(CoreText) && canImport(Network)
 import CmuxVNCDemoServer
 import Foundation
 import Testing
@@ -90,3 +91,5 @@ struct EndToEndTests {
         await client.disconnect()
     }
 }
+
+#endif

@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// How a session connects.

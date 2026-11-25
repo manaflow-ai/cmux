@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics) && canImport(CoreText) && canImport(Network)
 import CmuxVNC
 import CoreGraphics
 import Foundation
@@ -517,3 +518,5 @@ struct DemoCursor {
         return bytes.data
     }
 }
+
+#endif
