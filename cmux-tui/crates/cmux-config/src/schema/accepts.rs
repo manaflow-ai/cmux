@@ -184,6 +184,8 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else if row.validation == super::Validation::Domain(DomainKind::SidebarSectionIds) {
         Accepted::Shape("an array of at most 256 distinct section ids of 1 to 128 characters")
+    } else if row.validation == super::Validation::Domain(DomainKind::UiFontFamily) {
+        Accepted::Domain { name: domain_name(DomainKind::UiFontFamily), values: None }
     } else {
         accepted(&row.kind, domains)
     };
@@ -262,6 +264,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
+        }
+        super::Validation::Domain(DomainKind::UiFontFamily) => {
+            return value.as_str().is_some_and(|text| font_ok(text, None));
         }
         super::Validation::Domain(DomainKind::BackdropPicture) => {
             return value.as_str().is_some_and(super::backdrop::is_picture);
@@ -580,6 +585,7 @@ fn domain_name(kind: DomainKind) -> &'static str {
     match kind {
         DomainKind::Theme => "theme",
         DomainKind::FontFamily => "font_family",
+        DomainKind::UiFontFamily => "ui_font_family",
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::BackdropPicture => "backdrop_picture",
@@ -631,5 +637,15 @@ mod tests {
             accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn app_font_takes_any_family_not_only_the_fixed_pitch_domain() {
+        let row = super::super::Schema::embedded().row("appearance.appFont").expect("app font row");
+        assert_eq!(row.validation, super::super::Validation::Domain(DomainKind::UiFontFamily));
+        let mono = Domains::published(Vec::new(), vec!["Menlo".to_owned()], Vec::new());
+        assert!(accepts(row, &json!("Avenir Next"), &mono).is_ok());
+        assert!(accepts(row, &json!("Bad#Name"), &mono).is_err());
+        assert!(accepts(row, &json!(3), &mono).is_err());
     }
 }
