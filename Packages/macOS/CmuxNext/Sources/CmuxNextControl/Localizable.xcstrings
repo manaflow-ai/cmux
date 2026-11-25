@@ -15085,6 +15085,18 @@
         }
       }
     },
+    "control.authToken.refusedCode": {
+      "comment": "auth.token refusal that is not about membership: cmux Cloud would not mint a token for the team for another reason. The first %@ is the team id, the second the service's refusal code (for example owner.state_full).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud refused a token for team %1$@ (%2$@). Run cmux auth token again; if it keeps happening, this account needs a fix on the cmux side."
+          }
+        }
+      }
+    },
     "control.authToken.unreachable": {
       "comment": "auth.token refusal: cmux Cloud did not answer.",
       "extractionState": "manual",
