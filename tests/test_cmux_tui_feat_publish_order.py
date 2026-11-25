@@ -161,7 +161,6 @@ def built_nothing(ref, state, adopt_result="success"):
         "needs.tree-preflight.outputs.run_macos": "false",
         "needs.tree-preflight.outputs.owns_key": "false",
         "needs.tree-owner-wait.outputs.takeover": "false",
-        "needs.build-linux.result": "skipped",
         "needs.build.result": "skipped",
         "needs.publish.result": "skipped",
         "needs.verify-publish.result": "skipped",
@@ -173,12 +172,12 @@ def built_nothing(ref, state, adopt_result="success"):
 
 def machine_channel_follows_an_adopted_manifest(all_jobs):
     """2026-11-13, 93d73d7b (the squash merge of #42609, run 43479235288): its tree was published by
-    the lane head's run, so build-linux, publish and verify-publish skipped, and both Cloud machine
+    the lane head's run, so build, publish and verify-publish skipped, and both Cloud machine
     channel jobs with them. adopt-commit-manifest wrote cmux-tui/<sha>/manifest.json at 18:07:54Z, and
     the channel stayed on the previous commit until the next build at 18:22Z. The channel moves from
     the adopted manifest too, onto the fat cmux-tui/<sha>/ names that manifest serves: a run that
     builds nothing has no machine/ copy of its commit (only point-machine-channel-early uploads one,
-    from this run's build-linux), and updater/channel.rs allowed_urls accepts both paths."""
+    from this run's build), and updater/channel.rs allowed_urls accepts both paths."""
     channel_jobs = ("point-machine-channel-early", "point-machine-channel")
     feat = "refs/heads/feat-cmux-next"
 

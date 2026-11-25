@@ -1,6 +1,6 @@
 import type { FirewallRuleData, FirewallSpec } from "./firewall.js";
 import type { FreestyleClient } from "./client.js";
-import type { ListTunnelsResult } from "./tunnel.js";
+import type { ListTunnelsResult, ListTunnelsOptions } from "./tunnel.js";
 /** A private network. */
 export interface VpcData {
     id: string;
@@ -70,7 +70,7 @@ export declare class VpcTunnelNamespace {
      * include a private key: one is returned only by
      * `freestyle.tunnels.create` and `freestyle.tunnels.rotateKey`.
      */
-    list(): Promise<ListTunnelsResult>;
+    list(options?: ListTunnelsOptions): Promise<ListTunnelsResult>;
 }
 /** A handle to one private network. */
 export declare class Vpc {

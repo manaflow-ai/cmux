@@ -6,7 +6,9 @@
 // showing me a big preview of the stuff from teh start".
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { PromptHeads } from "../src/agent-session/acpmux/promptHeads";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { tickRows, turnRows } from "../src/agent-session/acpmux/threadMinimap/railRows";
 import { fakeClient, records } from "./support/fakeAcpmuxClient";
 
 const CHAT = "0190a000-0000-7000-8000-0000000c0de2";
@@ -31,6 +33,16 @@ const indexed = (row: AcpmuxRow): AcpmuxRow => ({
   ...(row.promptId ? { promptId: row.promptId } : {}),
 });
 
+/// The rail's rows of a read (ThreadMinimap): the indexed prompts, then the held turns.
+const railTicks = (read: ReturnType<typeof minimapTurns>) => {
+  const rows = tickRows(read.ticks, read.pendingCount ?? 0, CHAT, read.earlier);
+  return Array.from({ length: rows.length }, (_, index) => rows.at(index)!);
+};
+const railTurns = (read: ReturnType<typeof minimapTurns>) => {
+  const rows = turnRows(read.turns, read.pendingCount ?? 0, CHAT, read.earlier);
+  return Array.from({ length: rows.length }, (_, index) => rows.at(index)!);
+};
+
 test("the rail holds every turn's tick while history pages in", async () => {
   const { rows } = await fakeClient(records(CHAT, Array.from({ length: 12 }, (_, n) => turn(n + 1)).flat()));
   const all = rows();
@@ -41,17 +53,23 @@ test("the rail holds every turn's tick while history pages in", async () => {
   // Held from the n-th prompt on, with the index's rows for the ones before it.
   const heldFrom = (n: number, previous?: ReturnType<typeof minimapTurns>) => {
     const first = all.indexOf(prompts[n]!);
-    return minimapTurns(all.slice(first), CHAT, previous, undefined, prompts.slice(0, n).map(indexed));
+    return minimapTurns(
+      all.slice(first),
+      CHAT,
+      previous,
+      undefined,
+      PromptHeads.fromRows(prompts.slice(0, n).map(indexed)),
+    );
   };
   const open = heldFrom(9);
-  expect(open.ticks.map((tick) => tick.key)).toEqual(keys);
+  expect(railTicks(open).map((tick) => tick.key)).toEqual(keys);
   expect(open.loadedStart).toBe(9);
   // Each older page: the same ticks in the same places, the newly held ones now real turns.
   let previous = open;
   for (const n of [6, 3, 0]) {
     const next = heldFrom(n, previous);
-    expect(next.ticks.map((tick) => tick.key)).toEqual(keys);
-    expect(next.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= n));
+    expect(railTicks(next).map((tick) => tick.key)).toEqual(keys);
+    expect(railTurns(next).map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= n));
     previous = next;
   }
 });
@@ -62,19 +80,19 @@ test("the index arriving after the open, then a streamed reply, keeps every tick
   const prompts = all.filter((row) => row.kind === "user");
   const keys = minimapTurns(all, CHAT).ticks.map((tick) => tick.key);
   const held = all.slice(all.indexOf(prompts[5]!));
-  const earlier = prompts.slice(0, 5).map(indexed);
+  const earlier = PromptHeads.fromRows(prompts.slice(0, 5).map(indexed));
   // First frame: no index yet. Then it lands. Then the last reply streams over several snapshots.
   let read = minimapTurns(held, CHAT);
   read = minimapTurns(held, CHAT, read, undefined, earlier);
-  expect(read.ticks.map((tick) => tick.key)).toEqual(keys);
+  expect(railTicks(read).map((tick) => tick.key)).toEqual(keys);
   const reply = [...held].reverse().find((row) => row.kind === "assistant")!;
   for (let n = 0; n < 6; n++) {
     const streamed = held.map((row) => (row === reply ? { ...row, text: `${row.text} more ${n}` } : row));
     const next = minimapTurns(streamed, CHAT, read, undefined, earlier);
-    expect(next.ticks.map((tick) => tick.key)).toEqual(keys);
-    expect(next.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= 5));
+    expect(railTicks(next).map((tick) => tick.key)).toEqual(keys);
+    expect(railTurns(next).map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= 5));
     // The committed result's lists are never written into by the next read.
-    expect(read.turns.map((turn) => turn.key)).toEqual(keys);
+    expect(railTurns(read).map((turn) => turn.key)).toEqual(keys);
     read = next;
   }
 });

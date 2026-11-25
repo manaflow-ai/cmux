@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// Under `CMUX_NEXT_NO_ACTIVATE=1` the app must never hold the keyboard
 /// unless the user put it there. The app refuses every activation it asks
@@ -75,6 +76,13 @@ public final class NoActivateKeyboardGuard {
     private var lastUserInput: ContinuousClock.Instant?
     /// The last reopen (``reopenRequested()``): intent only for ``intentArrivalWindow``.
     private var lastReopen: ContinuousClock.Instant?
+    /// The last switch of the active Space (``activeSpaceChanged()``): intent only for ``intentArrivalWindow``.
+    private var lastSpaceChange: ContinuousClock.Instant?
+    /// The person chose the app in its current activation: further notifications of it (another
+    /// window becoming key) are theirs too, until the app resigns active.
+    private var inChosenActivation = false
+    /// Follows switches of the active Space from ``start()`` on (``activeSpaceChanged()``).
+    private var spaceSwitches: MainActorObservation?
     /// When the waiting activation began: a key typed after it is meant for the app the person is
     /// in, not a choice of this one.
     private var waitStartedAt: ContinuousClock.Instant?
@@ -94,6 +102,10 @@ public final class NoActivateKeyboardGuard {
     /// goes back at once (nothing the user did caused it).
     public func start() {
         launchActivationUntil = host.now + Self.launchActivationGrace
+        spaceSwitches = MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification,
+                                             center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.activeSpaceChanged()
+        }
         check(.appActivated, waits: false)
     }
 
@@ -126,10 +138,41 @@ public final class NoActivateKeyboardGuard {
         keepWaitingActivation()
     }
 
+    /// The person switched the active Space: Control-Left or Control-Right, a trackpad swipe, Mission
+    /// Control or a click on a Space. macOS activates the app whose window is in front on the Space
+    /// it lands on, with no click, no held Command and no reopen; without this the guard handed that
+    /// activation back and macOS slid the person back to the app they left. An activation just before
+    /// or just after (``intentArrivalWindow``) stays. Not during the launch's grace: macOS leaves a
+    /// full-screen Space by itself to show a new app's first window.
+    public func activeSpaceChanged() {
+        if let launchActivationUntil, host.now < launchActivationUntil { return }
+        lastSpaceChange = host.now
+        keepWaitingActivation()
+    }
+
     private func keepWaitingActivation() {
         guard waitingTrigger != nil, isEnabled, host.isAppActive else { return }
         endWait()
+        chose()
+    }
+
+    private func chose() {
+        inChosenActivation = true
         onUserChose?()
+    }
+
+    /// The app's own notifications the guard judges; the app observes them and hands each to ``observed(_:)``.
+    public static let appNotifications = [NSApplication.didBecomeActiveNotification,
+                                          NSApplication.didResignActiveNotification, NSWindow.didBecomeKeyNotification]
+
+    /// One of ``appNotifications`` arrived.
+    public func observed(_ name: Notification.Name) {
+        switch name {
+        case NSApplication.didBecomeActiveNotification: appDidBecomeActive()
+        case NSApplication.didResignActiveNotification: appDidResignActive()
+        case NSWindow.didBecomeKeyNotification: windowDidBecomeKey()
+        default: break
+        }
     }
 
     public func appDidBecomeActive() { check(.appActivated) }
@@ -141,6 +184,7 @@ public final class NoActivateKeyboardGuard {
     /// The app really resigned active: the next activation is a new one.
     public func appDidResignActive() {
         inGivenBackActivation = false
+        inChosenActivation = false
         endWait()
     }
 
@@ -150,6 +194,7 @@ public final class NoActivateKeyboardGuard {
         let heldCounts = ignoresHeldInputUntil.map { host.now >= $0 } ?? true
         if heldCounts, host.mouseButtonDown || host.commandHeld { return true }
         if let lastReopen, host.now - lastReopen <= Self.intentArrivalWindow { return true }
+        if let lastSpaceChange, host.now - lastSpaceChange <= Self.intentArrivalWindow { return true }
         guard let lastUserInput, host.now - lastUserInput <= Self.userInputWindow else { return false }
         // Input during the wait: a click ended the wait already, so this is a key typed after the
         // activation began (meant for the person's app).
@@ -159,9 +204,11 @@ public final class NoActivateKeyboardGuard {
 
     private func check(_ trigger: Trigger, waits: Bool = true) {
         guard isEnabled, host.isAppActive else { return }
+        // The person put the app in front: another window of it becoming key is theirs too.
+        if inChosenActivation { return }
         if userIntends {
             endWait()
-            onUserChose?()
+            chose()
             return
         }
         if inGivenBackActivation {
@@ -187,7 +234,7 @@ public final class NoActivateKeyboardGuard {
         endWait()
         guard isEnabled, host.isAppActive else { return }
         if intends {
-            onUserChose?()
+            chose()
             return
         }
         giveBack(trigger)

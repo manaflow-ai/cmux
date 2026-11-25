@@ -22,7 +22,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
     /// Values committed whose write has not landed, by setting id: the rows show them at once
     /// (nil: the default). Each write's token, so only the latest write of a row clears it.
-    private var pending: [String: (token: Int, value: JSONValue?)] = [:]
+    private var pending: [String: (token: Int, value: JSONValue?)] = [:] { didSet { pendingRevision += 1 } }
+    private var pendingRevision = 0
     private var writeCount = 0
     /// The palette's page reload (`observeChanges`).
     private var onChange: (@MainActor () -> Void)?
@@ -33,13 +34,42 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         self.themeColors = themeColors
     }
 
+    /// What the rows are built from. The loaded settings, managed keys and theme files change only in a
+    /// load that applied something (`appliedCount`); the rest changes here or in the theme catalog.
+    private struct RowsInputs: Equatable {
+        let loads: Int
+        let pending: Int
+        let colors: [ThemeRGB]
+        let themes: Int?
+        let recentFonts: [String]
+        let developerTools: Bool
+        /// Numbers and durations are formatted for it.
+        let locale: String
+    }
+
+    /// The rows last built and their inputs: an open with the same inputs lists them again.
+    private var built: (inputs: RowsInputs, rows: [PaletteSettingRow])?
+    /// Times the rows were built (the reuse tests).
+    private(set) var rowBuilds = 0
+
+    /// Every palette setting's row with its whole value list (formatted numbers and durations, the
+    /// theme and font lists): about 8 ms of the main thread, read after each Cmd-Shift-P's first
+    /// frame. Built again only when an input changed, not on every open.
     var rows: [PaletteSettingRow] {
-        let root = settings.snapshot.root
         let colors = themeColors()
-        return SettingsSchema.all.filter { $0.isPaletteListed(developerTools: DevTools.isEnabled) }.map { descriptor in
+        let developerTools = DevTools.isEnabled
+        let inputs = RowsInputs(loads: settings.appliedCount, pending: pendingRevision, colors: colors, themes: themes?.revision,
+                                recentFonts: settings.recentFonts.families, developerTools: developerTools,
+                                locale: Locale.autoupdatingCurrent.identifier)
+        if let built, built.inputs == inputs { return built.rows }
+        let root = settings.snapshot.root
+        let rows = SettingsSchema.all.filter { $0.isPaletteListed(developerTools: developerTools) }.map { descriptor in
             let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
-            return row(descriptor, current: current, colors: colors)
+            return row(descriptor, current: current, inherited: descriptor.inheritedValue(in: root), colors: colors)
         }
+        built = (inputs, rows)
+        rowBuilds += 1
+        return rows
     }
 
     func observeChanges(_ onChange: @escaping @MainActor () -> Void) {
@@ -94,18 +124,18 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init))
     }
 
-    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
+    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
         } else if isFont {
-            settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
+            settings.recentFonts.options(current: current?.stringValue, families: AppFontSetting.families(for: descriptor.id, fixedPitch: SettingsPageDomains.fontFamilies), defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            settings.paletteOptions(descriptor, current: current, themeColors: colors)
+            settings.paletteOptions(descriptor, current: current, inherited: inherited, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
-        let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
+        let label = descriptor.paletteSummary(current: current, options: options) ?? currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
         let kind: PaletteSettingRow.Kind
         if descriptor.kind == .toggle {
             kind = .toggle(isOn: current?.boolValue ?? false)
@@ -126,7 +156,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private static func customInput(for descriptor: SettingDescriptor) -> PaletteSettingCustomInput? {
         switch descriptor.kind {
         case .toggle, .choice: nil
-        case .hostList, .folderList, .timeRange, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet: nil
+        case .hostList, .folderList, .timeRange, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet, .json: nil
         case .color:
             PaletteSettingCustomInput(placeholder: "#RRGGBB") { descriptor.value(typed: $0) != nil }
         case .number(let number), .choiceOrNumber(_, let number):

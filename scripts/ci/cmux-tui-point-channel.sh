@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Point cmux-tui/channels/<channel>.json at a published, daemon-tested tree:
-# {"key", "commit", "binaries": {"cmux-tui-acpmux-<target>": sha256}}. Linux
+# {"key", "commit", "binaries": {"cmux-tui-acpmux-<target>": sha256, and
+# "cmux-tui-rd-<gnu target>": sha256 when the tree carries cmux-rd}}. Linux
 # hosts read it to keep their daemon on the newest build by themselves
 # (`acpmux host self-update`, run by their acpmux-update.timer). A tree without
 # the daemon-tests.json marker is not pointed at.
@@ -11,7 +12,8 @@
 # it.
 #
 # The pointer only moves forward, and fails closed: it moves when GitHub's
-# compare says this commit is ahead of the one it names, or there is no file
+# compare says this commit is ahead of the one it names (or, when the API never
+# answers, git finds that commit among this one's ancestors), or there is no file
 # yet; behind, identical, diverged, a compare or read that fails, or a file that
 # names no commit (not JSON, no or a malformed "commit") leaves it, exit 0. Every feat-cmux-next push runs this, several at
 # once, so the write is a compare-and-swap on the bytes that were compared
@@ -63,11 +65,12 @@ if completion.get("key") != key or not isinstance(completion.get("binaries"), di
 binaries = {
     name: digest
     for name, digest in completion["binaries"].items()
-    if name.startswith("cmux-tui-acpmux-") and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+    if (name.startswith("cmux-tui-acpmux-") or re.fullmatch(r"cmux-tui-rd-(x86_64|aarch64)-unknown-linux-gnu", name))
+    and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
 }
-if not binaries and channel.startswith("windows-"):
+if not any(name.startswith("cmux-tui-acpmux-") for name in binaries) and channel.startswith("windows-"):
     sys.exit(10)
-if not binaries:
+if not any(name.startswith("cmux-tui-acpmux-") for name in binaries):
     raise SystemExit(f"error: tree {key} lists no acpmux binaries")
 print(json.dumps({"key": key, "commit": os.environ["GITHUB_SHA"], "binaries": binaries}, indent=2, sort_keys=True))
 PY
@@ -92,12 +95,31 @@ read_current() { # <attempt>
 }
 
 # What GitHub's compare says of this commit against <commit>: ahead, behind,
-# identical, diverged, or empty when it could not be asked.
-compare_status() { # <commit>
+# identical, diverged, or empty when it could not be asked. The API is asked
+# three times; when it never answers, git answers "ahead" when <commit> is an
+# ancestor of this commit in the branch's history (fetched commits only, no
+# trees). The 2026-11-24 feat-cmux-next channel stood 11 hours on one
+# daemon-tested tree whose point found the compare unavailable: the API's
+# answer is not the only proof of ancestry. A shallow fetch can only hide an
+# ancestor, never invent one, so the fallback still fails closed.
+api_compare_status() { # <commit>
   curl -fsSL --proto '=https' --connect-timeout 20 --max-time 30 -H "Authorization: Bearer $GH_TOKEN" \
       -H 'Accept: application/vnd.github+json' \
       "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$1...$GITHUB_SHA" 2>/dev/null |
     python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' 2>/dev/null || true
+}
+compare_status() { # <commit>
+  local answer try git_dir="${POINT_GIT_DIR:-${GITHUB_WORKSPACE:-.}}"
+  for try in 1 2 3; do
+    answer="$(api_compare_status "$1")"
+    case "$answer" in ahead | behind | identical | diverged) echo "$answer"; return ;; esac
+    [[ "$try" == 3 ]] || sleep "${POINT_COMPARE_RETRY_SLEEP:-10}"
+  done
+  echo "GitHub's compare of $1...$GITHUB_SHA did not answer; asking git." >&2
+  if timeout 120 git -C "$git_dir" fetch -q --no-tags --filter=tree:0 --depth=5000 origin "$GITHUB_SHA" >/dev/null 2>&1 &&
+    git -C "$git_dir" merge-base --is-ancestor "$1" "$GITHUB_SHA" 2>/dev/null; then
+    echo ahead
+  fi
 }
 
 upload=(python3 "$script_dir/upload-r2-object.py" --file "$tmp/channel.json" --endpoint-url "$R2_ENDPOINT"

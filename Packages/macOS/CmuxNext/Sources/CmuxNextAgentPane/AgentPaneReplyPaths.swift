@@ -78,7 +78,7 @@ nonisolated struct AgentPaneReplyPaths {
 
     static func isImagePath(_ text: String) -> Bool {
         guard let path = imagePath(text) else { return false }
-        return imageExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+        return imageExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
     /// The local path spelling of an image token, with URL decoration removed. Non-local file
@@ -210,7 +210,7 @@ nonisolated struct AgentPaneReplyPaths {
 
     static func isVideoPath(_ text: String) -> Bool {
         guard let path = imagePath(text) else { return false }
-        return videoExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+        return videoExtensions.contains((path as NSString).pathExtension.lowercased())
     }
 
     /// Resolves a video an attachment names (its poster and Quick Look) with the image roots: a

@@ -55,8 +55,37 @@ const clientError = (status: number) =>
 
 const headersOut = (id: string, contentType: string, provider: string) => ({ "content-type": contentType, "cache-control": "no-cache", "x-cmux-request-id": id, "x-cmux-provider": provider })
 
+/**
+ * Gemini's documented placeholder for a function call whose thought signature is gone (a chat begun on
+ * another model, a client that drops it): Vertex then skips its signature check instead of refusing the
+ * request with a 400 (https://ai.google.dev/gemini-api/docs/thought-signatures).
+ */
+export const SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+
+type Json = Record<string, unknown>
+
+/**
+ * Vertex (Gemini 3 and later) refuses an assistant turn whose first function call has no thought
+ * signature (`tool_calls[].extra_content.google.thought_signature`): fill the placeholder there. Every
+ * other provider gets the messages without `extra_content`, a Google-only field strict APIs may refuse.
+ */
+export const withThoughtSignatures = (provider: string, messages: unknown): unknown => {
+  if (!Array.isArray(messages)) return messages
+  return messages.map((m: unknown) => {
+    const msg = m as Json
+    if (!msg || typeof msg !== "object" || msg.role !== "assistant" || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0) return m
+    const calls = msg.tool_calls as Array<Json>
+    if (provider !== "vertex") return { ...msg, tool_calls: calls.map(({ extra_content: _drop, ...call }) => call) }
+    const signed = calls.some((c) => typeof ((c.extra_content as Json | undefined)?.google as Json | undefined)?.thought_signature === "string")
+    if (signed) return m
+    const [first, ...rest] = calls
+    return { ...msg, tool_calls: [{ ...first, extra_content: { google: { thought_signature: SKIP_THOUGHT_SIGNATURE } } }, ...rest] }
+  })
+}
+
 /** OpenAI's GPT-5 models refuse `max_tokens`; they take the same bound as `max_completion_tokens`. */
-const forProvider = (provider: string, body: Record<string, unknown>): Record<string, unknown> => {
+const forProvider = (provider: string, input: Record<string, unknown>): Record<string, unknown> => {
+  const body = input.messages === undefined ? input : { ...input, messages: withThoughtSignatures(provider, input.messages) }
   if (provider !== "openai" || body.max_tokens === undefined) return body
   const { max_tokens, ...rest } = body
   return { ...rest, max_completion_tokens: max_tokens }

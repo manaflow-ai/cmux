@@ -4,7 +4,7 @@ import { FileDoc, Folder } from "./conversation/icons";
 import type { AttachmentSource } from "./attachments";
 import { SourceBadge } from "./composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "./composer/sourceBadgeModel";
-import { fileSizeLabel } from "./fileAttachmentModel";
+import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 
 export type FileAttachmentInfo = {
   name: string;
@@ -16,7 +16,17 @@ export type FileAttachmentInfo = {
 };
 
 /** The same quiet file body in a draft and a sent message. Images keep their own thumbnails. */
-export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; remove?: ReactNode }) {
+export function FileAttachment({
+  file,
+  remove,
+  statusIcon,
+  failure,
+}: {
+  file: FileAttachmentInfo;
+  remove?: ReactNode;
+  statusIcon?: ReactNode;
+  failure?: string;
+}) {
   const language = usePaneLanguage();
   const folder = file.name.endsWith("/");
   const type = file.name.split(".").at(-1)?.toLowerCase() ?? "";
@@ -27,16 +37,18 @@ export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; rem
   const tailLength = Math.max(8, type.length + 1);
   const tail = chars.length > tailLength + 8 ? chars.slice(-tailLength).join("") : "";
   const head = tail ? chars.slice(0, -tailLength).join("") : file.name;
-  const size = folder ? undefined : fileSizeLabel(file.size, language);
+  const size = folder ? undefined : fileSizeLabel(shownFileSize(file), language);
   const from = useSourceLabel(file.source);
   return (
     <span
       className={`acpmux-file-chip${remove ? " acpmux-file-chip--removable" : ""}`}
       data-file-type={folder ? "folder" : type}
       /* tooltip-allow: the filename may be middle-truncated; the full path is secondary detail */
-      title={withSourceLabel(file.path ?? file.name, from)}
+      title={failure ?? withSourceLabel(file.path ?? file.name, from)}
     >
-      {folder ? (
+      {statusIcon ? (
+        <span className="acpmux-file-chip__status">{statusIcon}</span>
+      ) : folder ? (
         <Folder size={16} />
       ) : key || archive ? (
         <svg

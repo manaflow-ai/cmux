@@ -41,6 +41,12 @@ const PROVIDER_NAMES: Record<string, string> = {
   zai: "Z.ai",
 };
 
+/// A provider's name as it writes it, for its id ("opencode-go" is "OpenCode Go"); any other id
+/// capitalized.
+export function providerName(id: string): string {
+  return PROVIDER_NAMES[id.toLowerCase()] ?? (id ? id[0]!.toUpperCase() + id.slice(1) : id);
+}
+
 const BRACKET_TAG = /\s*\[([^\]]+)\]\s*$/;
 
 /// Who serves a row and what model it is: `provider` (absent for a bare id), `key` (the model's id
@@ -59,7 +65,7 @@ export function providerOf(model: VariantModel): {
   const tag = BRACKET_TAG.exec(bare)?.[1];
   // The route prefix is authoritative. Names can carry an owner ("Qwen/Coder 3")
   // that must never be shown as the provider (OpenRouter).
-  const provider = id ? (PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
+  const provider = id ? providerName(id) : undefined;
   return {
     ...(provider ? { provider } : {}),
     key: (parts.at(-1) ?? model.id).toLowerCase(),
