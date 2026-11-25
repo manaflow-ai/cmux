@@ -13,7 +13,7 @@ import { watch, deliverWatch } from "./watch.ts";
 const g = globalThis as Record<string, unknown>
 /** Each widget mount's now() clock, set by `__cmuxAppTick`. */
 const widgetClocks = new Map<string, Write<number>>()
-export const RUNTIME_VERSION = "1.3.0"
+export const RUNTIME_VERSION = "1.4.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 

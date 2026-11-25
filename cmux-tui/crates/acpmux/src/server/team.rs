@@ -27,6 +27,7 @@ pub(super) async fn handle(
         crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, &mesh, params).await,
         crate::rpc::method::MUX_TEAM_READ => read(hub, conn, &mesh, params).await,
         crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, &mesh, params).await,
+        crate::rpc::method::MUX_TEAM_LISTEN => listen(&mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -266,6 +267,60 @@ async fn ack(
         RpcError::internal(format!("the mesh hub did not accept the acknowledgement: {e}"))
     })?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
+}
+
+/// `_acpmux/team/listen`: open, list (`ls`) or close a listen on another member's agent address,
+/// or `read` what that address received. The hub decides who may listen (the address owner's
+/// grant) and answers a read only through an open listen, so a read page is passed on whole:
+/// [`may_read`] scopes this daemon's own addresses, not another member's.
+async fn listen(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
+    let op = required(params, "op")?;
+    let refused = |what: &str, e: crate::mesh::HubError| {
+        RpcError::invalid_params(format!("the mesh hub refused the listen {what}: {e}")).with_data(
+            json!({
+                "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
+                "retryable": !e.refused,
+            }),
+        )
+    };
+    let value = match op.as_str() {
+        "open" => {
+            let address = listen_address(params)?;
+            let ttl = params.get("ttlSeconds").and_then(Value::as_u64);
+            serde_json::to_value(
+                mesh.listen_open(&address, ttl).await.map_err(|e| refused("open", e))?,
+            )
+        }
+        "ls" => serde_json::to_value(mesh.listens().await.map_err(|e| refused("list", e))?),
+        "close" => {
+            let id = required(params, "id")?;
+            if !crate::mesh::is_listen_id(&id) {
+                return Err(RpcError::invalid_params("id must be a listen id (lsn_ and 32 hex)"));
+            }
+            serde_json::to_value(mesh.listen_close(&id).await.map_err(|e| refused("close", e))?)
+        }
+        "read" => {
+            let address = listen_address(params)?;
+            let before = params.get("before").and_then(Value::as_u64);
+            serde_json::to_value(
+                mesh.team_messages(false, Some(&address), before)
+                    .await
+                    .map_err(|e| refused("read", e))?,
+            )
+        }
+        _ => return Err(RpcError::invalid_params("op must be open, ls, close or read")),
+    };
+    Ok(value.unwrap_or(Value::Null))
+}
+
+/// The `to` of a listen, as `@member/agent`.
+fn listen_address(params: &Value) -> Result<String, RpcError> {
+    let raw = required(params, "to")?;
+    let address = format!("@{}", raw.strip_prefix('@').unwrap_or(&raw));
+    if !super::mesh_send::valid_team_address(&address) {
+        return Err(RpcError::invalid_params("to must be a team address, @member/agent"));
+    }
+    Ok(address)
 }
 
 pub(super) fn forbidden() -> RpcError {

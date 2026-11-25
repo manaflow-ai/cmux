@@ -32,10 +32,21 @@ extension SidebarViewComponents {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
-        /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
-        var tree: SidebarSessionTreeState?
-        /// Every row's pull request badge, tree or not.
-        var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
+        /// The session tree (`sidebar.sessionTree`): nesting, pull requests, folds (`SidebarSessionTree.shapeRevision`),
+        /// and apart from them its agents' states (`statesRevision`). Counters, not the tree's whole-list dictionaries:
+        /// a render compares no row (cmuxterm-hq#13493; it compared every session's state and badge on each render).
+        var treeShape: UInt64
+        var treeStates: UInt64
+        /// The drawn lineage (`SidebarSessionTree.parentsRevision`): a restore's arrival shows in one step.
+        var treeParents: UInt64
+        /// Every row's pull request badge, tree or not (`SidebarSessionTree.pullRequestsRevision`); the render patches
+        /// the rows whose badge changed against the badges it drew last (`SidebarView.drawnPullRequests`).
+        var pullRequests: UInt64
+        /// Whether the drawn tree has any parents (`revealsSelection`: the lineage arriving opens the selection's folds).
+        var treeHasParents: Bool
+        /// Agent-started rows retained by the current selection while the default hides them. A change here moves rows,
+        /// so selection painting cannot leave the previously selected helper visible.
+        var treeKeeps: Set<WorkspaceID>
         /// The session tree's chat history: Pinned and Earlier.
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
@@ -101,8 +112,13 @@ extension SidebarViewComponents {
             fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-            tree = SidebarSessionTree.shared.drawn
-            pullRequests = SidebarSessionTree.shared.pullRequests
+            treeShape = SidebarSessionTree.shared.shapeRevision
+            treeStates = SidebarSessionTree.shared.statesRevision
+            treeParents = SidebarSessionTree.shared.parentsRevision
+            pullRequests = SidebarSessionTree.shared.pullRequestsRevision
+            let drawnTree = SidebarSessionTree.shared.drawn(keeping: model.selection)
+            treeHasParents = !(SidebarSessionTree.shared.state?.parents.isEmpty ?? true)
+            treeKeeps = drawnTree?.keeps ?? []
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
@@ -120,7 +136,8 @@ extension SidebarViewComponents {
             rowFlows = CornerFlush.sidebarRowFlows
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
-            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
+            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize,
+                              DesignSettings.shared.overrides[.spaceButtonSpacing] ?? 0]
             // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
             topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
                       "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",
@@ -132,7 +149,12 @@ extension SidebarViewComponents {
     /// `parents` (an agent started or closed elsewhere) forces nothing: `SidebarSelectionTreeReveal` still reveals
     /// when the selected row's own ancestors change, and a fold the person made stays closed.
     static func revealsSelection(selectionChanged: Bool, from old: SidebarSessionTreeState?, to new: SidebarSessionTreeState?) -> Bool {
-        selectionChanged || ((old?.parents.isEmpty ?? true) && !(new?.parents.isEmpty ?? true))
+        revealsSelection(selectionChanged: selectionChanged, hadParents: !(old?.parents.isEmpty ?? true),
+                         hasParents: !(new?.parents.isEmpty ?? true))
+    }
+    /// ``revealsSelection(selectionChanged:from:to:)`` from whether the tree had parents and has them now (`RenderState.treeHasParents`).
+    static func revealsSelection(selectionChanged: Bool, hadParents: Bool, hasParents: Bool) -> Bool {
+        selectionChanged || (!hadParents && hasParents)
     }
 
     func observe() {
@@ -197,8 +219,13 @@ extension SidebarViewComponents {
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
+        // The agents' states alone draw only in a folded parent's roll-up (`SidebarLayout.treeRows`), and in the tray.
+        let tree = SidebarSessionTree.shared
+        let treeChanged = lastState?.treeShape != state.treeShape
+            || lastState?.treeStates != state.treeStates && tree.state != nil && !tree.collapsed.isEmpty
+        let treeSelectionChanged = lastState?.treeKeeps != state.treeKeeps
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || state.preferences.changesList(from: lastState?.preferences) || treeChanged || treeSelectionChanged
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus
@@ -207,12 +234,18 @@ extension SidebarViewComponents {
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
+        // A restore's arrival never moves rows on a spring, even right after a click or key (the user-intent window):
+        // the lineage acpmux's lanes bring (rows nest under the sessions that started them) and the order the launch
+        // hold lets go (`SidebarModel.releasedLaunchOrderRevision`). Leo, 2026-11-22, after a relaunch: "the sidebar
+        // re-rendered/re-ordered with some animations".
+        let arrives = Self.isRestoreArrival(from: lastState, to: state, released: model.releasedLaunchOrderRevision)
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Resolve the selected row's ancestors in its newly drawn lists. A drag or regrouping can
         // change those ancestors without changing either the selection or the daemon's parent map.
         selectionTreeReveal.update(selection: state.selection, model: model, tree: .shared,
-                                   force: Self.revealsSelection(selectionChanged: selectionChanged, from: lastState?.tree, to: state.tree))
+                                   force: Self.revealsSelection(selectionChanged: selectionChanged, hadParents: lastState?.treeHasParents ?? false,
+                                                                hasParents: state.treeHasParents))
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         // Minimal Mode or controls on hover too (``SidebarSectionsPreferences/hidesControlsUntilHover``): its
         // controls fade to the new rule.
@@ -237,18 +270,18 @@ extension SidebarViewComponents {
                 showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
                 // A window's first draw (its seed wrote its space) lists a create's row as the reload below does: the row's measure ends here.
                 if lastState == nil { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
-            } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
+            } else if selectionChanged, rowsChanged, !treeSelectionChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it
                 // wait under the pointer like any change nobody asked for.
                 if list.showModelChange(animates: false) { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
+                list.reload(animated: !arrives && Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
                 if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if rowsChanged {
                 // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
-                if list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections)) {
+                if list.showModelChange(animates: !arrives && Self.animatesReload(from: previous, to: model.sections)) {
                     SidebarNewRowTimer.shared.drew(model.sections, in: window)
                 }
             }
@@ -256,19 +289,31 @@ extension SidebarViewComponents {
         }
         // A badge change (a pull request read landed) patches the rows whose badge changed, as a status does; the list
         // is laid out again only when one's height changes (it laid out all 500 rows per answer: sidebar-lag-DESIGN.md).
-        if let last = lastState, last.pullRequests != state.pullRequests, !listChanged {
-            let ids = Set(last.pullRequests.keys).union(state.pullRequests.keys).filter { last.pullRequests[$0] != state.pullRequests[$0] }
-            let rows = ids.compactMap { list.workspaces[$0] }
-            if !rows.isEmpty { list.patchRows(rows) }
+        if lastState?.pullRequests != state.pullRequests {
+            let (drawn, badges) = (drawnPullRequests, tree.pullRequests)
+            if lastState != nil, !listChanged {
+                let ids = Set(drawn.keys).union(badges.keys).filter { drawn[$0] != badges[$0] }
+                let rows = ids.compactMap { list.workspaces[$0] }
+                if !rows.isEmpty { list.patchRows(rows) }
+            }
+            drawnPullRequests = badges
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         // A built-in listed as a row (the Chief in a group) draws its info there: its status or unread change reloads nothing.
         if let old = lastState?.itemInfo, old != state.itemInfo { list.patchItemInfo(from: old, to: state.itemInfo) }
-        if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
+        if listChanged || lastState?.treeShape != state.treeShape || lastState?.treeStates != state.treeStates { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
         lastState = state
     }
+    /// Whether the change from `old` to `new` is a restore's arrival, which shows in one step: the drawn lineage changed
+    /// (only acpmux's lanes and the saved lineage write it, never a gesture here), or `new` shows the structural set
+    /// that ended the launch order hold (`released`).
+    static func isRestoreArrival(from old: RenderState?, to new: RenderState, released: UInt64?) -> Bool {
+        guard let old else { return false }
+        return old.treeParents != new.treeParents || (released != nil && released == new.sectionsRevision && old.sectionsRevision != new.sectionsRevision)
+    }
+
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)

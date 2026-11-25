@@ -11,6 +11,8 @@ import base64
 import importlib.util
 import io
 import os
+import re
+import shutil
 import json
 import sys
 import subprocess
@@ -642,6 +644,38 @@ class Workflow(unittest.TestCase):
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
 
+    def test_the_rust_layer_names_only_a_tree_something_will_publish(self) -> None:
+        # tree= makes the controller wait up to 50 min for the tree's completion.json. A pull request head's push
+        # builds no tree (ci-min-per-pr-30) and the dispatch below is off (#53824), so a named unpublished tree was a
+        # 50 min wait for nothing before the fleet step built the head's daemon itself (builds_head_daemon).
+        # Cases: curl exit, CMUX_TUI_BRANCH_ON_REQUEST, CMUX_TUI_LOOK_DISPATCH, the head's Cmux-Daemon-Tests value.
+        real_git = shutil.which("git")
+        cases = ((0, "1", "", "", True), (22, "1", "", "", False), (22, "0", "", "", True),
+                 (22, "1", "", " Run\n", True), (22, "1", "", "skip\n", False), (22, "1", "1", "", True))
+        for answer, on_request, dispatch, trailer, named in cases:
+            with self.subTest(curl_exit=answer, on_request=on_request, dispatch=dispatch, trailer=trailer):
+                fake = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-tree-")))
+                (fake / "curl").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$*\" >> {fake}/asked\nexit {answer}\n")
+                (fake / "curl").chmod(0o755)
+                # git log answers the trailer; the tree key's own git reads go to the real git.
+                (fake / "git").write_text(f'#!/bin/bash\nif [[ "$1" == log ]]; then printf "{trailer}"; exit 0; fi\n'
+                                          f'exec {real_git} "$@"\n')
+                (fake / "git").chmod(0o755)
+                done, out, calls = self.run_block("rust", "", {"HEAD_SHA": HEAD, "GITHUB_RUN_ID": "1",
+                                                               "BRANCH_ON_REQUEST": on_request, "LOOK_DISPATCH": dispatch,
+                                                               "PATH": f"{fake}:{os.environ['PATH']}"},
+                                                  step="The head's cmux-tui tree key")
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(calls, [])
+                self.assertRegex((fake / "asked").read_text(),
+                                 r"https://files\.cmux\.com/cmux-tui/tree/[0-9a-f]{40,64}/completion\.json")
+                written = out.read_text()
+                self.assertRegex(written, r"(?m)^key=[0-9a-f]{40,64}$")  # the dispatch step still reads it
+                self.assertEqual(bool(re.search(r"(?m)^tree=[0-9a-f]{40,64}$", written)), named, written)
+        block = "\n".join(self.job_block("rust"))
+        self.assertIn("key: ${{ steps.key.outputs.tree }}", block)
+        self.assertIn("BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}", block)
+
     def test_the_request_job_name_is_the_controllers_request(self) -> None:
         # The build fleet controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go hotLookJobName) reads
         # the request from this job's name; nothing else carries it. Its fields come only from the target job, which
@@ -696,6 +730,96 @@ class Workflow(unittest.TestCase):
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
         self.assertIn("workflow_dispatch:", text)
+
+
+PR_SH = ROOT / "scripts" / "cmux-next" / "hot-verify-pr.sh"
+BUDGET_WAIT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
+HEAD = "a" * 40
+
+
+class PullRequestRead(unittest.TestCase):
+    """hot-verify-pr.sh reads the PR without sleeping: REST, then GraphQL's own hour, then a capped wait."""
+
+    def run_read(self, fake_body: str) -> tuple[subprocess.CompletedProcess, dict[str, str], str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            real = t / "real"
+            real.mkdir()
+            calls = t / "calls.log"
+            fake = real / "gh"
+            fake.write_text("#!/usr/bin/env bash\n" f"echo \"$*\" >> {calls}\n" + textwrap.dedent(fake_body))
+            fake.chmod(0o755)
+            wrap = t / "wrap"
+            wrap.mkdir()
+            gh = wrap / "gh"
+            # The wrapper as --install writes it, pointed at the fake gh.
+            gh.write_text(BUDGET_WAIT.read_text().replace("REAL_GH=gh ", f"REAL_GH='{fake}' ", 1))
+            gh.chmod(0o755)
+            out = t / "out"
+            out.write_text("")
+            env = {
+                "PATH": f"{wrap}:/usr/bin:/bin", "PR": "42", "HEAD_SHA": HEAD, "LAYERS": "web",
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(out),
+                "GITHUB_STEP_SUMMARY": str(t / "summary"), "RUNNER_TEMP": str(t),
+                "GH_TOKEN": "t0", "GH_BUDGET_WAIT_MAX_SECONDS": "0",
+            }
+            done = subprocess.run(["bash", str(PR_SH)], env=env, capture_output=True, text=True, timeout=60)
+            lines = dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
+            return done, lines, calls.read_text() if calls.exists() else ""
+
+    def test_rest_answers(self) -> None:
+        done, out, calls = self.run_read(f"""
+            [[ "$2" == graphql ]] && exit 9
+            printf 'manaflow-ai/cmux\\t{HEAD}\\tfeat-cmux-next\\topen\\tfalse\\t-\\t-\\n'
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertNotIn("graphql", calls)
+
+    def test_spent_rest_hour_reads_graphql_without_sleeping(self) -> None:
+        done, out, calls = self.run_read(f"""
+            if [[ "$2" == rate_limit ]]; then echo 0; exit 0; fi
+            if [[ "$2" == graphql ]]; then
+              printf 'manaflow-ai/cmux\\t{HEAD}\\tfeat-cmux-next\\topen\\tfalse\\t-\\t-\\n'; exit 0
+            fi
+            echo "gh: API rate limit exceeded for installation ID 1 (HTTP 403)" >&2; exit 1
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["pr_head"], HEAD)
+        self.assertIn("graphql", calls)
+
+    def test_graphql_merged_state_reads_as_closed_and_merged(self) -> None:
+        done, out, _ = self.run_read("""
+            if [[ "$2" == graphql ]]; then
+              # what gh's --jq prints for a merged pull request whose merge commit is the head
+              printf 'manaflow-ai/cmux\\tbbbb\\tfeat-cmux-next\\tclosed\\tfalse\\t2026-11-24T00:00:00Z\\t%s\\n' "$HEAD_SHA"; exit 0
+            fi
+            echo "API rate limit exceeded" >&2; exit 1
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+
+    def test_graphql_jq_maps_the_states(self) -> None:
+        text = PR_SH.read_text()
+        self.assertIn('if .state == "OPEN" then "open" else "closed" end', text)
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS=0 gh api graphql", text)
+
+    def test_both_refused_ends_with_the_refusal(self) -> None:
+        done, _, calls = self.run_read("""
+            if [[ "$2" == rate_limit ]]; then echo 0; exit 0; fi
+            echo "API rate limit exceeded" >&2; exit 1
+            """)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(calls.count("pulls/42"), 2)
+
+    def test_workflow_reads_take_the_spare_and_target_caps_its_wait(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 3)
+        target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
+        self.assertIn("permission-pull-requests: read", target)
 
 
 if __name__ == "__main__":

@@ -134,7 +134,9 @@ test("a new frame shows only once it has decoded, and the one before stays until
 
 test("a click enlarges the card and a second shrinks it; another session's card starts small", async () => {
   const container = installDom();
-  await render(container, running);
+  // A session of its own: the size a click asks for stays in the page's store for that session.
+  const clicked = { ...running, session: "cua_clicks" };
+  await render(container, clicked);
   const button = () => container.querySelector<HTMLButtonElement>(".acpmux-cu-preview__open")!;
   expect(card(container)?.hasAttribute("data-expanded")).toBe(false);
   await act(async () => button().click());
@@ -143,6 +145,6 @@ test("a click enlarges the card and a second shrinks it; another session's card 
   await act(async () => button().click());
   expect(card(container)?.hasAttribute("data-expanded")).toBe(false);
   await act(async () => button().click());
-  await render(container, { ...running, session: "cua_t2" });
+  await render(container, { ...running, session: "cua_clicks_next" });
   expect(card(container)?.hasAttribute("data-expanded")).toBe(false);
 });

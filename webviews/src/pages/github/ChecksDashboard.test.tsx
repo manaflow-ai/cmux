@@ -28,6 +28,7 @@ function render(checks: DashboardChecks): string {
     patches: {},
     merge: { phase: "idle" },
     rerun: { phase: "idle" },
+    write: { phase: "idle" },
     checks,
   };
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as GitHubStore;
