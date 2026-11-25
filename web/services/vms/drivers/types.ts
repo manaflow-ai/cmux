@@ -793,14 +793,16 @@ export class ProviderStateConflictError extends ProviderError {
 export type ProviderConflictKind = "capacity" | "state" | "unresponsive" | "host_recovery";
 
 /**
- * Classifies a provider failure that is a 409 refusal. The first error in the
- * cause chain that carries an HTTP status decides; it must be 409. Freestyle
+ * Classifies a provider failure that is a 409 or 429 refusal. The first error
+ * in the cause chain that carries an HTTP status decides. Any 429
+ * (`TOO_MANY_REQUESTS`, or `INFRASTRUCTURE_OVERLOADED` when the start queue
+ * wait expired) is capacity: the provider asks us to come back later. Freestyle
  * answers capacity as `CONFLICT` "no manager has enough capacity" or
  * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, a
  * machine in the wrong state (still starting, not running) as `CONFLICT`, and
  * a machine whose disk is pinned to an unreachable host as `CONFLICT` naming
  * the disk head or a recovery hold.
- * Every other status, any other 409, and a 409 that never reached the
+ * Every other status, any other 409, and a refusal that never reached the
  * provider is null.
  */
 /** Freestyle's placement refusal: "no manager has enough capacity for vm". */
@@ -827,6 +829,7 @@ export function providerConflictKind(err: unknown): ProviderConflictKind | null 
     if (typeof current !== "object") return null;
     const record = current as { status?: unknown; code?: unknown; message?: unknown; body?: { code?: unknown; message?: unknown }; cause?: unknown };
     if (typeof record.status === "number") {
+      if (record.status === 429) return "capacity";
       if (record.status !== 409) return null;
       const code = typeof record.code === "string" ? record.code : typeof record.body?.code === "string" ? record.body.code : "";
       const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";

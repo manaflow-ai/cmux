@@ -978,8 +978,9 @@ export const vmWorkflowErrorResponders = {
     if (guestInstall) {
       return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
     }
-    // A provider 409 is a refusal with a reason, not an outage: no room for
-    // the machine, an unresponsive guest, or a machine in the wrong state.
+    // A provider 409 or 429 is a refusal with a reason, not an outage: no room
+    // for the machine (or a rate limit), an unresponsive guest, or a machine
+    // in the wrong state.
     switch (providerConflictKind(error.cause)) {
       case "capacity": return vmProviderCapacityResponse(error, context.locale);
       case "host_recovery": return vmHostRecoveryResponse(error, context.locale);
@@ -1430,9 +1431,9 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
 
 /**
  * The provider has no room for the machine right now (Freestyle 409
- * capacity / placement refusal). Nothing was created or changed, and the
- * same request can succeed once capacity frees up: a retryable 503 with
- * Retry-After. Not a per-request operator fault; its rate is alerted.
+ * capacity / placement refusal, or any 429 rate limit or overload). Nothing
+ * was created or changed, and the same request can succeed once capacity
+ * frees up: a retryable 503 with Retry-After. Not a per-request operator fault; its rate is alerted.
  */
 async function vmProviderCapacityResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmProviderCapacityCopy(locale);
