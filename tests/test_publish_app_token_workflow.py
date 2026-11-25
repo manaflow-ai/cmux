@@ -50,6 +50,10 @@ APP_TOKEN_EXEMPT = {
         "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
         "it writes nothing to a release and sends no github.token"
     ),
+    "nightly-next-deltas": (
+        "builds and uploads the nightly-next deltas after the feed with the Sparkle key and the nightly-next "
+        "R2 keys; it writes nothing to a release and sends no github.token"
+    ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
 # nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
