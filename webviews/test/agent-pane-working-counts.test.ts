@@ -10,7 +10,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { openRunningTray } from "./support/openRunningTray";
+import { openFinishedTrayRows, openRunningTray } from "./support/openRunningTray";
 import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 
 await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
@@ -223,6 +223,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await tray.waitFor({ timeout: 5_000 });
     // It starts folded to its header (cmux#28875); the person opens it.
     await openRunningTray(page);
+    // What ended folds under one line beside running work; open it to read the finished card.
+    await openFinishedTrayRows(page);
     // What runs is listed first, newest first (#33364: Tester started after Reviewer); the Linter
     // that ended stays as a finished card under it (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray
