@@ -183,6 +183,7 @@
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
+				CE7A0000000000000000004A /* Pack webviews-app chunks */,
 			);
 			buildRules = (
 			);
@@ -853,6 +854,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
+		};
+		CE7A0000000000000000004A /* Pack webviews-app chunks */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/pack-webviews-chunks.py",
+			);
+			name = "Pack webviews-app chunks";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The viewers' lazy chunks stored raw-deflated in the app, inflated in memory when a page asks (CMUX-570).\n# After Resources: Xcode copies webviews-app whole, then this replaces each chunk with <name>.deflate\n# (CEFShim cmux_page_packed.h for Chromium, CmuxNextPages PagePackedFile.swift for WebKit and the live loop).\nexec /usr/bin/env python3 -I \"${SRCROOT}/scripts/cmux-next/pack-webviews-chunks.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/markdown-viewer/webviews-app\"\n";
 		};
 		CE7A00000000000000000043 /* Bundle MediaRemote adapter */ = {
 			isa = PBXShellScriptBuildPhase;

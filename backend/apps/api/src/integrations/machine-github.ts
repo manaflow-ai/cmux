@@ -28,11 +28,11 @@ const TEAM = /^team_[0-9a-f]{20}$/
 const fail = (status: number, code: string, message: string): TokenFail => ({ ok: false, status, code, message })
 
 /**
- * The entrypoint answers only with PLATFORM_MACHINE_GITHUB "on", in development (and tests), as AgentGateway's
- * PLATFORM_AGENT_GATEWAY does: off by default, so a binding added elsewhere mints and revokes nothing.
+ * Joined machines get scoped installation tokens in every environment, on by default (Leo: killer capabilities ship
+ * on). The entrypoint is reachable only through cmux-platform's CMUX_MACHINE_GITHUB service binding, which checks
+ * the machine's `cmm_` credential first. PLATFORM_MACHINE_GITHUB "off" is the kill switch: it mints and revokes nothing.
  */
-export const machineGitHubOn = (env: Pick<Env, "PLATFORM_MACHINE_GITHUB" | "ENVIRONMENT">) =>
-  env.PLATFORM_MACHINE_GITHUB === "on" && (env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test")
+export const machineGitHubOn = (env: Pick<Env, "PLATFORM_MACHINE_GITHUB" | "ENVIRONMENT">) => env.PLATFORM_MACHINE_GITHUB !== "off"
 const off = () => fail(404, "platform.machine_github_off", "joined machine GitHub tokens are off in this environment")
 
 /** The machine's ask, decoded exactly as POST /v1/integrations/github/token decodes a person's (no team, no connection). */
