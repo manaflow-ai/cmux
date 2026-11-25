@@ -46,9 +46,18 @@ import Testing
         let strip = try #require(row.content?.subagents)
         #expect(strip.rows.count == SidebarSubagentStrip.visibleRows)
         #expect(strip.rows.first?.subagent.id == "t3", "the latest ones")
-        #expect(strip.more == 35)
+        #expect(strip.more == 3, "the listed ones past five, never the lifetime 40")
         #expect(strip.lineCount == 6)
         #expect(Strings.moreSubagents(35) == "35 more")
+    }
+
+    /// Leo, 2026-11-25: a coordinator row read "4,272 more" under its five rows: every helper it ever started.
+    /// "N more" counts only the listed (recent) ones past five, so a lifetime total never shows.
+    @Test func moreNeverCountsTheLifetimeTotal() throws {
+        let row = try #require(Self.layout(Self.subagents([.running, .done, .failed], total: 4_277), tree: SidebarSessionTreeState()))
+        let strip = try #require(row.content?.subagents)
+        #expect(strip.more == 0)
+        #expect(strip.lineCount == 3)
     }
 
     @Test func aFoldedChatShowsOneStackedLine() throws {
@@ -59,7 +68,7 @@ import Testing
         #expect(strip.marks.first == .running)
         #expect(Strings.subagentStack(strip) == "2 running")
         let finished = try #require(Self.layout(Self.subagents([.done, .done, .failed], total: 9), tree: tree)?.content?.subagents)
-        #expect(Strings.subagentStack(finished) == "8 done · 1 failed")
+        #expect(Strings.subagentStack(finished) == "2 done · 1 failed", "the listed ones, never the lifetime 9")
         let stopped = try #require(Self.layout(Self.subagents([.done, .stopped, .stopped]), tree: tree)?.content?.subagents)
         #expect(stopped.done == 1, "a stopped subagent is not done")
     }
