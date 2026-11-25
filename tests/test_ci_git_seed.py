@@ -190,6 +190,88 @@ class GitSeedTests(unittest.TestCase):
         self.run_seed("restore", workspace)
         self.assertEqual(git("rev-parse", "HEAD", cwd=workspace), self.main)
 
+    def runner_workspace(self, runner: str) -> Path:
+        """<parent>/<runner>/_work/<repo>/<repo>, as a self-hosted runner lays it out."""
+        workspace = self.base / "runners" / runner / "_work" / "super" / "super"
+        workspace.mkdir(parents=True)
+        return workspace
+
+    def warm_sibling(self, runner: str, sha: str) -> Path:
+        """Another runner of this host after a job that checked SHA out."""
+        workspace = self.runner_workspace(runner)
+        git("clone", "-q", "--depth=1", "--recurse-submodules", "--shallow-submodules",
+            f"file://{self.super}", str(workspace), env=self.env)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=workspace), sha)
+        return workspace
+
+    def host_env(self) -> None:
+        # No bucket: only a sibling can seed. A plain copy stands in for
+        # clonefile(2) where the test's file system has none.
+        self.env.update(CI_CACHE_R2_PUBLIC_URL=f"file://{self.base}/no-bucket", GIT_SEED_CLONE_ONLY="0")
+        self.env["RUNNER_TEMP"] = str(self.base / "runners" / "temp")
+        Path(self.env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
+
+    def test_a_cold_runner_is_seeded_from_a_sibling_runner_of_the_host(self):
+        self.warm_sibling("runner-1", self.main)
+        tested = commit(self.super, "app.txt", "pull request")
+        workspace = self.runner_workspace("runner-2")
+        self.host_env()
+        result = self.run_seed("restore", workspace)
+        self.assertIn("GIT_SEED_METRIC source=host", result.stdout)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=workspace), self.main)
+        self.assertEqual(git("for-each-ref", "--format=%(refname)", cwd=workspace).splitlines(), ["refs/git-seed/main"])
+        # The sibling's config, hooks and index stay with the sibling.
+        self.assertFalse((workspace / ".git" / "index").exists())
+        self.checkout(workspace, tested)
+        self.assertEqual((workspace / "app.txt").read_text(), "pull request")
+        self.assertEqual((workspace / "vendor/module/m.txt").read_text(), "module v1")
+        self.assertEqual(git("status", "--porcelain", cwd=workspace), "")
+
+    def test_the_newest_sibling_seeds_and_the_sibling_is_left_as_it_was(self):
+        old = self.warm_sibling("runner-1", self.main)
+        newer = commit(self.super, "app.txt", "main moved")
+        new = self.warm_sibling("runner-3", newer)
+        os.utime(old / ".git" / "HEAD", (1_000_000_000, 1_000_000_000))
+        before = sorted(p.relative_to(new).as_posix() for p in (new / ".git").rglob("*"))
+        workspace = self.runner_workspace("runner-2")
+        self.host_env()
+        self.run_seed("restore", workspace)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=workspace), newer)
+        self.assertEqual(sorted(p.relative_to(new).as_posix() for p in (new / ".git").rglob("*")), before)
+        self.assertEqual(git("status", "--porcelain", cwd=new), "")
+
+    def test_a_host_with_no_sibling_falls_back_to_the_bucket(self):
+        workspace = self.runner_workspace("runner-2")
+        self.host_env()
+        result = self.run_seed("restore", workspace)
+        self.assertIn("no other runner's repository", result.stdout)
+        self.assertIn("GIT_SEED_METRIC source=none", result.stdout)
+        self.assertEqual(list(workspace.iterdir()), [])
+
+    def test_a_sibling_that_cannot_be_cloned_is_not_copied(self):
+        self.warm_sibling("runner-1", self.main)
+        workspace = self.runner_workspace("runner-2")
+        self.host_env()
+        # Clone only, as on a runner, with a cp that cannot clone.
+        self.env["GIT_SEED_CLONE_ONLY"] = "1"
+        shim = self.base / "shim"
+        shim.mkdir()
+        (shim / "cp").write_text("#!/bin/sh\ncase \"$1\" in -c*) exit 1 ;; esac\nexec /bin/cp \"$@\"\n")
+        (shim / "cp").chmod(0o755)
+        self.env["PATH"] = f"{shim}:{self.env['PATH']}"
+        result = self.run_seed("restore", workspace)
+        self.assertIn("could not clone", result.stdout)
+        self.assertIn("GIT_SEED_METRIC source=none", result.stdout)
+        self.assertEqual(list(workspace.iterdir()), [])
+
+    def test_git_seed_host_0_skips_the_sibling(self):
+        self.warm_sibling("runner-1", self.main)
+        workspace = self.runner_workspace("runner-2")
+        self.host_env()
+        self.env["GIT_SEED_HOST"] = "0"
+        result = self.run_seed("restore", workspace)
+        self.assertIn("GIT_SEED_METRIC source=none", result.stdout)
+
     def test_a_corrupt_seed_installs_nothing(self):
         stage = self.seed_from_main()
         (stage / "HEAD").write_text("0" * 40 + "\n")

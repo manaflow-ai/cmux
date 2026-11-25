@@ -32,6 +32,17 @@
 #
 # Seeds are written only by main-branch jobs holding the R2 credentials, the
 # same trust as the Swift package and DerivedData seeds these jobs restore.
+#
+# On an owned Mac, `restore` first looks beside the workspace: the host's other
+# runner instances keep their own checkout of this repository
+# (<parent>/<runner>/_work/<repo>/<repo>), and the newest of them is a seed that
+# is already on this disk. Its objects are taken with clonefile(2) (`cp -c`),
+# which shares the blocks instead of downloading and unpacking an archive, and
+# they are as fresh as that runner's last job instead of main's last seed run
+# (hq RFD 0102's clone workspace, RFD 0148 row 27). It is the same account and
+# the same trust as the workspace a runner reuses job after job. No sibling on
+# this volume, or a clone that fails, falls through to the R2 seed above.
+# GIT_SEED_HOST=0 skips it.
 set -euo pipefail
 
 mode="${1:-}"
@@ -52,13 +63,23 @@ submodules() {
     | sed -E 's/^submodule\.(.*)\.path (.*)$/\1\t\2/' || true
 }
 
+# Clone a directory's files (clonefile(2)); a plain copy only where the caller
+# accepts one. A host seed does not (GIT_SEED_CLONE_ONLY=1): a copy of another
+# runner's objects can cost more than the download it replaces.
+clone_tree() { # <source> <destination>
+  cp -cR "$1" "$2" 2>/dev/null && return 0
+  [ "${GIT_SEED_CLONE_ONLY:-0}" != 1 ] || { echo "git-seed: cannot clone $1" >&2; return 1; }
+  rm -rf "$2"
+  cp -R "$1" "$2"
+}
+
 stage_seed() { # <stage>; copies the seed out of WORKSPACE's repository
   local stage="$1" head
   cd "$workspace"
   head="$(git rev-parse HEAD)"
   is_commit_id "$head" || { echo "git-seed: HEAD is not a commit" >&2; exit 1; }
   mkdir -p "$stage"
-  cp -cR .git/objects "$stage/objects" 2>/dev/null || cp -R .git/objects "$stage/objects"
+  clone_tree .git/objects "$stage/objects"
   [ ! -f .git/shallow ] || cp .git/shallow "$stage/shallow"
   echo "$head" > "$stage/HEAD"
   local name path gitdir commit
@@ -69,8 +90,7 @@ stage_seed() { # <stage>; copies the seed out of WORKSPACE's repository
     commit="$(git -C "$path" rev-parse HEAD 2>/dev/null)" || continue
     is_commit_id "$commit" || continue
     mkdir -p "$stage/modules/$name"
-    cp -cR "$gitdir/objects" "$stage/modules/$name/objects" 2>/dev/null \
-      || cp -R "$gitdir/objects" "$stage/modules/$name/objects"
+    clone_tree "$gitdir/objects" "$stage/modules/$name/objects"
     [ ! -f "$gitdir/shallow" ] || cp "$gitdir/shallow" "$stage/modules/$name/shallow"
     echo "$commit" > "$stage/modules/$name/HEAD"
   done < <(submodules < .gitmodules)
@@ -83,6 +103,43 @@ save() {
   bash "${BASH_SOURCE[0]}" stage "$workspace" "$scratch/seed"
   "$HERE/r2-cache.sh" save "$scratch/seed" "$PREFIX$head"
   rm -rf "$scratch"
+}
+
+volume_of() { df -P "$1" 2>/dev/null | awk 'NR == 2 { print $1 }'; }
+
+# The newest checkout of this repository among this host's other runners, on
+# the volume of the directory the clone goes to.
+sibling_repository() { # <destination directory>
+  local tail root parent volume candidate best=""
+  case "$workspace" in */_work/*/*) ;; *) return 1 ;; esac
+  tail="${workspace##*/_work/}"
+  root="${workspace%/_work/*}"
+  parent="$(dirname "$root")"
+  volume="$(volume_of "$1")"
+  [ -n "$volume" ] || return 1
+  for candidate in "$parent"/*/_work/"$tail"; do
+    [ "$candidate" != "$workspace" ] || continue
+    [ -d "$candidate/.git/objects/pack" ] && [ -f "$candidate/.git/HEAD" ] || continue
+    # clonefile(2) does not cross volumes, and `cp -c` would copy instead.
+    [ "$(volume_of "$candidate/.git/objects")" = "$volume" ] || continue
+    if [ -z "$best" ] || [ "$candidate/.git/HEAD" -nt "$best/.git/HEAD" ]; then
+      best="$candidate"
+    fi
+  done
+  [ -n "$best" ] || return 1
+  echo "$best"
+}
+
+host_seed() { # <stage>; clones the seed out of a sibling runner's repository
+  local stage="$1" sibling started="$SECONDS"
+  [ "${GIT_SEED_HOST:-1}" != 0 ] || return 1
+  sibling="$(sibling_repository "$(dirname "$stage")")" || { echo "git-seed: no other runner's repository beside $workspace"; return 1; }
+  if ! GIT_SEED_CLONE_ONLY="${GIT_SEED_CLONE_ONLY:-1}" bash "${BASH_SOURCE[0]}" stage "$sibling" "$stage"; then
+    echo "git-seed: could not clone $sibling"
+    rm -rf "$stage"
+    return 1
+  fi
+  echo "git-seed: cloned $sibling in $((SECONDS - started))s"
 }
 
 fetch_seed() { # <stage>; downloads and unpacks the newest seed
@@ -170,14 +227,23 @@ restore() {
     echo "git-seed: $workspace already has a repository; leaving it to actions/checkout"
     return 0
   fi
-  local scratch
+  local scratch source=none started="$SECONDS"
   scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/git-seed.XXXXXX")"
   # Separate processes: errexit does not apply inside a function whose status
   # is tested, so a failed step would otherwise be installed as if it passed.
-  if ! bash "${BASH_SOURCE[0]}" fetch "$workspace" "$scratch/seed" \
-    || ! bash "${BASH_SOURCE[0]}" install "$workspace" "$scratch/seed"; then
-    echo "git-seed: no seed installed; actions/checkout clones from scratch"
+  if bash "${BASH_SOURCE[0]}" host "$workspace" "$scratch/seed" \
+    && bash "${BASH_SOURCE[0]}" install "$workspace" "$scratch/seed"; then
+    source=host
+  else
+    rm -rf "$scratch/seed" "$scratch/repo"
+    if bash "${BASH_SOURCE[0]}" fetch "$workspace" "$scratch/seed" \
+      && bash "${BASH_SOURCE[0]}" install "$workspace" "$scratch/seed"; then
+      source=r2
+    else
+      echo "git-seed: no seed installed; actions/checkout clones from scratch"
+    fi
   fi
+  echo "GIT_SEED_METRIC source=$source seconds=$((SECONDS - started))"
   rm -rf "$scratch"
 }
 
@@ -206,6 +272,7 @@ case "$mode" in
   update-submodules) shift 2; update_submodules "$@" ;;
   # Internal steps of `save` and `restore`.
   stage) stage_seed "${3:?}" ;;
+  host) host_seed "${3:?}" ;;
   fetch) fetch_seed "${3:?}" ;;
   install) install_seed "${3:?}" ;;
   *) usage ;;
