@@ -537,9 +537,7 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        if matches!(unanswered, Unanswered::Defer(_)) {
-            admission.listen();
-        }
+        admission.listen();
         tokio::select! {
             biased;
             answer = &mut setup => return answer,
@@ -555,6 +553,10 @@ impl Hub {
         admission.release();
         match unanswered {
             Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+            Unanswered::Guarded(guard) => {
+                guard()?;
+                Err(super::auto_resume::retry_turn::busy())
+            }
             Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
             Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
         }
@@ -712,7 +714,8 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                admission.commit();
+                // `inbox_accept` reads the shared config before it calls `accept`, which commits
+                // the admission. Until then the prompt can still be deferred and answered.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -843,8 +846,9 @@ impl Hub {
             }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let steer_id = prompt_id.clone();
+            // Steer setup can still wait on the child or family gate. Its first write and
+            // acceptance happen together, and the acceptance callback commits the admission.
             admission.enter("steer");
-            admission.commit();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
@@ -1280,6 +1284,10 @@ impl Hub {
             .resume_cut_ask
             .store(super::auto_resume::silent(provenance.as_ref()), Ordering::SeqCst);
         session.resumed_cut.store(false, Ordering::SeqCst);
+        // Whether this prompt's agent starts for it, for its start trace (`send_trace.rs`); read
+        // only when the session has one.
+        let trace_cold =
+            crate::send_trace::waiting(&session.id) && session.child.lock().await.is_none();
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
@@ -1571,6 +1579,7 @@ impl Hub {
             confirm_team_write || delivers_context,
             None,
             || {
+                crate::send_trace::handed(&session.id, trace_cold);
                 if delivers_context {
                     let mut m =
                         session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1890,6 +1899,10 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well says the pool answers again (`auto_resume/capacity_gate.rs`).
+        if result.is_ok() && !detached {
+            self.capacity_gate_answered(session);
+        }
         // A turn that ended well on a capacity fallback puts the chat's own model back
         // (`auto_resume/capacity_failover.rs`).
         if !detached

@@ -493,3 +493,159 @@ async fn a_prompt_waiting_on_a_held_turn_lock_is_answered_queued_by_its_due_time
     assert!(answer.get("stopReason").is_some(), "{answer}");
     assert_eq!(s.queue().len(), 0, "the queue drained");
 }
+
+/// An owner still importing its journal has reserved the next sequence numbers. If its
+/// next page is late, the same delivery can be retried without losing those numbers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admission_deadline_during_journal_restore_allows_same_id_after_restore() {
+    check_admission_while_restoring(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admission_deadline_during_deferred_setup_cannot_queue_into_a_parked_journal() {
+    check_admission_while_restoring(true).await;
+}
+
+async fn check_admission_while_restoring(hold_setup: bool) {
+    let (hub, s) = chat().await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (_release, release_rx) = tokio::sync::oneshot::channel();
+    if hold_setup {
+        *hub.prompt_admission_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    }
+    s.restoring.store(true, Ordering::SeqCst);
+    hub.park_writes(&s, 17);
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let run = prompt(&hub, &s, "recover", "after the restore", tx);
+    if hold_setup {
+        tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    }
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(2);
+    let refusal =
+        tokio::time::timeout(bound, run).await.expect("bounded restore wait").unwrap().unwrap_err();
+    let data = refusal.data.unwrap();
+    assert_eq!(data["wait"], "prompt waiting for journal restore");
+    assert_eq!(data["retryable"], true);
+    assert!(accepted.await.is_err(), "nothing accepted or queued during the restore");
+    assert!(s.queue().is_empty());
+    s.restoring.store(false, Ordering::SeqCst);
+    hub.unpark_writes(&s);
+    s.restore_done.notify_waiters();
+
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let retry = prompt(&hub, &s, "recover", "after the restore", tx);
+    let ack = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(ack["promptId"], "recover");
+    assert_ne!(ack["duplicate"], true);
+    tokio::time::timeout(WAIT, retry).await.unwrap().unwrap().unwrap();
+    let events = hub.events(&s.id, 0, 10000).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e.kind == "user_message" && e.msg["promptId"] == "recover")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_deferred_prompt_is_registered_at_insertion_and_settles_on_immediate_withdrawal() {
+    let (hub, session) = chat().await;
+    let stuck = session.child.lock().await;
+    let inspected = session.clone();
+    let (tx, registered) = tokio::sync::oneshot::channel();
+    *hub.queued_log_seam.lock().unwrap() = Some(Box::new(move || {
+        // The same queue lock still protects insertion and its durable record.
+        let restored = inspected.restored.lock().unwrap().clone();
+        tx.send(restored).unwrap();
+    }));
+    let remover = hub.clone();
+    let target = session.clone();
+    let opts = PromptOptions {
+        prompt_id: Some("withdraw-deferred".into()),
+        on_accepted: Some(Box::new(move |notice| {
+            assert_eq!(notice["deferred"], true);
+            assert!(remover.remove_queued(&target, "withdraw-deferred"));
+        })),
+        ..PromptOptions::default()
+    };
+    let answer = tokio::time::timeout(
+        WAIT,
+        hub.prompt_with(
+            &session,
+            vec![json!({"type":"text","text":"withdraw"})],
+            "test",
+            false,
+            opts,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let meta = &answer["_meta"]["acpmux"];
+    assert_eq!(meta["withdrawn"], true);
+    assert_eq!(
+        registered.await.unwrap(),
+        vec![("withdraw-deferred".to_owned(), meta["turnId"].as_str().unwrap().to_owned())]
+    );
+    assert!(session.queue().is_empty());
+    assert!(session.restored.lock().unwrap().is_empty());
+    drop(stuck);
+    assert!(!hub.events(&session.id, 0, 1000).unwrap().iter().any(|r| r.kind == "user_message"));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unanswered_race_guarded_prompt_refuses_without_a_durable_queue_entry() {
+    let (hub, session) = chat().await;
+    let mut runs = Vec::new();
+    for (id, cancelled) in [("race-active", false), ("race-cancelled", true)] {
+        let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+        let (hold, release) = tokio::sync::oneshot::channel();
+        *hub.prompt_admission_seam.lock().unwrap() = Some((arrived_tx, release));
+        let active = Arc::new(AtomicBool::new(true));
+        let guard = active.clone();
+        let opts = PromptOptions {
+            prompt_id: Some(id.to_owned()),
+            on_accepted: Some(Box::new(|_| panic!("an unanswered race prompt was accepted"))),
+            race_guard: Some(Arc::new(move || {
+                if guard.load(Ordering::SeqCst) {
+                    Ok(())
+                } else {
+                    Err(RpcError::invalid_params("race cancelled")
+                        .with_data(json!({"reason":"race.cancelled"})))
+                }
+            })),
+            ..PromptOptions::default()
+        };
+        let (hub, target) = (hub.clone(), session.clone());
+        let run = tokio::spawn(async move {
+            hub.prompt_with(
+                &target,
+                vec![json!({"type":"text","text":"guarded"})],
+                "test",
+                false,
+                opts,
+            )
+            .await
+        });
+        tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+        active.store(!cancelled, Ordering::SeqCst);
+        runs.push((cancelled, hold, run));
+    }
+    for (cancelled, _hold, run) in runs {
+        let err = tokio::time::timeout(WAIT, run).await.unwrap().unwrap().unwrap_err();
+        assert_eq!(
+            err.data.unwrap()["reason"],
+            if cancelled { "race.cancelled" } else { "retry.busy" }
+        );
+    }
+    assert!(session.queue().is_empty());
+    assert!(
+        !hub.events(&session.id, 0, 1000)
+            .unwrap()
+            .iter()
+            .any(|r| matches!(r.kind.as_str(), "user_message" | "queued"))
+    );
+    hub.shutdown_all().await;
+}
