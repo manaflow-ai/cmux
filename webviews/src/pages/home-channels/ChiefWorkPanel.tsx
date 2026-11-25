@@ -26,7 +26,15 @@ const agentRank = { waiting: 0, working: 1, failed: 2, idle: 3 };
 const taskRank = { running: 0, unknown: 1, failed: 2, cancelled: 2, done: 2 };
 
 /** A snapshot view: no timers, subscriptions or parallel copy of the Chief's work state. */
-export function ChiefWorkPanel({ snapshot, loading, stillTrying, onRefresh, onClose, strings, plans }: ChiefWorkPanelProps) {
+export function ChiefWorkPanel({
+  snapshot,
+  loading,
+  stillTrying,
+  onRefresh,
+  onClose,
+  strings,
+  plans,
+}: ChiefWorkPanelProps) {
   const { t } = strings;
   const experimentPlans = useExperimentArm(chiefPlans);
   const arm = plans ?? experimentPlans;
