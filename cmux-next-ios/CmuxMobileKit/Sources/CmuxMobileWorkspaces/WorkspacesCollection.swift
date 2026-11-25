@@ -246,7 +246,7 @@ final class WorkspacesListCell: UICollectionViewCell {
     var heights: WorkspacesHeightCache?
     var key: WorkspacesHeightCache.Key?
     /// The plain list's separator end, from the trailing edge.
-    static let separatorTrailing: CGFloat = 16
+    static let separatorTrailing = CmuxMobileListRowMetrics.separatorTrailing
     /// A hairline under a row, from the rows' text column to 16 pt from the trailing edge.
     var showsSeparator = false {
         didSet { hairline.isHidden = !showsSeparator }
@@ -403,7 +403,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     /// Each item's insets in its cell, as the SwiftUI list's row insets were.
     static func margins(_ item: WorkspacesListItem) -> EdgeInsets {
         switch item {
-        case .row: EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20)
+        case .row: CmuxMobileListRowMetrics.insets
         case .title: EdgeInsets(top: 14, leading: 0, bottom: 2, trailing: 20)
         case .group: EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20)
         case .folder: EdgeInsets(top: 10, leading: 0, bottom: 2, trailing: 20)

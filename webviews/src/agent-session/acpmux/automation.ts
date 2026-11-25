@@ -40,6 +40,8 @@ export type AutomationCompose = {
   /// Why Send is held now, or undefined: the sign-in notice's words, else `folder_question`,
   /// `cloud_start_out` or `sandbox_holds_chat`.
   blocked?(): string | undefined;
+  /// What decides whether the run row is offered now (sandboxOfferable), for the debug `chat_state` verb.
+  runPlace?(): Record<string, unknown>;
 };
 
 /// How long an automation verb waits for the chat's own action (pageAction).

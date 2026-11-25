@@ -1393,6 +1393,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `pair-requests-v1` | hostd `version` | The host serves `pair-requests`: a paired device answers a pairing request waiting on this Mac. |
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
+| `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
@@ -2087,6 +2088,103 @@ muted the Mac. A Mac with more than 20 boxes splits one event:
   `replayed` means another reply already used the nonce. hostd keeps each
   spent id's outcome on disk until it expires, and applies nothing while that
   file cannot be read.
+
+### Store and forward (`mailbox-send-v1`, API 0.18.0)
+
+A chat send or a composer queue action the phone makes while its Mac sleeps
+or is offline goes through the same mailbox, sealed and signed the same way,
+held for hours, and applied once, in order, when the Mac's signaling socket
+comes back. Every field below is optional on the wire: an older phone, hub or
+Mac keeps the reply mailbox above as it is.
+
+**Hub (Worker user hub).**
+
+- `POST /v1/devices/:macId/mailbox` takes `hold` (seconds, an integer from 1
+  to 86400; absent, 600). The answer adds `seq` and `expiresAt` (ms): a phone
+  that gets no `seq` talks to an older hub, which holds every item 10 minutes.
+- `seq` is per (Mac, phone): 1, 2, 3, ... in post order, never reused, also
+  after items expire or are settled. A retried post of the same item answers
+  its first `seq`.
+- Bounds: items with `hold` of at most 600 count against the 32 pending per
+  Mac as before. Longer holds count per (Mac, phone): at most 64 queued and
+  at most 524288 sealed characters (`429 rate_limited`, the phone's
+  `full`). An outcome stays readable 10 minutes past its item's expiry.
+- Delivery: `mailbox` items add `seq` (absent from an older hub). The hub
+  sends a Mac's queued items ordered by phone, then `seq`, at most 32 in one
+  frame, each once per socket; after each `mailbox_ack` it sends the next
+  page. An item posted while the socket is open goes at once unless 32 sent
+  items still wait for their ack on it. Items not acked are sent again on the
+  next socket.
+- `GET /v1/devices/:macId/mailbox/:id` adds `seq` and `expiresAt` for an item
+  that has them; `expired` is reported once `expiresAt` passed unsettled.
+
+**Mac (hostd).**
+
+- hostd keeps the highest settled `seq` per phone in
+  `<state>/mailbox-cursor.json` (0600), written after the item's outcome is
+  in `mailbox-spent.json` and before its ack is sent. An item whose `seq` is
+  at or under its phone's cursor is never applied: hostd answers its first
+  outcome from the spent file (signed), else `replayed`. With the spent file
+  claimed before applying, a redelivery, an ack lost on the way, a hub retry
+  or a hostd crash mid-apply never applies an item twice.
+- Order: a phone's items are applied in `seq` order. An item that cannot be
+  settled yet (`unavailable`) holds that phone's later items back, unacked,
+  until it settles; other phones' items go on.
+- An item with no `seq` (an older hub) is handled as before, by id alone.
+  Within a frame those go first, in frame order, then each phone's items by
+  `seq`; hostd handles one frame at a time. A held item's phone sends its
+  higher `seq`s to `later` until it settles; a hold not retried in 90 s
+  (its socket died) lapses.
+- The cursor moves only for an item that passed the seal, pairing, signature
+  and expiry checks: `seq` is the hub's and not signed, so a forged item
+  cannot move it. Gaps (an expired or unreadable item) are allowed.
+- An unreadable cursor file holds every item `unavailable`. An item under the
+  cursor whose spent record is still applying, or with an unreadable spent
+  file, is `unavailable`, not `replayed`. A failed cursor write is logged:
+  the spent file still stops a second apply.
+- Crash windows: after the spent claim and before its settle, a redelivery
+  answers `replayed` (as today); after the settle and before the cursor
+  write, it answers the first outcome signed and then moves the cursor.
+- hostd lists `mailbox-send-v1` in `version` when it takes the kinds below.
+  A phone routes a send to the mailbox only to a Mac that listed it on its
+  last link.
+
+**New kinds** (the sealed plaintext of "Reply mailbox"; `target.sessionId`
+required for both):
+
+- `send`: a chat message to an agent session. `action: {type: "text", text,
+  steer?}` (`steer` defaults to true, as Send in the chat). The mailbox item's
+  `id` is the composer's client message id, used as the acpmux `promptId`
+  (`resend: true`), so the same message sent over the link and through the
+  mailbox runs once whichever comes first.
+- `compose`: a composer queue action, keyed by its item id. `action: {type:
+  "queue", op: "update" | "remove" | "send_now" | "move", promptId, text?,
+  index?}` (`text` for `update`, `index` from 0 for `move`), applied as
+  `_acpmux/queue_edit` (`queue_remove` for `remove`). `text` (1 to 4096
+  bytes, not blank) is read only for `update` and `index` only for `move`. A
+  queued prompt that is gone (`_acpmux/info` fails, or the answer is
+  `{ok:false}` or `{removed:false}`) is `not_pending`. A `send` whose `steer`
+  is not a bool is refused; absent or null is true.
+- Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
+  `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps
+  600 s. The phone posts them with `hold` equal to its time left.
+
+**Phone (`cmux-mobile-link`, Rust).** One router decides each send: the link
+up and the Mac present goes the link; the link down or the Mac offline, with
+`mailbox-send-v1` from the Mac, goes the mailbox; neither, it fails as
+before. Both paths carry the same id, so a send that went the link and then
+the mailbox (or the reverse, after a link drop) runs once. Each item's state
+is `queued`, `applied`, `rejected` (with its reason) or `expired`; `applied`
+and `rejected` count only with the Mac's signed ack, else "Not confirmed by
+<Mac>".
+
+Phone details: it reads an item's state after 1, 2, 4 and 8 s, then every
+30 s until `expiresAt`. A `409` on a retried post counts as queued; its `seq`
+comes from the next read. A post answered with no `seq` came from an older
+hub: the phone takes `expiresAt` as its post time plus 600 s and never asks
+for a longer `hold` there. A `404` read before `expiresAt` (the hub lost the
+item) shows "Not confirmed by <Mac>", never a failure: the Mac may have
+applied it.
 
 ### Terminal replies
 
