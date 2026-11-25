@@ -19,11 +19,12 @@ extension ThemeTokens {
         let ground = surface.withAlpha(1)
         let secondary = textSecondary.composited(over: ground)
         let floor = min(ThemeTokens.minimumTextContrast, secondary.contrast(with: ground))
-        var alpha = groupFillTarget
-        while alpha > 0, secondary.contrast(with: textPrimary.withAlpha(alpha).composited(over: ground)) < floor {
-            alpha -= 0.005
+        // Whole half-percent steps, so repeated subtraction does not drift under a step (0.04999…).
+        var steps = Int((groupFillTarget * 200).rounded())
+        while steps > 0, secondary.contrast(with: textPrimary.withAlpha(Double(steps) / 200).composited(over: ground)) < floor {
+            steps -= 1
         }
-        return textPrimary.withAlpha(max(alpha, 0))
+        return textPrimary.withAlpha(Double(steps) / 200)
     }
 
     /// The edge of a grouped form's rows (``Palette/groupStroke``): a hairline (``separator``) where 4.5:1
