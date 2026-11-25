@@ -18,7 +18,7 @@
 //! Bring Back (`cmux_projection::way_back`) reads what the agent changed with three more dials,
 //! each one request and its answer, by projection `name`, mounted or not (the state folder
 //! outlives the mount and a daemon restart):
-//! - `{"id", "cmd": "projection.layer", "name"}`: answered `{"id", "ok": true, "data": {"bytes",
+//! - `{"id", "cmd": "projection.layer", "name", "prune"?}`: answered `{"id", "ok": true, "data": {"bytes",
 //!   "upper", "whiteouts", "mark"}}`, then that many bytes of the encoded
 //!   `cmux_projection::layer::Layer`. `mark` is the upper layer as it was when it was read
 //!   (`cmux_projection::state::mark`);
@@ -592,6 +592,10 @@ struct WayBackLine {
     /// [`PIN`]'s and [`UNPIN`]'s path, relative to the projected folder.
     #[serde(default)]
     path: Option<String>,
+    /// [`LAYER`]: leave dependency, cache and build folders out of the listing
+    /// (`cmux_projection::layer::Layer::collect_pruned`); they follow it as `pruned_bytes`.
+    #[serde(default)]
+    prune: bool,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -674,11 +678,28 @@ fn way_back_answer(
             // Taken before the listing: a write between the two makes the mark older than the
             // listing, so `projection.brought_back` finds it changed and keeps everything.
             let mark = cmux_projection::state::mark(&state).map_err(|error| io(&error))?;
-            let layer =
-                cmux_projection::layer::Layer::collect(&state).map_err(|error| io(&error))?;
-            let encoded = layer.encode().map_err(|error| io(&error))?;
-            let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
-                              "whiteouts": layer.whiteouts.len(), "mark": mark});
+            let (layer, pruned) = if line.prune {
+                cmux_projection::layer::Layer::collect_pruned(&state)
+            } else {
+                cmux_projection::layer::Layer::collect(&state).map(|layer| (layer, Vec::new()))
+            }
+            .map_err(|error| io(&error))?;
+            let mut encoded = layer.encode().map_err(|error| io(&error))?;
+            let mut data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                                  "whiteouts": layer.whiteouts.len(), "mark": mark});
+            if line.prune {
+                // The pruned folders follow the listing, so a dial with thousands of them
+                // (`__pycache__` in every package) never makes a long answer line.
+                let more = cmux_projection::layer::Layer::encode_pruned(&pruned)
+                    .map_err(|error| io(&error))?;
+                data["pruned_bytes"] = json!(more.len());
+                data["kept_on_machine"] = json!({
+                    "folders": pruned.len(),
+                    "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
+                    "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
+                });
+                encoded.extend_from_slice(&more);
+            }
             Ok((data, WayBackBody::Bytes(encoded)))
         }
         FILES => {
