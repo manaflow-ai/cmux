@@ -82,7 +82,7 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
     });
     return (
       <ChatUnavailableState
-        unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
+        unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine", recovery.resuming)}
         onResumeMachine={recovery.resume}
         // The settled card: no RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
         noteDelayMs={0}
@@ -103,6 +103,10 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
   expect(calls.filter((method) => method === "cloudMachine.attach")).toHaveLength(1);
   expect(calls).not.toContain("cloudMachine.open");
   expect(opened).toBe(true);
+  // cmux#55066: the machine reads live before its chat opens. The card the person clicked stays, with
+  // its spinner, instead of flashing to "Reconnecting…" or a blank page in between.
+  expect(mount.querySelector("[data-unavailable]")?.getAttribute("data-unavailable")).toBe("paused");
+  expect(mount.textContent).not.toContain("Reconnecting");
   await act(async () => root.render(null));
 });
 

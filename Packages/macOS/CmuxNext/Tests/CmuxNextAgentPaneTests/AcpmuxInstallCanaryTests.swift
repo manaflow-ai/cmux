@@ -21,7 +21,7 @@ struct AcpmuxInstallCanaryTests {
 
     /// The incident's shape: a field the relay does not accept refuses the very first frame.
     @Test func aFieldTheRelayDoesNotAcceptIsRefused() {
-        let frame = #"{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"_meta":{"acpmux":{"newField":true,"peerRowBatches":true}},"clientCapabilities":{},"clientInfo":{"name":"cmux-react-agent-pane","version":"1"},"protocolVersion":1}}"#
+        let frame = #"{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"newField":true,"_meta":{"acpmux":{"peerRowBatches":true}},"clientCapabilities":{},"clientInfo":{"name":"cmux-react-agent-pane","version":"1"},"protocolVersion":1}}"#
         let snapshot = AgentPaneTransport.Snapshot(isFirst: true, localAppToken: nil, socketPath: nil, modeFields: nil,
                                                    sessions: AcpmuxPaneSessions(), options: AcpmuxPermissionOptions())
         guard case .refuse(.refuse(let error, _, _, _), _) = AgentPaneTransport.checkOne(frame, snapshot) else {

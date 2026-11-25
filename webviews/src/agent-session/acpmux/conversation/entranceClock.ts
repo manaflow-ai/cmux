@@ -2,7 +2,7 @@
 // a turn: "the animation system is so borked and unintegrated"; a UI change is a state transition,
 // so every affected element moves together, with no pop-in).
 //
-// A row that enters fades in on a CSS animation (conversation.css `.acpmux-row--enter`, 80 ms).
+// A row that enters fades in on a CSS animation (conversation.css `.acpmux-row--enter`, 180 ms).
 // WebKit starts a CSS animation's clock when the row's style is first resolved, which is the commit
 // that mounts it (the transcript measures each new row there), not the frame that paints it. With a
 // busy main thread the first frame after that commit came 130 ms or more later, so the fade had
