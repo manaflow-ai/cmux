@@ -196,12 +196,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
             }
-            if store.visibleItems.isEmpty {
-                if store.syncState == .connecting && !store.hasKnownData {
-                    connectingState
-                } else {
-                    emptyState
-                }
+            switch FeedEmptyBody.resolve(isEmpty: store.visibleItems.isEmpty, sync: store.syncState,
+                                         filter: store.filter, known: store.hasKnownData) {
+            case .caughtUp: caughtUpState
+            case .noEvents: noEventsState
+            case nil: EmptyView()
             }
         }
         .frame(maxWidth: .infinity)
@@ -335,29 +334,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             if glyphs.count == 3 { break }
         }
         return glyphs
-    }
-
-    /// No events known yet and the Mac has not answered: not "Nothing yet".
-    private var connectingState: some View {
-        VStack(spacing: 10) {
-            // placeholder-ok: the account has no Feed snapshot or live result yet.
-            CmuxSpinner()
-            Text("Connecting to your Mac…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.top, 160)
-        .accessibilityIdentifier("feed.connecting")
-        .placeholderBound("feed.connecting", .milliseconds(0))
-    }
-
-    @ViewBuilder
-    private var emptyState: some View {
-        if store.filter == .needsYou {
-            caughtUpState
-        } else {
-            noEventsState
-        }
     }
 
     /// Needs you with nothing left: the point of the filter reached, said as such (an inbox's
@@ -531,3 +507,20 @@ private struct DoneUndoBar: View {
     }
 }
 #endif
+
+/// What an empty Feed shows under its chips. Before the Mac has answered (`.connecting`)
+/// nothing at all: no spinner and no "Connecting to your Mac…". The phone keeps connecting
+/// and the events fill in when they arrive (Leo, 2026-11-24: "all the connecting...
+/// indicators ... nah let's not do that. let's just keep optimistically connecting and
+/// reinforcing the connection"). "Nothing yet" only once the Mac has said so.
+enum FeedEmptyBody: Equatable {
+    case caughtUp, noEvents
+
+    /// `known`: the account's cached snapshot or a live result already said what the Feed holds,
+    /// so an empty Feed is truly empty even while the Mac reconnects.
+    static func resolve(isEmpty: Bool, sync: FeedStore.SyncState, filter: FeedFilter,
+                        known: Bool = false) -> FeedEmptyBody? {
+        guard isEmpty, sync == .live || known else { return nil }
+        return filter == .needsYou ? .caughtUp : .noEvents
+    }
+}

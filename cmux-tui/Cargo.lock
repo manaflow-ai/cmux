@@ -74,6 +74,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tag-cache",
  "cmux-tailnet",
+ "cmux-tailnet-join",
  "cmux-transport",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -1474,6 +1475,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bounded"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
 
@@ -2319,6 +2333,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
@@ -2982,6 +3004,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "backtrace",
  "base64",
  "bytes",
  "cmux-action-catalog",

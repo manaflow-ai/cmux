@@ -179,39 +179,15 @@ struct CloudChatsConnectMac: View {
 /// request (`AcpmuxHub.bind`, 20 s).
 let cloudConnectBudget: Duration = .seconds(40)
 
-/// The delayed status beneath the chat rows. The machine and its Mac take priority
-/// over the elapsed time when the available width only fits the connection message.
+/// The wait for a Cloud machine's chats draws nothing: no spinner, no "Connecting to <machine>
+/// through <Mac>…" and no count of seconds. The phone keeps connecting and the chats fill in
+/// when the machine answers (Leo, 2026-11-24: "all the connecting... indicators ... nah let's
+/// not do that. let's just keep optimistically connecting and reinforcing the connection").
+/// Past `cloudConnectBudget` the screen says why it stopped, with Retry (`CloudChatsConnectFailed`).
 struct CloudChatsConnecting: View {
-    let machine: String
-    let mac: String
-    let since: Date
-
     var body: some View {
-        let quiet = Int(QuietStatusGate.threshold.components.seconds)
-        TimelineView(ElapsedTextSchedule(since: since, quietSeconds: quiet)) { context in
-            let elapsed = Int(context.date.timeIntervalSince(since))
-            if elapsed >= quiet {
-                // placeholder-ok: a delayed connection status beneath the retained rows.
-                let message = Text("Connecting to \(machine) through \(mac)…")
-                let timing = Text("\(elapsed) s · up to \(cloudConnectBudget.components.seconds) s")
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) {
-                        message
-                        timing.foregroundStyle(.tertiary)
-                    }
-                    message
-                }
-                .lineLimit(1)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("\(message) \(timing)"))
-                .font(CmuxMobileTheme.standard.type.meta)
-                .foregroundStyle(.secondary)
-                .placeholderBound("cloud.chat.connecting", .milliseconds(0))
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 20)
-        .accessibilityIdentifier("cloudChats.connecting")
+        Color.clear.frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 }
 
@@ -290,7 +266,6 @@ private struct CloudMachineChatsScreen: View {
     @State private var selectedSession: String?
     @State private var error: String?
     @State private var refresh = 0
-    @State private var connectingSince = Date.now
     /// The relay was not ready within `cloudConnectBudget`.
     @State private var timedOut = false
     @State private var openedPreferred = false
@@ -361,11 +336,6 @@ private struct CloudMachineChatsScreen: View {
                         }
                     }
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if relay?.hub.isReady != true, failure == nil {
-                        CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
-                    }
-                }
                 .refreshable {
                     if let hub = relay?.hub, hub.isReady { await readList(hub, settle: false) }
                     else { refresh += 1 }
@@ -398,7 +368,6 @@ private struct CloudMachineChatsScreen: View {
         }
         .task(id: refresh) {
             timedOut = false
-            connectingSince = .now
             try? await Task.sleep(for: cloudConnectBudget)
             guard !Task.isCancelled, relay?.hub.isReady != true else { return }
             timedOut = true
