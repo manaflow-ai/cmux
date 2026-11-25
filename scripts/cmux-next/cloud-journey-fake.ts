@@ -81,6 +81,8 @@ const exec = (command: string) => {
   // The guest's boot 10 minutes ago and its bind 5 s before create was sent: a claimed spare.
   if (command.includes("guest_now")) return answer("guest_now " + Date.now() + " 600000\\nwall bound.json " + (createdAt - 5000) + "\\n");
   if (command.includes("CMUX_FIRST_TEXT")) return answer("@@first-text\\n");
+  // waitOwnerKind (OWNER_KIND_PROGRAM): the fixture's machine is an owner machine from its first exec.
+  if (command.includes("cmux-vm-kind-sync")) return answer("vm-kind=owner\\n");
   // A later turn: history lists the last sent prompt's marker, so the turn reads as started.
   if (command.includes("acp send")) lastMarker = /\\[journey turn [^\\]]+\\]/.exec(command)?.[0] ?? lastMarker;
   if (command.includes("acp --json history")) return answer(JSON.stringify({ turns: lastMarker ? [{ prompt: lastMarker + " ..." }] : [] }));
@@ -182,6 +184,8 @@ process.exit(await main(${JSON.stringify(args)}));
         PATH: process.env.PATH,
         CMUX_DOGFOOD_STACK_EMAIL: "fixture@example.invalid",
         CMUX_DOGFOOD_STACK_PASSWORD: "fixture-password",
+        // The fake has no platform spans to wait for: the journey's 5 s send-trace settle would eat bun's 5 s test budget.
+        CMUX_JOURNEY_SEND_TRACE_SETTLE_MS: "0",
         ...(fixture.login ? { CLAUDE_CODE_OAUTH_TOKEN: fixture.login } : {}),
         ...(fixture.github?.sandbox ? { CMUX_JOURNEY_GITHUB_REPO: fixture.github.sandbox } : {}),
       },
