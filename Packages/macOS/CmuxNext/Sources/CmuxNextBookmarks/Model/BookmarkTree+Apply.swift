@@ -16,13 +16,50 @@ extension BookmarkTree {
     /// (`bookmarks_apply`): this only maps the operation onto the wire and the answer back.
     @discardableResult
     public mutating func apply(_ operation: BookmarkOperation, now: Date = Date()) throws -> BookmarkChange {
-        let request = BookmarkApplyRequest(tree: ordered, ops: [BookmarkOpWire(operation)], nowMs: BookmarkTime.ms(now),
+        let (tree, results) = try Self.ask(ordered, [operation], now: now)
+        guard let result = results.first else { throw BookmarkError.unavailable }
+        let change = try result.get()
+        self = tree
+        return change
+    }
+
+    /// Applies `operations` in order in one `bookmarks_apply` call (one tree round trip
+    /// however many there are), with one result per operation. A refused operation changes
+    /// nothing and the rest still apply, as the daemon does with each op it is sent. Throws
+    /// only when the FFI does not answer, leaving the tree unchanged.
+    @discardableResult
+    public mutating func apply(_ operations: [BookmarkOperation],
+                               now: Date = Date()) throws -> [Result<BookmarkChange, BookmarkError>] {
+        guard !operations.isEmpty else { return [] }
+        let (tree, results) = try Self.ask(ordered, operations, now: now)
+        self = tree
+        return results
+    }
+
+    private static func ask(_ tree: [BookmarkNode], _ operations: [BookmarkOperation],
+                            now: Date) throws -> (BookmarkTree, [Result<BookmarkChange, BookmarkError>]) {
+        let request = BookmarkApplyRequest(tree: tree, ops: operations.map(BookmarkOpWire.init), nowMs: BookmarkTime.ms(now),
                                            seed: UInt64.random(in: 0..<(1 << 53)))
         guard let reply = WindowRules().call("bookmarks_apply", request, as: BookmarkApplyReply.self),
-              let result = reply.results.first else { throw BookmarkError.unavailable }
-        if let reason = result.reason { throw BookmarkError(reason: reason, message: result.message ?? "") }
-        self = BookmarkTree(ordered: reply.tree)
-        return BookmarkChange(isEmpty: result.changed != true)
+              reply.results.count == operations.count else { throw BookmarkError.unavailable }
+        let results = reply.results.map { result -> Result<BookmarkChange, BookmarkError> in
+            if let reason = result.reason { return .failure(BookmarkError(reason: reason, message: result.message ?? "")) }
+            return .success(BookmarkChange(isEmpty: result.changed != true))
+        }
+        return (BookmarkTree(ordered: reply.tree), results)
+    }
+}
+
+extension BookmarkOperation {
+    /// The operations of a batch to send to the daemon: each applied one that changed
+    /// something, and every applied import (the daemon mints its own ids for it).
+    public static func sent(_ operations: [BookmarkOperation],
+                            _ results: [Result<BookmarkChange, BookmarkError>]) -> [BookmarkOperation] {
+        zip(operations, results).compactMap { operation, result in
+            guard let change = try? result.get() else { return nil }
+            if case .importDrafts = operation { return operation }
+            return change.isEmpty ? nil : operation
+        }
     }
 }
 
