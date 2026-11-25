@@ -10,10 +10,10 @@ import { Spinner } from "../conversation/icons";
 import "./LiveCount.css";
 
 /// The states that need no word: the row's own glyph (a spinner, a check) says them.
-export const QUIET_STATES: ReadonlySet<string> = new Set(["running", "active", "completed", "done", "complete"]);
+const QUIET_STATES: ReadonlySet<string> = new Set(["running", "active", "completed", "done", "complete"]);
 
 /// Whether a state is worded on screen.
-export const stateWorded = (state: string) => !QUIET_STATES.has(state);
+const stateWorded = (state: string) => !QUIET_STATES.has(state);
 
 export function StateMark({
   state,

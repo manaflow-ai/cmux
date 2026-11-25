@@ -2,7 +2,8 @@ import React from "react";
 import { useT } from "../i18n";
 import type { SummarySubagent } from "./sessionSummary";
 import { STATE_LABEL } from "../subagents/subagentGroupModel";
-import { CountLine, countParts, live } from "./LiveCount";
+import { CountLine } from "./LiveCount";
+import { countParts, live } from "./countParts";
 
 /// Dots shown before the counts; the rest are counted, not drawn.
 const STACK = 4;

@@ -8,7 +8,8 @@ import { useId } from "react";
 import { useT } from "../i18n";
 import { cloudSetupActions, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
 import { Spinner } from "./icons";
-import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
+import { CloudSetupSteps } from "./CloudSetupSteps";
+import type { CloudSetupStepsLook } from "./cloudSetupStep";
 
 const LABELS = {
   connectChatGPT: "cloudSetup.chatgpt",

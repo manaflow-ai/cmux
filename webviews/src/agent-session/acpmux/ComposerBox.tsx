@@ -34,7 +34,8 @@ import { Slot } from "../../slots/Slot";
 import { composerCaretSlot } from "../../slots/composerCaret";
 import { watchFocusVisible } from "./focusVisibleMark";
 import { composerControlsAnchor } from "./composerControlsAnchor.experiment";
-import { ComposerCopyStatusLine, useComposerCopyStatus } from "./composer/ComposerCopyStatus";
+import { ComposerCopyStatusLine } from "./composer/ComposerCopyStatus";
+import { useComposerCopyStatus } from "./composer/useComposerCopyStatus";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.

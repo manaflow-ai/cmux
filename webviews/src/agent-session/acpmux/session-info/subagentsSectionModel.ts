@@ -3,7 +3,7 @@ import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { sessionStatus } from "./childSessionRowsModel";
-import { countParts, countText, live, type CountPart } from "../summary/LiveCount";
+import { countParts, countText, live, type CountPart } from "../summary/countParts";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
