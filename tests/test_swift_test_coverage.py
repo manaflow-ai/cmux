@@ -186,6 +186,10 @@ class TreeCheck(Fixture):
         self.registry([{"package": "Packages/Shared/Filtered", "target": "FilteredTests", "not_run": "a b c d e"},
                        {"package": "Packages/Shared/Owned", "target": "OwnedTests", "run_by": ".github/workflows/own.yml"}])
         self.assertIn("without a --filter", coverage.check_tree(self.root)[0])
+        # A filter naming exactly the registered target runs it (the package's other targets run on Linux).
+        write(self.root, ".github/workflows/own.yml", "on:\n  pull_request:\njobs:\n  t:\n    steps:\n"
+              "      - run: swift test --package-path Packages/Shared/Owned --filter OwnedTests\n")
+        self.assertEqual(coverage.check_tree(self.root), [])
 
     def test_a_malformed_registry_is_exit_2(self):
         self.registry([{"package": "Packages/Shared/Owned", "target": "OwnedTests"}])
@@ -246,6 +250,19 @@ class DiffCheck(Fixture):
                 result = self.run_script("--base", base)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertNotIn("::warning", result.stdout)
+
+    def test_a_target_swift_linux_packages_lists_passes(self):
+        # swift-linux-packages.yml runs a listed CmuxNext target on the pull requests that touch it.
+        base = self.commit()
+        self.add_agent_list_target()
+        listed = (self.root / "scripts/ci/swift-linux-packages.txt").read_text(encoding="utf-8")
+        write(self.root, "scripts/ci/swift-linux-packages.txt",
+              listed + "# comment\nPackages/macOS/CmuxNext  CmuxNextOtherTests,CmuxNextAgentListTests"
+              "  CMUX_SWIFTPM_TARGET_LINUX=1\n")
+        self.commit()
+        result = self.run_script("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("::error", result.stdout)
 
     def test_a_new_file_no_fast_tier_entry_covers_warns(self):
         base = self.commit()
