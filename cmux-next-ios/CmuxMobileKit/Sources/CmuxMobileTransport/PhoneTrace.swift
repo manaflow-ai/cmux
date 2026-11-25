@@ -35,13 +35,16 @@ public enum PhoneTrace {
     /// Runs `body` as one user action named `name`: every daemon request it makes is a span with
     /// this action's trace id, and the action itself is a span whose args say how many round
     /// trips it took against its floor (`floor_round_trips`, the fewest it could take).
+    /// Runs on the caller's actor (`isolation`), so a main-actor body stays there.
     public static func action<T>(_ name: String, floorRoundTrips: Int? = nil, args: [String: String] = [:],
+                                 isolation: isolated (any Actor)? = #isolation,
                                  _ body: () async throws -> T) async throws -> T {
-        try await action(name, floorRoundTrips: floorRoundTrips, args: args, recorder: recorder, body)
+        try await action(name, floorRoundTrips: floorRoundTrips, args: args, recorder: recorder, isolation: isolation, body)
     }
 
     /// ``action(_:floorRoundTrips:args:_:)`` into `recorder` (tests pass their own).
     static func action<T>(_ name: String, floorRoundTrips: Int?, args: [String: String], recorder: Recorder?,
+                          isolation: isolated (any Actor)? = #isolation,
                           _ body: () async throws -> T) async throws -> T {
         let id = traceID ?? newTraceID()
         let count = TripCount()
@@ -52,16 +55,16 @@ public enum PhoneTrace {
             if let floorRoundTrips { fields["floor_round_trips"] = floorRoundTrips }
             recorder?.record(name: name, category: "action", start: start, traceID: id, args: fields)
         }
-        return try await $traceID.withValue(id) {
-            try await $trips.withValue(count) {
-                try await $sink.withValue(recorder) { try await body() }
-            }
-        }
+        return try await $traceID.withValue(id, operation: {
+            try await $trips.withValue(count, operation: {
+                try await $sink.withValue(recorder, operation: { try await body() }, isolation: isolation)
+            }, isolation: isolation)
+        }, isolation: isolation)
     }
 
     /// Records one round trip to the Mac (a daemon request, or a batch in one write) of the
     /// current action, from `start` to now.
-    static func roundTrip(_ name: String, start: Int64, args: [String: Any] = [:]) {
+    public static func roundTrip(_ name: String, start: Int64, args: [String: Any] = [:]) {
         trips?.add()
         guard let sink, let traceID else { return }
         sink.record(name: name, category: "daemon", start: start, traceID: traceID, args: args)
