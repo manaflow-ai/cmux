@@ -50,7 +50,7 @@ import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
-import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, PROGRAM_COMPANIONS, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
@@ -129,11 +129,16 @@ export function storeCommandPathSnippet(command: string, currentBin = CURRENT_BI
 }
 
 /** One login-shell run per command name as the work user; prints `name exit path :: output`. */
+function isCompanion(program: string, command: string): boolean {
+  return PROGRAM_COMPANIONS[program]?.includes(command) ?? false;
+}
+
 export function programChecksCommand(lock: InputsLock): string {
   const rows: string[] = [];
   for (const p of bakedPrograms(lock)) {
     for (const command of Object.keys(p.bin)) {
-      const invoke = p.versionArgs.length > 0 ? `${command} ${p.versionArgs.join(" ")} 2>&1` : `test -x "$(type -P ${command})" && echo executable`;
+      // A companion (codex-code-mode-host) takes no --version; it only has to be there and executable.
+      const invoke = p.versionArgs.length > 0 && !isCompanion(p.name, command) ? `${command} ${p.versionArgs.join(" ")} 2>&1` : `test -x "$(type -P ${command})" && echo executable`;
       const script = `cd; ${storeCommandPathSnippet(command)}; out=$(${invoke}); rc=$?; echo "${command} $rc $p :: $(printf '%s' "$out" | head -2 | tr '\\n' ' ')"`;
       rows.push(`sudo -n -u ${DEVBOX_WORK_USER} -H bash -lc ${sq(script)} </dev/null`);
     }
@@ -180,7 +185,7 @@ export function programProblems(lock: InputsLock, stdout: string): string[] {
       // gh resolves to the GitHub shim (github-auth.ts), which runs the store's gh.
       const expected = command === "gh" ? GH_SHIM : `${CURRENT_BIN}/${command}`;
       if (resolved !== expected) problems.push(`${command}: resolves to ${resolved}, expected ${expected}`);
-      if (p.expect && !output.includes(p.expect)) problems.push(`${command}: output lacks ${p.expect}: ${output.slice(0, 160)}`);
+      if (p.expect && !isCompanion(p.name, command) && !output.includes(p.expect)) problems.push(`${command}: output lacks ${p.expect}: ${output.slice(0, 160)}`);
     }
   }
   return problems;

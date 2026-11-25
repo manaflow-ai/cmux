@@ -271,6 +271,7 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   if (raw.checksumsUrl !== undefined && (!str(raw.checksumsUrl)?.startsWith("https://") || !str(raw.checksumsName))) {
     problems.push(`${where}.checksumsUrl: needs an https URL and checksumsName`);
   }
+  checkCompanions(where, name, raw.bin, problems);
   checkProgramRoles(where, raw.roles, problems);
   if (raw.firstUse !== undefined && typeof raw.firstUse !== "boolean") problems.push(`${where}.firstUse: must be a boolean`);
   checkNotices(where, raw.notices, problems);
@@ -289,6 +290,31 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   if (raw.pendingRelease !== undefined) {
     if (name !== "cmux-rd") problems.push(`${where}.pendingRelease: only cmux-rd has a pending release`);
     else if (typeof raw.pendingRelease !== "string" || !/^\d+\.\d+\.\d+$/.test(raw.pendingRelease)) problems.push(`${where}.pendingRelease: must be a version X.Y.Z`);
+  }
+}
+
+/**
+ * Helpers a program spawns from beside its own binary, so they must be in the same store entry, in the same
+ * directory. Codex runs every tool call through `codex-code-mode-host` next to its resolved path; its GitHub release
+ * tarball carries only `codex`, so a Cloud VM baked from it failed every tool call ("failed to spawn code-mode host
+ * /opt/cmux/store/<sha>/codex-code-mode-host: No such file or directory", interim-coord, 2026-11-25). npm's platform
+ * package carries both.
+ */
+export const PROGRAM_COMPANIONS: Readonly<Record<string, readonly string[]>> = {
+  codex: ["codex-code-mode-host"],
+};
+
+function checkCompanions(where: string, name: string | undefined, bin: unknown, problems: string[]): void {
+  const companions = name ? PROGRAM_COMPANIONS[name] : undefined;
+  if (!companions || !isRec(bin) || typeof bin[name!] !== "string") return;
+  const dir = (bin[name!] as string).replace(/[^/]*$/, "");
+  for (const companion of companions) {
+    const target = bin[companion];
+    if (typeof target !== "string") {
+      problems.push(`${where}.bin.${companion}: ${name} spawns ${companion} from beside itself; the entry must carry it (bin.${companion} at ${dir}${companion})`);
+    } else if (target !== `${dir}${companion}`) {
+      problems.push(`${where}.bin.${companion}: must sit beside ${name}, at ${dir}${companion}`);
+    }
   }
 }
 

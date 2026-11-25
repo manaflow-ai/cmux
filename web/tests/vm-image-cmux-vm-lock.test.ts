@@ -69,6 +69,27 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
+  test("codex carries the codex-code-mode-host it runs every tool call through, beside itself", () => {
+    // interim-coord, 2026-11-25: three Cloud Codex lanes started, then every tool call failed with "failed to spawn
+    // code-mode host /opt/cmux/store/306865417d4e.../codex-code-mode-host: No such file or directory". The GitHub
+    // release tarball the lock pinned has only `codex`; npm's platform package has both.
+    const codex = readInputsLock().programs.find((p) => p.name === "codex")!;
+    expect(path.dirname(codex.bin["codex-code-mode-host"]!)).toBe(path.dirname(codex.bin.codex!));
+    expect(profileLinks(readInputsLock()).map((l) => l.command)).toContain("codex-code-mode-host");
+    // The smoke proves it is on PATH and executable; it takes no --version, so no version is asked of it.
+    const checks = programChecksCommand(readInputsLock());
+    expect(checks).toContain("codex --version");
+    expect(checks).not.toContain("codex-code-mode-host --version");
+    expect(checks).toContain('test -x "$(type -P codex-code-mode-host)"');
+
+    const releaseOnly = fresh();
+    const entry = releaseOnly.programs.find((p: { name: string }) => p.name === "codex");
+    entry.bin = { codex: "codex-x86_64-unknown-linux-musl" };
+    expect(problemsOf(releaseOnly).join("\n")).toContain("codex spawns codex-code-mode-host from beside itself");
+    entry.bin = { codex: "a/bin/codex", "codex-code-mode-host": "b/codex-code-mode-host" };
+    expect(problemsOf(releaseOnly).join("\n")).toContain("must sit beside codex, at a/bin/codex-code-mode-host");
+  });
+
   test("Claude Code is the devbox Dockerfile's pin, so the native image never ships an older one", () => {
     // One source of truth: the native bake installs the lock's claude, the devbox image the Dockerfile's
     // CMUX_IMAGE_CLAUDE_CODE_VERSION. A lock left behind shipped 2.1.267, which the API refuses (2.1.280 or newer).
