@@ -11,7 +11,6 @@ import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { CommandRow } from "../../src/agent-session/acpmux/conversation/CommandRow";
 import { TurnFooter, WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
 import { ThoughtRow } from "../../src/agent-session/acpmux/conversation/ThoughtRow";
-import { PlanList } from "../../src/agent-session/acpmux/conversation/PlanList";
 import { UserBubble } from "../../src/agent-session/acpmux/conversation/UserBubble";
 import { PendingSteer } from "../../src/agent-session/acpmux/conversation/PendingSteer";
 import { ReadReceipt, ReceivedActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
@@ -213,9 +212,6 @@ function App() {
             id="glyph-thought"
             item={{ kind: "thought", text: "Inspecting the completed checks.", startedAt: 1000, endedAt: 7000 }}
           />
-        </div>
-        <div data-glyph-row="plan">
-          <PlanList ended entries={[{ content: "The completed plan step", status: "completed" }]} />
         </div>
         <div data-glyph-row="session-info">
           <EnvironmentSection machineName="Studio" />

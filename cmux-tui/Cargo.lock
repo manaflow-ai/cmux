@@ -1517,6 +1517,10 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -2306,6 +2310,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-interactivity"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-journal"
 version = "0.1.0"
 dependencies = [
@@ -2768,6 +2779,7 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
@@ -3371,6 +3383,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-interactivity",
  "cmux-json",
  "cmux-kitty-media",
  "cmux-layout-reducer",
@@ -3718,6 +3731,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
