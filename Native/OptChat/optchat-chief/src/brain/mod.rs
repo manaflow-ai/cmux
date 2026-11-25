@@ -1257,6 +1257,12 @@ impl Brain {
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        let pruned_spawns = state.prune_spawns();
+        if pruned_spawns > 0 {
+            if let Err(error) = file.save(&state) {
+                log(&format!("pruning {pruned_spawns} completed spawn records: {error}"));
+            }
+        }
         // Only this home's turn sessions: a name without its prefix is a
         // host before audit round 3's or another home's, never removed.
         let own = format!("{}-", settings.turn_prefix);
