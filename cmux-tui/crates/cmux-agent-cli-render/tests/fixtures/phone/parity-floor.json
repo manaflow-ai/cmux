@@ -1,5 +1,5 @@
 {
-  "claude-code-2.1.332-50x34": {"live": 84.5, "seeded": 93.9},
-  "claude-code-2.1.332-54x38": {"live": 87.7, "seeded": 95.4},
-  "claude-code-2.1.332-59x42": {"live": 88.6, "seeded": 94.9}
+  "claude-code-2.1.332-50x34": {"live": 84.9, "seeded": 94.5, "facts": 91.6},
+  "claude-code-2.1.332-54x38": {"live": 88.5, "seeded": 96.4, "facts": 96.4},
+  "claude-code-2.1.332-59x42": {"live": 89.1, "seeded": 95.6, "facts": 95.6}
 }
