@@ -226,6 +226,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
 
+      - name: Validate the production Cloud journey keeps its environment and signs in by OIDC
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_journey_prod_oidc_sign_in.py
+
       - name: Validate each Cloud journey cron starts only its own rows
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_schedule_rows.py
