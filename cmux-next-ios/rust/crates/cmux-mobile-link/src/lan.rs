@@ -384,7 +384,12 @@ impl LanHost {
                     lane: Some(lane_rx),
                     media: None,
                     webrtc_media: false,
+                    hold: None,
                     liveness: None,
+                    on_link: None,
+                    reliable: false,
+                    tunnel_keys: None,
+                    overlay: None,
                 };
                 if tx.send(LanAccepted { device_id, dialed }).await.is_err() {
                     return;
@@ -750,7 +755,12 @@ async fn dial_one(
         lane: Some(lane_rx),
         media: None,
         webrtc_media: false,
+        hold: None,
         liveness: None,
+        on_link: None,
+        reliable: false,
+        tunnel_keys: None,
+        overlay: None,
     })
 }
 

@@ -5,6 +5,39 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes team.directory declares.
+    TeamDirectoryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once.
+    TeamEnrollmentTokenCreateOp {
+        name: "team.enrollment_token.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: TeamEnrollmentTokenCreateParams,
+        result: EnrollmentToken,
+        error: TeamEnrollmentTokenCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamEnrollmentTokenCreateParams {
+    pub label: String,
+    pub token_hash: EnrollmentTokenHash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_domains: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+}
+
+wire_errors! {
     /// The error codes team.enrollment_token.create declares.
     TeamEnrollmentTokenCreateError {
         AuthForbidden = "auth.forbidden",
@@ -852,49 +885,3 @@ pub struct TeamVmRetiredExportResult {
     pub skipped: Vec<String>,
     pub skipped_count: i64,
 }
-
-wire_errors! {
-    /// The error codes team_vm.retired.export declares.
-    TeamVmRetiredExportError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        TeamVmExportNoFiles = "team_vm.export_no_files",
-        TeamVmExportTimeout = "team_vm.export_timeout",
-        TeamVmExportTooLarge = "team_vm.export_too_large",
-        TeamVmInUse = "team_vm.in_use",
-        TeamVmNotConfigured = "team_vm.not_configured",
-        TeamVmNotInLedger = "team_vm.not_in_ledger",
-        TeamVmNotTainted = "team_vm.not_tainted",
-        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
-        TeamVmProviderFailed = "team_vm.provider_failed",
-        TeamVmProviderRefused = "team_vm.provider_refused",
-        TeamVmRetiredFull = "team_vm.retired_full",
-        TeamVmRetiredNotFenced = "team_vm.retired_not_fenced",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-        TeamVmStaleTaint = "team_vm.stale_taint",
-        TeamVmVmMissing = "team_vm.vm_missing",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd.
-    TeamVmSshCaOp {
-        name: "team_vm.ssh_ca",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamVmSshCaParams,
-        result: TeamVmSshCaResult,
-        error: TeamVmSshCaError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaParams {}

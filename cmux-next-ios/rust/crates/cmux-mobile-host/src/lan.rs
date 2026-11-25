@@ -107,6 +107,8 @@ pub async fn start(
                 // serve_link fills both from the link.
                 route: None,
                 path: None,
+                // A LAN link rides no WireGuard overlay, so it has no viewport sync port.
+                viewport: None,
             };
             tracing::info!(phone = peer.device_id, session_id = peer.session_id, "LAN link up");
             tokio::spawn(crate::host::serve_link(

@@ -2,6 +2,8 @@
 //! (`~/.config/cmux/cmux-next.json`, "cmux.json" in the plans) inside the
 //! cmux daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
+//! - [`app_ops`]: the Mac app's reads of the file as JSON ops (the app
+//!   FFI's `cmux_settings_call`).
 //! - [`language`]: the `app.language` setting's shipped locales and their
 //!   fallbacks.
 //! - [`schema`]: the settings schema exported from Swift, embedded, with
@@ -20,6 +22,7 @@
 //!   writer with IO (atomic publish, cold-start cache); [`watch`]: kernel
 //!   file events.
 
+pub mod app_ops;
 pub mod backdrop_placement;
 pub mod cache;
 pub mod diagnostics;
@@ -28,6 +31,7 @@ pub mod effective;
 pub mod font_faces;
 pub mod fsio;
 pub mod guard;
+pub mod history;
 pub mod hosts;
 pub mod hosts_edit;
 pub mod jsonc;
@@ -55,6 +59,7 @@ pub mod youtube;
 pub use diagnostics::{Diagnostic, DiagnosticKind};
 pub use domains::Domains;
 pub use effective::EffectiveSettings;
+pub use history::HistoryEntry;
 pub use keybindings::owner::{
     KeybindingsApplied, KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal,
     KeybindingsStore,
@@ -66,7 +71,7 @@ pub use refusal::Refusal;
 pub use schema::{Row, Schema};
 pub use store::{
     Change, Edit, EditKind, FileRead, MAX_EDITS, Op, Origin, Outcome, State, Target, ThemeRead,
-    WriteMeta, apply,
+    WriteMeta, apply, apply_with_history,
 };
 pub use theme_file::{ThemeDiagnostic, ThemeDiagnosticKind, ThemeFile};
 pub use watch::{Watcher, watch_store};

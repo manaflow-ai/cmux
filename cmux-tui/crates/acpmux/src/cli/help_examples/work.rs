@@ -255,6 +255,32 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "ci",
+        &[
+            (
+                "Wait up to 30 minutes for a workflow run",
+                "acpmux ci wait run 123456789 --timeout 1800",
+            ),
+            (
+                "Wait for a workflow run in another repository",
+                "acpmux ci wait run 123456789 --repo octo/app --timeout 1800",
+            ),
+        ],
+    ),
+    (
+        "ci wait",
+        &[
+            (
+                "Wait for a workflow run, as JSON",
+                "acpmux ci wait run 123456789 --timeout 1800 --json",
+            ),
+            (
+                "Wait up to 40 minutes for a pull request's checks",
+                "acpmux ci wait pr 812 --timeout 2400",
+            ),
+        ],
+    ),
+    (
         "worktree",
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),
@@ -444,6 +470,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "From an agent session, end the rule on a key",
                 "acpmux forum announce --key base --retire",
             ),
+        ],
+    ),
+    (
+        "run-ask",
+        &[
+            ("Run an accepted run ask saved to a file", "acpmux run-ask ask.json"),
+            ("Run one piped in on stdin", "cat ask.json | acpmux run-ask -"),
         ],
     ),
     ("forum rules", &[("List the current rules, newest per key", "acpmux forum rules")]),
