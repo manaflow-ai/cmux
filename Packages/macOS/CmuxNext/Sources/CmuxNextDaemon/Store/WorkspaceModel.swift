@@ -33,6 +33,9 @@ public final class WorkspaceModel: Identifiable {
     /// The pane `handle` of one of its screens: what a view mapped from this model mounts, also while no store indexes
     /// the model (the next Cmd-N's workspace, reserved before its key: `DaemonStore.reserveWorkspace`).
     public func pane(_ handle: PaneID) -> PaneModel? { screens.lazy.compactMap { $0.pane(handle) }.first }
+    /// Whether one of its screens holds a pane, placed by a layout or not: the daemon reports a pane (`pane-added`)
+    /// before the `layout-changed` that places it, so a view mapped from the layout can be empty while this is true.
+    public var holdsPane: Bool { !screens.allSatisfy(\.panes.isEmpty) }
     /// Screen group runs in screen order (`screen-groups-v1`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
     public internal(set) var group: WorkspaceGroupID?

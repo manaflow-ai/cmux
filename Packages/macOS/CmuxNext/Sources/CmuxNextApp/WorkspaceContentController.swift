@@ -228,10 +228,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         // A first terminal or a close that starts or ends while the
         // workspace is empty decides whether it shows its title; a first
-        // terminal that failed adds why (cx-tzlqb).
+        // terminal that failed adds why (cx-tzlqb); so does a store pane no layout placed yet (`holdsPane`).
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in ObservationStream({ workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
+            for await _ in ObservationStream({ workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? ""):\(workspace.holdsPane)" } ?? "" }) {
                 self?.updateEmptyState()
             }
         }
@@ -346,9 +346,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// terminal and focuses it when the daemon reports the surface. One that
     /// is settling (its first terminal on the way, or closing) shows nothing
     /// so the title does not flash before the tab strip and terminal land, or
-    /// before the workspace closes.
+    /// before the workspace closes. Nor does one whose store pane no layout placed yet (Leo's Cmd-N, 2026-11-25).
     private func updateEmptyState() {
-        let isEmpty = layoutModel.screens.allSatisfy { $0.panes.isEmpty }
+        let isEmpty = layoutModel.screens.allSatisfy { $0.panes.isEmpty } && !workspace.holdsPane
         let shows = isEmpty && !(workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false)
         if shows, emptyView == nil { emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() }) } // made the first time it shows
         emptyView?.failure = workspace.key.flatMap { emptyWorkspaceRepair.failure($0) }
