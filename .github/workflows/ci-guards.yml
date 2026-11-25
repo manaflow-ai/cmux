@@ -1832,6 +1832,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
+      # The Mac tour job checks the tours first; a key it refuses (frameInterval, #54149) failed every
+      # nightly tour in minutes after merging green, so the same check runs here on Linux.
+      - name: Validate the cmux-next tour files
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 scripts/cmux-next/media/tour.py --check scripts/cmux-next/media/tours
+
       - name: Validate that a nightly tour starts from the last toured tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_last_toured.py

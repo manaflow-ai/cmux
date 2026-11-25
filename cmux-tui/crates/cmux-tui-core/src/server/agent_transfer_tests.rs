@@ -167,6 +167,10 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
     assert!(!advertised(&mux), "no host: the daemon cannot build a guard");
     mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: false, home: home.path.clone() }));
     assert!(advertised(&mux));
+    // With it, a finish takes the owner's login (the pump sends one only to a daemon that says so).
+    let listed = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
+    let credentials = json!(super::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
+    assert!(listed.as_array().unwrap().contains(&credentials), "{listed}");
     mux.set_acpmux_socket(None);
     assert!(!advertised(&mux));
 }
@@ -752,6 +756,62 @@ fn finish_reads_the_host_kind_again() {
     let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
     assert_code(&finish, "agent_session.team_vm_blocked");
     fake.no_frame();
+}
+
+// MARK: The owner's login on a finish
+
+const TOKEN: &str = "sk-ant-oat01-moved-owner-token";
+
+/// A chat moved to a new Cloud machine answered "Claude is not signed in here": the finish carries
+/// the owner's login now. The owner's word on the owner's own Cloud VM forwards it to acpmux's
+/// finish, as `agent-session-credentials` takes one.
+#[test]
+fn an_owner_finish_forwards_the_login_to_acpmux() {
+    let fake = FakeAcpmux::start("xcred");
+    let home = Home::new("cred");
+    let mux = transfer_mux(&fake, "atx-cred", &home, true);
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut client = Client::connect(&mux, "xcred");
+    let owner = json!({"cmd":"agent-transfer-receive","manifest":manifest(),
+                       "cwd":home.text("work/project"),"vm_kind":"owner"});
+    ok_data(&client.request(owner));
+    let _ = fake.frame();
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+        "vm_kind":"owner","credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}}));
+    ok_data(&finish);
+    assert!(!finish.to_string().contains(TOKEN), "{finish}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_finish"));
+    assert_eq!(
+        sent["params"],
+        json!({"receiveId":"rcv_1","cwd":home.canonical("work/project"),
+               "credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}})
+    );
+}
+
+/// A login is refused before acpmux on a Mac or SSH host (no owner Cloud VM), and a malformed one
+/// on any host; neither answer holds the value, and the receive still finishes without one.
+#[test]
+fn a_login_off_the_owners_cloud_vm_or_malformed_is_refused_before_acpmux() {
+    let fake = FakeAcpmux::start("xcredno");
+    let home = Home::new("credno");
+    let mux = transfer_mux(&fake, "atx-credno", &home, true);
+    let mut client = Client::connect(&mux, "xcredno");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    let mac = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+        "credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}}));
+    assert_code(&mac, "agent_session.owner_only");
+    assert!(!mac.to_string().contains(TOKEN), "{mac}");
+    for env in [json!({"HOME": TOKEN}), json!({"CLAUDE_CODE_OAUTH_TOKEN": "has space"}), json!({})]
+    {
+        let bad = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+                                        "credentials":{"env":env}}));
+        assert_code(&bad, "agent_transfer.bad_request");
+        assert!(!bad.to_string().contains(TOKEN), "{bad}");
+    }
+    fake.no_frame();
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
 }
 
 // MARK: Receive and move slots
