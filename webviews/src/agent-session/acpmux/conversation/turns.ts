@@ -2027,7 +2027,9 @@ function shapeTurn(
   // Codex turn that failed before its `final_answer`) keeps its last reply out instead, so the closed
   // fold never hides everything the agent said.
   const repliesArm = experimentArm(turnFoldReplies);
-  const lastWords = answer ? undefined : [...body].reverse().find((row) => replies.has(row.id));
+  const lastWords = answer
+    ? undefined
+    : [...body].reverse().find((row) => replies.has(row.id) && row.inBackground === undefined);
   const keptOut: ReadonlySet<string> =
     repliesArm === "answer"
       ? new Set([...(cutOff ? [cutOff.reply.id] : []), ...(lastWords ? [lastWords.id] : [])])
@@ -2086,9 +2088,10 @@ function shapeTurn(
     // reply in its place among the lines of the work around it (`aroundReplies`; Leo, 2026-11-06:
     // "your intermediate message got lost. that can never happen").
     // A `final_answer` before another agent's message is an earlier message too: under the `answer`
-    // arm only the turn's answer (`said`, drawn below) stays beside the closed fold.
+    // arm only the turn's answer (`said`, drawn below) stays beside the closed fold. A turn that only
+    // replied to another agent's message (`promptOnly`) draws its replies as they ran, each final one too.
     const out = (row: AcpmuxRow) =>
-      (repliesArm !== "answer" && isFinalAnswer(row)) ||
+      ((repliesArm !== "answer" || promptOnly) && isFinalAnswer(row)) ||
       staysOut(row) ||
       (!open && taskLook === "card" && startsTask(row)) ||
       (!open &&

@@ -243,3 +243,26 @@ test("a phased turn with no final answer keeps its last reply beside the closed 
   expect(closed.rows.find((row) => row.kind === WORKED)?.foldOpen).toBe(false);
   expect(closed.rows.filter((row) => row.kind === "assistant").map((row) => row.id)).toEqual(["finding"]);
 });
+
+// A turn that only replied to another agent's message draws its replies as they ran: an earlier
+// final reply is never dropped, open or closed (the closed-fold rule keeps only the last answer
+// beside a fold of work, and this turn has no work to fold).
+test("a reply-only turn another agent's message started keeps each final reply", () => {
+  const notice = row("notice", "user", {
+    text: "[notice] the PR merged",
+    incoming: {
+      kind: "inbox",
+      notice: { threads: [{ threadId: "t", label: "pr/1", from: ["peer"], count: 1, blocker: false, promptIds: ["p"] }] },
+    },
+  } as Partial<AcpmuxRow>);
+  const first = row("first", "assistant", { at: 2_000, text: "The hold is gone.", assistantPhase: "final_answer" });
+  const second = row("second", "assistant", { at: 3_000, text: "The PR is merged.", assistantPhase: "final_answer" });
+  const rows = [notice, first, second, { ...summary, id: "notice-summary" }];
+  const settled = { ...options, working: false };
+  const atRest = turnViewFrom(rows, new Set(), settled);
+  const toggled = turnViewFrom(rows, toggleTurnFold(rows, new Set(), "worked-notice"), settled);
+  for (const view of [atRest, toggled]) {
+    expect(view.rows.filter((entry) => entry.id === "first")).toHaveLength(1);
+    expect(view.rows.filter((entry) => entry.id === "second")).toHaveLength(1);
+  }
+});
