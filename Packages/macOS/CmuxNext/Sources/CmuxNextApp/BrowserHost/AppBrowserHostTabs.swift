@@ -151,9 +151,9 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// background (``openSessionTab(_:url:)``), then its page. The session
     /// owns the tab: its end closes it (``endSessionTab(_:)``) unless it was
     /// kept. The driver navigates it.
-    func openAutomationTab(url: URL?) async throws -> WebKitTab {
+    func openAutomationTab(url: URL?, place: AutomationTabPlace) async throws -> WebKitTab {
         guard let services else { throw AutomationTabError.unavailable }
-        let tab = try await openSessionTab(.webkit, url: nil)
+        let tab = try await openSessionTab(.webkit, url: nil, place: place)
         guard let page = services.cache.browser(for: tab)?.tab as? WebKitTab else {
             throw AutomationTabError.unavailable
         }
@@ -166,12 +166,12 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// background. Its page starts when the host first attaches to it (the
     /// relay's prepare creates it hidden). An explicit Chromium request never
     /// becomes a WebKit tab: without Chromium it is refused.
-    func openProviderTab(engine: ProviderEngine, url: String?) async throws(DriverError) -> String {
+    func openProviderTab(engine: ProviderEngine, url: String?, place: AutomationTabPlace) async throws(DriverError) -> String {
         guard engine == .cef else {
             throw DriverError(.unsupported, "tabs.open: WebKit tabs open through the WebKit driver")
         }
         do {
-            return try await openSessionTab(.cef, url: url).id
+            return try await openSessionTab(.cef, url: url, place: place).id
         } catch {
             throw DriverError(.unsupported, "tabs.open: \(error.localizedDescription)")
         }
@@ -180,12 +180,12 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// A store tab of `engine` for a browser session, in the background (the
     /// pane's active tab stays: every client reads it; no selection or focus
     /// changes), in ``sessionTabPane(_:)``. Answers once the store shows it.
-    private func openSessionTab(_ engine: BrowserEngineTag, url: String?) async throws -> TabModel {
+    private func openSessionTab(_ engine: BrowserEngineTag, url: String?, place: AutomationTabPlace) async throws -> TabModel {
         guard let services, case let browserTabs = services.cache.browserTabs else { throw AutomationTabError.unavailable }
         if engine == .cef, let reason = browserTabs.cefUnavailable() {
             throw AutomationTabError.chromiumUnavailable(BrowserTabService.message(reason))
         }
-        let pane = try sessionTabPane(browserTabs)
+        let pane = try sessionTabPane(browserTabs, place: place)
         guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
                                                  url: url ?? "about:blank", activate: false)
@@ -200,13 +200,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         return tab
     }
 
-    /// Where a session's new tab goes: the active window's focused pane;
-    /// else, when the window shows a page (Home, History: its workspace is
+    /// Where a session's new tab goes: beside its caller (`place`: its
+    /// terminal's pane, else its workspace's), never the focused workspace;
+    /// with no caller, the active window's focused pane; else, when the window shows a page (Home, History: its workspace is
     /// parked, so no pane is focused), the default pane of the shown screen
     /// of the workspace under the page, the fallback `cmux browser open`
     /// uses (9d300f272470). The window keeps showing the page. Never an
     /// incognito pane, never another machine's workspace.
-    private func sessionTabPane(_ browserTabs: BrowserTabService) throws(AutomationTabError) -> PaneModel {
+    private func sessionTabPane(_ browserTabs: BrowserTabService, place: AutomationTabPlace) throws(AutomationTabError) -> PaneModel {
+        if let pane = services?.daemon.store.callerPane(workspace: place.workspace, terminal: place.terminal), !browserTabs.isIncognitoPane(pane) { return pane }
         guard let services, let window = services.windows.active else { throw .noPane }
         let pane: PaneModel
         if let focused = window.focusedPane {

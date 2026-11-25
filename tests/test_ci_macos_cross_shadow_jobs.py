@@ -47,7 +47,7 @@ def needs(block: str) -> set[str]:
 def ordering_only(block: str, shadow: str) -> bool:
     condition = re.search(r"^    if:\s*(.+)$", block, re.M)
     return (condition is not None
-            and re.match(r"\$\{\{\s*always\(\)\s*&&", condition.group(1)) is not None
+            and re.match(r"\$\{\{\s*(always\(\)|!cancelled\(\))\s*&&", condition.group(1)) is not None
             and f"needs.{shadow}." not in block
             and not re.search(rf"needs\[\s*['\"]{re.escape(shadow)}['\"]\s*\]", block))
 
@@ -71,7 +71,7 @@ class ShadowJobTests(unittest.TestCase):
                 # Only another compare-only shadow job may need a shadow job.
                 shadows = {job for wf, job, _ in SHADOWS if wf == workflow}
                 # A job may still order itself after a shadow job when it runs
-                # whatever the shadow's result (`if: ${{ always() && ...`) and
+                # whatever the shadow's result (`if: ${{ always() && ...` or `!cancelled() &&`) and
                 # never reads it: cmux-tui-artifacts' notify-unpublished-tree
                 # waits so it ends the run (cx-urd.26).
                 dependents = sorted(job for job, other in all_jobs.items()
@@ -90,6 +90,25 @@ class ShadowJobTests(unittest.TestCase):
                 # The sysroot is Zig's darwin stub: it must be the Zig the
                 # ghostty-next manifest sets (pin run 37589232394 got another).
                 self.assertRegex(block, r"GHOSTTY_ZIG_SOURCE: ghostty-next\n(?:.*\n){0,4}.*ghostty-zig-version\.sh")
+
+
+class CargoGroupBinsTests(unittest.TestCase):
+    """Each cargo-groups.sh group names the binaries its command builds.
+
+    cargo-groups.sh copies only the named binaries out of the group's own target directory: a group
+    named "acpmux" whose command built `--bin acpmux-standalone` failed cold ("no binary acpmux")
+    and, warm, copied a stale acpmux (review of cmux #43832).
+    """
+
+    def test_macos_cross_all_groups_name_their_bins(self) -> None:
+        text = (ROOT / "scripts/ci/macos-cross.sh").read_text(encoding="utf-8")
+        lines = re.findall(r'^\s+"[^"]+" "cd \$\(q [^\n]*$', text, re.M)
+        self.assertGreaterEqual(len(lines), 8, "the cmd_all group list moved: update this parser")
+        for line in lines:
+            names = set(re.match(r'\s+"([^"]+)"', line).group(1).split())
+            bins = set(re.findall(r"--bin ([\w-]+)", line))
+            with self.subTest(group=" ".join(sorted(names))):
+                self.assertTrue(bins <= names, f"builds {sorted(bins - names)} but does not name them")
 
 
 if __name__ == "__main__":

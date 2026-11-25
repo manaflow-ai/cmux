@@ -17,6 +17,21 @@ import Testing
         #expect(row.buttons.last?.destructive == true)
     }
 
+    /// A dev build's row says which Cloud backend it talks to, signed in or out; with no backend
+    /// (release, RC) the row has no such line.
+    @Test func aDevBuildsRowNamesItsCloudBackend() {
+        let label = "https://cmux-dev-backend-1.tail137216.ts.net:3850 (this tag's backend.json)"
+        let services = MockAccountsServices()
+        services.cmuxSignInState = CmuxAccountState(signedIn: false, backend: label)
+        #expect(AccountsModel(services: services).pageState.cmux.note == "Cloud backend: \(label)")
+        services.isSignedInToCmux = false
+        #expect(AccountsModel(services: services).pageState.cmux.note == "Cloud backend: \(label)")
+        services.cmuxSignInState = CmuxAccountState(signedIn: false)
+        #expect(AccountsModel(services: services).pageState.cmux.note == nil)
+        services.isSignedInToCmux = true
+        #expect(AccountsModel(services: services).pageState.cmux.note == nil)
+    }
+
     @Test func aSignInInProgressOffersTheBrowserAndCancel() {
         let services = MockAccountsServices()
         services.isSignedInToCmux = false
@@ -79,6 +94,18 @@ import Testing
         #expect(!CloudSignInWindow.automatic.opensDefaultBrowser(defaultBrowser: nil))
         #expect(!CloudSignInWindow.popup.opensDefaultBrowser(defaultBrowser: "com.microsoft.edgemac"))
         #expect(CloudSignInWindow.defaultBrowser.opensDefaultBrowser(defaultBrowser: "com.apple.Safari"))
+    }
+
+    /// Sign-in opens in a cmux browser tab when the app can open one, so a
+    /// passkey and the emailed code work without leaving cmux; Debug Settings
+    /// can still pick the popup or the default browser.
+    @Test func automaticSignsInInACmuxTabWhenTheAppCan() {
+        #expect(CloudSignInWindow.automatic.place(defaultBrowser: "com.microsoft.edgemac", inApp: true) == .inApp)
+        #expect(CloudSignInWindow.inApp.place(defaultBrowser: "com.apple.Safari", inApp: true) == .inApp)
+        #expect(CloudSignInWindow.automatic.place(defaultBrowser: "com.microsoft.edgemac", inApp: false) == .defaultBrowser)
+        #expect(CloudSignInWindow.automatic.place(defaultBrowser: "com.apple.Safari", inApp: false) == .popup)
+        #expect(CloudSignInWindow.popup.place(defaultBrowser: nil, inApp: true) == .popup)
+        #expect(CloudSignInWindow.defaultBrowser.place(defaultBrowser: nil, inApp: true) == .defaultBrowser)
     }
 
     /// The Debug Settings choice maps onto Cloud's window by raw value.

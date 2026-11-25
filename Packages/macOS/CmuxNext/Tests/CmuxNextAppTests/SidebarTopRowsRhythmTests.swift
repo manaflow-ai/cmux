@@ -7,7 +7,7 @@ import Testing
 /// Lawrence 2026-11-11 (8:04 PM screenshot: Home, six pinned rows, then the "Workspaces" heading): "spacing here is not
 /// consistent anymore either". Home, every pinned row and the workspace rows under them keep one rhythm at every app
 /// density (Default draws the Codex rows, #39984) and every sidebar density: one row height, one pitch from row to row
-/// (Home to the first pin as between two pins), the list's one row gap under the last pin, one left edge (Home's glyph
+/// (Home to the first pin as between two pins, plus the top section's gap), the list's one row gap under the last pin, one left edge (Home's glyph
 /// and a text-only title), one glyph center line (the pins center under Home's glyph,
 /// https://github.com/manaflow-ai/cmux/issues/42431) and one title column. No label sits between the pins and the list: the first workspace
 /// row is the next row under the last pin (https://github.com/manaflow-ai/cmux/issues/42373).
@@ -107,8 +107,10 @@ import Testing
             }
             for index in 1..<fills.count {
                 let step = abs(fills[index].midY - fills[index - 1].midY)
-                #expect(abs(step - pitch) <= Self.tolerance,
-                        "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, workspace rows \(pitch) pt")
+                // Home to the first pin adds the top section's gap (the Chief's row stands apart from the workspaces).
+                let expected = index == 1 ? pitch + SidebarListBlocks.topSectionGap : pitch
+                #expect(abs(step - expected) <= Self.tolerance,
+                        "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, expected \(expected) pt")
             }
             // No heading between the pins and the list (https://github.com/manaflow-ai/cmux/issues/42373): the first
             // workspace row is one row gap under the last pin.
@@ -118,16 +120,20 @@ import Testing
             #expect(abs(space(lastPin, a) - gap) <= Self.tolerance,
                     "\(c.testDescription): the first workspace row is \(space(lastPin, a)) pt under the last pin, the row gap is \(gap) pt")
 
-            // One left edge (Home's glyph fills the icon column, so it starts where a text-only title does), one glyph
-            // center line (the pin, narrower than the column, centers under Home's glyph, #42431) and one title column.
+            // One optical column (wide Home ink fits by height and starts on the title's column, so its left edge is the
+            // titles'), one glyph center line (the pin, narrower than the column, centers in Home's glyph square, #42431)
+            // and one title column.
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             let inks = try pins.map { list.convert(try #require($0.pinInkFrame, "a pinned row drew no pin"), from: $0) }
             let titleX = list.convert(rowA.title.alignmentRect(forFrame: rowA.title.frame), from: rowA).minX
+            let target = SidebarStyle.rowGlyphOpticalSide
             #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
-                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
+                    "\(c.testDescription): Home's ink starts at \(homeInk.minX), the title's column at \(titleX)")
+            #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink keeps the shared optical size")
             for ink in inks {
-                #expect(abs(ink.midX - homeInk.midX) <= Self.tolerance,
-                        "\(c.testDescription): a pin's center is at \(ink.midX), Home's glyph's at \(homeInk.midX)")
+                #expect(abs(ink.midX - (titleX + target / 2)) <= Self.tolerance,
+                        "\(c.testDescription): a pin's center is at \(ink.midX), Home's glyph square's at \(titleX + target / 2)")
                 #expect(ink.minX >= titleX - Self.tolerance && ink.maxX <= homeInk.maxX + Self.tolerance,
                         "\(c.testDescription): a pin's ink \(ink.minX)...\(ink.maxX) leaves Home's glyph column \(titleX)...\(homeInk.maxX)")
             }

@@ -24,21 +24,35 @@
 pub static STAMP: &str =
     concat!("acpmux ", env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")");
 
+/// This build's commit time as one string: `acpmux-commit-time=<Unix
+/// seconds>;` (0 when the build could not tell). A host's install script
+/// reads it out of the installed and the pushed binary with `grep` and
+/// refuses to replace a newer commit's binary with an older one (acpmux
+/// `cli/hosts.rs`), so it must sit in the binary as one string: [`build`],
+/// which every binary calls at start, reads it, which keeps it there.
+pub static COMMIT_STAMP: &str = concat!("acpmux-commit-time=", env!("ACPMUX_COMMIT_TIME"), ";");
+
+/// This build's commit time in Unix seconds, from [`COMMIT_STAMP`]; 0 when unknown.
+pub fn commit_time() -> u64 {
+    let stamp: &'static str = std::hint::black_box(COMMIT_STAMP);
+    stamp
+        .strip_prefix("acpmux-commit-time=")
+        .and_then(|rest| rest.strip_suffix(';'))
+        .and_then(|secs| secs.parse().ok())
+        .unwrap_or(0)
+}
+
 /// This build's acpmux build id, the part of [`STAMP`] in parentheses. See
 /// the crate documentation.
 pub fn build() -> &'static str {
     // Read through black_box so the optimizer cannot fold the slice into a
     // constant of its own and drop the whole string.
     let stamp: &'static str = std::hint::black_box(STAMP);
+    // Every binary calls this at start, so COMMIT_STAMP stays in it too.
+    std::hint::black_box(COMMIT_STAMP);
     stamp.split_once(" (").and_then(|(_, rest)| rest.strip_suffix(')')).unwrap_or(stamp)
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn the_stamp_is_the_version_and_the_build_id_in_one_string() {
-        let line = format!("{} ({})", env!("CARGO_PKG_VERSION"), super::build());
-        assert_eq!(super::STAMP, format!("acpmux {line}"));
-        assert_eq!(super::build(), env!("ACPMUX_BUILD"));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

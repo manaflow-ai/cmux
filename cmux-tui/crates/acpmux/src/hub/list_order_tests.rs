@@ -1,6 +1,16 @@
 use super::*;
 use serde_json::json;
 
+impl Hub {
+    /// Tells chat `id`'s row changed, as a change no record carries does: the order's next read
+    /// patches it. Panics when no chat has that id: a renamed fixture row would otherwise take
+    /// the patch out of a gate's timed samples unseen.
+    pub(crate) fn tell_row_for_test(&self, id: &str) {
+        let session = self.session_by_id(id).unwrap_or_else(|| panic!("no chat {id} to tell"));
+        self.events.row_changed(&session);
+    }
+}
+
 fn meta(id: &str, updated: u64) -> crate::store::SessionMeta {
     serde_json::from_value(json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
@@ -96,7 +106,7 @@ async fn a_first_page_reads_its_window_not_every_chat() {
     let (own, all) = hub.own_rows_from(None, 20 + super::super::page_first::WINDOW_ROOM);
     assert!(!all, "a window of the order, not all of it");
     assert_eq!(own.len(), 20 + super::super::page_first::WINDOW_ROOM);
-    assert_eq!(own.first().map(|(s, _)| s.id.as_str()), Some("c007"));
+    assert_eq!(own.first().map(|(s, _)| s.id()), Some("c007"));
     let (rows, next) = hub.session_page_rows(&json!({"limit": 20}), false).unwrap();
     assert_eq!(rows.len(), 20);
     assert!(next.is_some_and(|next| next.is_string()));
@@ -115,4 +125,80 @@ async fn pages_through_many_rows_of_one_updated_at_give_each_once() {
     let ids = paged(&hub, 50);
     let want: Vec<String> = (0..200).map(|n| format!("t{n:03}")).collect();
     assert_eq!(ids, want, "every session once, ties by id");
+}
+
+/// Decision 292's follow-up: the order a daemon's start task sorts before any log is read
+/// (`daemon.rs`, `Hub::sort_list_order`) equals a sort of every chat once the logs are read,
+/// with no second sort. In the fixture a log's tail moves its chat's `updatedAt`: `cut` was saved
+/// long ago in the middle of a turn, and its load ends that turn now (`turn_result
+/// outcome_unknown`), which puts it first; `tail` holds records past its saved metadata (a hard
+/// stop). Any write of `updatedAt` on the load path that takes no list position fails here.
+#[test]
+fn an_order_sorted_before_the_logs_are_read_is_every_chat_sorted_after_them() {
+    use crate::store::{EventRecord, LocalStore, Store};
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let record = |seq: u64, at: u64, dir: &str, kind: &str, msg: Value| EventRecord {
+        seq,
+        at,
+        dir: dir.into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    let saved = |id: &str, status: &str, updated: u64, last_seq: u64| {
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "fake",
+            "cwd": "/tmp", "status": status, "createdAt": 1, "updatedAt": updated,
+        }))
+        .unwrap();
+        meta.last_seq = last_seq;
+        meta.event_count = last_seq;
+        meta
+    };
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        let prompt = json!({"text": "go on", "promptId": "p1", "turnId": "t1"});
+        writer.append("cut", &record(1, 10, "mux", "user_message", prompt)).unwrap();
+        let started = json!({"promptId": "p1", "turnId": "t1"});
+        writer.append("cut", &record(2, 11, "mux", "turn_started", started)).unwrap();
+        writer.save(&saved("cut", "idle", 11, 2)).unwrap();
+        for seq in 1..=3 {
+            let msg = json!({"status": "idle"});
+            writer.append("tail", &record(seq, 500 + seq, "mux", "status", msg)).unwrap();
+        }
+        writer.save(&saved("tail", "idle", 501, 1)).unwrap();
+        for n in 0..5_u64 {
+            let id = format!("closed-{n}");
+            writer
+                .append(&id, &record(1, 100 + n, "mux", "status", json!({"status": "closed"})))
+                .unwrap();
+            writer.save(&saved(&id, "closed", 100 + n * 100, 1)).unwrap();
+        }
+        writer.flush().unwrap();
+    }
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new_deferred(
+        cfg,
+        Box::new(LocalStore::new(sessions, 8 << 20).unwrap()),
+        crate::mailbox::Mailbox::memory(),
+    );
+    hub.unsort_list_order_for_test();
+    hub.sort_list_order();
+    assert_eq!(hub.list_order_rebuilds_for_test(), 1, "sorted before any log is read");
+    let before = hub.kept_order_for_test();
+    assert_eq!(before.last().map(String::as_str), Some("cut"), "saved oldest: {before:?}");
+
+    hub.load_logs();
+    let cut = hub.session_by_id("cut").unwrap();
+    assert!(cut.read_meta(|m| m.updated_at) > 11, "the load ended its cut turn now");
+    assert_eq!(hub.kept_order_for_test(), sorted_now(&hub), "the kept order after the load");
+    assert_eq!(hub.kept_order_for_test().first().map(String::as_str), Some("cut"));
+    assert_eq!(hub.list_order_rebuilds_for_test(), 1, "patched, never sorted again");
 }

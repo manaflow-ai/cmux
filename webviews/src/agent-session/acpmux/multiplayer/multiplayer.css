@@ -172,6 +172,10 @@
 .cv-held__approve,
 .cv-held__decline {
   all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-1);
   box-sizing: border-box;
   height: var(--ds-control-icon);
   padding-inline: var(--ds-space-2);
@@ -194,7 +198,7 @@
 }
 .cv-held__decline:hover {
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .cv-held__approve:focus-visible,
 .cv-held__decline:focus-visible,
@@ -224,6 +228,10 @@
 .cv-held .cv-received__queued {
   flex: none;
   margin-inline-start: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -233,7 +241,7 @@
   font-weight: var(--weight-emphasis);
 }
 /* The `bar` look: the two buttons under the message, in from the icon column as the card is. */
-.cv-held__bar {
+.cv-held .cv-held__bar {
   display: flex;
   margin: 0 0 var(--ds-space-1) var(--ds-space-5);
 }

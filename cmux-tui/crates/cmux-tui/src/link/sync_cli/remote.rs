@@ -12,6 +12,9 @@ use base64::Engine as _;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
+mod batch;
+pub(super) use batch::{Whole, read_at_most};
+
 /// Bytes per `fs.write` line: the daemon takes 12 MiB, so a part stays
 /// under it with room for the request around its base64.
 pub(super) const PART_BYTES: usize = 8 * 1024 * 1024;
@@ -194,7 +197,9 @@ pub(super) struct Remote {
 
 impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
-        let stream = dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))?;
+        let stream = crate::link::spans::time("rpc dial", || {
+            dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))
+        })?;
         let mut remote = Self::on(stream);
         remote.socket = Some(socket.to_path_buf());
         Ok(remote)
@@ -237,7 +242,7 @@ impl Remote {
                 Err(_) => {}
             }
             progress();
-            std::thread::sleep(pause.min(self.patience.reconnect));
+            crate::link::spans::sleep("reconnect backoff", pause.min(self.patience.reconnect));
             pause = (pause * 2).min(Duration::from_secs(5));
         }
     }
@@ -304,6 +309,19 @@ impl Remote {
     /// request sent again on it when it is [`replayable`]. Only a machine
     /// that stopped answering, or the ceiling, fails the call.
     fn call_with_progress(
+        &mut self,
+        cmd: &str,
+        params: Value,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<Value> {
+        let started = Instant::now();
+        let answer = self.call_with_progress_untimed(cmd, params, progress);
+        crate::link::spans::add(&format!("rpc {cmd}"), started.elapsed());
+        answer
+    }
+
+    /// [`Remote::call_with_progress`] without its count in [`crate::link::spans`].
+    fn call_with_progress_untimed(
         &mut self,
         cmd: &str,
         mut params: Value,
@@ -636,6 +654,25 @@ impl Remote {
         }
         let mut bytes = Buffer(Vec::new());
         Ok(self.read_into(path, &mut bytes)?.map(|_| bytes.0))
+    }
+
+    /// The SHA-256 of the file at `path`, hex, read through bounded range
+    /// reads; None when it is not there.
+    pub(super) fn sha256(&mut self, path: &str) -> anyhow::Result<Option<String>> {
+        use sha2::Digest as _;
+        struct Hashing(sha2::Sha256);
+        impl Write for Hashing {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut out = Hashing(sha2::Sha256::new());
+        let size = self.read_into(path, &mut out)?;
+        Ok(size.map(|_| out.0.finalize().iter().map(|byte| format!("{byte:02x}")).collect()))
     }
 
     /// Streams the file at `path` into `out` through bounded range reads.

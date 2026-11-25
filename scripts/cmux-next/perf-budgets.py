@@ -14,10 +14,21 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   sidebar-stress-bench.py        400 workspaces, 15 ticking: scroll, ticks (frames, CPU, main ms/s), row drag, and the
                                  workspace switch matrix (click, Cmd-1..4, Ctrl-Cmd-]/[ x terminal, Chromium)
   home-perf.py                   Home: typing key dispatch, chat scroll frames
-  agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
+  agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats), and its stages:
+                                 to_listener (the key reaches the page) and to_work (its edit and render done),
+                                 stored for the breakdown, never judged (STAGE_ROW_RE)
   bench_idle.py                  idle CPU of the app with terminals open
   tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
                                  and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
+  bench_power.py many-chats      many_chats (opt-in): Leo's ~200 agent chat tabs, 4 streaming, 13 Chromium tabs, the New
+                                 Tab page shown: the app's main-thread busy % (CPU) and its stalls over 100 / 250 ms
+
+  Tabs and terminals as they grow (Leo 2026-11-10: "opening up a lot of terminals isn't super fast? opening/closing
+  tabs was p important to lawrence ... we defo need to encode and warn sometimes if those get slow"); each row's cost
+  must stay what it is with one tab or workspace:
+  tab_scale       tab-switch-matrix.py   terminal tab switch with 2 and 30 tabs in the pane (10 is tab_switch's)
+  tab_close       burst-bench.py         20 Cmd-W at 40 ms on terminal tabs and on chat tabs: key to the next commit
+  surfaces_scale  instant-new-surfaces   Cmd-T and Ctrl-` with 10 and 30 workspaces open (one is new_surfaces')
 
   A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
   suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
@@ -35,18 +46,32 @@ Fleet (an owned mini with a console; the step builds the app):
 Local, on a built app (never on a laptop that is in use):
   perf-budgets.py --tag T --app "<...>/cmux DEV T.app" --out DIR --json DIR/report.json
 """
-import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
+import argparse, importlib.util, json, math, os, platform, re, statistics, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from state_wait import wait_until  # noqa: E402
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
 BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
 
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
 # Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
-# a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
-OPT_IN_BENCHES = ["terminal_burst"]
+# a bench added here is a perf cron row that warns, never a new gate row (the 2026-10-23 no-new-CI rule, since lifted).
+# tab_scale, tab_close and surfaces_scale: the tabs-and-terminals-at-scale groups the perf cron's `tabs` part names.
+OPT_IN_BENCHES = ["terminal_burst", "tab_scale", "tab_close", "surfaces_scale", "many_chats"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
+# Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
+# Stored and shown, never gated, budgeted or written to a baseline: measurement only (no new CI gates).
+# The page's own frame cadence (acp.<mode>.frame_interval), key to frame counted in those frames
+# (typing.to_frame_frames), and the render-rate arms (acp.<mode>-capped / -full, and the chromium-nolimit mode with
+# Chromium's frame-rate limit off) are measurement too: they say whether a page draws at the display's refresh.
+STAGE_ROW_RE = re.compile(r"^acp\.([^.@]+-(capped|full|nolimit)\.[^@]+"
+                          r"|[^.@]+\.(typing\.(to_listener|to_work|to_frame_frames)|frame_interval))(@|$)")
+# A page that draws this much slower than the display's refresh measured a slower display than the row says: its key
+# to frame rows are refused (incomplete, REFRESH-MISMATCH), never reported as that display's numbers.
+REFRESH_MISMATCH = 1.25
+FRAME_ROWS = ("to_frame", "to_paint")
 
 
 # ---------- pure helpers (tests/test_perf_budgets.py) ----------
@@ -138,7 +163,7 @@ LOAD_TIERS = {"default": [], "agent": ["taskpolicy", "-c", "utility", "-d", "uti
 
 
 def start_load(tier, scratch):
-    """The load workers for `tier`, started and given 5 s to ramp; stop_load ends them."""
+    """The load workers for `tier`, started and running (CPU spent, the disk writer writing); stop_load ends them."""
     os.makedirs(os.path.join(scratch, "tree"), exist_ok=True)
     tree = os.path.join(scratch, "tree")
     if not os.path.exists(os.path.join(tree, "done")):
@@ -155,7 +180,19 @@ def start_load(tier, scratch):
     argvs += [sh('while :; do cat "$1"/f* | shasum >/dev/null; done', tree) for _ in range(2)]
     procs = [subprocess.Popen(a, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
              for a in argvs]
-    time.sleep(5)  # test harness: let the load ramp
+    # The load ramped: every worker is alive, each `yes` has been scheduled (CPU time spent), and a dd writer's
+    # file exists in scratch.
+    spinners = [p.pid for p, a in zip(procs, argvs) if a[-1] == "yes"]
+
+    def ramped():
+        dead = [a for p, a in zip(procs, argvs) if p.poll() is not None]
+        if dead:
+            raise SystemExit(f"a load worker exited at start: {dead[0]}")
+        times = subprocess.run(["ps", "-o", "time=", "-p", ",".join(map(str, spinners))],
+                               capture_output=True, text=True).stdout.split()
+        busy = len(times) == len(spinners) and all(any(c in t.replace("0", "") for c in "123456789") for t in times)
+        return busy and any(name.startswith("w") for name in os.listdir(scratch))
+    wait_until(ramped, f"the {tier} load to ramp", timeout=30, interval=0.2)
     return procs
 
 
@@ -191,16 +228,19 @@ def load(path):
         return None
 
 
-def find_stage(table, stage):
-    """tab-switch tables nest {kind: {stage: stat}} or {stage: stat}."""
+def find_stage(table, stage, kind):
+    """A tab-switch table's `stage` for switches that showed `kind`: {kind: {stage: stat}}, or a flat {stage: stat}.
+    Only the scenario's own kind counts. `debug.tab_switch` files a switch under the content it showed, so a scenario
+    holds other buckets too: `cold` (a tab whose surface was not alive: the pane empties now and the surface comes a
+    frame later) or `?` (untagged). Reading the first bucket with the stage read `cold` as the terminal row from
+    2026-11-15 (cmux#24569): the time to an empty pane, not to the terminal. A missing bucket is no value, so the
+    row is incomplete rather than another bucket's number."""
     if not isinstance(table, dict):
         return None
     if stage in table:
         return table[stage]
-    for v in table.values():
-        if isinstance(v, dict) and stage in v:
-            return v[stage]
-    return None
+    own = table.get(kind)
+    return own.get(stage) if isinstance(own, dict) else None
 
 
 def rows_new_surfaces(rep):
@@ -214,6 +254,24 @@ def rows_new_surfaces(rep):
     return out
 
 
+def rows_surfaces_scale(rep):
+    """new_surfaces rows at each grown workspace count only (`idle@10ws` -> cmd_t.idle_10ws.key_to_visible): the
+    count without a suffix is new_surfaces' own row, and `@` is the perf cron's host separator."""
+    return {name.replace("@", "_"): v for name, v in rows_new_surfaces(rep).items() if "@" in name}
+
+
+def rows_tab_close(rep):
+    """burst-bench.py's light phase: N Cmd-W on N tabs of one kind, each closing press's input to the next commit.
+    A row the bench marked invalid (its burst never ran, the stream lost records) is not measured."""
+    out = {}
+    for row in ((rep or {}).get("phases") or {}).get("light") or []:
+        scenario = str(row.get("scenario") or "")
+        if not scenario.startswith("cmdw-") or row.get("invalid"):
+            continue
+        out[f"tab_close.{scenario[len('cmdw-'):]}.burst.input_to_commit"] = p50_p95(row.get("input_to_next_commit_ms"))
+    return out
+
+
 def rows_panes(rep):
     out = {}
     for s in (rep or {}).get("summary") or []:
@@ -224,7 +282,7 @@ def rows_panes(rep):
 def rows_tab_switch(rep):
     out = {}
     for sc in (rep or {}).get("scenarios") or []:
-        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e")
+        stat = find_stage((sc.get("ctrl_tab") or {}).get("table"), "e2e", sc.get("kind"))
         out[f"tab_switch.{sc.get('kind')}.{sc.get('count')}.e2e"] = p50_p95(stat)
     return out
 
@@ -251,6 +309,9 @@ def rows_sidebar(rep, size):
         out[f"sidebar.{size}.ticking.cpu_pct"] = (cpu, cpu)
     if isinstance(ticks.get("main_ms_per_s"), (int, float)):
         out[f"sidebar.{size}.ticking.main_ms_per_s"] = (ticks["main_ms_per_s"], ticks["main_ms_per_s"])
+    maps = (ticks.get("per_tick") or {}).get("row_maps")
+    if isinstance(maps, (int, float)):
+        out[f"sidebar.{size}.ticking.row_maps_per_tick"] = (maps, maps)
     for key, m in (s.get("switch_matrix") or {}).items():
         if isinstance(m, dict) and "input_to_idle_ms" in m:
             out[f"workspace_switch.{key}.input_to_idle"] = p50_p95(m["input_to_idle_ms"])
@@ -272,6 +333,66 @@ def rows_acp(rep):
         summ = r.get("summary", r) if isinstance(r, dict) else {}
         out[f"acp.{mode}.typing.to_frame"] = p50_p95(summ.get("typing_to_frame"))
         out[f"acp.{mode}.typing.to_paint"] = p50_p95(summ.get("typing_to_paint"))
+        for stage in ("to_listener", "to_work"):
+            stats = summ.get(f"typing_{stage}")
+            # typingSummary gives zeros for a stage with no samples (a build before the stage marks): no row.
+            if isinstance(stats, dict) and stats.get("max_ms") == 0:
+                stats = None
+            if stats is not None:
+                out[f"acp.{mode}.typing.{stage}"] = p50_p95(stats)
+        cadence = summ.get("frame_interval")
+        if isinstance(cadence, dict) and finite(cadence.get("p50_ms")) and cadence["p50_ms"] > 0:
+            out[f"acp.{mode}.frame_interval"] = p50_p95(cadence)
+            frame = out[f"acp.{mode}.typing.to_frame"]
+            if frame is not None and all(finite(v) for v in frame):
+                # Key to frame in frames of the page's own cadence (goal typing-latency: at most 2).
+                out[f"acp.{mode}.typing.to_frame_frames"] = tuple(round(v / cadence["p50_ms"], 2) for v in frame)
+        for arm, a in (summ.get("rate_arms") or {}).items():
+            if not isinstance(a, dict):
+                continue
+            for stage in ("to_frame", "to_work"):
+                if a.get(f"typing_{stage}") is not None:
+                    out[f"acp.{mode}-{arm}.typing.{stage}"] = p50_p95(a.get(f"typing_{stage}"))
+            if isinstance(a.get("frame_interval"), dict):
+                out[f"acp.{mode}-{arm}.frame_interval"] = p50_p95(a["frame_interval"])
+    return out
+
+
+def finite(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def display_refresh_ms(out_dir):
+    """The measure display's refresh, from split-spring.sh's display.txt in the bench's --out (`ready ID MS ...`, the
+    virtual display's measured interval); None for the real display or no file."""
+    try:
+        with open(os.path.join(out_dir, "display.txt")) as f:
+            words = f.read().split()
+    except OSError:
+        return None
+    try:
+        ms = float(words[2]) if len(words) > 2 and words[0] == "ready" else None
+    except ValueError:
+        return None
+    return ms if ms and math.isfinite(ms) and ms > 0 else None
+
+
+def refresh_mismatches(values, refresh_ms):
+    """The judged acp modes whose page drew slower than REFRESH_MISMATCH x the display's refresh: their key to frame
+    and paint rows are refused (goal typing-latency: "fail any run whose page draws slower than the display"). The rows
+    that do not depend on the refresh (to_listener, to_work) stay. Returns the incomplete entries; edits `values`."""
+    if not refresh_ms:
+        return []
+    out = []
+    for name, stat in sorted(values.items()):
+        m = re.fullmatch(r"acp\.([^.@-]+)\.frame_interval(@[^@]*)?", name)
+        if not m or not stat or not finite(stat[0]) or stat[0] <= REFRESH_MISMATCH * refresh_ms:
+            continue
+        mode, suffix = m.group(1), m.group(2) or ""
+        for row in FRAME_ROWS + ("to_frame_frames",):
+            values.pop(f"acp.{mode}.typing.{row}{suffix}", None)
+        why = f"REFRESH-MISMATCH: the {mode} page drew every {stat[0]} ms on a {refresh_ms} ms display"
+        out.extend({"name": f"acp.{mode}.typing.{row}{suffix}", "reason": why} for row in FRAME_ROWS)
     return out
 
 
@@ -292,6 +413,21 @@ def rows_terminal_burst(rep):
         else:
             action, _, count = step.partition("@")
             out[f"terminal_burst.{action}.{count}.key_to_visible"] = p50_p95(s.get("visible_ms"))
+    return out
+
+
+def rows_many_chats(rep):
+    """bench_power.py many-chats: the app's main-thread busy % and the window's stalls (one value each: p50 = p95)."""
+    out = {}
+    for result in (rep or {}).get("results") or []:
+        if result.get("label") != "many-chats":
+            continue
+        rows = result.get("many_chats") or {}
+        for key, name in (("main_thread_pct", "main_thread_pct"), ("hangs_over_100ms", "hangs_over_100ms"),
+                          ("hangs_over_250ms", "hangs_over_250ms"), ("hang_max_ms", "hang_max_ms"),
+                          ("hidden_push_bytes_per_s", "hidden_push_bytes_per_s")):
+            if isinstance(rows.get(key), (int, float)):
+                out[f"many_chats.{name}"] = (rows[key], rows[key])
     return out
 
 
@@ -448,6 +584,8 @@ def main():
     ap.add_argument("--sidebar-scenarios", default="ticks,scroll,scroll_ticking,switch,switch_matrix,drag")
     ap.add_argument("--acp-rows", type=int, default=5000, help="seeded rows for native transcript scroll measurements")
     ap.add_argument("--acp-fling-seconds", type=float, default=3, help="duration of the native transcript traversal")
+    ap.add_argument("--acp-modes", default="own,chromium", help="agent-engine-bench modes (chromium-nolimit: Chromium with its frame-rate limit off)")
+    ap.add_argument("--acp-rate-arms", action="store_true", help="also type at the WebKit page's capped and full render rates")
     ap.add_argument("--scroll-target-hz", type=float, help="target refresh rate for transcript and sidebar dropped slots")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
@@ -481,6 +619,15 @@ def main():
         "tab_switch": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal,chromium", "--counts", "10",
                         "--switches", "30", "--out", o("tab_switch"), "--json", o("tab_switch.json")],
                        "tab_switch.json", rows_tab_switch),
+        "tab_scale": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal", "--counts", "2,30",
+                       "--switches", "30", "--out", o("tab_scale"), "--json", o("tab_scale.json")],
+                      "tab_scale.json", rows_tab_switch),
+        "tab_close": ([py, S("burst-bench.py"), "--app", opts.app, "--no-stress", "--scenarios", "cmdw-terminal,cmdw-chat",
+                       "--presses", "20", "--out", o("tab_close")], os.path.join("tab_close", "report.json"), rows_tab_close),
+        "surfaces_scale": ([py, S("instant-new-surfaces-bench.py"), *common, "--commands", "new_tab,new_terminal",
+                            "--phases", "idle", "--arms", "warm", "--workspaces", "10,30", "--runs", "10",
+                            "--out", o("surfaces_scale"), "--json", o("surfaces_scale.json")],
+                           "surfaces_scale.json", rows_surfaces_scale),
         "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", str(opts.palette_rounds), "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
@@ -489,7 +636,8 @@ def main():
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
         "home": ([py, S("home-perf.py"), *common, "--out", o("home.json")], "home.json", rows_home),
-        "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
+        "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", opts.acp_modes,
+                 *(["--rate-arms"] if opts.acp_rate_arms else []), "--chats", "2", "--flings", "1",
                  "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
                  *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
@@ -498,6 +646,8 @@ def main():
         "terminal_burst": ([py, S("tab-churn-bench.py"), *common, "--cycles", "12", "--terminals", "30",
                   "--out", o("terminal_burst"), "--json", o("terminal_burst.json")], "terminal_burst.json",
                            rows_terminal_burst),
+        "many_chats": ([py, S("bench_power.py"), "--app", opts.app, "--scenarios", "many-chats",
+                        "--out", o("many_chats.json"), "--md", o("many_chats.md")], "many_chats.json", rows_many_chats),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }
@@ -566,9 +716,11 @@ def run_phase(phase, only, plan, opts, runs, values):
 def finish(opts, budgets, only, runs, values):
     profile_split = profile_splits(opts.out) if opts.profile else None
 
+    # A page that drew slower than the display: its key to frame rows are refused before the rows are made.
+    mismatched = refresh_mismatches(values, display_refresh_ms(opts.out))
     rows = []
     for name, (p50, p95) in sorted(values.items()):
-        spec = budget_for(name, budgets)
+        spec = {} if STAGE_ROW_RE.match(name) else budget_for(name, budgets)
         rows.append({"name": name, "p50": None if p50 is None else round(p50, 2),
                      "p95": None if p95 is None else round(p95, 2), "budget": spec.get("p95"),
                      "unit": spec.get("unit", "ms"), "floor": spec.get("floor", 1.0), "interaction": spec.get("what")})
@@ -576,11 +728,12 @@ def finish(opts, budgets, only, runs, values):
     cls = host_class()
     base_path = opts.baseline or os.path.join(BASELINE_DIR, f"{cls}.json")
     baseline = (load(base_path) or {}).get("p95", {})
-    regressed = compare(rows, baseline)
+    regressed = compare([r for r in rows if not STAGE_ROW_RE.match(r["name"])], baseline)
     over = over_budget(rows)
     incomplete = []
     if opts.gate and not baseline:
         incomplete.append({"name": "baseline", "reason": "missing baseline p95 rows"})
+    incomplete.extend(mismatched)
     incomplete.extend(incomplete_rows(rows, baseline, budgets.get("expected", {}), only))
     counts = completeness_counts(rows, baseline, budgets.get("expected", {}), only, incomplete, regressed)
 
@@ -612,7 +765,8 @@ def finish(opts, budgets, only, runs, values):
     if opts.write_baseline and incomplete:
         print("PERF-BUDGETS-BASELINE refused: the run is incomplete; provide measured rows for every expected entry")
     elif opts.write_baseline:
-        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
+        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows
+                                                if r["p95"] is not None and not STAGE_ROW_RE.match(r["name"])}},
                   open(opts.write_baseline, "w"), indent=1, sort_keys=True)
     if opts.gate and not baseline:
         print(f"PERF-BUDGETS-GATE no baseline at {base_path}: incomplete")

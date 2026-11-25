@@ -1,7 +1,7 @@
 // The Cloud page (plans/cmux-next/cloud-app.md L7, cloud-parity.md "cmux-next UI mapping"). State
 // lives in `CloudStore`; this file only renders it and turns plain keys and clicks into intents.
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
-import { useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
@@ -13,6 +13,8 @@ import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { shownSurge } from "./surge";
+import { SurgeCard } from "./SurgeCard";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -20,6 +22,18 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
   // The near-cap banner's dismissal, kept across the storefront and the machine list (Notices.tsx).
   const [capNearHidden, setCapNearHidden] = useState(false);
   const capBannerProps = { hiddenNear: capNearHidden, onHideNear: () => setCapNearHidden(true) };
+  // One set of row callbacks for the store's life: the machine rows' memo compares them.
+  const machineActions = useMemo(
+    () => ({
+      onSelect: (id: string) => void store.select(id),
+      onOpen: (id: string) => void store.connect(id),
+      onPause: (id: string) => void store.pause(id),
+      onResume: (id: string) => void store.resume(id),
+      onKeep: (id: string, keep: boolean) => void store.keep(id, keep),
+      onDismissNotice: (id: string, at: number) => store.dismissNotice(id, at),
+    }),
+    [store],
+  );
   // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
   // reads again on its own); then the disconnected state with Retry.
   const down = snap.connection === "disconnected";
@@ -105,14 +119,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     return (
       <>
         {known && downLasting && (
-          <div className="cloud-error cloud-disconnected-line" role="status">
+          <output className="cloud-error cloud-disconnected-line">
             <span className="cloud-error-text">{t(L.disconnected)}</span>
             {store.canRetry && (
               <button type="button" className="cloud-link-button cloud-retry-button" onClick={() => void store.retry()}>
                 {t(L.retry)}
               </button>
             )}
-          </div>
+          </output>
         )}
         <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
         <MigrationBanner store={store} state={snap} strings={strings} />
@@ -134,18 +148,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
                 {t(L.create)}
               </button>
             </div>
+            <SurgeCard surge={shownSurge(snap.surge, snap.machines)} strings={strings} />
             <MachineList
               rows={snap.rows}
               layout={snap.layout}
               selection={snap.selection}
               strings={strings}
-              onSelect={(id) => void store.select(id)}
-              onOpen={(id) => void store.connect(id)}
-              onPause={(id) => void store.pause(id)}
-              onResume={(id) => void store.resume(id)}
               dismissed={snap.dismissed}
-              onKeep={(id, keep) => void store.keep(id, keep)}
-              onDismissNotice={(id, at) => store.dismissNotice(id, at)}
+              {...machineActions}
             />
             <ArchiveList
               archives={snap.archives}

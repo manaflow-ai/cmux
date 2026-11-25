@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import {
+  asksFirst,
   KIND_ICON,
   groups,
   healthHelp,
@@ -155,6 +156,17 @@ describe("words", () => {
     expect(isLinked(machine("joined:m_1", "joined", { joined }))).toBe(false);
     expect(isLinked(machine("ssh-8", "ssh"))).toBe(true);
   });
+
+  test("New Workspace dials any online mesh-only joined machine, Mac or Linux, and no offline one", () => {
+    const linux = { id: "m_1", name: "lane-vm-3", state: "online" as const, platform: "linux" };
+    const mac = { ...linux, id: "m_2", name: "studio-mini", platform: "macos" };
+    expect(asksFirst(machine("joined:m_1", "joined", { joined: linux }))).toBe(true);
+    expect(asksFirst(machine("joined:m_2", "joined", { joined: mac }))).toBe(true);
+    expect(asksFirst(machine("joined:m_1", "joined", { joined: { ...linux, state: "offline" } }))).toBe(false);
+    expect(asksFirst(machine("joined:m_1", "joined", { joined: { ...linux, state: "revoked" } }))).toBe(false);
+    // A row the app already connects to opens its own workspace, not a dial.
+    expect(asksFirst(machine("ssh-7", "ssh", { joined: linux }))).toBe(false);
+  });
 });
 
 describe("shown lines", () => {
@@ -219,14 +231,19 @@ describe("shown lines", () => {
   });
 });
 
-describe("the Cloud header names the active team", () => {
-  test("only the Cloud group's header carries the team", () => {
-    const items = sectionItems({ rows, style: "compact", cloudTeam: { name: "cmux", personal: false } }, strings);
-    const headers = items.flatMap((item) => (item.type === "header" ? [item] : []));
-    expect(headers.filter((header) => header.team).map((header) => header.key)).toEqual(["h:cloud"]);
-    expect(headers.find((header) => header.key === "h:cloud")?.team).toEqual({ name: "cmux", personal: false });
-    expect(sectionItems({ rows, style: "compact" }, strings).some((item) => item.type === "header" && item.team)).toBe(
-      false,
+describe("the Cloud header says only Cloud (https://github.com/manaflow-ai/cmux/issues/45695)", () => {
+  test("a snapshot naming the active team still heads the Cloud group with only its title", () => {
+    const team = { cloudTeam: { name: "AUSTIN", personal: false } };
+    const items = sectionItems({ rows, style: "compact", ...team }, strings);
+    const cloud = items.find((item) => item.type === "header" && item.key === "h:cloud");
+    expect(cloud).toEqual({
+      type: "header",
+      key: "h:cloud",
+      title: t("machines.group.cloud"),
+      first: expect.any(Boolean),
+    });
+    expect(shownLines({ rows, style: "compact", busy: [], failed: {}, ...team }, strings).join("\n")).not.toContain(
+      "AUSTIN",
     );
   });
 });

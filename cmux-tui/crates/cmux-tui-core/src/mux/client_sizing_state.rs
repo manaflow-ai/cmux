@@ -84,6 +84,10 @@ pub(super) struct TerminalSizingEntry {
     /// After a phone or tablet departs, the grid does not grow past this size until the
     /// instant passes (`DEPARTED_GRID_HOLD`); it may shrink.
     pub(super) hold: std::cell::Cell<Option<((u16, u16), Instant)>>,
+    /// This Mac's views whose smaller report after an agent's layout change
+    /// does not count yet, each with the size it counts at instead, by
+    /// participant id (`terminal_sizing/agent_layout_hold.rs`).
+    pub(super) agent_layout_holds: HashMap<String, TerminalGridSize>,
     /// Where this terminal's runtime publishes the view a key may skip its sizing note for (stage S1); `None` when
     /// no surface of the runtime was found when the entry was made (its keys always take the slow path).
     pub(super) fast_path_slot: Option<sizing_fast_path::SizingFastPathSlot>,
@@ -144,6 +148,11 @@ pub(super) struct ClientSizingState {
     pub(super) host_policy: Option<host_policy::HostSizePolicy>,
     /// The settings revision `host_policy` was read at.
     pub(super) host_policy_revision: Option<u64>,
+    /// Placements an agent's layout change may have just shrunk, with when
+    /// and the change's number (`terminal_sizing/agent_layout_hold.rs`).
+    pub(super) agent_layout_marks: HashMap<SurfaceId, (Instant, u64)>,
+    /// The number of the last agent layout change that set marks.
+    pub(super) agent_layout_changes: u64,
 }
 
 /// Host participant id of one client's view of one terminal placement. The

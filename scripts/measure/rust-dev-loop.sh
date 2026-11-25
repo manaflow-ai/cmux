@@ -3,7 +3,7 @@
 # build-setting variant, as p50/p95. Run alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/rust-dev-loop.sh --ref SHA \
 #     [--arg=variants=base,lld,nodebug] [--arg=n=8] [--arg=clean_n=1] \
-#     [--arg=scenarios=acpmux_leaf,shared_struct,test_only] [--arg=tests=acpmux] \
+#     [--arg=scenarios=acpmux_leaf,shared_struct,test_only,tui_server,tui_core] [--arg=tests=acpmux] [--arg=load=N] \
 #     --artifact .build/rust-dev-loop/samples.json --timeout 10800
 # Each variant gets its own target directory and a clean build (clean_n of them), then n
 # interleaved rounds of an acpmux leaf edit, a shared Formula layout edit, and an acpmux
@@ -21,7 +21,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 # blaze_home_path: a BLAZE_HOME whose daemon socket fits a Unix socket address (macOS: 104 bytes).
 source "$root/scripts/measure/blaze-home.sh"
-variants=base n=8 clean_n=1 scenarios=acpmux_leaf,shared_struct,test_only tests="" out="" timings=0 custom=()
+variants=base n=8 clean_n=1 scenarios=acpmux_leaf,shared_struct,test_only tests="" out="" timings=0 load=0 custom=()
 for kv in "$@"; do
   case "$kv" in
     variants=*) variants="${kv#*=}" ;;
@@ -31,6 +31,7 @@ for kv in "$@"; do
     tests=*) tests="${kv#*=}" ;;
     out=*) out="${kv#*=}" ;;
     timings=*) timings="${kv#*=}" ;;
+    load=*) load="${kv#*=}" ;;
     custom=*) custom+=(--custom "${kv#*=}") ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
@@ -85,7 +86,7 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
   mold_dir="$scratch/mold"
   mold_tgz="$mold_dir/mold-3.0.0-x86_64-linux.tar.gz"
   mkdir -p "$mold_dir"
-  if curl -fsSL --retry 3 -o "$mold_tgz" https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
+  if curl -fsSL --retry 3 --retry-all-errors -o "$mold_tgz" https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
     && echo "6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189  $mold_tgz" | sha256sum -c --quiet; then
     tar -xzf "$mold_tgz" -C "$mold_dir"
     export PATH="$mold_dir/mold-3.0.0-x86_64-linux/bin:$PATH"
@@ -107,7 +108,7 @@ if [[ -n "$tests" ]] && ! command -v cargo-nextest >/dev/null; then
   nextest_tgz="$nextest_dir/cargo-nextest.tar.gz"
   mkdir -p "$nextest_dir/bin"
   if [[ -n "$nextest_target" ]] \
-    && curl -fsSL --retry 3 -o "$nextest_tgz" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$nextest_target.tar.gz" \
+    && curl -fsSL --retry 3 --retry-all-errors -o "$nextest_tgz" "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest_version/cargo-nextest-$nextest_version-$nextest_target.tar.gz" \
     && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$nextest_tgz" "$nextest_sha"; then
     tar -xzf "$nextest_tgz" -C "$nextest_dir/bin"
     export PATH="$nextest_dir/bin:$PATH"
@@ -136,7 +137,7 @@ if [[ ",$variants," == *,blaze,* ]]; then
   export BLAZE_HOME="$(blaze_home_path "$scratch/cmux-rust-dev-loop-blaze-home-$$")"
   blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
   if [[ -n "$blaze_target" ]] \
-    && curl -fsSL --retry 3 -o "$blaze_tgz" "https://github.com/indexable-inc/blaze/releases/download/v$blaze_version/blaze-v$blaze_version-$blaze_target.tar.gz" \
+    && curl -fsSL --retry 3 --retry-all-errors -o "$blaze_tgz" "https://github.com/indexable-inc/blaze/releases/download/v$blaze_version/blaze-v$blaze_version-$blaze_target.tar.gz" \
     && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$blaze_tgz" "$blaze_sha"; then
     tar -xzf "$blaze_tgz" -C "$blaze_dir/bin"
     blaze_bin="$(dirname "$(find "$blaze_dir/bin" -type f -name blaze -perm -u+x | head -1)")"
@@ -153,6 +154,6 @@ out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
 status=0
 python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"} || status=$?
+  --target-root "$scratch/target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests" --load "$load" $([[ "$timings" == 1 ]] && echo --timings) ${custom[@]+"${custom[@]}"} || status=$?
 du -sh "$scratch" | sed 's/^/scratch: /'
 exit "$status"

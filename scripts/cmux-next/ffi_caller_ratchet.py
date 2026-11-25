@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -78,6 +79,10 @@ class Tree:
 
     def __init__(self, repo: Path, rev: str | None):
         self.repo, self.rev = repo, rev
+        # path -> blob id, from files()' listing: read() asks cat-file by id. Asked `<rev>:<path>`, git resolves each
+        # path from the root tree again, about 4 ms a file on a Linux workstation's cmux mirror (2026-11-21: this check's two
+        # passes over every Packages Swift file took 118 s of a merge push's pre-push gate).
+        self.ids: dict[str, str] = {}
 
     def git(self, *args: str) -> bytes:
         result = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True)
@@ -92,8 +97,18 @@ class Tree:
             if base.is_file():
                 return [prefix]
             return sorted(p.relative_to(self.repo).as_posix() for p in base.rglob("*") if p.is_file())
-        out = self.git("ls-tree", "-r", "-z", "--name-only", self.rev, "--", prefix)
-        return sorted(name for name in out.decode("utf-8", "surrogateescape").split("\0") if name)
+        out = self.git("ls-tree", "-r", "-z", self.rev, "--", prefix)
+        names = []
+        for entry in out.split(b"\0"):
+            meta, _, name = entry.partition(b"\t")
+            fields = meta.split()
+            if len(fields) != 3 or not name:
+                continue
+            path = name.decode("utf-8", "surrogateescape")
+            names.append(path)
+            if fields[1] == b"blob":
+                self.ids[path] = fields[2].decode()
+        return sorted(names)
 
     def read(self, paths: list[str]) -> dict[str, str]:
         """path -> text; a missing path is left out."""
@@ -108,7 +123,7 @@ class Tree:
             return {}
         # Through a file, never a pipe: a big answer over a pipe can deadlock (arch_counts.py, check-ui-font.py).
         with tempfile.TemporaryFile() as stdin:
-            stdin.write("".join(f"{self.rev}:{p}\n" for p in paths).encode())
+            stdin.write("".join(f"{self.ids.get(p) or f'{self.rev}:{p}'}\n" for p in paths).encode())
             stdin.seek(0)
             result = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], stdin=stdin,
                                     capture_output=True)
@@ -121,7 +136,7 @@ class Tree:
             header = out[pos:end].split()
             pos = end + 1
             if len(header) < 3 or header[1] != b"blob":
-                continue  # "<rev>:<path> missing"
+                continue  # "<rev>:<path> missing" (or "<id> missing")
             size = int(header[2])
             texts[path] = out[pos:pos + size].decode("utf-8", errors="replace")
             pos += size + 1
@@ -185,11 +200,27 @@ def pinned_exports(tree: Tree) -> tuple[str, dict[str, str] | None]:
     match = PIN_TAG.search(url) if isinstance(url, str) else None
     if not match:
         return f"the url in {PIN} names no cmux-app-ffi-<40 hex sha> release tag", None
-    tag = match.group(0)
+    tag, sha = match.group(0), match.group(1)
     try:
-        found = exported(Tree(tree.repo, match.group(1)))
+        found = exported(Tree(tree.repo, sha))
     except SystemExit:  # Tree.git: the commit is not here, or --repo is no git repo
-        return f"git cannot read the pinned source of {tag}", None
+        # A shallow checkout (CI's push run, fetch-depth 2) often lacks the pinned commit; judging without it made
+        # the baseline test skip on feat-cmux-next while every PR failed it (#43920, 2026-11-15). Fetch it once:
+        # --depth=1 only into a clone that is already shallow (a depth fetch would make a full clone shallow and
+        # break its merge-base reads); never prompt for credentials, and give up after 30 s.
+        repo = str(tree.repo)
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+        try:
+            shallow = subprocess.run(["git", "-C", repo, "rev-parse", "--is-shallow-repository"], capture_output=True,
+                                     text=True, timeout=30).stdout.strip() == "true"
+            fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *(["--depth=1"] if shallow else []),
+                                      "origin", sha], capture_output=True, stdin=subprocess.DEVNULL, env=env,
+                                     timeout=30)
+            found = exported(Tree(tree.repo, sha)) if fetched.returncode == 0 else None
+        except (SystemExit, subprocess.TimeoutExpired, OSError):
+            found = None
+        if found is None:
+            return f"git cannot read the pinned source of {tag}", None
     if not found:
         return f"the pinned source of {tag} exports no function", None
     return tag, found

@@ -14,18 +14,32 @@ extension WorkspaceRowView {
         // Each detail line adds exactly its own height (`SidebarDensityTokens.rowHeightWithSubtitle`), with no gap
         // between stacked lines; the labels' own line spacing separates them.
         let sh = SidebarStyle.detailLineHeight
-        let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
+        let lines = Self.stackedDetailLines(expanded: isExpanded, subtitle: hasSubtitle, meta: hasMeta)
         let stackTop = (b.height - th - CGFloat(lines) * sh) / 2
         // The title centers its capitals on its line of the stack (#27598).
         let titleCenter = stackTop + th / 2
-        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
-                                                                    capHeight: title.font.capHeight)
+        // A browser density places the baseline as its tab does (`SidebarStyle.capCenteredBaseline`); the marquee label
+        // draws its baseline one ascender, on a whole pixel, under its top (`titlePenOrigin`).
+        let scale = window?.backingScaleFactor ?? 2
+        let top = SidebarStyle.capCenteredBaseline(title.font, centerY: titleCenter, scale: scale).map { $0 - (title.font.ascender * scale).rounded() / scale }
+            ?? SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
+                                                                 capHeight: title.font.capHeight)
         // The icon and the trailing marks center on the whole row, one line or two (Leo 2026-10-14: "wait that's
         // not centered? why is it superscript?"); only an expanded row puts them on its title's line.
         return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
-    var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+    var hasMeta: Bool { !metaLabel.stringValue.isEmpty }
+
+    /// The detail lines the title stacks with. An expanded row is always two lines tall (`SidebarLayoutMetrics.rowStep`), so
+    /// it stacks its title over one detail line's room even while it has none: a summary or preview arriving late (a chat's
+    /// first message, a notification's text) fills that room and never moves the title, the icon or the trailing marks,
+    /// which center on the title's line (Leo 2026-11-24: "we need to have more things decoupled from possible shifts").
+    /// A third line (meta) grows the row by itself, and the title stays where it was.
+    static func stackedDetailLines(expanded: Bool, subtitle: Bool, meta: Bool) -> Int {
+        let lines = (subtitle ? 1 : 0) + (meta ? 1 : 0)
+        return expanded ? max(1, lines) : lines
+    }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
@@ -41,15 +55,16 @@ extension WorkspaceRowView {
         return columns.trailingEdge(before: timeLabel.frame)
     }
 
-    /// The Unpin button of an expanded pinned row, with the menu button (hover,
-    /// not renaming): left of it, fading in and out in place with it. Returns
-    /// its minX while it shows. An unpinned row draws no pin, at rest or on
-    /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
-    /// symbol by default").
+    /// The hover pin, with the menu button (hover, not renaming): left of it, fading in and out in place with it, on
+    /// every row the App wires a pin to (`SidebarModel.workspacePin`), at every density. Pin on an unpinned row, Unpin
+    /// on a pinned one (David Beyer 2026-11-20: pinning by drag is awkward). No row draws a pin at rest (Leo
+    /// 2026-10-21: "no empty pin symbol by default"). Returns its minX while it shows.
     func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded && isPinned?() == true
-        setHoverShown(pinSlot, showMore && pinned, fades: fades)
-        guard pinned else { return nil }
+        // The pin state is read only while the controls show: a row at rest asks nothing.
+        let pinned = showMore ? isPinned?() : nil
+        setHoverShown(pinSlot, pinned != nil, fades: fades)
+        guard let pinned else { return nil }
+        pinSlot.made.map { applyPin($0, pinned: pinned) }
         if SidebarTunables.rowCloseSpot.value.atEnd {
             let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
             let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
@@ -57,7 +72,7 @@ extension WorkspaceRowView {
         } else {
             pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
-        return showMore ? pinSlot.frame.minX : nil
+        return pinSlot.frame.minX
     }
 
     /// The title, the second line and the meta line, top to bottom from `top`.

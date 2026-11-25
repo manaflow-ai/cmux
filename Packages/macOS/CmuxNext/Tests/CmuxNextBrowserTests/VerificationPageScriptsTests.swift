@@ -65,6 +65,28 @@ import Testing
         #expect(try Self.detect("document.inputs = [field({autocomplete: 'one-time-code'})];").count == 1)
     }
 
+    /// Slack's and others' wording: "We emailed you a code", "We've emailed a code".
+    @Test(arguments: [
+        "We emailed you a code. Enter it below to sign in.",
+        "We've emailed a 6-character code to you@example.com.",
+        "Check your email for a code",
+        "Enter the 6-digit code we sent to your email",
+    ])
+    func aPageThatSaysItEmailedACodeReports(text: String) throws {
+        #expect(try Self.detect("document.body.innerText = \(String(reflecting: text));").count == 1)
+    }
+
+    /// A row of one-character boxes (Slack's 3-3, most 6-box code screens) is a code field even
+    /// with no autocomplete hint and no recognized text.
+    @Test func aRowOfOneCharacterBoxesReports() throws {
+        #expect(try Self.detect("document.inputs = [0,1,2,3,4,5].map(function () { return field({maxLength: 1}); });").count == 1)
+    }
+
+    /// One or two one-character fields (a middle initial) are not a code.
+    @Test func twoOneCharacterFieldsDoNotReport() throws {
+        #expect(try Self.detect("document.inputs = [field({maxLength: 1}), field({maxLength: 1})];").isEmpty)
+    }
+
     @Test func anOrdinaryPageDoesNotReport() throws {
         #expect(try Self.detect("document.body.innerText = 'Welcome to our store. Free shipping on orders over $50.';").isEmpty)
     }
@@ -111,6 +133,13 @@ import Testing
         let (filled, context) = try Self.fill("document.inputs = [0,1,2,3,4,5].map(function () { return field({maxLength: 1}); });")
         #expect(filled)
         #expect(context.evaluateScript("document.inputs.map(function (el) { return el.value; }).join('')").toString() == "482913")
+    }
+
+    /// A dashed code (`Q7K-2PL`) reaches Slack's six boxes one character each.
+    @Test func aDashedCodeFillsSixBoxes() throws {
+        let (filled, context) = try Self.fill("document.inputs = [0,1,2,3,4,5].map(function () { return field({maxLength: 1}); });", code: "Q7K2PL")
+        #expect(filled)
+        #expect(context.evaluateScript("document.inputs.map(function (el) { return el.value; }).join('')").toString() == "Q7K2PL")
     }
 
     @Test func fillsNothingWhenNoFieldFits() throws {

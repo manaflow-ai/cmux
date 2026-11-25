@@ -210,6 +210,19 @@ pub(super) fn terminal_last_command(
     Ok(json!({ "terminal_id": terminal_id, "last_command": last }))
 }
 
+/// `terminal-command-context`: the newest command the PTY `surface`'s shell
+/// finished, read from its screen now, or null.
+pub(super) fn terminal_command_context(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    intent: crate::command_context::Intent,
+) -> anyhow::Result<Value> {
+    let surface = get_surface(mux, surface)?;
+    require_pty(&surface)?;
+    let context = surface.terminal_command_context().map(|context| context.to_json(intent));
+    Ok(json!({ "context": context }))
+}
+
 /// `terminal-resume-command`: an absent `command` reads, a string sets and
 /// null clears the terminal's resume command (`resume-command`).
 pub(super) fn terminal_resume_command(
@@ -308,6 +321,15 @@ pub(super) fn create_terminal(
         _ => anyhow::bail!("argv or command must be non-empty when provided"),
     };
     let size = paired_surface_size("create-terminal", cols, rows)?;
+    // A plain shell (no command, no environment) from a creator not showing
+    // it may wait for its first need (mux/terminal_respawn/lazy.rs).
+    let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        mux,
+        !detached
+            && argv.is_none()
+            && env.is_empty()
+            && !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor),
+    );
     if detached {
         anyhow::ensure!(
             workspace.is_none() && key.is_none(),
@@ -627,6 +649,7 @@ fn ensure_workspace(
         None,
         None,
         &workspace_mutation,
+        false,
     )?;
     Ok(())
 }

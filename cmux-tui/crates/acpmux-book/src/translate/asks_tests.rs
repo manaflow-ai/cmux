@@ -214,3 +214,31 @@ fn an_open_ask_is_decided_after_a_restart() {
     );
     assert_eq!(asks(&ops).len(), 1);
 }
+
+#[test]
+fn a_policys_answer_before_its_request_is_not_counted_and_an_option_past_8_is() {
+    // The hub writes a policy's answer before the request it answers; the request then opens
+    // its ask. Only a person's or a secret's decision for no open ask is counted.
+    let mut state = State::default();
+    let auto = r#"{"permissionId":"p","policy":"rule","optionId":"once"}"#;
+    run(
+        &mut state,
+        &[mux(1, "permission_auto", auto), mux(2, "permission_request", &request("p"))],
+    );
+    assert_eq!(state.counters().unplaced_decisions, 0);
+    run(&mut state, &[mux(3, "secret_decision", r#"{"secretId":"none","outcome":"provided"}"#)]);
+    assert_eq!(state.counters().unplaced_decisions, 1);
+    // Ten options: the two past the 8 kept read as answers, and the cut is counted.
+    let mut state = State::default();
+    let options: Vec<String> = (0..10)
+        .map(|n| format!(r#"{{"optionId":"o{n}","name":"Allow {n}","kind":"allow_once"}}"#))
+        .collect();
+    let ask = format!(
+        r#"{{"permissionId":"p","request":{{"toolCall":{{"title":"t"}},"options":[{}]}}}}"#,
+        options.join(",")
+    );
+    run(&mut state, &[mux(1, "permission_request", &ask)]);
+    assert_eq!(state.counters().cut_fields, 1);
+    let ops = run(&mut state, &[mux(2, "permission_decision", &decide("p", "o9"))]);
+    assert_eq!(settled(&ops)["decision"], r#"{"kind":"answered","option":"o9"}"#);
+}

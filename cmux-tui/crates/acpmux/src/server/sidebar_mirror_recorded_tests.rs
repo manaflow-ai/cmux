@@ -12,6 +12,12 @@
 //! ..., "reply": [start, end]}}` lines: v1's requests on the same socket and the bytes answering
 //! each, which the client never reads.
 //!
+//! A recorded stream holds what its replayer reads. The v1 replies are cut to what the app's v1
+//! source reads (`cut_v1`): `initialize`'s reply to its capability, extension, feature and
+//! operation lists, each list to its read entries, each list result to its read keys and each row
+//! to its read fields. So a feature changes the recording only when the app reads what it adds. A
+//! row the cut does not reach (a session anywhere but a result's `sessions`) fails the recording.
+//!
 //! The test fails when a committed file differs from the run; `ACPMUX_LIST_STREAM_BLESS=1`
 //! rewrites them (or names a directory to write them to instead).
 
@@ -24,6 +30,73 @@ const BLESS: &str = "ACPMUX_LIST_STREAM_BLESS";
 const QUIET: Duration = Duration::from_millis(200);
 /// Both files of one stream together stay under this.
 const MAX_FIXTURE_BYTES: usize = 256 << 10;
+/// The entries of `initialize`'s `_meta.acpmux` lists that the app's v1 source reads
+/// (`AgentListFollow.follows`). The recorder cuts each list to these, in the daemon's order, so a
+/// daemon feature that adds an entry changes no recorded byte. A later PR whose replay reads
+/// another entry adds it here and records the stream again in its own CI.
+const V1_INITIALIZE_ENTRIES: [(&str, &[&str]); 4] = [
+    ("capabilities", &["session-list-follow-v1"]),
+    ("extensions", &[]),
+    ("features", &[]),
+    ("operations", &[]),
+];
+/// The keys `initialize`'s reply keeps at each object on the way to those lists: the app's v1
+/// source reads nothing else of it (`AgentTurnStateFeed.Message`, id 1). So `agentCapabilities`,
+/// `agentInfo` and the keys beside the lists in `_meta.acpmux` (build, person challenge, trust gate
+/// and the like) are cut. A later PR whose replay reads another key adds it here and records the
+/// stream again in its own CI.
+const V1_INITIALIZE_KEYS: [(&str, &[&str]); 3] = [
+    ("/result", &["_meta"]),
+    ("/result/_meta", &["acpmux"]),
+    ("/result/_meta/acpmux", &["capabilities", "extensions", "features", "operations"]),
+];
+/// The keys of a `_acpmux/watch` or `_acpmux/sessions` result that the app's v1 source reads
+/// (`AgentWatchPage`, `AgentWatchFollow`). The recorder cuts each result to these. A later PR whose
+/// replay reads another key adds it here and records the stream again in its own CI.
+const V1_LIST_RESULT_KEYS: &[&str] =
+    &["follow", "gone", "listEpoch", "listSeq", "more", "nextCursor", "sessions"];
+/// The fields of a v1 row (`_acpmux/watch`, `_acpmux/sessions`) that the app's v1 source decodes by
+/// name (`AgentTurnStates`, `AgentChatDetail`, `AgentPeerRow`, `AgentActivityLane`,
+/// `AgentTurnStateStore.startedBy`). The recorder cuts each row to these at its top level, so a
+/// daemon feature that adds a row field changes no recorded byte; a kept field's value stays
+/// whole. A later PR whose replay reads another field adds it here and records the stream again
+/// in its own CI.
+const V1_ROW_FIELDS: &[&str] = &[
+    "agentSessionId",
+    "commandsRunning",
+    "createdAt",
+    "createdMs",
+    "cwd",
+    "family",
+    "harness",
+    "indicator",
+    "lane",
+    "lastMessage",
+    "lastPrompt",
+    "model",
+    "name",
+    "peer",
+    "preview",
+    "pullRequests",
+    "sessionId",
+    "shortName",
+    "spawnedBy",
+    "stale",
+    "startedBy",
+    "subagentNames",
+    "subagentsRunning",
+    "tags",
+    "title",
+    "titleSource",
+    "turn",
+    "unread",
+    "updatedAt",
+    "updatedMs",
+    "usageStats",
+    "usageWarnings",
+    "workspaceId",
+    "workspace_id",
+];
 
 fn fixtures_dir() -> PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -309,6 +382,74 @@ impl PerRun {
     }
 }
 
+/// Cuts each line of one v1 reply to what the app's v1 source reads: `initialize`'s lists to
+/// `V1_INITIALIZE_ENTRIES` and each row to `V1_ROW_FIELDS`. Every other byte stays the
+/// daemon's (asserted: a line read and written back is the line).
+fn cut_v1(method: &str, reply: &str) -> String {
+    let mut out = String::with_capacity(reply.len());
+    for line in reply.split_inclusive('\n') {
+        let (text, end) = line.strip_suffix('\n').map_or((line, ""), |text| (text, "\n"));
+        let Ok(mut value) = serde_json::from_str::<Value>(text) else {
+            out.push_str(line);
+            continue;
+        };
+        assert_eq!(serde_json::to_string(&value).unwrap(), text, "a v1 line written back differs");
+        let keep = |value: &mut Value, at: &str, kept: &[&str]| {
+            if let Some(object) = value.pointer_mut(at).and_then(Value::as_object_mut) {
+                object.retain(|key, _| kept.contains(&key.as_str()));
+            }
+        };
+        if method == "initialize" {
+            for (at, kept) in V1_INITIALIZE_KEYS {
+                keep(&mut value, at, kept);
+            }
+        } else {
+            keep(&mut value, "/result", V1_LIST_RESULT_KEYS);
+        }
+        if let Some(meta) = value.pointer_mut("/result/_meta/acpmux").and_then(Value::as_object_mut)
+        {
+            for (list, kept) in V1_INITIALIZE_ENTRIES {
+                if let Some(Value::Array(entries)) = meta.get_mut(list) {
+                    entries
+                        .retain(|entry| entry.as_str().is_some_and(|entry| kept.contains(&entry)));
+                }
+            }
+        }
+        if let Some(Value::Array(rows)) = value.pointer_mut("/result/sessions") {
+            for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+                row.retain(|field, _| V1_ROW_FIELDS.contains(&field.as_str()));
+            }
+        }
+        assert_no_uncut_row(&value, "");
+        out.push_str(&serde_json::to_string(&value).unwrap());
+        out.push_str(end);
+    }
+    out
+}
+
+/// Fails on a session the cut does not reach: an object holding `sessionId` anywhere but as a row
+/// of a result's `sessions` (a `session_changed` push, a `gone` entry, a row nested elsewhere).
+/// Recorded whole, it would bring back what `cut_v1` keeps out; the PR that records one cuts it.
+fn assert_no_uncut_row(value: &Value, at: &str) {
+    match value {
+        Value::Object(object) => {
+            assert!(
+                !object.contains_key("sessionId"),
+                "a session at {at:?} that cut_v1 does not cut; cut it to V1_ROW_FIELDS first"
+            );
+            for (key, value) in object {
+                assert_no_uncut_row(value, &format!("{at}/{key}"));
+            }
+        }
+        Value::Array(items) if at != "/result/sessions" => {
+            for (n, value) in items.iter().enumerate() {
+                assert_no_uncut_row(value, &format!("{at}/{n}"));
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Reads from `socket` until a line answers `id`, then until it is quiet; returns the bytes.
 async fn v1_reply(socket: &mut tokio::net::UnixStream, id: Option<u64>) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -395,7 +536,9 @@ async fn the_method_not_found_stream_is_recorded() {
         let line = request.to_line();
         socket.write_all(line.as_bytes()).await.unwrap();
         // This run's id and list epoch are the only bytes that differ from run to run.
-        let reply = String::from_utf8(v1_reply(&mut socket, Some(id)).await).unwrap();
+        // What a daemon feature adds and the app's v1 source does not read is cut (`cut_v1`).
+        let reply =
+            cut_v1(method, &String::from_utf8(v1_reply(&mut socket, Some(id)).await).unwrap());
         let mut reply = reply.replace(&run_id, "fixture-run").replace(&epoch, "fixture-epoch");
         // So are the connection's id and nonce in `initialize`'s person challenge, and the
         // process's start in each row's session receipt.
@@ -426,4 +569,111 @@ async fn the_method_not_found_stream_is_recorded() {
     assert!(bytes.len() + lines.len() < MAX_FIXTURE_BYTES, "{} + {}", bytes.len(), lines.len());
     check_or_bless("fallback.bytes", &bytes);
     check_or_bless("fallback.jsonl", &lines);
+}
+
+/// The detector for a recorded v1 answer that goes red whenever a daemon feature lands: an entry
+/// added to each of `initialize`'s four lists, a key added beside them in `_meta.acpmux`, in
+/// `agentCapabilities` and at the top of each result, and a field added to every row change no
+/// byte the recorder keeps. A kept value does, which is what the recording is about.
+#[test]
+fn a_daemon_feature_changes_no_recorded_v1_byte() {
+    let initialize = |extra: bool| {
+        let mut acpmux = json!({
+            "build": "fixture-build",
+            "version": "1.0.0",
+            "trustGate": true,
+            "capabilities": ["acpmux-v1", "session-list-follow-v1", "read-through-v1"],
+            "extensions": ["_acpmux/v2", "_acpmux/sessions"],
+            "features": ["promptAccepted", "turnIds"],
+            "operations": ["_acpmux/handoff_get"],
+        });
+        let mut result = json!({
+            "_meta": {"acpmux": {}},
+            "agentCapabilities": {"loadSession": true},
+            "agentInfo": {"name": "acpmux"},
+            "protocolVersion": 1,
+        });
+        if extra {
+            for (list, _) in V1_INITIALIZE_ENTRIES {
+                acpmux[list].as_array_mut().unwrap().insert(1, json!("a-feature-of-tomorrow-v1"));
+            }
+            acpmux["aKeyOfTomorrow"] = json!({"nested": true});
+            result["agentCapabilities"]["aCapabilityOfTomorrow"] = json!({});
+            result["_meta"]["aMetaOfTomorrow"] = json!(1);
+            result["aResultKeyOfTomorrow"] = json!([1]);
+        }
+        result["_meta"]["acpmux"] = acpmux;
+        format!("{}\n", json!({"id": 1, "jsonrpc": "2.0", "result": result}))
+    };
+    let sessions = |extra: bool, title: &str, seq: u64| {
+        let rows: Vec<Value> = ["chat-00", "chat-01"]
+            .iter()
+            .map(|id| {
+                let mut row = json!({
+                    "sessionId": id, "indicator": "working", "title": title,
+                    "lane": {"state": "working", "since": 1}, "eventCount": 3, "hostBuild": "fixture-build",
+                });
+                if extra {
+                    row["aFieldOfTomorrow"] = json!({"nested": [1, 2]});
+                }
+                row
+            })
+            .collect();
+        let mut result = json!({"listEpoch": "fixture-epoch", "listSeq": seq, "sessions": rows});
+        if extra {
+            result["aResultKeyOfTomorrow"] = json!({"total": 2});
+        }
+        format!("{}\n", json!({"id": 3, "jsonrpc": "2.0", "result": result}))
+    };
+
+    let cut = cut_v1("initialize", &initialize(false));
+    assert_eq!(
+        cut,
+        cut_v1("initialize", &initialize(true)),
+        "an added key changed a recorded byte"
+    );
+    let kept: Value = serde_json::from_str(&cut).unwrap();
+    assert_eq!(
+        kept["result"],
+        json!({"_meta": {"acpmux": {
+            "capabilities": ["session-list-follow-v1"], "extensions": [], "features": [], "operations": [],
+        }}}),
+        "initialize keeps only what the app reads"
+    );
+
+    let method = "_acpmux/sessions";
+    let cut = cut_v1(method, &sessions(false, "a", 27));
+    assert_eq!(
+        cut,
+        cut_v1(method, &sessions(true, "a", 27)),
+        "an added field changed a recorded byte"
+    );
+    assert_ne!(
+        cut,
+        cut_v1(method, &sessions(false, "b", 27)),
+        "a kept row field's value is recorded"
+    );
+    assert_ne!(
+        cut,
+        cut_v1(method, &sessions(false, "a", 28)),
+        "a kept result key's value is recorded"
+    );
+    let kept: Value = serde_json::from_str(&cut).unwrap();
+    assert_eq!(kept["result"]["listEpoch"], json!("fixture-epoch"), "the result's read keys stay");
+    assert_eq!(kept["result"]["sessions"][0].get("eventCount"), None, "an unread field is cut");
+    assert_eq!(kept["result"]["sessions"][0]["lane"], json!({"state": "working", "since": 1}));
+    assert_eq!(cut_v1(method, "not json\n"), "not json\n");
+}
+
+/// A session the cut does not reach fails the recording rather than bringing the class back: here
+/// a `session_changed` push recorded on the watch, whose row `cut_v1` does not cut.
+#[test]
+#[should_panic(expected = "a session at \"/params\" that cut_v1 does not cut")]
+fn a_session_the_cut_does_not_reach_fails_the_recording() {
+    let push = json!({
+        "jsonrpc": "2.0",
+        "method": "_acpmux/session_changed",
+        "params": {"sessionId": "chat-00", "session": {"sessionId": "chat-00", "eventCount": 3}},
+    });
+    cut_v1("_acpmux/watch", &format!("{push}\n"));
 }

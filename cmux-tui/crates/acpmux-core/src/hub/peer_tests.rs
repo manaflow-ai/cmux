@@ -89,6 +89,45 @@ fn a_wake_before_its_append_never_moves_a_peer_cursor_past_the_committed_seq() {
     assert_eq!(receiver.subscriber.state.lock().unwrap().cursor, hub.snapshot().seq());
 }
 
+/// A list receiver read after the index is published and before the op is in the still empty
+/// history waits for that op: it is not told it lagged, which ended it for good (the first op
+/// after a start, a summary or a gone; list_tee's tests met it on a loaded runner).
+#[test]
+fn a_read_before_the_first_append_waits_for_the_op_and_never_lags() {
+    for remove in [false, true] {
+        let initial = if remove {
+            SummaryIndex::new().apply(1, row("local", "chat", 1))
+        } else {
+            SummaryIndex::new()
+        };
+        let (hub, mut writer) = Hub::new(initial);
+        let subscription = hub.subscribe(&Sub::new("local", "list")).unwrap();
+        let cursor = subscription.cursor;
+        let receiver = Arc::new(subscription.receiver);
+        let early = Arc::new(Mutex::new(Vec::new()));
+        {
+            let (receiver, early) = (receiver.clone(), early.clone());
+            *writer.before_record.lock().unwrap() = Some(Box::new(move |_| {
+                if let Some(item) = receiver.try_next() {
+                    early.lock().unwrap().push(format!("{item:?}"));
+                }
+            }));
+        }
+        if remove {
+            assert!(writer.remove("local", "chat").unwrap());
+        } else {
+            writer.apply(row("local", "chat", 2)).unwrap();
+        }
+        assert!(early.lock().unwrap().is_empty(), "read before the append: {early:?}");
+        match receiver.try_next() {
+            Some(ListItem::Summary(event)) if !remove => assert_eq!(event.seq, cursor + 1),
+            Some(ListItem::Gone { seq, .. }) if remove => assert_eq!(seq, cursor + 1),
+            other => panic!("the op after the append, not {other:?}"),
+        }
+        assert!(receiver.try_next().is_none());
+    }
+}
+
 fn keys_of(value: &Value) -> Vec<ListKey> {
     ["beforeKey", "afterKey"]
         .iter()
@@ -192,8 +231,12 @@ fn a_peer_window_and_page_name_only_local_rows_at_every_step_of_a_walk() {
         assert_eq!(back[..], local[..local.len() - 1]);
     }
     // A key that names a row of C is refused, not answered around.
-    let remote_key =
-        ListKey { last_activity: 1_000, chat_id: remote[0].clone(), origin: "c-machine".into() };
+    let remote_key = ListKey {
+        last_activity: 1_000,
+        chat_id: remote[0].clone(),
+        origin: "c-machine".into(),
+        past: false,
+    };
     let mut page = Page::new_list("peer", "list", PageSide::After, remote_key);
     page.view = Some(ListView::Live);
     assert!(hub.peer_page(&page).is_err());

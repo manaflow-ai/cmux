@@ -217,17 +217,19 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(|error| {
-        // Journal failures can contain SQLite paths, trigger text, and other
-        // host diagnostics. Keep those details in daemon logs; this resource
-        // is user-facing and must return a stable, non-sensitive error.
-        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
-        ResourceError::operation_failed(
-            "terminal.output_read",
-            "could not read terminal output",
-            json!({}),
-        )
-    })
+    let recovery = super::optional_string(&request.fields, "recovery")?;
+    mux.terminal_output_read_with_recovery(&terminal_id, after, max_bytes, recovery.as_deref())
+        .map_err(|error| {
+            // Journal failures can contain SQLite paths, trigger text, and other
+            // host diagnostics. Keep those details in daemon logs; this resource
+            // is user-facing and must return a stable, non-sensitive error.
+            eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
+            ResourceError::operation_failed(
+                "terminal.output_read",
+                "could not read terminal output",
+                json!({}),
+            )
+        })
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -446,6 +448,7 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
+    mux.wake_lazy_terminal(&terminal_id);
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -1103,6 +1106,8 @@ fn resolve_terminal_surface(
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    // A parked terminal starts on its first need (mux/terminal_respawn/lazy.rs).
+    mux.wake_lazy_terminal(&terminal_id);
     let surface_id = mux
         .resource_surface_for_terminal(&terminal_id)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;

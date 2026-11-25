@@ -4,11 +4,19 @@
 Enforcement is scoped to the pull request that causes the problem.
 
 A test that does not run -- a file with no registry entry, an entry on a
-lane no workflow runs, or (with --pr-lanes) a test no pull request runs --
-only ever warns, even in the pull request that added it. Leo, 2026-11-05:
+runner lane no workflow invokes, or (with --pr-lanes) a test no pull request
+runs -- only ever warns, even in the pull request that added it. Leo, 2026-11-05:
 "There is no way that, like, the notion of not adding tests should block CI."
 The warning says whether this change added the file and prints the [[test]]
 block to paste.
+
+The linux-guard lane is the exception, because it is not a judgment: it means
+"a workflow step runs this file", so the workflows are its one source of truth
+and the registry's lane is derived from them (derived_lanes). Leo, 2026-11-16:
+"fewer sources of truth for individual things". An entry that disagrees with the
+workflows (#30360 registered linux-guard and added no step; base went red) fails
+the change that makes them disagree, and `--write` fixes it without asking for
+any test to run: a test no step runs becomes manual, with how to run it.
 
 What the runner cannot read -- malformed entries, unknown fields, entries
 pointing at files that no longer exist -- is judged against the base: with
@@ -22,9 +30,10 @@ finding into a warning, so base-red-watch reads it from the run's annotations
 and the push stays green.
 
 `--write` registers every unregistered test whose lane can be derived (a
-workflow already runs the file) and leaves the rest for a person to place.
-The pre-commit hook runs it, so wiring a new test into ci-guards.yml is
-enough to register it.
+workflow already runs the file), moves each entry whose linux-guard lane the
+workflows contradict, and leaves the rest for a person to place. The pre-commit
+hook runs it for the tests a commit adds and the tests whose workflow lines it
+adds or removes, so adding or removing the step is the only edit.
 
 `--pr-lanes BRANCH` also warns on a test no pull request into BRANCH runs
 (scripts/ci/pr_test_lanes.py reads the workflows as that event runs them),
@@ -88,6 +97,12 @@ SUPPORTED_REQUIREMENTS = {"fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
 # which is exactly what the linux-guard lane means.
 DIRECT_RUN_LANE = "linux-guard"
+# The workflows are the one source of truth for that lane; the registry entry is derived from
+# them (derived_lanes). --write gives a test no workflow runs `manual` with this reason, and moves
+# an entry with exactly this reason back to linux-guard once a workflow runs the file again. A
+# person's own manual reason is never touched.
+DERIVED_MANUAL_REASON = "No workflow step runs it (lane derived by --write). Run it yourself: python3 {path}"
+DERIVE_COMMAND = "python3 scripts/ci/validate_test_execution_registry.py --write"
 # A workflow step that runs the shared contributor preflight executes every test
 # its recipe (the CHECKS argv lists in scripts/verify-local.py) names, so those
 # tests are live on linux-guard without the workflow naming them itself.
@@ -103,6 +118,9 @@ PR_LANE_EXEMPTIONS = Path("tests") / "pr-lane-exemptions.json"
 UNRUN_ON_PULL_REQUESTS = "no job a pull request into"
 # What validate_pr_lanes reads, extracted from the base to judge it there too.
 PR_LANE_BASE_PATHS = (".github", "tests", "scripts/ci", "scripts/verify-local.py")
+
+
+STEP_TABLE = "ci/steps.toml"
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -123,12 +141,15 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
     routed CI lanes run guards too -- the Testbox checks now live in
-    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
-    no path filter, and ci-artifact-transport.yml owns its own -- so checking
+    ci-guards.yml's `ci` group, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
     """
     texts = [workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)]
+    # The step table's steps run in pr-pipeline.yml through `ci/run` (ci/steps.toml): its text is workflow text.
+    table = workflows.parents[1] / STEP_TABLE
+    if table.is_file():
+        texts.append(table.read_text(encoding="utf-8"))
     text = "\n".join(texts)
     # A step that runs a workload profile runs that profile's entrypoint and
     # everything the entrypoint names. An unresolvable profile adds nothing,
@@ -226,6 +247,9 @@ def workflow_running(path: str, workflows: Path = WORKFLOWS) -> str | None:
     for workflow in workflow_files(workflows):
         if path in workflow.read_text(encoding="utf-8"):
             return workflow.name
+    table = workflows.parents[1] / STEP_TABLE
+    if table.is_file() and path in table.read_text(encoding="utf-8"):
+        return "pr-pipeline.yml"
     return None
 
 
@@ -314,6 +338,85 @@ def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[
         blocks = "".join(f'\n[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"\n' for path in added)
         manifest.write_text(text.rstrip("\n") + "\n" + blocks, encoding="utf-8")
     return added
+
+
+def derived_reason(path: str) -> str:
+    return DERIVED_MANUAL_REASON.format(path=path)
+
+
+def derived_lanes(entries: list[dict[str, object]], live_text: str) -> dict[str, str]:
+    """{path: the lane the workflows give it} for each entry whose stored lane disagrees with them.
+
+    `live_text` is all_workflow_text(): what the workflows run, directly or through the shared
+    recipe and workload profiles. #30360 registered a test as linux-guard and added no step that
+    runs it; the hand-kept lane and the workflows disagreed, and nothing caught it until base was red.
+    """
+    drift: dict[str, str] = {}
+    for entry in entries:
+        path, lane = entry.get("path"), entry.get("lane")
+        if not isinstance(path, str):
+            continue
+        runs = path in live_text
+        if lane == DIRECT_RUN_LANE and not runs:
+            drift[path] = "manual"
+        elif lane == "manual" and entry.get("reason") == derived_reason(path) and runs:
+            drift[path] = DIRECT_RUN_LANE
+    return drift
+
+
+def unrun_linux_guard(path: str) -> str:
+    return (f"{path}: linux-guard lane is not run by any workflow. The lane is derived from the workflows: "
+            f"run {DERIVE_COMMAND} (it makes the entry manual with how to run it), or add the step that runs it")
+
+
+def stale_derived_manual(path: str) -> str:
+    return (f"{path}: a workflow runs it now, but its entry is still the manual one --write derived. "
+            f"Run {DERIVE_COMMAND}")
+
+
+def relane_block(block: str, lane: str, reason: str | None) -> str:
+    """One [[test]] block with its lane replaced and its reason set (manual) or dropped."""
+    lines = [line for line in block.splitlines() if not re.match(r"\s*reason\s*=", line)]
+    out: list[str] = []
+    for line in lines:
+        if re.match(r"\s*lane\s*=", line):
+            out.append(f'lane = "{lane}"')
+            if reason is not None:
+                out.append(f"reason = {json.dumps(reason)}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def rederive_lanes(root: Path = ROOT, only: set[str] | None = None) -> list[tuple[str, str]]:
+    """Rewrite each registry entry whose lane disagrees with the workflows; return (path, new lane).
+
+    With `only`, just those paths (the pre-commit hook passes the tests its commit adds or whose
+    workflow lines it adds or removes). Every registry file is edited in place, block by block, so
+    comments, field order and the layout stay as they were.
+    """
+    from test_execution_registry import block_path, split_blocks  # noqa: PLC0415
+
+    drift = derived_lanes(load_tree(root), all_workflow_text(root / ".github" / "workflows"))
+    if only is not None:
+        drift = {path: lane for path, lane in drift.items() if path in only}
+    if not drift:
+        return []
+    changed: list[tuple[str, str]] = []
+    for name, text in registry_sources(root):
+        _, blocks, _ = split_blocks(text)
+        new_text = text
+        for block in blocks:
+            path = block_path(block)
+            if path not in drift:
+                continue
+            lane = drift[path]
+            new_block = relane_block(block, lane, derived_reason(path) if lane == "manual" else None)
+            new_text = new_text.replace(block, new_block, 1)
+            changed.append((path, lane))
+        if new_text != text:
+            (root / name).write_text(new_text, encoding="utf-8")
+    return changed
 
 
 def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
@@ -455,15 +558,18 @@ def validate(
                 f"and does not fail the build.{hint}"
             )
 
+    # A linux-guard lane, or a manual one --write derived, that disagrees with the workflows is drift
+    # between two copies of one fact, so it fails (judged against the base: only the change that
+    # makes the copies disagree fails). --write fixes it, and it never asks for a test to run: a test
+    # no step runs becomes manual with how to run it.
     guard_text = all_workflow_text(workflows)
+    for path, lane in sorted(derived_lanes(list(by_path.values()), guard_text).items()):
+        errors.append(unrun_linux_guard(path) if lane == "manual" else stale_derived_manual(path))
     for path, entry in sorted(by_path.items()):
         lane = entry.get("lane")
-        if lane in INVENTORY_LANES:
+        if lane in INVENTORY_LANES or lane == DIRECT_RUN_LANE:
             continue
-        if lane == DIRECT_RUN_LANE:
-            if path not in guard_text:
-                warnings.append(f"{path}: linux-guard lane is not run by any workflow")
-        elif lane not in live_runner_lanes:
+        if lane not in live_runner_lanes:
             warnings.append(f"{path}: lane {lane!r} has no workflow invocation")
 
     if added is not None:
@@ -625,28 +731,43 @@ def shallow_boundary(root: Path) -> set[str]:
         return set()
 
 
-def added_by(path: str, root: Path, boundary: set[str]) -> str | None:
-    """`<sha> (<subject>)` of the commit that added `path`, or None when the history here lacks it."""
+def added_by_each(paths: set[str], root: Path, boundary: set[str]) -> dict[str, str]:
+    """`<sha> (<subject>)` of the commit that added each path; a path the history here lacks is absent.
+
+    One newest-first walk names them all: a `git log` per path walked the whole history each time
+    (138 walks, 12 s of the check's 20).
+    """
+    if not paths:
+        return {}
     try:
-        line = subprocess.check_output(
-            ["git", "log", "-1", "--diff-filter=A", "--format=%H%x09%s", "HEAD", "--", path],
-            cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+        out = subprocess.check_output(
+            ["git", "log", "--diff-filter=A", "--no-renames", "--name-only", "-z",
+             "--format=%x01%H%x09%s", "HEAD", "--", *sorted(paths)],
+            cwd=root, text=True, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError):
-        return None
-    sha, _, subject = line.partition("\t")
-    if not sha or sha in boundary:
-        return None
-    return f"{sha[:12]} ({subject})"
+        return {}
+    found: dict[str, str] = {}
+    for record in out.split("\x01")[1:]:
+        header, _, names = record.partition("\n")
+        sha, _, subject = header.strip("\0\n").partition("\t")
+        for name in names.split("\0"):
+            name = name.strip("\n")
+            if name in paths and name not in found:
+                found[name] = "" if sha in boundary else f"{sha[:12]} ({subject})"
+        if len(found) == len(paths):
+            break
+    return {path: commit for path, commit in found.items() if commit}
 
 
 def attribute(warnings: list[str], root: Path) -> list[str]:
     """Each warning about a test file, with the commit that added the file in its first line."""
-    boundary = shallow_boundary(root)
+    split = [warning.partition("\n") for warning in warnings]
+    paths = {headline.split(":", 1)[0] for headline, _, _ in split}
+    commits = added_by_each({path for path in paths if TEST_PATH_RE.fullmatch(path)}, root,
+                            shallow_boundary(root))
     out = []
-    for warning in warnings:
-        headline, newline, rest = warning.partition("\n")
-        path = headline.split(":", 1)[0]
-        commit = added_by(path, root, boundary) if TEST_PATH_RE.fullmatch(path) else None
+    for warning, (headline, newline, rest) in zip(warnings, split):
+        commit = commits.get(headline.split(":", 1)[0])
         out.append(f"{headline} Added by {commit}.{newline}{rest}" if commit else warning)
     return out
 
@@ -737,8 +858,11 @@ def main(argv: list[str]) -> int:
 
     if args.write:
         try:
-            for path in register_derivable(root, set(args.only) if args.only is not None else None):
+            only = set(args.only) if args.only is not None else None
+            for path in register_derivable(root, only):
                 print(f"registered {path} on lane {DIRECT_RUN_LANE}")
+            for path, lane in rederive_lanes(root, only):
+                print(f"moved {path} to lane {lane}: the workflows say so")
         except (OSError, ValueError) as error:
             print(error, file=sys.stderr)
             return 1

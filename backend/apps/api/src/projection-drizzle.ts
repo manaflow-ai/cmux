@@ -24,6 +24,8 @@ const ex = (column: { name: string }) => sql.raw(`excluded."${column.name}"`)
 /** The guard: update only when the stored source_seq is older. */
 const newer = (table: PgTable & { sourceSeq: unknown }) => lt((table as unknown as { sourceSeq: SQL }).sourceSeq as never, sql.raw(`excluded."source_seq"`) as never)
 const now = sql`now()`
+/** A dev build's row names its space (build-space-projection.ts); nightly and stable rows take the column default. */
+const spaceOf = (p: Payload): { space?: string } => (typeof p.space === "string" && p.space ? { space: p.space } : {})
 
 export const drizzleStatements: Record<string, (p: Payload, stream: string, seq: number) => Statement> = {
   "user.upsert": (p, stream, seq) =>
@@ -41,7 +43,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     render(
       db
         .insert(installs)
-        .values({
+        .values({ ...spaceOf(p),
           id: String(p.id), userId: String(p.user), deviceId: String(p.device), kind: String(p.kind), name: String(p.name), deviceName: String(p.device_name), platform: String(p.platform),
           thumbprint: String(p.thumbprint), grantId: String(p.grant), createdAt: iso(p.created_at)!, revokedAt: iso(p.revoked_at), sourceStream: stream, sourceSeq: seq, updatedAt: now as never
         })
@@ -77,7 +79,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     render(
       db
         .insert(hosts)
-        .values({ id: String(p.id), teamId: String(p.team), ownerUser: String(p.owner_user), enrolledBy: String(p.enrolled_by), name: String(p.name), platform: String(p.platform), enrolledAt: iso(p.enrolled_at)!, deletedAt: null, sourceStream: stream, sourceSeq: seq, updatedAt: now as never })
+        .values({ ...spaceOf(p), id: String(p.id), teamId: String(p.team), ownerUser: String(p.owner_user), enrolledBy: String(p.enrolled_by), name: String(p.name), platform: String(p.platform), enrolledAt: iso(p.enrolled_at)!, deletedAt: null, sourceStream: stream, sourceSeq: seq, updatedAt: now as never })
         .onConflictDoUpdate({
           target: hosts.id,
           set: { name: ex(hosts.name), platform: ex(hosts.platform), deletedAt: sql`NULL`, sourceStream: ex(hosts.sourceStream), sourceSeq: ex(hosts.sourceSeq), updatedAt: now },
@@ -89,7 +91,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     render(
       db
         .insert(automations)
-        .values({
+        .values({ ...spaceOf(p),
           id: String(p.id), teamId: String(p.owner), name: String(p.name), enabled: Boolean(p.enabled), version: Number(p.version), definition: p as never, createdBy: String(p.created_by),
           createdAt: iso(p.created_at)!, updatedAt: iso(p.updated_at)!, nextRunAt: iso(p.next_run_at), deletedAt: null, sourceStream: stream, sourceSeq: seq
         })
@@ -107,7 +109,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     render(
       db
         .insert(automationRuns)
-        .values({
+        .values({ ...spaceOf(p),
           id: String(p.id), teamId: String(p.owner), automationId: String(p.automation), automationVersion: Number(p.automation_version), triggerType: String((p.trigger as { type: string }).type),
           trigger: p.trigger as never, state: String(p.state), step: Number(p.step), error: (p.error ?? null) as never, outcome: (p.outcome ?? null) as never,
           createdAt: iso(p.created_at)!, startedAt: iso(p.started_at), finishedAt: iso(p.finished_at), sourceStream: stream, sourceSeq: seq, updatedAt: now as never
@@ -136,7 +138,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     return render(
       db
         .insert(connections)
-        .values({
+        .values({ ...spaceOf(p),
           id: String(p.id), teamId: String(p.owner), createdBy: String(p.created_by), provider: String(p.provider), accountKey: account?.key ?? null, accountName: account?.name ?? null,
           scopesRequested: (p.scopes_requested ?? []) as never, scopesGranted: (p.scopes_granted ?? []) as never, status: String(p.status), sharing: String(p.sharing),
           createdAt: iso(p.created_at)!, updatedAt: iso(p.updated_at)!, sourceStream: stream, sourceSeq: seq
@@ -155,7 +157,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     render(
       db
         .insert(homeConversations)
-        .values({
+        .values({ ...spaceOf(p),
           id: String(p.id), kind: String(p.kind), teamId: text(p.team_id), title: text(p.title), createdBy: text(p.created_by), createdAt: String(p.created_at), lastSeq: Number(p.last_seq),
           lastAt: String(p.last_at), participantCount: Number(p.participant_count), state: String(p.state), sourceStream: stream, sourceSeq: seq, updatedAt: now as never
         })
@@ -174,7 +176,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     return render(
       db
         .insert(homeParticipants)
-        .values({
+        .values({ ...spaceOf(p),
           conversationId: String(p.conversation_id), participantId: String(p.participant_id), kind: String(p.kind), visibleFromSeq: Number(p.visible_from_seq ?? 0),
           joinedAt: (joined ?? now) as never, leftAt: text(p.left_at), sourceStream: stream, sourceSeq: seq, updatedAt: now as never
         })
@@ -192,7 +194,7 @@ export const drizzleStatements: Record<string, (p: Payload, stream: string, seq:
     render(
       db
         .insert(homeInvites)
-        .values({
+        .values({ ...spaceOf(p),
           id: String(p.id), conversationId: String(p.conversation_id), invitedBy: String(p.invited_by), addressId: String(p.address_id), channel: String(p.channel), status: String(p.status),
           deliveryState: String(p.delivery_state), copyVariant: String(p.copy_variant), createdAt: String(p.created_at), expiresAt: String(p.expires_at), acceptedBy: text(p.accepted_by),
           acceptedAt: text(p.accepted_at), sourceStream: stream, sourceSeq: seq, updatedAt: now as never

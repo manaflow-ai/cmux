@@ -2,6 +2,7 @@
 """Delete GitHub Actions artifacts that only fed a job in their own run, once that run is old.
 
     actions_artifact_prune.py --repo OWNER/NAME [--delete] [--max-deletes N]
+    actions_artifact_prune.py --repo OWNER/NAME --run-id ID [--delete]
 
 Until cmux#19180 (feat-cmux-next, 2026-10-11), cmux-tui-build-package.yml set no retention-days, so
 every push's binaries, relay binaries, npm-packages and pypi-wheels kept the repository's 90-day
@@ -25,6 +26,14 @@ and stops cleanly when fewer than 50 API calls remain in the hour or GitHub asks
 a backlog drains over several hourly runs. Each name is read from its oldest page forward and stops
 at the first page entirely inside its window. An artifact already gone (GitHub expired it between
 the list and the delete) counts as done. The token comes from GITHUB_TOKEN.
+
+With --run-id it deletes one finished run's own build outputs (run_drop_names(): the per-target
+cmux-tui packages, the machine channel's thin copies and the dSYMs, 112 to 330 MB each).
+cmux-tui-artifacts.yml's drop-build-artifacts job calls it as the run's last job, once every job
+that reads them has ended green. GitHub keeps an artifact at least a day; about 56 builds an hour
+uploaded these, and at 1-day retention they held about 2.2 TB of the org's Actions storage on
+2026-11-14. The relay binaries (1 to 4 MB) are left to their retention. One list call per 100
+artifacts and one DELETE per dropped artifact (about 6 a run).
 """
 from __future__ import annotations
 
@@ -58,6 +67,17 @@ def rules() -> dict[str, int]:
     for family in ("cmux-relay", "chatmux-relay", "cmux-agent-screen-detection"):
         names.update({f"{family}-{t}": BUILD_DAYS for t in TARGETS})
     names.update({"npm-packages": BUILD_DAYS, "pypi-wheels": BUILD_DAYS})
+    return names
+
+
+def run_drop_names() -> set[str]:
+    """What a finished cmux-tui-artifacts run drops of its own: the large build outputs only."""
+    linux = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+    darwin = ("x86_64-apple-darwin", "aarch64-apple-darwin")
+    names = {f"cmux-tui-{t}" for t in TARGETS + ("x86_64-pc-windows-gnu",)}
+    names |= {f"machine-channel-cmux-tui-{t}" for t in linux}
+    names |= {f"cmux-tui-dsyms-{t}" for t in darwin}
+    names.add("cmux-tui-acpmux-x86_64-pc-windows-gnu")
     return names
 
 
@@ -96,6 +116,17 @@ class GitHub:
                 "GET", "/actions/artifacts", {"name": name, "per_page": 100, "page": page})
             yield data.get("artifacts", [])
 
+    def run_artifacts(self, run_id: int) -> list[dict]:
+        """Every artifact of one run (a run has a few dozen; pages of 100)."""
+        found, page = [], 1
+        while True:
+            data = self.request("GET", f"/actions/runs/{run_id}/artifacts", {"per_page": 100, "page": page})
+            batch = data.get("artifacts", [])
+            found += batch
+            if len(batch) < 100:
+                return found
+            page += 1
+
     def runs_since(self, workflow: str, since: dt.datetime) -> list[int]:
         ids, page = [], 1
         while True:
@@ -119,7 +150,7 @@ class GitHub:
         except urllib.error.HTTPError as error:
             if error.code not in (404, 410):  # already gone is done
                 raise
-        time.sleep(DELETE_INTERVAL)
+        time.sleep(DELETE_INTERVAL)  # sleep-ok: rate pacing between artifact DELETE calls
 
 
 def created(artifact: dict) -> dt.datetime:
@@ -188,6 +219,31 @@ def prune_name(api, name, cutoff, now, since, protected, row, summary, *, delete
     return False
 
 
+def drop_run(api, run_id: int, *, delete: bool) -> dict:
+    """Delete one run's own large build outputs, largest first; every other name stays."""
+    names = run_drop_names()
+    mine = [a for a in api.run_artifacts(run_id)
+            if a.get("name") in names and not a.get("expired")
+            and (a.get("workflow_run") or {}).get("id", run_id) == run_id]
+    summary = {"run": run_id, "candidates": len(mine), "deleted": 0, "deleted_bytes": 0,
+               "candidate_bytes": sum(int(a.get("size_in_bytes") or 0) for a in mine), "capped": False}
+    for artifact in sorted(mine, key=lambda a: -int(a.get("size_in_bytes") or 0)):
+        if not delete:
+            continue
+        if low_quota(api):
+            summary["capped"] = True
+            break
+        try:
+            api.delete(artifact["id"])
+        except SlowDown as error:
+            print(f"stopping: {error}", file=sys.stderr)
+            summary["capped"] = True
+            break
+        summary["deleted"] += 1
+        summary["deleted_bytes"] += int(artifact.get("size_in_bytes") or 0)
+    return summary
+
+
 def low_quota(api) -> bool:
     remaining = getattr(api, "remaining", None)
     return remaining is not None and remaining < QUOTA_FLOOR
@@ -212,11 +268,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--delete", action="store_true")
     parser.add_argument("--max-deletes", type=int, default=850)
+    parser.add_argument("--run-id", type=int, help="drop this finished run's own large build outputs")
     args = parser.parse_args(argv)
     token = os.environ.get("GITHUB_TOKEN", "")
     if not token:
         raise SystemExit("GITHUB_TOKEN is required")
     api = GitHub(args.repo, token)
+    if args.run_id:
+        summary = drop_run(api, args.run_id, delete=args.delete)
+        gib = summary["deleted_bytes" if args.delete else "candidate_bytes"] / 1024 ** 3
+        print(f"run {args.run_id}: {'deleted' if args.delete else 'would delete'} "
+              f"{summary['deleted'] if args.delete else summary['candidates']} of {summary['candidates']} "
+              f"build artifacts, {gib:.2f} GiB" + ("; stopped on the API limit" if summary["capped"] else ""))
+        print(f"API calls: {api.calls}")
+        return 0
     summary = prune(api, dt.datetime.now(dt.timezone.utc), delete=args.delete, max_deletes=args.max_deletes)
     print(render(summary, args.delete))
     print(f"API calls: {api.calls}")

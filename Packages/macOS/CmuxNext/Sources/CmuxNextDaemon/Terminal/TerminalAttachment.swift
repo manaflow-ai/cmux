@@ -56,6 +56,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Snapshot order of this stream; only the reader thread touches it.
     private final class SequencerBox: Sendable {
         let value = Mutex(TerminalSnapshotSequencer())
+        /// This attachment's first live output was seen (the launch's `first_shell_live` mark, once per attachment).
+        let sawOutput = Mutex(false)
     }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
@@ -111,7 +113,10 @@ public actor TerminalAttachment: TerminalByteChannel {
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
@@ -163,7 +168,12 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject)) }
+                    if case .output = event {
+                        TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject))
+                        // A shell's first live output (not a replay): the launch keeps the first of these (bare launch, piece 8).
+                        if !sequencer.sawOutput.withLock({ seen in defer { seen = true }; return seen }) { DaemonLaunchTimings.shared.mark("first_shell_live") }
+                        DaemonLaunchTimings.shared.outputDecoded()
+                    }
                     queue.push(event)
                 }
             },
@@ -201,18 +211,25 @@ public actor TerminalAttachment: TerminalByteChannel {
             // Only the identity pair can name a terminal with no tab.
             throw DaemonError.missingCapabilities(["attach-identity-v1"])
         }
+        // A placed target names its tab's surface beside the identity pair (the daemon checks they agree): the stream
+        // then names that surface, the one events are read for. Identity alone resolved a terminal reopened into a new
+        // tab to its runtime's first surface id, and every event was dropped (cmux#53022: "Restoring" forever).
         let request = AttachSurfaceRequest(
-            surface: useIdentity ? nil : target.surface,
+            surface: useIdentity && target.surface == Self.unresolvedSurface ? nil : target.surface,
             expectedGeneration: useIdentity ? target.generation : nil,
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
             snapshotLocalHistory: localHistory && identity.supports(DaemonCapability.terminalSnapshotLocalHistory.rawValue)
         )
-        // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
+        // The reply carries the replay (up to 32 MiB): 10 s of silence, not 10 s in all. A replay still arriving over a
+        // slow link keeps going (``TransportProgress``); a daemon that sends nothing for 10 s fails the attach.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         control.value.withLock { control in
             control.lease = response.lease
@@ -237,7 +254,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
     }
 
@@ -285,6 +305,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
             TypingLatencyProbe.shared.mark(.socketSubmit, source: Self.probeSource(surface, object: ObjectIdentifier(self)))
+            DaemonLaunchTimings.shared.inputSent()
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }

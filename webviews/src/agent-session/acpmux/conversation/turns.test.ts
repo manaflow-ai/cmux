@@ -1,7 +1,19 @@
-import { expect, test } from "bun:test";
+import { expect, test, afterEach, beforeEach } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, turnView, turnViewFrom } from "./turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -31,7 +43,7 @@ test("a completed turn has no live timer row", () => {
     new Set(),
     { now: 10_000, working: false, turnStartedAtMs: 1_000 },
   );
-  expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
+  expect(shown.some((row) => row.kind === THINKING || row.turnPhase === "running")).toBe(false);
 });
 
 test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
@@ -381,4 +393,113 @@ test("a running turn's run waiting on an edit's permission keeps its thought and
   const run = shown.find((row) => row.id === "act");
   expect(run?.items?.map((item) => item.kind)).toEqual(["thought", "tool"]);
   expect(run?.foldRun).toBe(false);
+});
+
+// Leo's long coordinator chat ran its renderer at 110% CPU: steers keep its turn running, so the
+// running turn holds thousands of rows, and it is shaped again on every record. Its unchanged rows
+// must come back as the same objects, or the layout, the height cache and every mounted row redo
+// the whole turn for each streamed token.
+test("a streamed token keeps the running turn's unchanged rows as the same objects", () => {
+  const folds = new Set<string>();
+  const options = { now: 110_000, working: true, turnStartedAtMs: 100_000 };
+  const rows: AcpmuxRow[] = [user(1_000)];
+  for (let step = 0; step < 40; step += 1) {
+    rows.push({ id: `reply-${step}`, version: 1, at: 2_000 + step * 10, kind: "assistant", text: `Step ${step}.` });
+    rows.push({
+      id: `tools-${step}`,
+      version: 1,
+      at: 2_005 + step * 10,
+      kind: "activity",
+      items: [{ kind: "tool", id: `call-${step}`, title: `check ${step}`, status: "completed" }],
+      toolCount: 1,
+    } as unknown as AcpmuxRow);
+  }
+  const previous = turnViewFrom(rows, folds, options);
+  const streamed = rows.slice();
+  const last = streamed.length - 2;
+  streamed[last] = { ...streamed[last]!, version: 2, text: `${streamed[last]!.text} more` };
+  const shown = turnViewFrom(streamed, folds, { ...options, now: 110_100 }, previous);
+  const before = new Map(previous.rows.map((row) => [row.id, row]));
+  const changed = shown.rows.filter((row) => before.get(row.id) !== row).map((row) => row.id);
+  // The reply the token went to, and what holds it, may change; nothing earlier does.
+  expect(changed.length).toBeLessThanOrEqual(3);
+});
+
+// Leo: "i see this rush and barrage of tool calls and message on a sort of "renewed-load" of chats. but they get
+// folded/hidden anyways". A v1 reload of a running turn draws what its fold will hold folded from the first frame.
+test("a reloaded running turn draws its read-at-open finished calls folded, and calls after it live", () => {
+  const call = (id: string, status: "completed" | "in_progress") => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute" as const, status },
+  });
+  const tools = (row: AcpmuxRow | undefined) =>
+    (row?.kind === "activity" ? (row.items ?? []) : []).map((item) => item.tool?.id);
+  const reloaded: AcpmuxRow[] = [
+    user(1_000),
+    {
+      id: "work",
+      version: 1,
+      at: 2_000,
+      kind: "activity",
+      items: [call("old-1", "completed"), call("old-2", "in_progress"), call("new-1", "completed")],
+      toolCount: 3,
+      readAtOpen: 2,
+    },
+  ];
+  const shown = turnView(reloaded, new Set(), { now: 5_000, working: true, turnStartedAtMs: 1_000 });
+  const drawn = shown.flatMap((row) => tools(row));
+  expect(drawn).not.toContain("old-1");
+  expect(drawn).toContain("new-1");
+  expect(shown.some((row) => row.kind === WORKED && row.turnPhase === "running")).toBe(true);
+  // Without the mark (watched live) every finished call stays drawn.
+  const { readAtOpen: _read, ...watched } = reloaded[1]!;
+  const live = turnView([reloaded[0]!, watched], new Set(), { now: 5_000, working: true, turnStartedAtMs: 1_000 });
+  expect(live.flatMap((row) => tools(row))).toContain("old-1");
+});
+
+test("a running turn with a tool call and a streaming reply draws (no ReferenceError)", () => {
+  // shapeLiveRows read `foldsPrompt` from shapeLiveTurn's scope, so every live turn that reached it threw
+  // and the pane showed "could not be drawn" (#49052).
+  const rows: AcpmuxRow[] = [
+    user(1_000),
+    { id: "tool", version: 1, at: 2_000, kind: "activity", title: "Read file", status: "completed" } as AcpmuxRow,
+    { id: "answer", version: 1, at: 3_000, kind: "assistant", text: "streaming" },
+  ];
+  const shown = turnView(rows, new Set(), { now: 10_000, working: true, turnStartedAtMs: 1_000 });
+  expect(shown.length).toBeGreaterThan(0);
+});
+
+// Leo: "i see this rush and barrage of tool calls and message on a sort of "renewed-load" of chats. but they get
+// folded/hidden anyways". A v1 reload of a running turn draws what its fold will hold folded from the first frame.
+test("a reloaded running turn draws its read-at-open finished calls folded, and calls after it live", () => {
+  const call = (id: string, status: "completed" | "in_progress") => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute" as const, status },
+  });
+  const tools = (row: AcpmuxRow | undefined) =>
+    (row?.kind === "activity" ? (row.items ?? []) : []).map((item) => item.tool?.id);
+  const reloaded: AcpmuxRow[] = [
+    user(1_000),
+    {
+      id: "work",
+      version: 1,
+      at: 2_000,
+      kind: "activity",
+      items: [call("old-1", "completed"), call("old-2", "in_progress"), call("new-1", "completed")],
+      toolCount: 3,
+      readAtOpen: 2,
+    },
+  ];
+  const shown = turnView(reloaded, new Set(), { now: 5_000, working: true, turnStartedAtMs: 1_000 });
+  const drawn = shown.flatMap((row) => tools(row));
+  expect(drawn).not.toContain("old-1");
+  expect(drawn).toContain("new-1");
+  // The turn's running header ("Working for") stays over the work it folded.
+  expect(shown.some((row) => row.kind === WORKED && row.turnPhase === "running")).toBe(true);
+  // Without the mark (watched live) every finished call stays drawn.
+  const { readAtOpen: _read, ...watched } = reloaded[1]!;
+  const live = turnView([reloaded[0]!, watched], new Set(), { now: 5_000, working: true, turnStartedAtMs: 1_000 });
+  expect(live.flatMap((row) => tools(row))).toContain("old-1");
 });

@@ -66,7 +66,7 @@ extension WebKitTab {
             retry = .reload
         }
         let message = String(localized: "browser.formResubmission.message",
-                             defaultValue: "This page is the result of a form. Send the form again?", bundle: .module)
+                             defaultValue: "This page is the result of a form. Send the form again?", bundle: .localizedModule)
         enqueuePrompt(.confirm(message: message), origin: action.request.url.flatMap(PageInfoSite.origin(of:)) ?? "") { [weak self] response in
             guard let self, response == .accept else { return }
             resendForm(retry)
@@ -76,6 +76,7 @@ extension WebKitTab {
 
     /// Send: repeats the cancelled navigation with one POST allowed.
     private func resendForm(_ retry: WebKitFormResubmission.Retry) {
+        guard resumeIfSuspended() else { return }
         formResubmission.allowOnce = true
         switch retry {
         case .restore(let data):

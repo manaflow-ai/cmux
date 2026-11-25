@@ -16,8 +16,17 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import bench_power as bp  # noqa: E402
-import idle_cost_load as load  # noqa: E402
+# bench_power loads /usr/lib/libproc.dylib when imported: these tests run only on a Mac.
+MAC = sys.platform == "darwin"
+NOT_A_MAC = "bench_power loads macOS /usr/lib/libproc.dylib; this test runs on a Mac"
+if MAC:
+    import bench_power as bp  # noqa: E402
+    import idle_cost_load as load  # noqa: E402
+
+
+def setUpModule():
+    if not MAC:
+        raise unittest.SkipTest(NOT_A_MAC)
 
 
 class FakeClock:
@@ -237,6 +246,100 @@ class IdleChatsTests(unittest.TestCase):
             self.assertEqual(bp.loaded_result(path)["label"], "idle-chats")
         finally:
             shutil.rmtree(folder)
+
+
+
+class ManyChatsTests(unittest.TestCase):
+    """bench_power.py many-chats: the stalls of the window counted by length, read by sequence so a record the
+    log's slots dropped between reads is never counted twice, and perf-budgets.py's rows of it."""
+
+    def test_hang_summary_buckets(self):
+        records = [{"duration_ms": d} for d in (60, 120, 260, 99.9, 251)]
+        summary = bp.hang_summary(records, True, 50, 0)
+        self.assertEqual((summary["count"], summary["over_100ms"], summary["over_250ms"], summary["max_ms"]), (5, 3, 2, 260))
+        self.assertEqual(bp.hang_summary([])["max_ms"], 0.0)
+
+    def test_hang_watch_reads_by_sequence_after_the_clear(self):
+        log = [{"sequence": 1, "duration_ms": 900}]  # before the window: cleared
+        calls = []
+
+        def call(_sock, method, params, timeout=10):
+            calls.append(params)
+            if params.get("clear"):
+                log.clear()
+                return {"installed": True, "records": []}
+            return {"installed": True, "threshold_ms": 50,
+                    "records": [r for r in log if r["sequence"] > params.get("after", 0)]}
+        watch = bp.HangWatch("sock", every=3600, call=call).start()
+        log.extend([{"sequence": 2, "duration_ms": 120, "frames": ["x"]}, {"sequence": 3, "duration_ms": 300}])
+        watch.read()
+        watch.read()  # the same records again are not counted twice
+        log.append({"sequence": 4, "duration_ms": 55})
+        summary = watch.finish()
+        self.assertEqual((summary["count"], summary["over_100ms"], summary["over_250ms"], summary["max_ms"]), (3, 2, 1, 300))
+        self.assertEqual(calls[-1]["after"], 3)
+
+    def test_page_pushes_split_shown_and_hidden(self):
+        def reads(counts):
+            def call(_sock, method, params, timeout=30):
+                if params["action"] == "list":
+                    return {"pages": [{"page": "cmux.agent", "instance": 1, "window_number": 7},
+                                      {"page": "cmux.agent", "instance": 2, "window_number": None},
+                                      {"page": "cmux.agent", "instance": 3, "parked": True}]}
+                return {"pushes": counts[params["instance"]]}
+            return bp.page_pushes("sock", call)
+        before = reads({1: {"scripts": 1, "batches": 1, "bytes": 100}, 2: {"scripts": 0, "batches": 0, "bytes": 0}})
+        after = reads({1: {"scripts": 11, "batches": 5, "bytes": 1100}, 2: {"scripts": 4, "batches": 2, "bytes": 400}})
+        summary = bp.push_summary(before, after, 10)
+        self.assertEqual(summary["groups"]["cmux.agent (shown)"]["bytes_per_s"], 100.0)
+        self.assertEqual(summary["groups"]["cmux.agent (hidden)"]["scripts"], 4)
+        self.assertEqual((summary["bytes_per_s"], summary["hidden_bytes_per_s"]), (140.0, 40.0))
+        self.assertIsNone(bp.page_pushes("sock", lambda *a, **k: {"pages": [{"page": "x", "instance": 1}]}))
+        self.assertIsNone(bp.push_summary(None, after, 10))
+
+    def test_live_pages_count_unparked_pages_by_id(self):
+        listed = {"pages": [{"page": "cmux.agent", "instance": 1}, {"page": "cmux.agent", "instance": 2},
+                            {"page": "cmux.agent", "instance": 3, "parked": True}, {"page": "cmux.newtab", "instance": 4}]}
+        self.assertEqual(bp.live_pages("sock", lambda *a, **k: listed), {"cmux.agent": 2, "cmux.newtab": 1})
+        self.assertEqual(bp.live_pages("sock", lambda *a, **k: None), {})
+
+    def test_heavy_preset_and_stream_prompt(self):
+        args = bp.apply_preset(argparse_namespace(), "many-chats-heavy")
+        self.assertEqual((args.load_pin, args.load_split, args.retitle_bytes, args.retitle_rate, args.load_seeded_open),
+                         (30, 3, 80000, 0.5, 190))
+        self.assertEqual(load.stream_prompt(960, 10, 400, 80000, 0.5), "stream: 960 10 400 80000 0.5")
+        self.assertEqual(load.stream_prompt(960, 10, 400), "stream: 960 10 400")
+        self.assertEqual(load.stream_prompt(960, 10), "stream: 960 10")
+
+    def test_seeded_idle_ids_are_open_chats_not_closed(self):
+        ids = load.seeded_idle_ids(10, 0.6, 3)
+        self.assertEqual(ids, [load.seeded_id(9), load.seeded_id(8), load.seeded_id(7)])
+        self.assertEqual(len(load.seeded_idle_ids(10, 0.6, 50)), 4)
+
+    def test_preset_and_rows(self):
+        args = bp.apply_preset(argparse_namespace(), "many-chats")
+        self.assertEqual((args.load_local, args.load_streaming, args.load_seeded_open, args.load_tabs, args.stream_chunk),
+                         (10, 10, 190, 13, 400))
+        result = {"label": "many-chats", "seconds": 60, "roles": {"app": {"main_thread_pct": 41.5, "cpu_pct": 90.0}},
+                  "hangs": {"over_100ms": 7, "over_250ms": 2, "max_ms": 480.0, "total_ms": 2100.0}}
+        rows = bp.many_chats_rows(result)
+        self.assertEqual((rows["main_thread_pct"], rows["hangs_over_250ms"], rows["hang_max_ms"]), (41.5, 2, 480.0))
+        table = bp.perf_rows(result, {**result, "hangs": {**result["hangs"], "over_250ms": 0}}, "h")
+        self.assertIn("| app: stalls > 250 ms | 2 | 0 | -2 (-100%) | h |", table)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("perf_budgets", Path(__file__).resolve().parent.parent / "perf-budgets.py")
+        budgets = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(budgets)
+        mapped = budgets.rows_many_chats({"results": [{**result, "many_chats": rows}]})
+        self.assertEqual(mapped["many_chats.main_thread_pct"], (41.5, 41.5))
+        self.assertEqual(mapped["many_chats.hangs_over_250ms"], (2, 2))
+
+
+def argparse_namespace():
+    import argparse
+    return argparse.Namespace(load_remote=None, load_local=None, load_streaming=None, load_tabs=None,
+                              load_seeded_open=None, stream_chunk=None, settle=None, measure=None,
+                              load_pin=None, load_split=None, retitle_bytes=None, retitle_rate=None)
 
 
 if __name__ == "__main__":

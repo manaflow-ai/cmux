@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { LIVE_THINKING, WORKED, toggleTurnFold, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { viewFolds } from "../src/agent-session/acpmux/conversation/viewFolds";
+import { endsTurn } from "../src/agent-session/acpmux/conversation/turnEndFold";
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -66,14 +67,18 @@ test("manual expansion survives final answer chunks and completion without losin
   expect(next.rows.find((row) => row.id === answer.id)?.text).toBe(nextAnswer.text);
 });
 
-test("commentary is never selected as the final answer and every explicit final remains outside", () => {
+// A closed fold keeps only the turn's answer in sight (Lawrence, 2026-11-19: "in collapsed, literally
+// everything but final assistant message should be collapsed"): an earlier explicit final folds too.
+test("commentary is never selected as the final answer and only the last explicit final remains outside", () => {
   const anotherFinal = { ...answer, id: "second-answer", text: "One more result." };
   const tailComment = { ...commentary, id: "tail-commentary", text: "Checking the follow-up." };
-  const done = turnViewFrom([...work, answer, anotherFinal, tailComment, summary], new Set(), {
-    ...options,
-    working: false,
-  });
-  expect(shownIds(done.rows)).toEqual(["prompt", foldId, "answer", "second-answer", "summary"]);
+  const rows = [...work, answer, anotherFinal, tailComment, summary];
+  const done = turnViewFrom(rows, new Set(), { ...options, working: false });
+  expect(shownIds(done.rows)).toEqual(["prompt", foldId, "second-answer", "summary"]);
+  // Opened, the earlier final reads in its place, once.
+  const opened = turnViewFrom(rows, new Set([foldId]), { ...options, working: false });
+  expect(opened.rows.filter((row) => row.id === "answer")).toHaveLength(1);
+  expect(shownIds(opened.rows).indexOf("answer")).toBeLessThan(shownIds(opened.rows).indexOf("second-answer"));
   expect(done.rows.find((row) => row.id === "summary")?.text).toBe(anotherFinal.text);
   const noFinal = turnViewFrom([...work, summary], new Set(), { ...options, working: false });
   expect(noFinal.rows.some((row) => row.id === commentary.id)).toBe(false);
@@ -197,7 +202,11 @@ for (const status of ["cancelled", "interrupted"])
     expect(closed.rows.some((row) => row.id === call.id)).toBe(false);
   });
 
-test("substantive commentary before a tool survives explicit final receipt, completion and reload", () => {
+test("commentary folds beside an explicit final receipt once the turn ends, and opens with the fold", () => {
+  // 2026-11-14: a marked final answer is the answer, however short; marked commentary before it
+  // folds with the work, as the Codex app draws it (Lucas: "shouldnt that stuff have been in the
+  // Worked for"). This takes back Leo's 2026-11-13 rule that kept substantive commentary beside a
+  // short receipt.
   const finding = {
     ...commentary,
     id: "finding",
@@ -208,12 +217,72 @@ test("substantive commentary before a tool survives explicit final receipt, comp
   const source = [prompt, commentary, finding, call, receipt];
   const live = turnViewFrom(source, new Set(), options);
   const completed = [prompt, commentary, finding, call, { ...receipt, streaming: false }, summary];
-  const done = turnViewFrom(completed, new Set(), { ...options, working: false }, live);
-  const reloaded = turnViewFrom(completed, new Set(), { ...options, working: false });
-  for (const view of [live, done, reloaded]) {
-    expect(view.rows.filter((row) => row.id === finding.id)).toHaveLength(1);
+  const settled = { ...options, working: false };
+  const done = turnViewFrom(completed, new Set(), settled, live);
+  const reloaded = turnViewFrom(completed, new Set(), settled);
+  for (const view of [done, reloaded]) {
     expect(view.rows.filter((row) => row.id === receipt.id)).toHaveLength(1);
+    expect(view.rows.some((row) => row.id === finding.id)).toBe(false);
     expect(view.rows.some((row) => row.id === commentary.id)).toBe(false);
     expect(view.rows.some((row) => row.id === call.id)).toBe(false);
   }
+  const opened = turnViewFrom(completed, toggleTurnFold(completed, new Set(), foldId), settled);
+  expect(opened.rows.filter((row) => row.id === finding.id)).toHaveLength(1);
+});
+
+// A Codex turn that failed before its final answer has no answer to keep in sight. Its last reply
+// stays beside the closed fold, so the fold never hides everything the agent said.
+test("a phased turn with no final answer keeps its last reply beside the closed fold", () => {
+  const finding = row("finding", "assistant", {
+    at: 3_000,
+    text: "The caller passes a stale token, which is why every retry fails.\n\nI'm checking where it is cached.",
+    assistantPhase: "commentary",
+  });
+  const failed = { ...summary, status: "failed" };
+  const rows = [prompt, commentary, call, finding, { ...call, id: "call-2" }, failed];
+  const closed = turnViewFrom(rows, new Set(), { ...options, working: false });
+  expect(closed.rows.find((row) => row.kind === WORKED)?.foldOpen).toBe(false);
+  expect(closed.rows.filter((row) => row.kind === "assistant").map((row) => row.id)).toEqual(["finding"]);
+});
+
+// A turn that only replied to another agent's message draws its replies as they ran: an earlier
+// final reply is never dropped, open or closed (the closed-fold rule keeps only the last answer
+// beside a fold of work, and this turn has no work to fold).
+test("a reply-only turn another agent's message started keeps each final reply", () => {
+  const notice = row("notice", "user", {
+    text: "[notice] the PR merged",
+    incoming: {
+      kind: "inbox",
+      notice: {
+        threads: [{ threadId: "t", label: "pr/1", from: ["peer"], count: 1, blocker: false, promptIds: ["p"] }],
+      },
+    },
+  } as Partial<AcpmuxRow>);
+  const first = row("first", "assistant", { at: 2_000, text: "The hold is gone.", assistantPhase: "final_answer" });
+  const second = row("second", "assistant", { at: 3_000, text: "The PR is merged.", assistantPhase: "final_answer" });
+  const rows = [notice, first, second, { ...summary, id: "notice-summary" }];
+  const settled = { ...options, working: false };
+  const atRest = turnViewFrom(rows, new Set(), settled);
+  const toggled = turnViewFrom(rows, toggleTurnFold(rows, new Set(), "worked-notice"), settled);
+  for (const view of [atRest, toggled]) {
+    expect(view.rows.filter((entry) => entry.id === "first")).toHaveLength(1);
+    expect(view.rows.filter((entry) => entry.id === "second")).toHaveLength(1);
+  }
+});
+
+// Leo, 2026-11-25: "i think there's a 2-step animation where 1. you write and finish writing your message and
+// 2. it does the aggressive all-tool fold. we should just combine both". The final answer's first text is
+// the fold's moment: the turn-end motion (turnEndFold.ts) plays there, as the reply comes in, not after it.
+test("the final answer's first text plays the turn-end fold while the reply streams", () => {
+  const before = turnViewFrom(work, new Set(), options);
+  const final = turnViewFrom([...work, answer], new Set(), options, before);
+  expect(endsTurn(before.rows, final.rows)).toBe(true);
+  // Its end then has nothing left to fold: the summary takes the live line's place, one step.
+  const done = turnViewFrom([...work, { ...answer, streaming: false }, summary], new Set(), {
+    ...options,
+    working: false,
+  });
+  expect(done.rows.filter((row) => row.kind !== "turnSummary").map((row) => row.id)).toEqual(
+    final.rows.filter((row) => row.id !== LIVE_THINKING).map((row) => row.id),
+  );
 });

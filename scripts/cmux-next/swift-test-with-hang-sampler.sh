@@ -10,7 +10,19 @@
 # CMUX_NEXT_TEST_BUSY_STUCK_SECONDS (default 3x the stuck limit) although they kept
 # using CPU (a spin, or a runner so starved that one test takes minutes). A slow
 # run that is still finishing tests is never a stall. CMUX_NEXT_TEST_HANG_SECONDS
-# (default 1200) is only the hard ceiling on the whole run. Swift Testing has no package-wide time limit (its default limit
+# (default 1200) is only the hard ceiling on the whole run.
+#
+# The STARTUP rule covers the stretch before the first test line, where the stall rule cannot look
+# (output lags there): when a test helper (xctest, swiftpm-testing-helper) of this run has lived
+# CMUX_NEXT_TEST_STARTUP_SECONDS (default 120; 0 turns the rule off) with no Swift Testing or
+# XCTest line in the log and the run's processes used under CMUX_NEXT_TEST_IDLE_CPU_SHARE of one
+# core in that time, the helper is deadlocked before its first test. On 2026-11-15
+# (cmuxs-mac-mini-6, run 43743518734) XCTest's class scan (objc_copyClassList -> SwiftUI metadata ->
+# +[NSView initialize]) held the ObjC runtime lock while +[CNContactStore initialize]'s preferences
+# read waited on that lock: two live-daemon steps sat at 0.2 s of CPU until the 900 s and 480 s
+# whole-run limits, holding 11 of the mini's 14 units. The rule samples and ends the run, and since
+# no test ran it runs `swift test` once more (CMUX_NEXT_TEST_STARTUP_RETRY, default 1; 0 fails at
+# once); a second startup hang fails the step. Swift Testing has no package-wide time limit (its default limit
 # cannot be set from `swift test`), so a test without its own `.timeLimit`
 # would otherwise hold the run until the whole-run limit with no name. Run from
 # Packages/macOS/CmuxNext.
@@ -99,6 +111,10 @@ poll="${CMUX_NEXT_TEST_STUCK_POLL_SECONDS:-10}"
 # the pass with 223 tests open). Busy and silent, the run gets busy_limit before it is called stuck.
 busy_limit="${CMUX_NEXT_TEST_BUSY_STUCK_SECONDS:-$(( stuck_limit * 3 ))}"
 idle_share="${CMUX_NEXT_TEST_IDLE_CPU_SHARE:-0.05}"
+startup_limit="${CMUX_NEXT_TEST_STARTUP_SECONDS:-120}"
+# This run may retry a startup hang once: not when it is the retry, nor when the retry is off.
+startup_retry=""
+[[ -n "${CMUX_NEXT_TEST_STARTUP_RETRIED:-}" || "${CMUX_NEXT_TEST_STARTUP_RETRY:-1}" == 0 ]] || startup_retry=1
 helpers="$log.helpers"
 : > "$helpers"
 cpu_state="$log.cpu"
@@ -358,6 +374,13 @@ sample_and_kill() {
   # already reported as busy (one line per spell, not one per poll).
   cpu_since=0
   said_busy=""
+  # The startup rule's spell: the poll that first saw a live helper with no test line yet, and the
+  # CPU the run used since.
+  startup_since=""
+  startup_cpu=0
+  # Any test line of either framework ends the startup stretch for good.
+  any_test_re="^(◇ Test |Test Suite '|Test Case ')"
+  any_test_seen=""
   while :; do
     sleep "$poll" &
     sleeper=$!
@@ -413,6 +436,41 @@ sample_and_kill() {
     size=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
     # Read every poll, so each poll's use lands in the spell it belongs to.
     used=$(cpu_used)
+    if (( startup_limit > 0 )) && [ -z "$any_test_seen" ]; then
+      if grep -qE "$any_test_re" "$log" 2>/dev/null; then
+        any_test_seen=1
+        startup_since=""
+      else
+        live=""
+        for p in $(cat "$helpers"); do kill -0 "$p" 2>/dev/null && live="$live $p"; done
+        if [ -z "$live" ]; then
+          startup_since=""
+        elif [ -z "$startup_since" ]; then
+          startup_since="$now"
+          startup_cpu=0
+        else
+          startup_cpu=$(awk -v a="$startup_cpu" -v b="${used:-0}" 'BEGIN { printf "%.2f", a + b }')
+          waited=$(( now - startup_since ))
+          if (( waited >= startup_limit )) \
+            && awk -v c="$startup_cpu" -v q="$waited" -v f="$idle_share" 'BEGIN { exit !(c < q * f) }'; then
+            echo "the startup rule" > "$fired"
+            what="test helper${live} printed no test in ${waited}s and the run used ${startup_cpu} s of CPU in that time (CMUX_NEXT_TEST_STARTUP_SECONDS ${startup_limit}): a deadlock before the first test"
+            printf '\n'
+            if [ -n "$startup_retry" ]; then
+              : > "$log.startup"
+              echo "::warning title=cmux-next swift test startup hang::$what; sampling it, then running swift test once more"
+            else
+              echo "::error title=cmux-next swift test startup hang::$what; sampling the test processes"
+            fi
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              printf '### Startup hang: %s\n\n' "$what" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            sample_and_kill
+            exit 0
+          fi
+        fi
+      fi
+    fi
     if [ "$finishes" != "$last_finishes" ] || { [ ! -s "$open" ] && [ "${size:-0}" != "$last_size" ]; } \
       || ! grep -q '^◇ Test ' "$log" 2>/dev/null; then
       last_progress="$now"
@@ -478,6 +536,16 @@ else
   wait "$watcher" 2>/dev/null
 fi
 exec 3>&-
+# A startup hang ran no test: run once more, with what is left of the whole-run limit (at least
+# 300 s), as this run's retry. exec runs no EXIT trap, so the log goes first.
+if [ -e "$log.startup" ]; then
+  wait "$tee_pid" 2>/dev/null
+  rm -f "$log" "$log".*
+  trap - EXIT
+  left=$(( limit - ($(date +%s) - started_at) ))
+  (( left >= 300 )) || left=300
+  CMUX_NEXT_TEST_STARTUP_RETRIED=1 CMUX_NEXT_TEST_HANG_SECONDS="$left" exec bash "$0" "$@"
+fi
 # The report reads the log, so its writer must be done. bash 3.2 cannot wait for a
 # process substitution (wait returns at once), so watch tee's pid end, up to 10 s.
 if ! wait "$tee_pid" 2>/dev/null; then
@@ -485,6 +553,22 @@ if ! wait "$tee_pid" 2>/dev/null; then
     kill -0 "$tee_pid" 2>/dev/null || break
     sleep 0.05
   done
+fi
+# A shard that was cut short can leave SwiftPM's package state briefly held while
+# the next isolated process starts. SwiftPM then reports a package-save or binary
+# artifact-mapping error before any test runs. That is infrastructure contention,
+# not a test result: retry this exact no-test signature twice, with bounded backoff.
+# Keep genuine manifest, artifact, and test failures red.
+swiftpm_retry_count="${CMUX_NEXT_TEST_SWIFTPM_RETRY_COUNT:-0}"
+if (( status != 0 && swiftpm_retry_count < 2 )) \
+  && ! grep -q '^◇ Test' "$log" \
+  && grep -qE 'couldn.*be saved in the folder|binary target .* could not be mapped to an artifact with expected name|unable to attach DB: database is locked' "$log"; then
+  retry_delay=$(( swiftpm_retry_count == 0 ? 5 : 20 ))
+  echo "::warning title=cmux-next swift test::SwiftPM failed before any test ran; retrying package state in ${retry_delay}s"
+  sleep "$retry_delay"
+  rm -f "$log" "$log".*
+  trap - EXIT
+  CMUX_NEXT_TEST_SWIFTPM_RETRY_COUNT=$((swiftpm_retry_count + 1)) exec bash "$0" "$@"
 fi
 
 # Prints the ::error lines and the step summary for the run's log. Exits 3 when

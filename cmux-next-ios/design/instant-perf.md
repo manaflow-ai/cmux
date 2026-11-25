@@ -18,7 +18,11 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
   with `CMUX_INSTANT_PERF_STRICT=1` (`TEST_RUNNER_CMUX_INSTANT_PERF_STRICT=1` under
   xcodebuild), on a quiet harness; elsewhere a miss is listed in the JSON line's
   `failing` and printed as `INSTANTPERF warning:`. The god budget and the ratio
-  always assert.
+  always assert, except the ratio of a metric timed under a load the test makes on
+  purpose (`home_list_first_screen_under_load`, `record(underLoad: true)`): that
+  ratio follows how the host shares its caches and allocator with the load, so it
+  is enforced only under `CMUX_INSTANT_PERF_STRICT=1`, like the small budget (base
+  kit jobs read it from passing to 1.41x on the same code, 2026-11-17).
 - **Ratio (1.2x)**: god at most 1.2x small, computed as
   `god / max(small, 1 ms)`. Below 1 ms nobody sees a difference, and a
   sub-millisecond small would make any ratio noise; the floor keeps "god costs
@@ -46,7 +50,7 @@ on every PR that touches `cmux-next-ios/**`):
 | `home_list_first_screen` | the first window's `home-inbox` reply bytes (20 rows and the list's `total`, as cmux-mobile-host cuts it) to the list the first screen draws (`MacHomeReply`, `MacHomeList`); the note has the whole list that follows off the main actor | 20 rows | 5,000 rows | 16 ms |
 | `home_list_one_row_update` | one row changes in place in a list of N: what the feed does, the `ids` read's reply (that row and its index) parsed, put in place (`MacHomeRows.apply`) and the list patched (`MacHomeList.Memo`); the note has the memo alone | 20 rows | 5,000 rows | 4 ms |
 | `chat_open_last_messages` | `AgentChatStore` on a fake acpmux, until it holds the newest turn, finished | ~40 records | 50,000 records | 150 ms |
-| `chat_reconnect_catch_up` | link back (`bind`), reattach, until the newest turn shows (tail-first since slice 3: the gap before the newest page fills after, untimed; its time is in the note) | 10 missed | 20,000 missed | 150 ms |
+| `chat_reconnect_catch_up` | link back (`bind`), reattach, until the newest turn shows (tail-first since slice 3: a gap before the newest page within one page is read whole after, untimed; a wider one is not read, and the chat opens on the newest page) | 10 missed | 20,000 missed | 150 ms |
 | `chat_older_page` | one scroll-up page of older history (`loadEarlier`) | 450-record chat | 50,000 records | 50 ms |
 | `chat_scroll_fill` | a fling up the chat's history at 60 Hz (flicks of 8,000 pt/s at UIScrollView's normal deceleration, an 800 pt viewport, each turn at the height the list draws it near enough), over a phone's link (50 ms round trip, 4 MB/s, one reply after another): each frame timed to a filled viewport (its own work, an older page landing on the main actor, and the wait for rows when the top went blank, every frame of that wait at its own wait); the p95 of a fling's frames. The note has the frames with a blank top, which must be none | 450-record chat | 50,000 records | 16.7 ms (one frame) |
 | `chat_scroll_fill_ui` (iOS) | the `chat_scroll_fill` fling on `ChatTranscriptList` itself at 390 x 800 pt: the collection view's offset moved each frame (its delegate reads ahead as the app does), laid out with its real cells and heights; each frame timed to a filled viewport (its scroll and layout, the store taking an older page in and the list's reloads since the last frame, and every frame of a wait at the list's top while older history remains). The note has blank-top frames (must be none), rows in the viewport with no cell, and the same harness with the read-ahead off (the oldest row's display asks, as before #41982) | 450-record chat | 50,000 records | 16.7 ms (one frame) |
@@ -68,6 +72,8 @@ Home reads windows (since the windowed Home read): the first screen asks cmux-mo
 one read parsed off the main actor, and an event reads only its conversation's row (`ids`, with
 its `index` and the list's `total`). The rows this phone last read show before any of it
 (`MacHomeRowsCache`: the first 200 rows per account and Mac, 2 MB in all, deleted at sign-out).
+A launch reads only their head file (the first 40 rows) in the same turn, so the first frame draws
+them; the whole kept list follows off the main thread.
 A host without windows refuses the params and the phone reads the whole list, as before.
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs
@@ -92,11 +98,12 @@ record (`JSONValue.decoded(as:)`, no second encode and parse), and the list puts
 in once their native rows are laid out, at their real heights.
 `chat_reconnect_catch_up` still times from the link coming back to the newest turn shown.
 What changed with the tail-first reattach (slice 3) is the work inside that window: a gap
-longer than one page reads the newest page (as an open does) and one read after it, and the
-missed records before that page are read afterwards, in 256 KiB pages, while the chat is
-already showing its newest turn. That fill is not in the timed window; the bench runs it once
-more on god to the end, checks every turn is then shown once and in order, and reports how
-long it took in the note.
+longer than one page reads the newest page (as an open does) and one read after it. A hole
+before that page of one page or less (`bridgeMaxSeqs`) is read whole afterwards, in 256 KiB
+pages, and goes in once; a wider one is not read: the turns held before it go, and the chat
+opens on the newest page, with older history from scrolling up (2026-11-17: reading it page by
+page redrew the turns above the newest one for every page). The bench runs god's reconnect once
+more, checks every turn shown is there once and in order, and reports how long it took in the note.
 
 Fixtures are seeded generators (`InstantPerfFixtures.swift`), built in memory;
 nothing large is checked in. The fake acpmux pages as acpmux does (`limit`,
@@ -136,7 +143,11 @@ UI half: `scripts/ci/cmux-next-ios-sim.sh test ui=InstantListPerfUITests`.
 In CI, `.github/workflows/cmux-next-ios-kit.yml` skips the bench in the main
 `swift test` and `xcodebuild test` runs, then runs it alone on macOS and on the iOS
 simulator, prints the table to the job log and the job summary, and uploads the
-JSONL as the `instant-perf-*` artifact.
+JSONL as the `instant-perf-*` artifact. Both bench steps are advisory there
+(`continue-on-error`, since 2026-11-21): a miss is a warning on the report step, not a
+red job, because on shared runners the bench was red on most kit runs for code the pull
+request never touched. The rules above still hold when you run it yourself; a known-red
+or a fix is still how a red check is answered.
 
 ## Adding a metric
 
