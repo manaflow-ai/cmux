@@ -103,7 +103,7 @@ pub(super) fn copy(
         Ok(head) => head,
         Err(error) => {
             // The copy's own error is the answer; a hold whose end is lost runs out its lease.
-            let _ = end(socket, &hold.job, false);
+            let _ = end(socket, &hold.job, false, None);
             return Err(error);
         }
     };
@@ -118,7 +118,7 @@ pub(super) fn copy(
         Ok(marked) => marked,
         Err(error) => {
             // The copy's own error is the answer; a hold whose end is lost runs out its lease.
-            let _ = end(socket, &hold.job, false);
+            let _ = end(socket, &hold.job, false, None);
             return Err(error);
         }
     };
@@ -129,15 +129,29 @@ pub(super) fn copy(
     // Copied whole before the answer: the head was not marked, or the child did not start.
     let whole = sync_cli::push(socket, local, remote);
     drop(renewal);
-    let ended = end(socket, &hold.job, whole.is_ok());
+    let ended = end(socket, &hold.job, whole.is_ok(), partial_reason(local, &whole));
     let whole = whole?;
     ended?;
     Ok(copied(machine, local, remote, &whole, fallback, None))
 }
 
-/// `git.seed.hold.end`: the folder reads ready (`ok`) or is left failed.
-fn end(socket: &Path, job: &str, ok: bool) -> anyhow::Result<()> {
-    sync_cli::machine_call(socket, "git.seed.hold.end", json!({"job": job, "ok": ok})).map(drop)
+/// Why a copy that failed may still leave its folder playable: its source folder is gone
+/// (deleted, or its disk went away), so no retry from here could finish it (Leo, 2026-11-25,
+/// #17: "what if the user deletes the folders that were on their source of truth
+/// machines? ... it can go partial and resume whenever"). Any other failure leaves the
+/// folder failed, as before, for the copy's retry to repair.
+fn partial_reason<T>(local: &Path, pushed: &anyhow::Result<T>) -> Option<&'static str> {
+    (pushed.is_err() && std::fs::symlink_metadata(local).is_err()).then_some("source_missing")
+}
+
+/// `git.seed.hold.end`: the folder reads ready (`ok`), is kept with what landed (`partial`,
+/// once past its head: [`partial_reason`]), or is left failed.
+fn end(socket: &Path, job: &str, ok: bool, partial: Option<&str>) -> anyhow::Result<()> {
+    let mut params = json!({"job": job, "ok": ok});
+    if let (Some(reason), Some(map)) = (partial, params.as_object_mut()) {
+        map.insert("partial".into(), json!(reason));
+    }
+    sync_cli::machine_call(socket, "git.seed.hold.end", params).map(drop)
 }
 
 /// Starts `cmux link seed copy-rest` of this program, in its own session (it outlives
@@ -184,7 +198,7 @@ pub(super) fn copy_rest(socket: &Path, job: &str, local: &Path, remote: &str) ->
     println!("{RENEWING}");
     let whole = sync_cli::push(socket, local, remote);
     drop(renewal);
-    match end(socket, job, whole.is_ok()) {
+    match end(socket, job, whole.is_ok(), partial_reason(local, &whole)) {
         Ok(()) if whole.is_ok() => 0,
         _ => 1,
     }
