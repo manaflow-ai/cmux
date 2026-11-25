@@ -517,6 +517,12 @@ impl Paths {
         })
     }
 
+    /// When `via` falls in doubt unless a pong comes first: the first millisecond past
+    /// [`DOUBT_AFTER`] since its last pong. None when it never answered.
+    pub fn doubt_at(&self, via: Via) -> Option<u64> {
+        self.find(via)?.last_pong.map(|at| at.saturating_add(millis(DOUBT_AFTER) + 1))
+    }
+
     /// Whether the active path is in doubt (or there is none): the moment a sender would use
     /// every path at once.
     pub fn in_doubt(&self, now: u64) -> bool {
