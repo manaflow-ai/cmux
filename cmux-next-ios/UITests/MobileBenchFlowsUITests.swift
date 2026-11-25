@@ -105,7 +105,11 @@ final class MobileBenchFlowsUITests: XCTestCase {
         send.tap()
         mark(flow, "input_done")
         let stop = app.buttons["Stop"].firstMatch
-        _ = stop.waitForExistence(timeout: 10)
+        guard stop.waitForExistence(timeout: 10) else {
+            XCTFail("\(flow): the streaming turn did not show Stop\n\(app.debugDescription)")
+            mark(flow, "end")
+            return
+        }
         XCTAssertTrue(waitGone(stop, timeout: 150), "\(flow): the stream ends")
         idle(1.5)
         mark(flow, "end")
@@ -244,7 +248,8 @@ final class MobileBenchFlowsUITests: XCTestCase {
         mark(flow, "stimulus")
         card.tap()
         mark(flow, "input_done")
-        _ = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch.waitForExistence(timeout: 10)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+            .waitForExistence(timeout: 10), "\(flow): the selected chat's composer\n\(app.debugDescription)")
         idle(2.0)
         mark(flow, "end")
     }
@@ -297,12 +302,42 @@ final class MobileBenchFlowsUITests: XCTestCase {
         mark(flow, "stimulus")
         settings.tap()
         mark(flow, "input_done")
+        XCTAssertTrue(settings.isSelected, "\(flow): Settings is selected after the tap\n\(app.debugDescription)")
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 15),
+                      "\(flow): the Settings page\n\(app.debugDescription)")
         idle(2.0)
         mark(flow, "end")
     }
 
     @MainActor
-    func test15_offlineError() {
+    func test15_rotate() {
+        let flow = "rotate"
+        let app = launch(tab: "home")
+        defer {
+            // Keep XCTest's next UI test in the same known orientation even when an
+            // assertion above fails. RotateBenchUITests owns the repeated/duress runs.
+            XCUIDevice.shared.orientation = .portrait
+            app.terminate()
+        }
+        guard waitForShell(app, timeout: 30) else {
+            XCTFail("\(flow): the shell\n\(app.debugDescription)")
+            mark(flow, "end")
+            return
+        }
+        idle(1.5)
+        mark(flow, "stimulus")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        mark(flow, "input_done")
+        // The compare-mobile clip ends after the first settled landscape frame. The
+        // dedicated rotation bench continues with keyboard and load rounds separately.
+        idle(2.0)
+        XCTAssertEqual(XCUIDevice.shared.orientation, .landscapeLeft,
+                       "\(flow): the simulator did not land in landscape\n\(app.debugDescription)")
+        mark(flow, "end")
+    }
+
+    @MainActor
+    func test16_offlineError() {
         let flow = "offline-error"
         // offline-send: a chat whose Mac is not reachable. Its demo sends one prompt as the chat
         // opens (queued); the measured send is a second one, typed and sent by hand, which
@@ -315,10 +350,19 @@ final class MobileBenchFlowsUITests: XCTestCase {
         field.typeText("Are you there?")
         idle(1.2)
         let send = app.buttons["Send"].firstMatch
+        guard send.waitForExistence(timeout: 10), send.isHittable else {
+            XCTFail("\(flow): the Send button\n\(app.debugDescription)")
+            mark(flow, "end")
+            return
+        }
+        let queuedCount = app.descendants(matching: .any).matching(identifier: "chat.queued").count
         mark(flow, "stimulus")
         send.tap()
         mark(flow, "input_done")
-        idle(2.5)
+        XCTAssertTrue(waitForCount(app.descendants(matching: .any).matching(identifier: "chat.queued"),
+                                   atLeast: queuedCount + 1, timeout: 10),
+                      "\(flow): the sent prompt is queued offline\n\(app.debugDescription)")
+        idle(1.5)
         mark(flow, "end")
     }
 
@@ -406,6 +450,18 @@ final class MobileBenchFlowsUITests: XCTestCase {
     private func waitGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
         return XCTWaiter().wait(for: [gone], timeout: timeout) == .completed
+    }
+
+    /// Waits for a repeated accessibility element to appear without treating an old
+    /// queued row as proof that this send was accepted.
+    @MainActor
+    private func waitForCount(_ query: XCUIElementQuery, atLeast count: Int, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if query.count >= count { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return query.count >= count
     }
 
     /// Lets the screen rest (no input) for `seconds`.
