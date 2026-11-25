@@ -96,6 +96,8 @@ public struct PageOperations: Sendable, Equatable {
                               gesture: ["bookmarks.apply"], confirm: []),
         "feed": PageOperations(read: ["feed.github.find_work", "feed.item.get", "feed.items.list", "feed.reports.read", "feed.view.read"],
                               gesture: ["feed.github.refresh", "feed.intent", "feed.reports.reply"], confirm: []),
+        "forum": PageOperations(read: ["forum.snapshot", "forum.thread.get"],
+                              gesture: ["forum.thread.post", "forum.thread.reply"], confirm: []),
         "history": PageOperations(read: ["history.entries.list", "history.visit.summaries"],
                               gesture: ["history.clear", "history.entries.remove", "history.site.remove"], confirm: []),
         "home-channels": PageOperations(read: ["chief.profile.avatar.get", "chief.profile.avatar.set", "chief.profile.get", "chief.profile.history", "chief.profile.list", "chief.profile.update", "palette.rank", "participant.avatar.get"],
