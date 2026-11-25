@@ -99,6 +99,11 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
         return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
     }
+    // A shared MCP server's relay for a harness (`mcp_pool.rs`): no runtime, stdout is MCP's.
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::mcp_pool::SHIM_ARG) {
+        return crate::mcp_pool::shim_main(args.get(1..).unwrap_or_default());
+    }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
@@ -658,6 +663,14 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
             Ok(())
+        }
+        // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
+        Some(Command::RunVm { command }) => {
+            match crate::placement::run_vm::main(&command.join(" ")).await {
+                // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
+                Ok(code) => std::process::exit(code),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
         }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
