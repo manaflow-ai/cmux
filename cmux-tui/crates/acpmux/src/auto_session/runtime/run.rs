@@ -142,10 +142,15 @@ impl<C: AutoCloud + 'static> Loop<C> {
     async fn command(&mut self, command: Command) {
         match command {
             Command::Step { id, event, view } => {
+                let told = view.is_some();
                 if let (Some(tracked), Some(view)) = (self.chats.get_mut(&id), view) {
                     tracked.note_view(*view);
                 }
                 self.step(&id, event).await;
+                // The store's view may say that this machine has taken the chat's inbox.
+                if told {
+                    self.leave_when_home(&id).await;
+                }
             }
             Command::Work { id, change, needs_run, settles } => {
                 self.watch_settle(&id, settles);
@@ -173,7 +178,10 @@ impl<C: AutoCloud + 'static> Loop<C> {
             }
             Command::Closed { id, result } => self.closed(&id, result).await,
             Command::Kept { id, result, reply } => self.kept(&id, result, reply),
-            Command::LaneDone { id, drained } => self.lane_done(&id, drained),
+            Command::LaneDone { id, drained } => {
+                self.lane_done(&id, drained);
+                self.leave_when_home(&id).await;
+            }
             Command::TurnStopped { id, stop, needs_run } => {
                 self.turn_stopped(&id, stop, needs_run).await;
             }

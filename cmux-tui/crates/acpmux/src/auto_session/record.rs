@@ -64,7 +64,10 @@ pub struct AutoRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moving: Option<MoveTo>,
     /// The person set the chat to run on this machine only while the Cloud held it: Auto goes
-    /// off once the chat is home and this machine has stored a copy of its own.
+    /// off once the chat is home, this machine has stored a copy of its own and has taken the
+    /// chat's Cloud inbox. It lasts only while the store says the chat is coming here or is
+    /// here: a pick of Cloud or Auto from another device, or a move home that did not happen,
+    /// ends it (`runtime/chats.rs`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub local_wanted: bool,
 }
