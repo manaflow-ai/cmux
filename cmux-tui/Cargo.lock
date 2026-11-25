@@ -3663,6 +3663,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-vmd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64",
+ "cmux-process",
+ "cmux-scope",
+ "cmux-tui-machine-protocol",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
