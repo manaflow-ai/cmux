@@ -1,0 +1,439 @@
+/* PlaceControl.tsx and MoveProgress.tsx: where a chat runs, and its move. Borderless flat tonal fills
+   (the Cloud hint's), tokens only. */
+.acpmux-place,
+.acpmux-move {
+  --place-fill: var(--ds-surface-card);
+  --place-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --place-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  --place-accent: var(--agent-text);
+  --place-warn: color-mix(in srgb, var(--agent-text) 70%, orange);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+
+/* The control. */
+.acpmux-place-seg-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-place-seg {
+  display: inline-flex;
+  flex: none;
+  padding: var(--grid-half-step);
+  gap: var(--grid-half-step);
+  border-radius: var(--ds-radius-xl);
+  background: var(--place-fill);
+}
+.acpmux-place-segbtn,
+.acpmux-place-rowbtn,
+.acpmux-place-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-place-segbtn {
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border-radius: var(--ds-radius-control, 8px);
+  white-space: nowrap;
+}
+.acpmux-place-segbtn:hover,
+.acpmux-place-rowbtn:hover,
+.acpmux-place-chip:hover {
+  background: var(--place-fill-hover);
+  color: var(--agent-text);
+}
+.acpmux-place-segbtn[data-on="true"] {
+  background: var(--place-fill-strong);
+  color: var(--agent-text);
+}
+.acpmux-place-segbtn[data-here="true"]::after {
+  content: "";
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  border-radius: 50%; /* radius-allow: a status dot, not a button corner */
+  background: currentColor;
+}
+.acpmux-place-seg-wrap[data-moving="true"] .acpmux-place-segbtn {
+  opacity: 0.6;
+}
+.acpmux-place-rule {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-muted);
+}
+.acpmux-place-seg-wrap > .acpmux-place-rule {
+  max-width: 34em;
+}
+.acpmux-place-chip {
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--place-fill);
+  color: var(--agent-text);
+}
+.acpmux-place-chip-icon {
+  display: inline-flex;
+}
+.acpmux-place-chip-text[data-moving="true"] {
+  color: var(--agent-muted);
+}
+.acpmux-place-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  width: min(100%, 420px);
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-xl);
+  background: var(--place-fill);
+}
+.acpmux-place-rowbtn {
+  align-items: flex-start;
+  padding: var(--ds-space-1) var(--ds-space-2, 8px);
+  border-radius: var(--ds-radius-control, 8px);
+  text-align: start;
+}
+.acpmux-place-rowbtn[data-on="true"] {
+  background: var(--place-fill-strong);
+  color: var(--agent-text);
+}
+.acpmux-place-row-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.acpmux-place-rowbtn .acpmux-place-rule {
+  white-space: normal;
+}
+.acpmux-place-here {
+  align-self: center;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  border-radius: 50%;
+  background: var(--agent-text);
+}
+.acpmux-place button:focus-visible,
+.acpmux-place-chip:focus-visible,
+.acpmux-move button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* The move. */
+.acpmux-move {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto var(--ds-space-2, 8px);
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  border-radius: var(--ds-radius-xl);
+  background: var(--place-fill);
+}
+.acpmux-move p,
+.acpmux-move ul,
+.acpmux-move ol {
+  margin: 0;
+}
+.acpmux-move-head,
+.acpmux-move-line,
+.acpmux-move-stepline {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-move-icon {
+  display: inline-flex;
+  color: var(--agent-text);
+}
+.acpmux-move-title,
+.acpmux-move-step {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-move-title {
+  flex: 1;
+  font-weight: 600;
+}
+.acpmux-move-line .acpmux-move-step {
+  flex: 1;
+}
+.acpmux-move-stepline .acpmux-move-step {
+  flex: 1;
+}
+.acpmux-move-clock,
+.acpmux-move-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-move[data-over="true"] .acpmux-move-clock {
+  color: var(--place-warn);
+}
+.acpmux-move-note[data-over="true"],
+.acpmux-move-warn,
+.acpmux-move-carries li[data-how="interrupted"] {
+  color: var(--place-warn);
+}
+.acpmux-move-reason {
+  color: var(--agent-text);
+}
+.acpmux-move-bar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--grid-half-step);
+  height: var(--ds-space-1);
+}
+.acpmux-move-bar > span {
+  border-radius: var(--ds-radius-sm);
+  background: var(--place-fill-strong);
+}
+.acpmux-move-bar > span[data-state="done"] {
+  background: var(--place-accent);
+}
+.acpmux-move-bar > span[data-state="current"] {
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+}
+.acpmux-move-bar > span[data-state="stopped"] {
+  background: var(--place-warn);
+}
+.acpmux-move-carries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--grid-half-step) var(--ds-space-3, 12px);
+  padding: 0;
+  list-style: none;
+}
+.acpmux-move-carries li::before {
+  content: "· ";
+}
+.acpmux-move-steps {
+  display: grid;
+  gap: var(--grid-half-step);
+  padding: 0;
+  list-style: none;
+}
+.acpmux-move-steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+}
+.acpmux-move-steps li[data-state="current"] {
+  color: var(--agent-text);
+}
+.acpmux-move-steps li[data-state="stopped"] {
+  color: var(--place-warn);
+}
+.acpmux-move-mark,
+.acpmux-move-dot {
+  flex: none;
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-radius: 50%;
+  background: var(--place-fill-strong);
+}
+.acpmux-move-steps li[data-state="done"] .acpmux-move-mark {
+  background: var(--place-accent);
+}
+.acpmux-move-steps li[data-state="current"] .acpmux-move-mark,
+.acpmux-move-dot[data-state="moving"] {
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+}
+.acpmux-move-steps li[data-state="stopped"] .acpmux-move-mark,
+.acpmux-move-dot[data-state="failed"] {
+  background: var(--place-warn);
+}
+.acpmux-move-dot[data-state="live"] {
+  background: var(--place-accent);
+}
+.acpmux-move-actions {
+  display: flex;
+  gap: var(--ds-space-2, 8px);
+}
+.acpmux-move-btn {
+  flex: none;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--place-fill-strong);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+  white-space: nowrap;
+}
+.acpmux-move-btn:hover {
+  background: var(--place-fill-hover);
+}
+
+/* The menu's Auto rule wraps like the rows' (the popup is narrow; one long line was cut). */
+.acpmux-place-row-text > .acpmux-place-rule {
+  max-width: 26em;
+  white-space: normal;
+}
+
+/* EvacuateControl.tsx: the visible button, and the progress of several chats. */
+.acpmux-evac-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 8px);
+  background: var(--ds-surface-card);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-evac-btn + .acpmux-evac-btn {
+  margin-inline-start: var(--ds-space-2, 8px);
+}
+.acpmux-evac-btn:hover {
+  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+}
+.acpmux-evac-btn:focus-visible,
+.acpmux-evac button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
+  outline-offset: 1px;
+}
+.acpmux-evac {
+  --place-fill: var(--ds-surface-card);
+  --place-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --place-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  --place-accent: var(--agent-text);
+  --place-warn: color-mix(in srgb, var(--agent-text) 70%, orange);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  width: 100%;
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+  border-radius: var(--ds-radius-xl);
+  background: var(--place-fill);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+.acpmux-evac-chip {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  flex: none;
+  gap: var(--ds-space-2, 8px);
+  width: auto;
+  padding: 0 var(--ds-space-2, 8px);
+  min-height: 24px;
+  border-radius: var(--ds-radius-control, 8px);
+}
+.acpmux-evac-chip .acpmux-move-btn {
+  min-height: 20px;
+}
+.acpmux-evac-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.acpmux-evac-title,
+.acpmux-evac-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-evac-title {
+  flex: 1;
+  font-weight: 600;
+}
+.acpmux-evac .acpmux-move-bar {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--grid-half-step);
+  height: var(--ds-space-1);
+}
+.acpmux-evac .acpmux-move-bar > span {
+  border-radius: var(--ds-radius-sm);
+  background: var(--place-fill-strong);
+}
+.acpmux-evac .acpmux-move-bar > span[data-state="live"] {
+  background: var(--place-accent);
+}
+.acpmux-evac .acpmux-move-bar > span[data-state="moving"] {
+  background: color-mix(in srgb, var(--place-accent) 55%, transparent);
+}
+.acpmux-evac .acpmux-move-bar > span[data-state="failed"],
+.acpmux-evac .acpmux-move-bar > span[data-state="cancelled"] {
+  background: var(--place-warn);
+}
+.acpmux-evac-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: var(--ds-space-1);
+  list-style: none;
+}
+.acpmux-evac-rows li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--ds-space-2, 8px);
+}
+.acpmux-evac-rows li[data-state="queued"] .acpmux-move-dot {
+  background: var(--place-fill-strong);
+}
+.acpmux-evac-chat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-evac-status {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-evac-rows li[data-state="failed"] .acpmux-evac-status {
+  color: var(--place-warn);
+}
+.acpmux-evac-reason {
+  grid-column: 2 / -1;
+  color: var(--agent-muted);
+}
+
+/* The menu's check sits on the title line, not the middle of a tall row with the rule under it. */
+.ui-popup:is(.ui-menu, .ui-context-menu) .ui-menu-item.acpmux-place-menu-item {
+  align-items: flex-start;
+  padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item))
+  .ui-menu-item.acpmux-place-menu-item
+  .ui-menu-check {
+  inset-block: 0 auto;
+  height: var(--ui-row-height);
+}
