@@ -40,7 +40,11 @@ import {
   workedMessagesText,
   turnTimeKey,
   formatDuration,
+  FOLD_COUNTS_SWITCH,
+  workedCountsText,
 } from "./turns";
+import { FailedCount } from "./FailedCount";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
@@ -141,6 +145,13 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   // The `header` arm of turnFoldSteered names the work the line holds after its time.
   const runs = row.workedRuns;
   const work = useMemo(() => (runs?.length ? toolRunSummary(t, runs) : undefined), [t, runs]);
+  // Settings > Advanced > Experiments > Fold Summary Counts (off by default): the line names what
+  // it hides after its time, "· ran 4 commands, edited 2 files", with the runs' "(1 failed)".
+  const countsOn = useExperimentSwitch(FOLD_COUNTS_SWITCH);
+  const counts = useMemo(
+    () => (countsOn && !work && row.durationMs !== undefined ? workedCountsText(t, row) : undefined),
+    [countsOn, work, t, row],
+  );
   // workedLine.experiment.ts: a line that says what the turn did and how it came out.
   const outcome = workedOutcomeLabel(t, row, experimentArm(workedLine));
   if (outcome !== undefined) return outcome;
@@ -149,9 +160,19 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   else {
     const key = turnTimeKey(row);
     // A line that names its runs' work leaves their count to it.
-    const after = (work ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
+    const after = (work || counts ? "" : workedCallsText(t, row)) + workedMessagesText(t, row);
     label = <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
   }
+  if (counts && row.previous === undefined)
+    return (
+      <>
+        {label}
+        <span className="cv-worked__work">
+          {` · ${counts.text}`}
+          <FailedCount n={counts.failed} />
+        </span>
+      </>
+    );
   if (!work) return label;
   return (
     <>
@@ -205,6 +226,8 @@ function groupNode(
   folded = false,
   thoughts = 0,
   runLine?: readonly string[],
+  foldId?: number,
+  onLoadFold?: (fold: number) => Promise<void>,
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -219,6 +242,8 @@ function groupNode(
           // run's line around it was (it draws inside the opened run's line as its own line too).
           inherits={group.kind === "edits" ? undefined : runLine}
           closedBy={group.kind === "edits" ? undefined : runLine}
+          foldId={foldId}
+          onLoadFold={onLoadFold}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -313,7 +338,15 @@ function groupNode(
   }
 }
 
-export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
+export function ToolRows({
+  row,
+  sessionId,
+  onLoadFold,
+}: {
+  row: AcpmuxRow;
+  sessionId?: string;
+  onLoadFold?: (fold: number) => Promise<void>;
+}) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
@@ -346,6 +379,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           start.groupsClosed,
           thoughts[at],
           [key],
+          row.foldId,
+          onLoadFold,
         );
       });
     if (!stretch.fold) return drawn;
