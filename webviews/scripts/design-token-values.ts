@@ -166,7 +166,7 @@ export function isIconToken(name: string): boolean {
 
 /** A component's own token (--cmux-menu-*, --surface-toast-radius) names that component's values only. */
 const COMPONENT_WORD =
-  /focus|menu|toast|card|sheet|group|popover|popup|chip|composer|glass|pill|finish|permission|context|find|feed|wave|ghost|reveal|spinner|activity|subhead|preview|chevron|media/;
+  /focus|menu|toast|card|sheet|prompt|group|popover|popup|chip|composer|glass|pill|finish|permission|context|find|feed|wave|ghost|reveal|spinner|activity|subhead|preview|chevron|media/;
 
 /** Whether `context` (a selector, or the code around a test's literal) is where `name` applies. */
 export function tokenApplies(name: string, context: string): boolean {

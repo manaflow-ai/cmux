@@ -510,7 +510,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 #[allow(
                     clippy::cast_possible_truncation,
                     clippy::cast_sign_loss,
-                    reason = "now_ms is clamped at 0 and a float-to-int `as` saturates, so a huge or NaN value is u64::MAX or 0, not UB"
+                    reason = "a non-negative f64 millisecond clock; `as u64` saturates past u64::MAX, which is the wanted bound"
                 )]
                 let now_ms = request.now_ms.map(|ms| ms.max(0.0) as u64).unwrap_or_else(|| {
                     std::time::SystemTime::now()
