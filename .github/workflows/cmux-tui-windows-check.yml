@@ -132,6 +132,7 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/scene-scale.json"
   workflow_dispatch:
 
 concurrency:
