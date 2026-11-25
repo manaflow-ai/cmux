@@ -55,6 +55,18 @@
 //! `pins` is one `{"path", "files", "bytes", "local_bytes", "present", "complete"}` per pin, and
 //! `pinned_bytes` the bytes kept on disk for them; a mount's answer carries both too.
 //!
+//! When a folder is removed from its chat (live, even mid-turn: Leo, 2026-11-25, "we'll also
+//! presumably want to deal with various cases of like them maybe adding/removing folders and files
+//! per chat?"), `{"id", "cmd": "projection.detach", "name", "chat"?}` seals the mount at once
+//! (every change from then on answers `EROFS`; reads still answer, so a tool mid-read finishes),
+//! detaches it from the folder tree lazily (a file the agent holds open stays readable until it
+//! closes it) and removes the empty mount point (a later write there fails `ENOENT` instead of
+//! landing outside every projection), and records it detached (`cmux_projection::state::Detached`). Its upper layer
+//! stays whole for Bring Back or Discard (`projection.drop`) while chat `chat` lives; the reaper
+//! frees it with that chat. The agents working there, and chat `chat`, are told once.
+//! `{"detached": true, "was_mounted", "mark"}`; serving the name again (the folder added back)
+//! clears the record's detach.
+//!
 //! When a chat is archived or deleted, `{"id", "cmd": "projection.release", "name", "why":
 //! "archived" | "deleted"}` ends its projection, deletes its state and its empty mount point:
 //! `{"freed_bytes", "dropped": true}`. The reaper ([`start_reaper`]) frees the rest on its own,
@@ -123,6 +135,8 @@ pub const DROP: &str = "projection.drop";
 pub const BROUGHT_BACK: &str = "projection.brought_back";
 /// The chat is archived or deleted: free its projection.
 pub const RELEASE: &str = "projection.release";
+/// The folder was removed from its chat: seal and unmount it, keep its edits (module docs).
+pub const DETACH: &str = "projection.detach";
 /// Pinned folders' dials (module docs).
 pub const PIN: &str = "projection.pin";
 pub const UNPIN: &str = "projection.unpin";
@@ -364,7 +378,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, DETACH, PIN, UNPIN, PINS, WARM]
         .into_iter()
         .find(|known| *known == cmd)
 }
@@ -503,9 +517,10 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
     projected.link.serve_with(reader, framed(writer), projected.ext());
 }
 
-/// Where an away episode's notice goes: `(mount point, prompt id, notice title, notice text)`.
+/// Where an away episode's notice goes: `(mount point, chat also told, prompt id, notice title,
+/// notice text)`.
 /// The daemon installs it once ([`tell_away_with`]); with none, nobody is told.
-type AwayTeller = Box<dyn Fn(&Path, &str, &str, &str) + Send + Sync>;
+type AwayTeller = Box<dyn Fn(&Path, Option<&str>, &str, &str, &str) + Send + Sync>;
 
 fn away_teller() -> &'static OnceLock<AwayTeller> {
     static TELLER: OnceLock<AwayTeller> = OnceLock::new();
@@ -514,7 +529,9 @@ fn away_teller() -> &'static OnceLock<AwayTeller> {
 
 /// Sends every projection's away notices through `teller` (the first call wins): the daemon
 /// hands each one to the agent sessions working in the folder.
-pub(crate) fn tell_away_with(teller: impl Fn(&Path, &str, &str, &str) + Send + Sync + 'static) {
+pub(crate) fn tell_away_with(
+    teller: impl Fn(&Path, Option<&str>, &str, &str, &str) + Send + Sync + 'static,
+) {
     let _ = away_teller().set(Box::new(teller));
 }
 
@@ -580,7 +597,7 @@ fn tell_away(name: &str, at: &Path, report: &cmux_projection::away::Report) {
         report.failed
     );
     if let Some(teller) = away_teller().get() {
-        teller(at, &prompt_id, &title, &away_prompt(&title, &body));
+        teller(at, None, &prompt_id, &title, &away_prompt(&title, &body));
     }
 }
 
@@ -608,6 +625,9 @@ struct WayBackLine {
     /// [`WARM`]'s paths, relative to the projected folder.
     #[serde(default)]
     paths: Vec<String>,
+    /// [`DETACH`]'s chat: the one that removed the folder.
+    #[serde(default)]
+    chat: Option<String>,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -713,6 +733,7 @@ fn way_back_answer(
             Ok((json!({}), WayBackBody::Files(state, paths)))
         }
         BROUGHT_BACK | RELEASE => Ok((free(cmd, &line, &state)?, WayBackBody::None)),
+        DETACH => Ok((detach(&line, &state)?, WayBackBody::None)),
         PIN | UNPIN | PINS | WARM => Ok((pin_answer(cmd, &line)?, WayBackBody::None)),
         _ => {
             end(
@@ -886,6 +907,83 @@ fn free(cmd: &str, line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
     Ok(json!({"freed_bytes": freed, "dropped": true}))
 }
 
+/// The notice that tells the agent folder `at` was removed from its chat.
+#[must_use]
+pub(crate) fn detach_notice(at: &Path) -> (String, String) {
+    let title = format!("The folder {} was removed from this chat", at.display());
+    let body = format!(
+        "The person removed {} from this chat. It is no longer mounted here: new reads of it fail \
+         and every write is refused (EROFS, read-only file system). Nothing you wrote there is \
+         lost: your edits up to now are kept on this machine for the person to bring back to \
+         their Mac or discard. Do not recreate the folder or copy its files elsewhere to get \
+         around this; carry on with the folders this chat still has.",
+        at.display()
+    );
+    (title, body)
+}
+
+/// [`DETACH`] of projection `line.name`, whose state folder is `state`: sealed now, unmounted
+/// lazily, recorded detached, the agents told. Never deletes state.
+fn detach(line: &WayBackLine, state: &Path) -> Result<Value, Refusal> {
+    use cmux_projection::state::{self as record, Detached};
+    let io = |error: std::io::Error| ("projection.io", error.to_string());
+    if !state.is_dir() {
+        return Err(("projection.unknown", format!("no projection {} here", line.name)));
+    }
+    if let Some(chat) = line.chat.as_deref()
+        && (chat.is_empty() || chat.len() > 128 || chat.chars().any(char::is_control))
+    {
+        return Err(("projection.params_invalid", "chat is a chat id".into()));
+    }
+    let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    let found = table.remove(&line.name);
+    let at = record::read(state)
+        .map(|found| found.at)
+        .or_else(|| found.as_ref().map(|projected| projected.at.clone()));
+    let recorded_at = at.clone().unwrap_or_default();
+    let was_mounted = found.is_some();
+    if let Some(projected) = found {
+        #[cfg(target_os = "linux")]
+        projected.overlay.seal();
+        projected.link.detach();
+        #[cfg(target_os = "linux")]
+        {
+            // Out of the folder tree now; the session ends once the last open file closes.
+            cmux_projection::mount::unmount_stale(&projected.at);
+            // The empty mount point goes too, so a write there after the removal fails (ENOENT)
+            // instead of landing on this machine's disk outside every projection. Only if empty.
+            let _ = std::fs::remove_dir(&projected.at);
+            if let Some(mounted) =
+                projected.mounted.lock().unwrap_or_else(PoisonError::into_inner).take()
+            {
+                let _ = std::thread::Builder::new()
+                    .name("projection-detach".into())
+                    .spawn(move || mounted.unmount());
+            }
+        }
+    } else {
+        end(&mut table, &line.name, at.as_deref());
+    }
+    let now = record::ms_of(std::time::SystemTime::now());
+    record::update(state, &recorded_at, |found| {
+        found.detached = Some(Detached { ms: now, chat: line.chat.clone() });
+    })
+    .map_err(io)?;
+    drop(table);
+    let mark = record::mark(state).map_err(io)?;
+    eprintln!(
+        "cmux projection: detached {} ({}), edits kept at mark {mark}",
+        line.name,
+        recorded_at.display()
+    );
+    if let Some(teller) = away_teller().get() {
+        let (title, body) = detach_notice(&recorded_at);
+        let prompt_id = format!("projection-detach-{}-{now}", line.name);
+        teller(&recorded_at, line.chat.as_deref(), &prompt_id, &title, &away_prompt(&title, &body));
+    }
+    Ok(json!({"detached": true, "was_mounted": was_mounted, "mark": mark}))
+}
+
 /// Ends projection `name`: this daemon's mount of it, or a dead daemon's mount left at `at`.
 /// `table` is [`projections`], held.
 fn end(table: &mut HashMap<String, Arc<Projected>>, name: &str, at: Option<&Path>) {
@@ -919,9 +1017,17 @@ fn is_mount(at: &Path) -> bool {
 /// The Mac dialed projection `name` again: its record says when (an orphan's grace counts from it).
 fn attached(name: &str, at: &Path) {
     if let Ok(state) = state_of(name) {
-        let now = cmux_projection::state::ms_of(std::time::SystemTime::now());
-        let _ = cmux_projection::state::update(&state, at, |record| record.attached_ms = now);
+        attached_in(&state, at);
     }
+}
+
+fn attached_in(state: &Path, at: &Path) {
+    let now = cmux_projection::state::ms_of(std::time::SystemTime::now());
+    let _ = cmux_projection::state::update(state, at, |record| {
+        record.attached_ms = now;
+        // Served again: the folder is back in a chat.
+        record.detached = None;
+    });
 }
 
 /// The reaper's view of this daemon's mounts ([`cmux_projection::reap::Live`]).
@@ -1349,6 +1455,7 @@ fn mount(
         record.attached_ms = now;
         record.released = None;
         record.brought_back = None;
+        record.detached = None;
     });
     Ok(projected)
 }

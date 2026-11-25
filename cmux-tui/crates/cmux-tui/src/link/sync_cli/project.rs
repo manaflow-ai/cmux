@@ -106,7 +106,7 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     archived|deleted] | detach --socket S --at REMOTE [--chat ID] FOLDER | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
                      REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
                      moves on|off";
 
@@ -130,6 +130,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
+        Some("detach") => super::project_back::detach_command(args.get(1..).unwrap_or_default()),
         Some(cmd @ ("pin" | "unpin" | "pins")) => {
             super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
         }

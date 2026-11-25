@@ -171,6 +171,43 @@ pub(crate) fn release_command(args: &[String]) -> anyhow::Result<Value> {
     }
 }
 
+/// `cmux link project detach --socket S --at REMOTE [--chat ID] FOLDER`: the folder was removed
+/// from its chat. The machine seals and unmounts it, keeping its edits (`projection.detach`); this
+/// Mac stops serving it but keeps its record, so Bring Back (`cmux link sync pull`) or Discard
+/// still finds it.
+pub(crate) fn detach_command(args: &[String]) -> anyhow::Result<Value> {
+    let (mut socket, mut at, mut folder, mut chat) = (None, None, None, None);
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--socket" => socket = words.next().map(PathBuf::from),
+            "--at" => at = words.next().cloned(),
+            "--chat" => chat = Some(words.next().cloned().context("--chat needs a chat id")?),
+            other if other.starts_with("--") => bail!("unknown flag {other}"),
+            other => folder = Some(PathBuf::from(other)),
+        }
+    }
+    let socket = socket.context("--socket is required")?;
+    let at = at.context("--at is required")?;
+    let folder = folder.context("the folder is required")?;
+    let found = recorded(&folder, &at)
+        .with_context(|| format!("{} is not a projected folder at {at}", folder.display()))?;
+    let mut line = json!({"cmd": "projection.detach", "name": found.name});
+    if let Some(chat) = chat {
+        line["chat"] = Value::String(chat);
+    }
+    match dial_answer(&socket, &line)? {
+        Ok(answer) => {
+            // The mount is gone, so nothing reads through the server; the record stays.
+            let _ = super::project::stop_server(&found.remote);
+            Ok(json!({"ok": true, "detached": true, "mark": field(&answer, "/data/mark"),
+                      "was_mounted": field(&answer, "/data/was_mounted")}))
+        }
+        Err(answer) => Ok(json!({"ok": false, "error": field(&answer, "/error"),
+                                 "error_code": field(&answer, "/error_code")})),
+    }
+}
+
 /// Bring Back of the projected folder `found` (module docs). `keep`: leave the projection on the
 /// machine afterwards.
 pub(in crate::link) fn bring_back(socket: &Path, found: &Recorded, keep: bool) -> Back {

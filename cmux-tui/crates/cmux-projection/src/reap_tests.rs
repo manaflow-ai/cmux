@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime};
 use super::*;
 use crate::manifest::{Item, Kind, Manifest};
 use crate::overlay::{Overlay, Who};
-use crate::state::{BroughtBack, Released};
+use crate::state::{BroughtBack, Detached, Released};
 use crate::{Fetch, FetchError};
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -313,4 +313,48 @@ fn a_projections_cache_stays_under_its_cap() {
     let asked = overlay.stats().remote_reads;
     assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
     assert!(overlay.stats().remote_reads > asked, "an evicted blob was served without the Mac");
+}
+
+/// A folder removed from its chat mid-turn (`projection.detach`): sealed, unmounted, and its upper
+/// layer is the only copy of what the agent wrote there. No chat runs in the removed folder, so
+/// the folder rule would call it an orphan; it stays while the chat that removed it lives, every
+/// edit made before the seal is in it, and a change after the seal is refused, not lost.
+#[test]
+fn a_removed_folders_edits_stay_while_its_chat_lives() {
+    let machine = Machine::new();
+    let chat_home = machine.chat_folder("c0de");
+    let extra = machine.home.path().join("work/extra/repo");
+    fs::create_dir_all(&extra).unwrap();
+    let (state, overlay) = machine.project("p-removed", &extra);
+    edit(&overlay);
+    overlay.seal();
+    let root = overlay.root();
+    assert_eq!(overlay.create(root, "after.txt", 0o644, me()).err(), Some(libc::EROFS));
+    let src = overlay.lookup(root, "src").unwrap().ino;
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    assert_eq!(overlay.write(a, 0, b"late").err(), Some(libc::EROFS));
+    assert_eq!(overlay.unlink(src, "a.rs").err(), Some(libc::EROFS));
+    assert!(overlay.read(a, 0, 64).unwrap().starts_with(b"fn a() { println!"), "reads stop");
+    let mark = state::mark(&state).unwrap();
+    drop(overlay);
+    state::update(&state, &extra, |record| {
+        record.detached =
+            Some(Detached { ms: state::ms_of(SystemTime::now()), chat: Some("c1".into()) });
+    })
+    .unwrap();
+
+    let live = chats(vec![chat("c1", &chat_home, false)]);
+    let report = run(&machine, &live, ORPHAN_GRACE * 4);
+    assert!(report.reclaimed.is_empty(), "a live chat's removed folder was freed: {report:?}");
+    assert_eq!(state::mark(&state).unwrap(), mark, "the kept edits changed");
+    assert!(state.join("upper/src/new.rs").exists());
+
+    // Another chat elsewhere keeps the list knowable; the removing chat gone: orphan past grace.
+    let other = machine.chat_folder("0the");
+    let gone = chats(vec![chat("c2", &other, false)]);
+    assert!(run(&machine, &gone, Duration::ZERO).reclaimed.is_empty(), "freed inside the grace");
+    let archived = chats(vec![chat("c1", &chat_home, true), chat("c2", &other, false)]);
+    let report = run(&machine, &archived, Duration::ZERO);
+    assert_eq!(report.reclaimed.iter().map(|r| r.why).collect::<Vec<_>>(), [Why::Archived]);
+    assert!(!state.exists());
 }

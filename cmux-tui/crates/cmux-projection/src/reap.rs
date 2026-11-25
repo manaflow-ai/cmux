@@ -223,6 +223,9 @@ pub fn verdict(
         {
             return Some(Why::BroughtBack);
         }
+        if let Some(detached) = &record.detached {
+            return detached_verdict(detached, chats, mounted, now, grace);
+        }
     }
     if !chats.knows() {
         return None;
@@ -240,6 +243,29 @@ pub fn verdict(
                 .filter(|ms| *ms > 0)
                 .or_else(|| modified_ms(state));
             older_than(since, now, grace).then_some(Why::Orphan)
+        }
+    }
+}
+
+/// A detached projection (the folder was removed from its chat, its edits kept for Bring Back):
+/// kept while the chat that removed it is live, freed with it once it is archived, and an orphan
+/// only past the grace when no chat on this machine is that chat (or the Mac named none). Never by
+/// its folder: a removed folder has no chat running in it, and its edits are still wanted.
+fn detached_verdict(
+    detached: &state::Detached,
+    chats: &Chats,
+    mounted: bool,
+    now: SystemTime,
+    grace: Duration,
+) -> Option<Why> {
+    if mounted || !chats.knows() {
+        return None;
+    }
+    match detached.chat.as_deref().and_then(|id| chats.rows.iter().find(|chat| chat.id == id)) {
+        Some(chat) if !chat.archived => None,
+        Some(_) => Some(Why::Archived),
+        None => {
+            older_than(Some(detached.ms).filter(|ms| *ms > 0), now, grace).then_some(Why::Orphan)
         }
     }
 }

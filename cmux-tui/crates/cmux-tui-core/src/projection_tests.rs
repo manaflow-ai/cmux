@@ -455,7 +455,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM] {
+    for op in [BROUGHT_BACK, RELEASE, DETACH, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM] {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
@@ -485,7 +485,52 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         why: why.map(str::to_owned),
         path: None,
         paths: Vec::new(),
+        chat: None,
     }
+}
+
+/// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
+/// adding/removing folders and files per chat?" A folder removed from its chat keeps its edits
+/// for Bring Back, records which chat removed it, and is attached again when added back.
+#[test]
+fn a_detached_projection_keeps_its_edits_and_serving_it_again_clears_the_detach() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-removed");
+    let before = cmux_projection::state::mark(&state).unwrap();
+    let line = WayBackLine { chat: Some("chat-1".into()), ..control_line("p-removed", None, None) };
+    let answer = detach(&line, &state).unwrap();
+    assert_eq!(answer["detached"], true, "{answer}");
+    assert_eq!(answer["was_mounted"], false, "{answer}");
+    assert_eq!(answer["mark"], before.as_str(), "detaching changed the edits: {answer}");
+    assert_eq!(
+        std::fs::read(state.join("upper/src/a.rs")).unwrap(),
+        b"fn a() { /* edited */ }",
+        "a removed folder's edit went"
+    );
+    let record = cmux_projection::state::read(&state).unwrap();
+    let detached = record.detached.expect("not recorded detached");
+    assert_eq!(detached.chat.as_deref(), Some("chat-1"));
+    assert!(detached.ms > 0);
+    // Detaching again is fine (the Mac retried); Bring Back still reads the layer by name.
+    assert_eq!(detach(&line, &state).unwrap()["detached"], true);
+    attached_in(&state, &at);
+    assert!(cmux_projection::state::read(&state).unwrap().detached.is_none());
+
+    let bad = WayBackLine { chat: Some("a\nb".into()), ..control_line("p-removed", None, None) };
+    assert_eq!(detach(&bad, &state).unwrap_err().0, "projection.params_invalid");
+    let gone = control_line("p-never", None, None);
+    let missing = home.path().join("projections/p-never");
+    assert_eq!(detach(&gone, &missing).unwrap_err().0, "projection.unknown");
+}
+
+#[test]
+fn the_detach_notice_names_the_folder_and_says_its_edits_are_kept() {
+    let (title, body) = detach_notice(Path::new("/home/u/work/extra/repo"));
+    assert!(title.contains("/home/u/work/extra/repo") && title.contains("removed"), "{title}");
+    assert!(
+        body.contains("EROFS") && body.contains("kept") && body.contains("bring back"),
+        "{body}"
+    );
 }
 
 /// RFD 0007: Bring Back's upper layer is "brought back at the mark it read

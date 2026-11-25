@@ -396,6 +396,9 @@ pub struct Overlay {
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
+    /// Set once the folder is removed from its chat ([`Overlay::seal`]): every change answers
+    /// `EROFS` from then on, so what is in the upper layer is what Bring Back gets.
+    sealed: AtomicBool,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -698,6 +701,7 @@ impl Overlay {
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
             swap: RwLock::new(()),
+            sealed: AtomicBool::new(false),
         };
         // Pins an earlier daemon recorded hold before anything is evicted (their paths are
         // resolved in this manifest; one it no longer has pins nothing).
@@ -1721,6 +1725,7 @@ impl Overlay {
         }
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
+            self.changeable()?;
             match self.node(&path).ok_or(ENOENT)? {
                 Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
                     self.copy_up_keeping(&path, index, false)?;
@@ -1759,6 +1764,24 @@ impl Overlay {
         self.handles().get(&handle).and_then(|handle| handle.file.clone())
     }
 
+    /// Refuses every change from now on (`EROFS`): the folder was removed from its chat. Reads
+    /// still answer, so a tool mid-read finishes; nothing more lands in the upper layer, which
+    /// stays whole for Bring Back or Discard.
+    pub fn seal(&self) {
+        self.sealed.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether [`Overlay::seal`] was called.
+    #[must_use]
+    pub fn is_sealed(&self) -> bool {
+        self.sealed.load(Ordering::SeqCst)
+    }
+
+    /// `EROFS` once sealed.
+    fn changeable(&self) -> Result<(), i32> {
+        if self.is_sealed() { Err(libc::EROFS) } else { Ok(()) }
+    }
+
     /// Ends open handle `handle`.
     pub fn release(&self, handle: u64) {
         self.handles().remove(&handle);
@@ -1795,6 +1818,7 @@ impl Overlay {
         offset: u64,
         data: &[u8],
     ) -> Result<u32, i32> {
+        self.changeable()?;
         match self.handle_file(handle) {
             Some(file) => {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
@@ -1807,6 +1831,7 @@ impl Overlay {
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
+        self.changeable()?;
         let path = self.path_of(ino)?;
         self.ensure_upper(&path)?;
         let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
@@ -1817,6 +1842,7 @@ impl Overlay {
     /// `fallocate(2)` through open handle `handle` (Linux).
     #[cfg(target_os = "linux")]
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
+        self.changeable()?;
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
         check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })
@@ -1861,6 +1887,7 @@ impl Overlay {
     /// level saved on every create after the first in a folder); an upper path already there is
     /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
+        self.changeable()?;
         let (parent, child) = self.child(parent, name)?;
         if self.lower(&child).is_some() {
             return Err(EEXIST);
@@ -1889,6 +1916,7 @@ impl Overlay {
     }
 
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<Attr, i32> {
+        self.changeable()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         self.in_folder(&parent, || self.upper.mkdir(&child, 0o700))?;
@@ -1905,6 +1933,7 @@ impl Overlay {
         rdev: u64,
         who: Who,
     ) -> Result<Attr, i32> {
+        self.changeable()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let format = mode & fmt::S_IFMT;
@@ -1928,6 +1957,7 @@ impl Overlay {
     }
 
     pub fn symlink(&self, parent: u64, name: &str, target: &Path, who: Who) -> Result<Attr, i32> {
+        self.changeable()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let target = target.as_os_str().as_encoded_bytes();
@@ -1938,6 +1968,7 @@ impl Overlay {
 
     /// A new name `new_name` in `new_parent` for file `ino` (a hard link).
     pub fn link(&self, ino: u64, new_parent: u64, new_name: &str) -> Result<Attr, i32> {
+        self.changeable()?;
         let from = self.path_of(ino)?;
         let node = self.node(&from).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) == Type::Dir {
@@ -1984,6 +2015,7 @@ impl Overlay {
     }
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
+        self.changeable()?;
         let (_, child) = self.child(parent, name)?;
         // The upper path first: the manifest is asked only when the disk has nothing there, and
         // the disk's refusal (EPERM in a sticky folder and the rest) is the answer as it said it.
@@ -1999,6 +2031,7 @@ impl Overlay {
     }
 
     pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), i32> {
+        self.changeable()?;
         let (_, child) = self.child(parent, name)?;
         if self.lower(&child).is_none() {
             // Only in the upper layer: one rmdir, the disk checks that it is a folder and empty.
@@ -2027,6 +2060,7 @@ impl Overlay {
         new_name: &str,
         flags: u32,
     ) -> Result<(), i32> {
+        self.changeable()?;
         let (_, from) = self.child(parent, name)?;
         let (to_parent, to) = self.child(new_parent, new_name)?;
         let exchange = flags & RENAME_EXCHANGE != 0;
@@ -2153,6 +2187,9 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
+        if set != Set::default() {
+            self.changeable()?;
+        }
         let by_handle = handle.and_then(|handle| self.handle_file(handle));
         // A change through an open handle goes to the file it holds: no lookup, no open.
         if let Some(file) = &by_handle
