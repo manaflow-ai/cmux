@@ -75,6 +75,9 @@ CEF_TRACE_BUFFER_KB = 65536
 CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom"
 
 
+BROWSER_THREADS = ("CrBrowserMain", "Chrome_IOThread")
+
+
 def cef_trace_switches(path: str, seconds: int) -> str:
     """The Chromium switches (colon-separated, as CMUX_NEXT_CEF_EXTRA_SWITCHES takes them) for a startup trace of
     `seconds` into `path`."""
@@ -123,7 +126,19 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
     rows = [{"process": p, "thread": t, "posted_from": f, "count": n, "per_s": round(n / seconds, 2)}
             for (p, t, f), n in counts.items()]
     rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
-    return {"seconds": round(seconds, 1), "tasks": rows[:top]}
+    # The browser process's main and I/O threads (only it names them so: a renderer's is Chrome_ChildIOThread): every
+    # other event there by name, the mojom category's IPC messages among them, which RunTask rows do not name.
+    named = {}
+    for e in events:
+        thread = threads.get((e.get("pid"), e.get("tid")))
+        if thread not in BROWSER_THREADS or e.get("ph") not in ("X", "B", "i", "I", "n") \
+                or e.get("name") == "ThreadControllerImpl::RunTask" or not start <= e.get("ts", -1) <= end:
+            continue
+        key = (thread, e.get("name", "?"))
+        named[key] = named.get(key, 0) + 1
+    event_rows = [{"thread": t, "name": n, "count": c, "per_s": round(c / seconds, 2)} for (t, n), c in named.items()]
+    event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
+    return {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top]}
 
 
 def _settled(path: str, wait_s: float = 3.0) -> bool:
@@ -947,7 +962,8 @@ def main(argv: list[str] | None = None) -> int:
             while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
                 time.sleep(2)
             result["cef_trace"] = read_cef_trace(cef_trace_dir)
-            log("IDLE-CPU-CEF-TRACE " + json.dumps(result["cef_trace"])[:6000])
+            log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items() if k != "events"})[:6000])
+            log("IDLE-CPU-CEF-EVENTS " + json.dumps(result["cef_trace"].get("events", []))[:6000])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
