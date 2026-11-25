@@ -75,7 +75,7 @@ final class CloudService {
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
     @ObservationIgnored var signedIn: @MainActor () -> Void = {} // an account just signed in: the App warms its spare (CloudStartChat.wireSetup), called only in front (CloudSpareReadiness.warmsAtSignIn)
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0) } // in the install token's team (CloudSpareReadiness.Dependencies.team)
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { [weak self] active in guard let self else { return nil }; return await CloudMoveCLI.wireTeams(binary: self.move.cli, identity: self.installIdentity, active: active) }, onSpareReady: { [weak self] in self?.spareReadiness.prime($0) }) // hears readiness in every team Rust's wireTeams names (the active one and the install token's); primes in the install token's team (CloudSpareReadiness.Dependencies.team)
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
@@ -197,7 +197,7 @@ final class CloudService {
         let shareDefault = shareAPI == ownerAPI ? identity : install(shareAPI, "install-share")
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
-        let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
+        let machineIO = auth.runningPersonCalls(on: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() }, buildSpace: configuration.buildSpace)
@@ -729,7 +729,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst
+        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst; var spare = "spare=unread" // why it took or skipped a spare (Rust's note)
         let idlePause = request.idlePauseMinutes(startedByPerson: startedByPerson, pauseAgentMachines: policy.pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
@@ -738,9 +738,9 @@ final class CloudService {
                                                          pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
             var request = request // after a Pause, a new key: the first one's stored answer is the refusal
             if again { request.idempotencyKey = UUID().uuidString }
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent, onAnswer: { spare = CloudStartCore().spareNote(answer: $0) })
         }
-        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.notice("created machine \(machine.id, privacy: .public) \(spare, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.

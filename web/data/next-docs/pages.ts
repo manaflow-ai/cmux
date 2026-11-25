@@ -74,8 +74,8 @@ export const nextDocPages: NextDocPage[] = [
       { p: "This page takes you from nothing to an agent that works for you on a cmux Cloud machine. Pick the way in that fits you. Each one ends at the same place: a chat that replies, on a machine that keeps going after you close the lid." },
       { note: "cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works." },
       { h2: "Point an agent at this page" },
-      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The agent reads this page and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
-      { code: "Read https://cmux.com/docs/nightly/next/start.md and follow its \"If you are an agent\" steps to set up cmux on this Mac and get me a working agent on cmux Cloud. Tell me only what I must do myself.", lang: "text" },
+      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
+      { code: "Set me up with cmux Cloud: https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/docs/cmux-next/start.md (follow its \"If you are an agent\" steps on this Mac, and tell me only what I must do myself)", lang: "text" },
       { h2: "If you are an agent" },
       { p: "A person asked you to set up cmux and cmux Cloud for them. Do these steps in order, on their Mac, in the folder they started you in." },
       { ol: [
