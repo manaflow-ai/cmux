@@ -82,7 +82,12 @@ public final class AgentPaneModel {
     /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
     @ObservationIgnored var onPaintReport: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
-    public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
+    public private(set) var newTab: AgentPaneNewTab? {
+        didSet {
+            if newTab != nil { cloudOpenLeaseSpent = false }
+            if (oldValue == nil) != (newTab == nil) { onNewTabChange?() }
+        }
+    }
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
     /// Receives the current opening’s focused-field acknowledgement.
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
@@ -132,6 +137,22 @@ public final class AgentPaneModel {
     /// Reservations this pane stopped owning when its chat changed (``adoptSession(_:)``): no Send binds them,
     /// but the page's release of each still reaches Rust, so none waits out the platform's hold.
     @ObservationIgnored private var cloudReservationsLeft: Set<String> = []
+    /// ``AgentPaneCloudLeaseOnOpenFlag``: a composer that opens on Cloud leases its machine with no gesture.
+    @ObservationIgnored public var cloudLeaseOnOpen = AgentPaneCloudLeaseOnOpenFlag.current.enabled
+    /// Whether the pane is in a window and not hidden (the view sets it): a pooled spare page, which nobody
+    /// sees, never leases a machine at open.
+    @ObservationIgnored public var paneShown: @MainActor () -> Bool = { false }
+    /// This New Tab page took its one no-gesture lease (``takeCloudOpenLease(_:)``); a new page gets another.
+    @ObservationIgnored private var cloudOpenLeaseSpent = false
+
+    /// The one reserve a shown composer that opened on Cloud makes without a gesture: under the flag, once per
+    /// New Tab page, never for a hidden page. The page releases it after RESERVATION_IDLE_RELEASE_MS with no
+    /// intent, and the platform's hold bounds it if the page is gone. Every other reserve needs the pick's gesture.
+    func takeCloudOpenLease(_ request: AgentPaneCloudReservationRequest) -> Bool {
+        guard request.atOpen, cloudLeaseOnOpen, !cloudOpenLeaseSpent, paneShown() else { return false }
+        cloudOpenLeaseSpent = true
+        return true
+    }
 
     /// A Send named the pane's reservation: it is that start's from here on, whether or not its answer arrives.
     @ObservationIgnored private var cloudReservationSent = false
@@ -702,8 +723,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
         case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
-        case .runAction(let id, let session, let environment, let handoff, let app, let repo, let returnTo):
-            return runAction(id, session: session, environment: environment, handoff: handoff, app: app, repo: repo, returnTo: returnTo)
+        case .runAction(let id, let session, let environment, let handoff, let app, let repo, let returnTo, let mode, let queued, let hasDraft, let sessions):
+            return runAction(id, session: session, environment: environment, handoff: handoff, app: app, repo: repo, returnTo: returnTo,
+                             mode: mode, queued: queued, hasDraft: hasDraft, sessions: sessions)
         case .editorsList: return onEditorsList.map { AgentPaneReply.success($0()) } ?? Self.unsupported("editors.list")
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -857,7 +879,7 @@ public final class AgentPaneModel {
             // Picking Cloud is a page gesture recorded by the native pane. Consume it before
             // the await so concurrent page calls cannot both authorize a paid reservation.
             if cloudReservationComposeKey != composeKey {
-                guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+                guard takeCloudOpenLease(request) || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
                 cloudReservationComposeKey = composeKey
                 cloudReservationReplaces = request.replacesChat
                 cloudReservationSent = false
