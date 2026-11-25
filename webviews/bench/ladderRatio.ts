@@ -1,7 +1,13 @@
 // The stress ladder's judged number (bench/sim-ladder.bench.ts): what one more item costs at the top rung against at the
 // middle one. Its own module so a test imports it without running the bench.
 /// The per-item cost under which a marginal is noise on a shared runner: both marginals under it read flat (1.0).
-export const FLOOR = { cpu_ms_per_s: 0.5, script_ms_per_s: 0.25, pss_mb: 0.5 } as const;
+export const FLOOR = {
+  cpu_ms_per_s: 0.5,
+  cpu_window_ms_per_s: 0.5,
+  script_ms_per_s: 0.25,
+  pss_mb: 0.5,
+  heap_mb: 0.5,
+} as const;
 const FRAME_FLOOR_MS = 16.7;
 export type Metric = keyof typeof FLOOR | "frame_p95_ms";
 export type Sample = Record<Metric, number>;
