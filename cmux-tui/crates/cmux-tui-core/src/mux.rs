@@ -28,7 +28,7 @@ mod terminal_host_records;
 use terminal_host_records::{
     HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     request_terminal_host_end, terminal_host_record_liveness,
-    terminate_discovered_terminal_host_in,
+    schedule_discovered_terminal_host_cleanup, terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use agent_hooks_at_rest::{JournalFollowerFilter, JournalRowFollower};
