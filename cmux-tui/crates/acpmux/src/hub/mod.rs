@@ -558,6 +558,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_cost;
+pub(crate) mod turn_frames;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
@@ -1351,6 +1352,8 @@ pub struct Hub {
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
+    /// Paces the host's background capacity continuations (`auto_resume/capacity_gate.rs`).
+    pub(super) capacity_gate: auto_resume::CapacityGate,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
     pub(super) resume_watch: Arc<resume::ResumeState>,
@@ -1849,6 +1852,7 @@ impl Hub {
             bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
+            capacity_gate: auto_resume::CapacityGate::default(),
             idle_reaper: AtomicBool::new(false),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
@@ -3112,6 +3116,8 @@ impl Hub {
         }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
+        // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
+        turn_frames::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)

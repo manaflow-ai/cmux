@@ -684,6 +684,31 @@
             "bar",
             "caches"
           ]
+        },
+        {
+          "key": "experiments.browserProfileCard",
+          "note": "Browser Profile Card: the browser toolbar's profile menu opens as Helium's, a card with the profile's large avatar first, a Signed in as row (Accounts), avatars on the other profiles, and the profile's own rows in Customize Profile (BrowserProfileMenuStyle.card, BrowserToolbarHandlers.profileMenu). Off by default: today's menu (Leo's UI hold, 2026-11-25).",
+          "title": {
+            "key": "settings.experiments.browserProfileCard",
+            "text": "Browser Profile Card"
+          },
+          "help": {
+            "key": "settings.experiments.browserProfileCard.help",
+            "text": "The browser's profile menu opens with a profile card."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "browser",
+            "profile",
+            "menu",
+            "card",
+            "account",
+            "helium",
+            "labs"
+          ]
         }
       ]
     }
