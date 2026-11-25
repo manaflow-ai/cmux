@@ -377,6 +377,12 @@ public final class TerminalModel {
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
+            if connection.isAttached {
+                syncAttachmentUploads()
+            } else {
+                cancelAttachmentSend()
+                attachmentPrestager.cancelAll()
+            }
         }
         // Attached again: a held composer send went out (or was dropped, which says so
         // first); a later drop must never put already-sent text back.
@@ -903,10 +909,12 @@ public final class TerminalModel {
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
-                            paths.append(try await uploader(try attachment.payload(), attachment.name))
+                            let transfer = try attachment.transferPayload()
+                            paths.append(try await uploader(transfer.payload, transfer.name))
                         }
                     } else {
-                        paths.append(try await uploader(try attachment.payload(), attachment.name))
+                        let transfer = try attachment.transferPayload()
+                        paths.append(try await uploader(transfer.payload, transfer.name))
                     }
                 } catch {
                     guard let self else { return }
@@ -972,7 +980,11 @@ public final class TerminalModel {
 
     func clearAttachmentError() { attachmentError = nil }
 
-    private func syncAttachmentUploads() {
+    fileprivate func syncAttachmentUploads() {
+        guard connectionState.isAttached else {
+            attachmentPrestager.cancelAll()
+            return
+        }
         attachmentPrestager.sync(attachments, upload: uploader)
     }
 
