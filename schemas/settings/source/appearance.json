@@ -1189,6 +1189,31 @@
           ]
         },
         {
+          "key": "appearance.glassControls",
+          "title": {
+            "key": "settings.appearance.glassControls",
+            "text": "Glass Controls"
+          },
+          "help": {
+            "key": "settings.appearance.glassControls.help",
+            "text": "Draws the knobs of the switches and sliders in Settings as glass."
+          },
+          "kind": "toggle",
+          "swift_owner": {"type": "AppearanceSettingsSchema", "prefixed": true},
+          "default": false,
+          "keywords": [
+            "experimental",
+            "glass",
+            "liquid glass",
+            "switch",
+            "toggle",
+            "slider",
+            "knob",
+            "thumb",
+            "labs"
+          ]
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "name": "opacity",
           "title": {
