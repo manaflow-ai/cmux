@@ -397,7 +397,10 @@ class WorkflowShape(unittest.TestCase):
 
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
-        self.assertEqual(concurrency["group"], "fast-gates-${{ github.event.pull_request.number || inputs.pr }}")
+        # One group per pull request; a foreign label's event takes a group of its own
+        # (tests/test_ci_label_events_skip_full_ci.py, docs/ci/cmux-next-workflow-notes.md#note-561).
+        self.assertTrue(concurrency["group"].endswith(
+            "|| format('fast-gates-{0}', github.event.pull_request.number || inputs.pr) }}"), concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], True)
 
     def test_permissions_are_minimal(self):
@@ -494,7 +497,9 @@ class WorkflowShape(unittest.TestCase):
         # one output (fast_check_route.py from the merge) only counts when the gates were skipped, and post runs only
         # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
-                         .replace("needs.receipt.outputs.", "").replace("needs.fast-check-route.outputs.fast_gates", ""))
+                         .replace("needs.receipt.outputs.", "").replace("needs.fast-check-route.outputs.fast_gates", "")
+                         # The tier (head_tier.py) only words a pending status when the gates were skipped.
+                         .replace("needs.fast-check-route.outputs.tier", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
         body = post["run"]

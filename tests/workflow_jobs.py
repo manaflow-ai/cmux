@@ -1235,3 +1235,18 @@ def resolve(job: Mapping[str, Any], job_id: str = "", workflow: str | None = Non
     the raw field. Given the job's workflow file name and every document (Workflows), a reusable workflow's
     inputs resolve through its callers."""
     return Resolved(job, job_id, workflow, workflows)
+
+
+_LABEL_GUARD = re.compile(
+    r"^\$\{\{ \((?P<inner>.*)\) && !\(github\.event_name == '[a-z_]+' && github\.event\.pull_request\.base\.ref == "
+    r"'feat-cmux-next' && \(github\.event\.action == 'labeled' \|\| github\.event\.action == 'unlabeled'\) && "
+    r"(?:github\.event\.label\.name != '[^']+'|!contains\(fromJSON\('[^']*'\), github\.event\.label\.name\))\) \}\}$",
+    re.S)
+
+
+def without_label_guard(condition: Any) -> str:
+    """A job `if` without the label-event guard tests/test_ci_label_events_skip_full_ci.py requires: the condition
+    the job had before the guard wrapped it (`${{ (OLD) && !(...label...) }}` -> `${{ OLD }}`)."""
+    text = str(condition or "")
+    match = _LABEL_GUARD.match(text)
+    return f"${{{{ {match.group('inner')} }}}}" if match else text

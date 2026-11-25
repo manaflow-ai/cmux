@@ -420,12 +420,15 @@ class Fallback(unittest.TestCase):
 
     def test_a_ci_label_on_a_docs_only_pull_request_calls_what_listens_for_it(self):
         listens = sorted(n for n, c in self.calls.items() if "labeled" in c["types"])
-        self.assertEqual(listens, ["ci.yml"])
+        # guards listens for ready-to-land (the land tier, docs/ci/cmux-next-workflow-notes.md#note-561); on a
+        # full-ci call its label guard skips every job.
+        self.assertEqual(listens, ["ci.yml", "cmux-next-guards.yml"])
         for label in docs.LABEL_OPT_INS:
             for base in BASES:
                 event = pull_request_event("labeled", base=base, label=label)
                 self.assertTrue(gate_runs(event), (label, base))
-                self.assertEqual(self.plan(event, ["docs/a.md"], None), listens, (label, base))
+                due = [n for n in listens if self.calls[n]["branches"] is None or base in self.calls[n]["branches"]]
+                self.assertEqual(self.plan(event, ["docs/a.md"], None), due, (label, base))
         # Any other label: no runner into feat-cmux-next (or main, under 300 files), nothing called.
         for base in BASES:
             self.assertFalse(gate_runs(pull_request_event("labeled", base=base, label="risk:high")), base)
@@ -437,8 +440,9 @@ class Fallback(unittest.TestCase):
         files = PROSE + [CODE]
         event = pull_request_event("labeled", label="full-ci", changed=len(files))
         earlier = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
-        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), ["ci.yml"], "a run before the label")
-        this_event = [{"path": ".github/workflows/ci.yml", "created": 9_999.0}]
+        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), ["ci.yml", "cmux-next-guards.yml"],
+                         "a run before the label")
+        this_event = [{"path": f".github/workflows/{name}", "created": 9_999.0} for name in ("ci.yml", "cmux-next-guards.yml")]
         self.assertEqual(self.plan(event, files, this_event, since=10_000.0), [])
 
     def test_every_filtered_workflow_is_callable_and_called(self):

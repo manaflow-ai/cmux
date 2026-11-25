@@ -51,7 +51,7 @@ def covers_feat(trigger) -> bool:
 def runs_ci_group(job: dict) -> bool:
     """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
     # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
-    condition = str(job.get("if", "")).replace("!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') ||", "")
+    condition = workflow_jobs.without_label_guard(job.get("if", "")).replace("!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') ||", "")
     if "feat-cmux-next" in condition and "!=" in condition:
         return False
     for step in job.get("steps") or []:
@@ -270,7 +270,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
-        self.assertEqual(self.job()["if"],
+        self.assertEqual(workflow_jobs.without_label_guard(self.job()["if"]),
                          "${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                          "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
                          "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}")

@@ -50,6 +50,10 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Routes only the land handoff (scripts/ci/head_tier.py land rule): a ready-to-land head runs the full tier.
     "pr-router.yml": ("ready-to-land",),
     "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
+    # The land tier (scripts/ci/head_tier.py): tooling-tests and the fast gates run on a cheap-tier head only once
+    # ready-to-land is added (docs/ci/cmux-next-workflow-notes.md#note-561).
+    "cmux-next-guards.yml": ("ready-to-land",),
+    "cmux-next-fast-gates.yml": ("ready-to-land",),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.

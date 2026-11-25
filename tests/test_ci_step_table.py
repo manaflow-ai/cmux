@@ -1065,9 +1065,10 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-guards.yml's security-holes job judged every pull request (gitleaks reads any file), so its step's
         # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
-        self.assertEqual(wf["jobs"]["security-holes"]["if"],
-                         "${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
-                         "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}")
+        # (Then the label guard, tests/test_ci_label_events_skip_full_ci.py.)
+        self.assertTrue(wf["jobs"]["security-holes"]["if"].startswith(
+                        "${{ ((github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
+                        "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback'))) && !("))
         holes = steps["security-holes"]
         self.assertEqual(holes.job, "linux")
         self.assertEqual(holes.inputs, ("**",))

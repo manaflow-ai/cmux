@@ -5272,3 +5272,25 @@ Three changes, the check unchanged:
 
 Not changed here: backend.yml's journey-staging, cloud-resume-matrix.yml and migrate-journey-pr.yml run the same
 uncached build.
+
+## note-561
+
+The land tier in `.github/workflows/cmux-next-guards.yml` (tooling-tests) and `.github/workflows/cmux-next-fast-gates.yml`
+(fast gates), as ci.yml and cmux-next.yml already have it (scripts/ci/head_tier.py's land rule, cmux#53696).
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T18Z..24T18Z
+tooling-tests ran 4.78 times per merged PR (43 runner-min per merged PR) and the fast gates 4.97 (28), about one
+run on every head, because neither workflow read the head's tier. A ready head into feat-cmux-next from this
+repository now runs neither until the PR gets `ready-to-land` (land-judge adds it when asked to land; the head's
+`cmux/land-tier` status stays pending until then, so nothing lands on the cheap tier). Both workflows now listen to
+`labeled`/`unlabeled`: the `ready-to-land` event re-runs them on the full tier at the same head; any other label's
+event skips every job and takes a concurrency group of its own (tests/test_ci_label_events_skip_full_ci.py). A
+`full-ci` label does not re-run guards (as before: the next push reads it); docs-only-fallback.yml now calls guards
+on a `full-ci` event of a docs-only or large PR, and every job skips there, so that call costs no runner.
+
+guards reads the tier in tooling-tests-base-red (already a light job with scripts/ci checked out and `actions:
+read`); a skipped or failed tier step leaves the output empty, which runs tooling-tests (full). The fast gates read
+it in fast-check-route; on a cheap head the gates job skips and `post` writes `cmux-next/fast-gates` pending with
+"cheap tier: the gates run when ready-to-land is added", never success, so a merger that reads only that status
+still dispatches the gates (the dispatch path is unchanged). The push runs on feat-cmux-next are unchanged and stay
+the backstop. `vars.CI_LAND_TIER=0` turns both off with the rest of the land rule.
