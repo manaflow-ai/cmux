@@ -5,7 +5,8 @@
 // tasks every few seconds read its earlier work collapse and expand at each start and end, the rows
 // under it jumping and the end's fold drawing its copies over them (cmux#45943: chat content
 // "loads, unloads and blinks while the agent writes or thinks", paragraphs drawn twice over each
-// other). An ended run in the tail draws the same, folded, whether a later turn runs or not.
+// other). An ended turn in the tail draws the same, its work under its closed "Worked for", whether a
+// later turn runs or not (cmux#49592).
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
@@ -63,30 +64,35 @@ function transcript(next: "none" | "running" | "ended"): AcpmuxRow[] {
   return rows;
 }
 
-/// How the ended background turn's run draws: its fold and its calls.
+/// How the ended background turn draws: its one "Worked for" (closed), whether its run shows beside
+/// it, and its reply (cmux#49592: every finished turn folds its work, whatever started it).
 function drawnRun(rows: readonly AcpmuxRow[]) {
-  const drawn = rows.filter((entry) => entry.id === "check");
-  expect(drawn).toHaveLength(1);
-  const [only] = drawn;
-  return { foldRun: only!.foldRun === true, settled: only!.settled === true, calls: only!.items?.length };
+  const worked = rows.filter((entry) => entry.id === "worked-backgroundTurn-bg1");
+  expect(worked).toHaveLength(1);
+  return {
+    open: worked[0]!.foldOpen === true,
+    run: rows.some((entry) => entry.id === "check"),
+    reply: rows.some((entry) => entry.id === "woken"),
+  };
 }
 
 for (const agentFamily of ["claude", "codex", undefined])
-  test(`${agentFamily ?? "default"}: an ended background turn's run draws the same whether a later turn runs or not`, () => {
+  test(`${agentFamily ?? "default"}: an ended background turn draws the same whether a later turn runs or not`, () => {
     const idle = drawnRun(turnView(transcript("none"), new Set(), { now: 60_000, agentFamily }));
     const running = drawnRun(turnView(transcript("running"), new Set(), { now: 90_000, agentFamily, working: true }));
     const endedAgain = drawnRun(turnView(transcript("ended"), new Set(), { now: 120_000, agentFamily }));
-    // Folded into its summary line, as the running turn's shape draws it, at every step.
-    expect(idle).toEqual({ foldRun: true, settled: true, calls: 3 });
+    // Folded under its closed "Worked for", its reply in sight, at every step.
+    expect(idle).toEqual({ open: false, run: false, reply: true });
     expect(running).toEqual(idle);
     expect(endedAgain).toEqual(idle);
   });
 
-test("the latest background turn's run stays folded once it ends", () => {
+test("the latest background turn's run folds under its Worked for once it ends", () => {
   const running = turnView(transcript("running"), new Set(), { now: 90_000, agentFamily: "claude", working: true });
   const ended = turnView(transcript("ended"), new Set(), { now: 120_000, agentFamily: "claude" });
-  const verify = (rows: readonly AcpmuxRow[]) => rows.find((entry) => entry.id === "verify");
-  // While it runs, its call in flight is on the live line; once it ends, the run is its folded line.
-  expect(verify(ended)).toMatchObject({ foldRun: true, settled: true });
-  expect(verify(running)?.foldRun ?? true).toBe(true);
+  // While it runs, its call in flight is on the live line; once it ends, its work is under one closed line.
+  expect(running.some((entry) => entry.id === "worked-backgroundTurn-bg2")).toBe(false);
+  expect(ended.find((entry) => entry.id === "worked-backgroundTurn-bg2")).toMatchObject({ foldOpen: false });
+  expect(ended.some((entry) => entry.id === "verify")).toBe(false);
+  expect(ended.some((entry) => entry.id === "woken2")).toBe(true);
 });

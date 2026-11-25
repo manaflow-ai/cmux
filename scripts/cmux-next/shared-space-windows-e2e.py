@@ -136,7 +136,8 @@ rpc("debug.window.focus", {"window": a})
 switched = rpc("action.run", {"action": "space.switch", "target": "window:%s" % a, "args": {"space": space}, "focus": True, "origin": "script"})
 notes["switch"] = {"space": space, "reply": switched}
 wait(lambda: windows().get(a, {}).get("selected") == x, 20)
-time.sleep(2.0)  # test harness: a wrong build makes A's new workspace within this time
+# sleep-ok: a watch window for something that must not happen: a wrong build makes A's new workspace within 2 s
+time.sleep(2.0)
 state = windows()
 listed_after = {w for entry in state.values() for w in entry.get("workspaces") or []}
 judge("shows-same-workspace", state.get(a, {}).get("selected") == x and listed_after == listed_before,
@@ -160,8 +161,9 @@ judge("both-views-live", both, {"views_with_marker": sum(any(MARKER in text_of(p
 # 4. B closes: A keeps the workspace, as its own.
 rpc("debug.key", {"key": "w", "modifiers": ["control", "cmd"], "window": b})
 wait(lambda: b not in windows(), 20)
-time.sleep(1.0)  # test harness: the hand-over builds A's own view
-state = windows()
+# Until the hand-over built A's own view: A still selects X, and X is no longer a guest there.
+state = wait(lambda: (st := windows()) and st.get(a, {}).get("selected") == x and x not in (st.get(a, {}).get("guests") or []) and st, 20) \
+    or windows()
 views = wait(lambda: (v := terminals(x)) and len(v) == 1 and any(drawn(p) for p in v[0]) and v, 30) or terminals(x)
 judge("owner-close-hands-over", b not in state and state.get(a, {}).get("selected") == x and x not in (state.get(a, {}).get("guests") or [])
       and len(views) == 1 and any(drawn(p) and MARKER in text_of(p) for p in views[0]) and not problems(),

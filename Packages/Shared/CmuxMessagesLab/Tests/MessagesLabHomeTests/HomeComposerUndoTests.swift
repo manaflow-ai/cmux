@@ -105,6 +105,95 @@ import UniformTypeIdentifiers
         return shot.ref.hash
     }
 
+    /// Pastes picture INDEX at the caret when the field may already hold a copy of it (the same
+    /// bytes again, as a second Cmd+V of one screenshot); returns the new chip's id.
+    private func pasteCopy(_ index: Int, into r: Rig) async throws -> String {
+        let before = r.pictures
+        let shot = try await r.store.prepareAttachment(data: try screenshot(index), typeIdentifier: UTType.png.identifier)
+        await r.view.addDraftAttachment(shot)
+        await until { r.pictures.count == before.count + 1 }
+        let added = r.pictures.filter { !before.contains($0) }
+        #expect(added.count == 1, "the pasted copy shows in the field as a picture of its own")
+        return try #require(added.first)
+    }
+
+    /// The same picture pasted three times is three pictures (#50984: the second and third paste of
+    /// one screenshot showed nothing, the draft keyed its chips by the picture's hash). Each paste is
+    /// its own undo step: Cmd+Z takes out only the last copy, Cmd+Shift+Z puts them back one by one.
+    @Test func theSamePicturePastedThreeTimesIsThreePicturesEachItsOwnUndoStep() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.type("look ")
+        var ids: [String] = []
+        for _ in 0..<3 { ids.append(try await pasteCopy(0, into: r)) }
+        let hash = ids[0]
+        #expect(Set(ids).count == 3, "each paste is a chip of its own")
+        #expect(r.pictures == ids)
+        #expect(r.draft == [hash, hash, hash], "the draft a send takes holds all three")
+        for left in [2, 1, 0] {
+            r.undo.undo()
+            #expect(r.pictures == Array(ids.prefix(left)), "Cmd+Z takes out only the last paste")
+            #expect(r.draft.count == left)
+            #expect(r.words == "look ")
+        }
+        for back in [1, 2, 3] {
+            r.undo.redo()
+            #expect(r.pictures == Array(ids.prefix(back)), "Cmd+Shift+Z puts back one paste")
+            #expect(r.draft.count == back)
+        }
+    }
+
+    /// All three copies go with the send, each as its own part of the message.
+    @Test func theSamePicturePastedThreeTimesIsSentThreeTimes() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.type("look ")
+        for _ in 0..<3 { _ = try await pasteCopy(0, into: r) }
+        #expect(r.view.sendDraft() == nil)
+        await until { r.field.string.isEmpty }
+        #expect(r.view.draftAttachments.isEmpty)
+        func sentPictures() -> Int {
+            guard let mine = r.store.transcript(for: Self.conversation).last(where: { $0.parts.contains { if case .attachment = $0 { true } else { false } } })
+            else { return 0 }
+            return mine.parts.filter { if case .attachment = $0 { true } else { false } }.count
+        }
+        await until { sentPictures() == 3 }
+        #expect(sentPictures() == 3, "the message holds the picture three times")
+        // Each copy in the bubble opens, drags and saves its file, whatever id its part has.
+        let bubble = try #require(r.view.controller.store?.state.conversation.messages.last { m in
+            m.parts.contains { if case .attachment = $0 { true } else { false } }
+        })
+        let copies = bubble.parts.compactMap { p -> String? in if case let .attachment(a) = p { a.id } else { nil } }
+        #expect(copies.count == 3)
+        // As the app does (HomeStoreBinding.fetchAttachment): originals the field no longer holds come from the store.
+        let store = r.store, conversation = Self.conversation
+        r.view.fetchAttachment = { ref, variant in try await store.fetchAttachment(ref, variant: variant, in: conversation) }
+        // The bubble stands for HomeStore's item (the send's alias), the item the projection opens files from.
+        // A display frame's store pass (HomeChatRig.frame) brings HomeStore's item into `shown`.
+        let projection = r.view.projection
+        await until {
+            projection.refresh()
+            return projection.shown.contains { HomeMapping.id($0, aliases: projection.aliases) == bubble.id }
+        }
+        let item = try #require(projection.shown.first { HomeMapping.id($0, aliases: projection.aliases) == bubble.id },
+                                "the sent bubble \(bubble.id) is HomeStore's item; shown: \(projection.shown.map { HomeMapping.id($0, aliases: projection.aliases) })")
+        let ref = try #require(item.parts.lazy.compactMap { p -> AttachmentRef? in if case let .attachment(a) = p { a } else { nil } }.first)
+        _ = try await projection.media.original(ref)
+        for copy in copies {
+            let file = await projection.attachmentFile(bubble.id, copy)
+            #expect(file != nil, "copy \(copy) of the sent picture has its file")
+        }
+    }
+
+    /// A copy's chip id names its picture: `hash#N` is `hash`; any other `#` is part of the id.
+    @Test func aCopysChipIdNamesItsPicturesHash() {
+        #expect(HomeProjection.contentHash(ofChip: "abc") == "abc")
+        #expect(HomeProjection.contentHash(ofChip: "abc#2") == "abc")
+        #expect(HomeProjection.contentHash(ofChip: "abc#12") == "abc")
+        #expect(HomeProjection.contentHash(ofChip: "abc#x") == "abc#x")
+        #expect(HomeProjection.contentHash(ofChip: "abc#") == "abc#")
+    }
+
     /// The crash: a picture, a key after it, the picture deleted, then Cmd+Z again and again. The
     /// first undo must put the picture back (it did nothing), and the undo after it read past the
     /// field's end (NSRangeException). Every step back and forth keeps the field and the draft equal.

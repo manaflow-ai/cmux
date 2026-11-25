@@ -178,6 +178,9 @@ public struct PersonInputCheck: Sendable {
     /// SECURITY: the page gesture at `uptime` is the person's own: the app's latest input is the person's,
     /// at or before it (within a second, as a page keeps a gesture), and no input of anyone else's came
     /// after it. A click another process posts, even right after one of the person's, backs nothing.
+    /// ``backs(_:)`` now: the person's own input is the app's latest, within the last second.
+    public var backsNow: Bool { backs(ProcessInfo.processInfo.systemUptime) }
+
     public func backs(_ uptime: TimeInterval) -> Bool {
         guard let last, last.person else { return false }
         return last.uptime <= uptime + 0.001 && uptime - last.uptime <= 1

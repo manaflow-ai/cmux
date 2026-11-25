@@ -177,6 +177,20 @@
   font: inherit;
 }
 
+/* The element a message points at (a Point at Element pick it carries). */
+.acpmux-inspector-pointed {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent);
+  color: var(--agent-text);
+  font: var(--text-caption) var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The Perf tab (PerfPanel.tsx): the switch and Copy diagnosis, then notes, spans and the data meter. */
 .acpmux-inspector-perf {
   display: flex;

@@ -20,6 +20,7 @@ extension AppsClient {
                 "surface": .string(mount.surface), "preview": .bool(mount.isPreview),
                 "revision": .number(Double(mount.model.revision)),
                 "texts": .array(mount.model.scene.texts().map { .string($0) }),
+                "glasses": .array(mount.model.scene.glassLevels().map { .string($0) }),
             ]
             let manifest = app(mount.appID)?.manifest
             if let title = manifest?.sceneImplementation(interface: mount.implementation.interface)?.title?.resolved() {

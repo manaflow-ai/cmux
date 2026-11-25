@@ -318,17 +318,19 @@ pair() {
     a) launch open A 60 quit && ended && fsrec a && measured open ;;
     b) launch open A 60 quit && ended && cat "$EXE" >/dev/null && measured open ;;
     c) launch open A 60 quit && ended && stub && measured open ;;
-    g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;
-    d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;
+    g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;  # sleep-ok: arm g's 60 s idle is the condition under test
+    d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;  # sleep-ok: B's fixed 3 s after A, as in every arm
     k) launch open A 0 term && ended && relink && measured open ;;
     t1|t3|t6) launch open A "${ARM#t}" quit && ended && measured open ;;
-    e) launch exec X && other_app 60 && sleep 3 && measured exec ;;
-    e2) launch exec X && sleep 63 && measured exec ;;
+    e) launch exec X && other_app 60 && sleep 3 && measured exec ;;  # sleep-ok: B's fixed 3 s after the other app quit (arm e)
+    e2) launch exec X && sleep 63 && measured exec ;;  # sleep-ok: e2's 63 s of idle is the condition under test (e's control)
     x) launch open A 60 quit && ended && measured exec ;;
     f) launch open A 60 quit && ended && measured sampled ;;
   esac
 }
 
+# sleep-ok: the study's fixed 3 s from A's end to B (the header: B is measured 3 s after A ended); quiesce waited for
+# the copy's processes to be gone first
 ended() { quiesce 0; sleep 3; }
 
 # relink: a second hard link to the executable made and removed, as Chromium's code-sign clone links it into
@@ -408,7 +410,7 @@ fsrec() {
   [[ "$REP" == 1 ]] || return 0
   sudo -n -l /usr/bin/fs_usage >/dev/null 2>&1 || return 0
   sudo -n /usr/bin/fs_usage -w -t 8 -f diskio -f filesys >"$OUT/fs-$1.txt" 2>&1 &
-  sleep 1
+  sleep 1  # sleep-ok: the recording's documented 1 s lead before B (8 s of fs_usage started 1 s before B)
 }
 
 # stub: the bundle's smallest executable, exec'd and timed to exit, in the console session.
@@ -445,7 +447,9 @@ sampled() {
   if [[ -n "$pid" ]]; then
     sudo -n /usr/bin/sample "$pid" 5 1 -mayDie -file "$OUT/sample-$REP.txt" >>"$OUT/root.log" 2>&1 &
     sampler=$!
-    sleep 1.5 # sample's own attach (a measurement script, not runtime code)
+    # sample's own attach: it says "Sampling process PID" once it has the process (10 s at most).
+    for ((i = 0; i < 100; i++)); do grep -q "Sampling process $pid" "$OUT/root.log" 2>/dev/null && break; sleep 0.1; done
+    grep -q "Sampling process $pid" "$OUT/root.log" 2>/dev/null || echo "LP sampled: sample did not say it attached to $pid in 10 s" >&2
   fi
   touch "$hold" && chmod 0666 "$hold"
   wait "$probe"
@@ -475,7 +479,7 @@ quiesce() {
       awk 'index($0, ENVIRON["LP_MACOS"]) || index($0, ENVIRON["LP_FRAMEWORKS"]) { n++ } END { print n + 0 }')" == 0 ]] && break
     sleep 0.1
   done
-  sleep "$1"
+  sleep "$1"  # sleep-ok: the caller's quiet period after the copy's processes are gone (quiesce 2 before a pair)
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi

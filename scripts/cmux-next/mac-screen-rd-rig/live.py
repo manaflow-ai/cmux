@@ -472,9 +472,16 @@ if o.input:
     size = (row.get("frame") or "1920x1080").split("x")
     x, y = int(size[0]) // 2, int(size[1]) // 2
     clicks = [json.loads(line) for line in mini(o.viewer, "clicks", "10", "400", str(x), str(y), timeout=60).splitlines() if line.startswith("{")]
-    time.sleep(1)  # the last click's trip
-    probe = [json.loads(line) for line in ssh(o.host, f"cat ~/rd-hub-rig/probe-{o.tag}.jsonl").splitlines() if line.startswith("{")]
-    downs = [e["t"] * 1000 for e in probe if e.get("kind") == "left-down"]
+    def probe_events():
+        return [json.loads(line) for line in ssh(o.host, f"cat ~/rd-hub-rig/probe-{o.tag}.jsonl").splitlines() if line.startswith("{")]
+
+    def downs_of(events):
+        return [e["t"] * 1000 for e in events if e.get("kind") == "left-down"]
+    # The last click's trip: the host's probe logged a left-down for every click sent (best effort: a lost click is
+    # what the check below counts).
+    probe = until(10, lambda: (lambda events: events if len(downs_of(events)) >= len(clicks) else None)(probe_events()),
+                  0.5) or probe_events()
+    downs = downs_of(probe)
     # Each Mac's offset from NTP, so the two clocks can be compared.
     def offset(host):
         out = ssh(host, "sntp -t 2 time.apple.com 2>/dev/null | tail -1")

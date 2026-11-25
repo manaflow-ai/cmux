@@ -44,8 +44,8 @@ final class ScreenSharingUnavailableUITests: XCTestCase {
         attach(app, "01-list-not-shared-opens-nothing")
 
         try expectAlert(app, tapping: studio, title: "Aziz's Mac Studio isn't sharing its screen",
-                        message: "Turn on Share This Mac in the Mac's Settings › Devices.",
-                        buttons: ["Check Again", "OK"], shot: "02-alert-not-shared")
+                        message: "Share it from this iPhone, or turn on Share This Mac in the Mac's Settings › Devices.",
+                        buttons: ["Share Aziz's Mac Studio", "Check Again", "OK"], shot: "02-alert-not-shared")
         try expectAlert(app, tapping: app.buttons["screenSharing.mac.Office iMac"].firstMatch, title: "Office iMac is offline",
                         message: "Open cmux on the Mac and make sure it's online.",
                         buttons: ["Check Again", "OK"], shot: "03-alert-offline")
