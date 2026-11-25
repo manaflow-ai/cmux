@@ -1185,7 +1185,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             let before = row.chosen
             self.onInput?(.click(row: row.row))
             // The selection haptic as a row's choice changes (QuestionCard's `.sensoryFeedback(.selection)`).
-            if before != row.chosen || !before { UISelectionFeedbackGenerator().selectionChanged() }
+            if before != row.chosen || !before { CmuxMobileTheme.standard.haptics.selectionChanged() }
         }, for: .touchUpInside)
         row.isHidden = true
         rows.append(row)
@@ -1245,7 +1245,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             button.addAction(UIAction { [weak self, weak button] _ in
                 guard let self, let id = button?.actionID else { return }
                 if id == "answer" {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
                     self.onInput?(.submit)
                 } else {
                     self.onInput?(.nextItem)

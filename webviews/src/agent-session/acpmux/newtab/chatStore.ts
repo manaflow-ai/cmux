@@ -38,6 +38,12 @@ let windowTimer: ReturnType<typeof setTimeout> | undefined;
 /// The last list this page published (the direct client keeps an unchanged session's entry).
 let lastPublished: Sessions | undefined;
 let lastText: string | undefined;
+/// Another page's write this page has not parsed yet, and its `at`. Only a shown New Tab page reads
+/// the list (`useSharedSessions`): a chat page and a hidden page keep the text and parse it when a
+/// reader asks or the page shows. All agent pages share one renderer thread, so each hidden page's
+/// parse of thousands of chats on every other page's write was the shown page's stutter too (Leo,
+/// 2026-11-22: "lags every few frames or something. like a regular stutter").
+let unparsed: { at: number; raw: string } | undefined;
 const listeners = new Set<() => void>();
 
 function storage(): Storage | undefined {
@@ -76,17 +82,50 @@ function written(raw: string | null | undefined): { at: number; listed: string }
   return { at: Number(match[1]), listed: raw.slice(match[0].length, -1) };
 }
 
+/// The `at` of the newest list this page holds, parsed or not.
+function heldAt(): number | undefined {
+  return unparsed?.at ?? current?.at;
+}
+
+/// Parses the write this page held back, if any (a reader asked, or the page shows).
+function materialize(): void {
+  const held = unparsed;
+  if (!held) return;
+  unparsed = undefined;
+  const next = parse(held.raw);
+  if (next) current = next;
+}
+
+/// Whether a write's list is worth parsing now: some reader on this page shows it.
+function readNow(): boolean {
+  if (listeners.size === 0) return false;
+  try {
+    return globalThis.document?.visibilityState !== "hidden";
+  } catch {
+    return true;
+  }
+}
+
 function onStorage(event: StorageEvent): void {
   // `key: null` is a clear() of the whole store.
   if (event.key !== KEY && event.key !== null) return;
   // Every page publishes the list it receives, so most writes hold the list this page already
   // has: those are read from their text, without parsing thousands of chats.
   const raw = event.key === null ? undefined : written(event.newValue);
-  if (raw && current && raw.at < current.at) return;
-  if (raw && current && raw.listed === lastText) {
-    current = { at: raw.at, sessions: current.sessions };
+  const at = heldAt();
+  if (raw && at !== undefined && raw.at < at) return;
+  if (raw && raw.listed === lastText && (current || unparsed)) {
+    if (unparsed) unparsed = { at: raw.at, raw: event.newValue! };
+    else if (current) current = { at: raw.at, sessions: current.sessions };
     return;
   }
+  // A changed list nobody on this page shows: keep its text, parse it when a reader asks.
+  if (raw && !readNow()) {
+    unparsed = { at: raw.at, raw: event.newValue! };
+    lastText = raw.listed;
+    return;
+  }
+  unparsed = undefined;
   const next = event.key === null ? undefined : parse(event.newValue);
   if (next && current && next.at < current.at) return;
   const text = next ? JSON.stringify(next.sessions) : undefined;
@@ -106,9 +145,17 @@ function load(): void {
     globalThis.window?.addEventListener("storage", onStorage);
     globalThis.window?.addEventListener("pagehide", flushPending);
     globalThis.document?.addEventListener("visibilitychange", flushPending);
+    globalThis.document?.addEventListener("visibilitychange", onShow);
   } catch {
     // No window: this page's own writes still reach it.
   }
+}
+
+/// A page that shows parses the list it held back while hidden, and its readers draw it.
+function onShow(): void {
+  if (!unparsed || !readNow()) return;
+  materialize();
+  notify();
 }
 
 /// Whether `session` waits on the user: it lists first whatever its age, so it stays whole.
@@ -259,7 +306,8 @@ function endWindow(): void {
 /// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:
 /// a held-back list carries the `at` it arrived with, and must not replace a newer page's list.
 function flushPending(): void {
-  if (pending && current && pending.at < current.at) pending = undefined;
+  const at = heldAt();
+  if (pending && at !== undefined && pending.at < at) pending = undefined;
   writePending();
 }
 
@@ -280,13 +328,14 @@ function write(sessions: Sessions, at: number, windowed: boolean): void {
   // The kept entries are this page's own (unchanged ones reused), not a parse of the text it stores.
   const { sessions: kept, listed } = keptList(windowed ? overWindow(sessions, current?.sessions) : sessions);
   // The list the store already holds (this page's or another's): no write, no event elsewhere.
-  if (listed === lastText && current) return;
+  if (listed === lastText && (current || unparsed)) return;
   try {
     storage()?.setItem(KEY, storedText(listed, at));
   } catch {
     // A full or blocked store: this page still lists the newest it has.
   }
   current = { at, sessions: kept };
+  unparsed = undefined;
   lastText = listed;
   notify();
 }
@@ -294,6 +343,7 @@ function write(sessions: Sessions, at: number, windowed: boolean): void {
 /// The chats a New Tab page lists: the newest list any page received, else the page's own.
 export function sharedSessions(own: Sessions): Sessions {
   load();
+  materialize();
   return current && current.sessions.length > 0 ? current.sessions : own;
 }
 
@@ -305,6 +355,7 @@ function subscribe(listener: () => void): () => void {
 
 function value(): Stored | undefined {
   load();
+  materialize();
   return current;
 }
 
@@ -349,12 +400,14 @@ export function reloadChatStoreForTests(): void {
   windowTimer = undefined;
   loaded = false;
   current = undefined;
+  unparsed = undefined;
   lastPublished = undefined;
   lastText = undefined;
   try {
     globalThis.window?.removeEventListener("storage", onStorage);
     globalThis.window?.removeEventListener("pagehide", flushPending);
     globalThis.document?.removeEventListener("visibilitychange", flushPending);
+    globalThis.document?.removeEventListener("visibilitychange", onShow);
   } catch {
     // No window.
   }
@@ -370,3 +423,6 @@ export function encodeChatStoreForTests(sessions: Sessions, at: number, windowed
   load();
   return encode(windowed ? overWindow(sessions, current?.sessions) : sessions, at);
 }
+
+/// A New Tab reader's subscription, as `useSharedSessions` makes it (tests).
+export const subscribeChatStoreForTests = subscribe;
