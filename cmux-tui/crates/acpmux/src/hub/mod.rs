@@ -101,6 +101,7 @@ pub(crate) mod file_uploads;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
 pub use file_uploads::window as file_put_window;
 mod gemini_plan;
+pub(crate) mod queue_origin;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
@@ -1352,6 +1353,8 @@ pub struct Hub {
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
+    /// Paces the host's background capacity continuations (`auto_resume/capacity_gate.rs`).
+    pub(super) capacity_gate: auto_resume::CapacityGate,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
     pub(super) resume_watch: Arc<resume::ResumeState>,
@@ -1850,6 +1853,7 @@ impl Hub {
             bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
+            capacity_gate: auto_resume::CapacityGate::default(),
             idle_reaper: AtomicBool::new(false),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
