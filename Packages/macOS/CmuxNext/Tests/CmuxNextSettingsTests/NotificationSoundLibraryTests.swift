@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -41,11 +42,20 @@ struct NotificationSoundLibraryTests {
         #expect(try String(contentsOf: user.appending(path: "Chime 2.wav"), encoding: .utf8) == "two", "the copy is the picked file")
     }
 
-    @Test func theDefaultFolderIsThisBuildsOwnUnderCmuxApplicationSupport() {
-        let folder = NotificationSoundLibrary.defaultUserDirectory.path
-        #expect(folder.hasSuffix("/Sounds"))
-        #expect(folder.contains("/Application Support/cmux-next/"), "\(folder)")
-        #expect(!folder.contains("/Library/Sounds"), "never the shared ~/Library/Sounds")
+    @Test func theDefaultFolderSitsBesideTheSettingsFile() {
+        // Stable and Nightly share cmux-next.json, so the files its sound names refer to must be shared too.
+        let folder = NotificationSoundLibrary.defaultUserDirectory
+        #expect(folder.lastPathComponent == "sounds")
+        #expect(folder.deletingLastPathComponent().standardizedFileURL == BuildStatePaths.current.configDirectory.standardizedFileURL,
+                "\(folder.path)")
+        #expect(!folder.path.contains("/Library/Sounds"), "never the shared ~/Library/Sounds")
+    }
+
+    @Test func noneAndDefaultAreNeverAnImportedName() throws {
+        // They are settings values: "none" plays nothing and "default" the system alert.
+        let library = NotificationSoundLibrary(userDirectory: user, otherDirectories: [system])
+        #expect(try library.importSound(from: file("none.wav", "a")) == "none 2")
+        #expect(try library.importSound(from: file("default.aiff", "b")) == "default 2")
     }
 
     @Test func aFileNSSoundCannotPlayIsRefused() throws {

@@ -340,7 +340,7 @@ final class SettingsPageProvider: PageProvider {
             let picked: String?
             do { picked = try await Self.host(sounds, "sounds").pick() } catch let failure as ActionWorkFailure { throw PageError(code: "cmux.settings.sound.import", message: failure.message) }
             guard let name = picked else { return ["name": .null] }
-            try await write(descriptor, .string(name), by: .user) // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
+            try await write(descriptor, .string(name), by: Self.writer(context)) // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
             return ["name": .string(name)]
         default:
             throw PageError.unknownOp(op)
