@@ -342,8 +342,26 @@ jobs:
       # The job's clock: the clips stop 12 min before the 120 min cap, so the media the capture already
       # recorded still uploads. Run 45572451860 captured every tour, then its clips ran the job into the
       # cap at 10:10Z and "Keep the media" never ran: 2 Mac hours, no media.
+      # The cap counts from the job's start, not this step's: in run 45636169467 "Set up runner" took
+      # 17.6 min, so a clock started here ran past the cap and the clips were cancelled again. The
+      # clock starts when this job's Runner.Worker process did (local ps, no API call).
       - name: Start the tour's clock
-        run: echo "TOUR_DEADLINE=$(( $(date +%s) + 108 * 60 ))" >> "$GITHUB_ENV"
+        run: |
+          now=$(date +%s) start=$now pid=$$
+          while [ "${pid:-1}" -gt 1 ]; do
+            case "$(ps -o command= -p "$pid" 2>/dev/null)" in
+              *Runner.Worker*)
+                et=$(ps -o etime= -p "$pid" | tr -d ' ') d=0
+                case "$et" in *-*) d=${et%%-*} et=${et#*-} ;; esac
+                IFS=: read -r a b c <<< "$et"
+                if [ -n "$c" ]; then secs=$(( 10#$a * 3600 + 10#$b * 60 + 10#$c )); else secs=$(( 10#$a * 60 + 10#$b )); fi
+                start=$(( now - 10#$d * 86400 - secs ))
+                break ;;
+            esac
+            pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+          done
+          echo "The job started $(( now - start )) s ago; clips stop at $(( start + 108 * 60 - now )) s from now."
+          echo "TOUR_DEADLINE=$(( start + 108 * 60 ))" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
