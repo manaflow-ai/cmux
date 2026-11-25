@@ -246095,6 +246095,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.terminalHistoryFind": {
+      "comment": "Settings > Experimental row title: Cmd-F in a terminal searches its whole history, not only the screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "البحث في سجل الطرفية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pretraga historije terminala"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Søgning i terminalhistorik"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Suche im Terminalverlauf"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal History Find"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Búsqueda en el historial de la terminal"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Recherche dans l’historique du terminal"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ricerca nella cronologia del terminale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナル履歴の検索"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ស្វែងរកក្នុងប្រវត្តិទែមីណាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널 기록 찾기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Søk i terminalhistorikk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyszukiwanie w historii terminala"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Busca no histórico do terminal"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Поиск по истории терминала"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ค้นหาในประวัติเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminal geçmişinde bul"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Пошук в історії термінала"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tìm trong lịch sử terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端历史查找"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機歷史尋找"}}
+      }
+    },
+    "settings.experiments.terminalHistoryFind.help": {
+      "comment": "Settings > Experimental > Terminal History Find help: Cmd-F searches the terminal's whole history with case, whole-word and regex options.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يبحث Cmd-F في الطرفية في سجلها بالكامل، مع خيارات حالة الأحرف والكلمة الكاملة والتعبير النمطي."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Cmd-F u terminalu pretražuje cijelu njegovu historiju, s opcijama za velika slova, cijelu riječ i regex."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Cmd-F i en terminal søger i hele dens historik med valg for store/små bogstaver, hele ord og regex."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cmd-F in einem Terminal durchsucht seinen gesamten Verlauf, mit Optionen für Groß-/Kleinschreibung, ganze Wörter und Regex."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cmd-F en una terminal busca en todo su historial, con opciones de mayúsculas, palabra completa y regex."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cmd-F dans un terminal cherche dans tout son historique, avec les options casse, mot entier et regex."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cmd-F in un terminale cerca in tutta la sua cronologia, con opzioni per maiuscole, parola intera e regex."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルで Cmd-F を押すと履歴全体を検索します。大文字小文字、単語単位、正規表現を選べます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "Cmd-F ក្នុងទែមីណាល់ស្វែងរកប្រវត្តិទាំងមូលរបស់វា ជាមួយជម្រើសអក្សរធំតូច ពាក្យពេញ និង regex។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널에서 Cmd-F를 누르면 전체 기록을 검색합니다. 대소문자, 전체 단어, 정규식 옵션을 쓸 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Cmd-F i en terminal søker i hele historikken, med valg for store/små bokstaver, hele ord og regex."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Cmd-F w terminalu przeszukuje całą jego historię, z opcjami wielkości liter, całego słowa i regex."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cmd-F em um terminal busca em todo o histórico, com opções de maiúsculas, palavra inteira e regex."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Cmd-F в терминале ищет по всей его истории, с учётом регистра, целых слов и регулярных выражений."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Cmd-F ในเทอร์มินัลจะค้นหาทั้งประวัติ พร้อมตัวเลือกตัวพิมพ์ใหญ่เล็ก ทั้งคำ และ regex"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminalde Cmd-F tüm geçmişi arar; büyük/küçük harf, tam sözcük ve regex seçenekleriyle."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Cmd-F у терміналі шукає по всій його історії, з урахуванням регістру, цілих слів і регулярних виразів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cmd-F trong terminal tìm trong toàn bộ lịch sử, với tùy chọn chữ hoa/thường, nguyên từ và regex."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在终端中按 Cmd-F 会搜索其全部历史，可选区分大小写、全词匹配和正则表达式。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在終端機按 Cmd-F 會搜尋其全部歷史，可選區分大小寫、全字比對和正規表示式。"}}
+      }
+    },
     "settings.experiments.composerButtonsVisible": {
       "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
       "extractionState": "manual",
