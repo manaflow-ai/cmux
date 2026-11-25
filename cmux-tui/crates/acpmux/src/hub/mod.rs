@@ -41,6 +41,9 @@ mod auto_background;
 pub(crate) mod auto_evacuate;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
+// A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
+mod auto_give;
+pub(crate) use auto_give::TurnStop;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
@@ -124,6 +127,8 @@ pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
 mod git_watch;
+// The dynamic CPU class's controller (`cpu_class/pressure.rs`).
+mod cpu_pressure;
 mod github_owner;
 mod goal_tools;
 mod handoff;
@@ -397,7 +402,6 @@ pub mod synced;
 mod tags;
 mod tailnet_controller;
 mod tap;
-pub(crate) mod task_list;
 mod task_names;
 pub(crate) mod tasks;
 mod team_information;
@@ -552,11 +556,6 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
-/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
-/// characters (`task_list.rs`'s steps).
-pub(crate) fn masked_step(s: &str, max: usize) -> String {
-    session::masked_preview(s, max)
-}
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -1047,12 +1046,7 @@ pub(super) struct StreamState {
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
-    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
-    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
-    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
-    pub(super) plan_turn: Option<String>,
-    pub(super) plan_shown: bool,
-    /// This turn's agent thought, planned or called a tool (`stream.rs`), and how much reply
+    /// This turn's agent thought or called a tool (`stream.rs`), and how much reply
     /// text it streamed (`after_agent_update`): what `unstored_turn_worked` reads.
     pub(super) agent_worked: bool,
     pub(super) reply_chars: usize,
@@ -1519,6 +1513,8 @@ pub struct Hub {
     pub(super) settings_changes: tokio::sync::watch::Sender<u64>,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
+    /// Whether `dynamic` sessions yield the CPU now (`cpu_pressure.rs`).
+    pub(super) cpu_pressure: StdMutex<crate::cpu_class::pressure::Controller>,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
     pub chatgpt: Arc<crate::chatgpt::Service>,
@@ -1955,6 +1951,7 @@ impl Hub {
             settings_watch: Default::default(),
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
+            cpu_pressure: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             claude_token: Arc::new(crate::claude_token::Service::default()),
@@ -2631,6 +2628,7 @@ impl Hub {
             subagents: Default::default(),
             fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
+            awaiting_reply: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),
             background_turns: Default::default(),
@@ -3147,10 +3145,6 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
-        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
-        if dir == "mux" && kind == "user_message" {
-            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
-        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
