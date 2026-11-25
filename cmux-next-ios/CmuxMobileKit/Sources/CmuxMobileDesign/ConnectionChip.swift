@@ -77,6 +77,7 @@ public struct ConnectionChip: View {
     let content: Content
     let downSince: Date?
     let retry: (@MainActor () async -> Void)?
+    @AppStorage(CmuxMobilePreferences.Key.quietConnections) private var quietConnections = false
     @State private var quiet = QuietStatusGate()
 
     public init(_ content: Content, downSince: Date?, retry: (@MainActor () async -> Void)? = nil) {
@@ -86,13 +87,19 @@ public struct ConnectionChip: View {
     }
 
     public var body: some View {
-        let shown = quiet.isShown || Self.alreadyDownFor(downSince, now: Date()) >= quiet.delay
+        let shown = Self.shows(quietConnections: quietConnections, offersAction: retry != nil)
+            && (quiet.isShown || Self.alreadyDownFor(downSince, now: Date()) >= quiet.delay)
         chip
             .opacity(shown ? 1 : 0)
             .allowsHitTesting(shown)
             .accessibilityHidden(!shown)
             .animation(.easeOut(duration: 0.2), value: shown)
             .modifier(QuietSince(quiet: quiet, downSince: downSince))
+    }
+
+    /// Reconnection is background work. Keep only a chip the person can act on when opted in.
+    public static func shows(quietConnections: Bool, offersAction: Bool) -> Bool {
+        !quietConnections || offersAction
     }
 
     /// How long the link has been down at `now`; a nil `downSince` (the caller held it)
@@ -160,6 +167,7 @@ public extension ConnectionChip {
     struct SymbolOnly: View {
         let content: Content
         let downSince: Date?
+        @AppStorage(CmuxMobilePreferences.Key.quietConnections) private var quietConnections = false
         @State private var quiet = QuietStatusGate()
 
         public init(_ content: Content, downSince: Date?) {
@@ -168,7 +176,8 @@ public extension ConnectionChip {
         }
 
         public var body: some View {
-            let shown = quiet.isShown || ConnectionChip.alreadyDownFor(downSince, now: Date()) >= quiet.delay
+            let shown = ConnectionChip.shows(quietConnections: quietConnections, offersAction: false)
+                && (quiet.isShown || ConnectionChip.alreadyDownFor(downSince, now: Date()) >= quiet.delay)
             symbol
                 .opacity(shown ? 1 : 0)
                 .accessibilityHidden(!shown)

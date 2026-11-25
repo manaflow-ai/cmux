@@ -8,6 +8,13 @@ import Testing
 /// docs/handbook/connection-state-with-no-action-or-bound.md). On a clock that moves only
 /// when told, so no wall time is read.
 @MainActor @Suite struct ConnectionChipQuietTests {
+    @Test func quietPresentationKeepsActionsAndHidesPassiveStatus() {
+        #expect(!ConnectionChip.shows(quietConnections: true, offersAction: false))
+        #expect(ConnectionChip.shows(quietConnections: true, offersAction: true))
+        #expect(ConnectionChip.shows(quietConnections: false, offersAction: false))
+        #expect(ConnectionChip.shows(quietConnections: false, offersAction: true))
+    }
+
     private func settle() async {
         for _ in 0 ..< 20 { await Task.yield() }
     }

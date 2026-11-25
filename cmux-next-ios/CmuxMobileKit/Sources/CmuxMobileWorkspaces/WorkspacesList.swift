@@ -290,8 +290,11 @@ public struct WorkspacesList: View {
     /// and a failed one retries on its own; the phone being offline is the
     /// connection chip's (Leo, 2026-11-16: "this needs to shut up"; the iOS
     /// release bar read-back's "Workspaces stale: no connection text").
+    @AppStorage(CmuxMobilePreferences.Key.quietConnections) private var quietConnections = false
+
     private var subtitle: String {
         if let mac = scopedMac {
+            if quietConnections { return displayName(mac) }
             let now = MinuteClock.shared.now
             let reach = store.macReachability(mac)
             // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
@@ -307,7 +310,7 @@ public struct WorkspacesList: View {
         // background (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
+        if !quietConnections, macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
         return ""
     }
 
@@ -1304,6 +1307,7 @@ struct WorkspacesToolbar: View, Equatable {
 /// The Mac filter: All Macs, then each Mac (online first) with its presence
 /// (and the live link line) as the subtitle.
 struct WorkspacesFilterMenu: View, Equatable {
+    @AppStorage(CmuxMobilePreferences.Key.quietConnections) private var quietConnections = false
     let model: WorkspacesToolbar.Model
     let host: WorkspacesList
 
@@ -1344,17 +1348,22 @@ struct WorkspacesFilterMenu: View, Equatable {
             // Toggles, not an inline Picker: a Picker drops each Mac's
             // presence subtitle. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
-                Label("All Macs", systemImage: "square.stack.3d.up")
+                Label(quietConnections
+                    ? DevicePresenceMenuLabel.allDevicesTitle
+                    : String(localized: "All Macs"), systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in
                 // A title and a subtitle Text directly in the label: a menu
                 // shows the second as the subtitle (not inside a Label).
                 Toggle(isOn: host.chosen(.mac(mac.id))) {
-                    Text(mac.title)
-                    Text(mac.detail)
-                    // The model has no Mac kind (laptop or desktop) yet.
-                    Image(systemName: "desktopcomputer")
+                    if quietConnections {
+                        DevicePresenceMenuLabel(name: mac.title, isOnline: mac.isOnline)
+                    } else {
+                        Text(mac.title)
+                        Text(mac.detail)
+                        Image(systemName: "desktopcomputer")
+                    }
                 }
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }

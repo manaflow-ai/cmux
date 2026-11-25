@@ -184,6 +184,8 @@ public final class SettingsStore {
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
+    /// Opt-in connection presentation; does not change transport or retry policy.
+    public var quietConnections: Bool { didSet { save(quietConnections, "quietConnections") } }
     /// Settings → Transport → Align Keepalives (off by default): every keepalive goes out on
     /// one 10 s beat. Read by the dial and by the app's timers (`KeepaliveBeat`) through the same key.
     public var alignKeepalives: Bool { didSet { save(alignKeepalives, "alignKeepalives") } }
@@ -248,6 +250,7 @@ public final class SettingsStore {
         self.ultra = ultra
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
+        quietConnections = bool("quietConnections", false)
         alignKeepalives = bool("alignKeepalives", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".

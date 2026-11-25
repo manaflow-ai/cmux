@@ -59,7 +59,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist", "stills"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "stills", "quiet"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -90,6 +90,8 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "reconnect":
                 reconnect
+            case "quiet":
+                QuietConnectionsGallery(variant: variant ?? "a")
             case "chip":
                 connectionChips
             case "chiplist":

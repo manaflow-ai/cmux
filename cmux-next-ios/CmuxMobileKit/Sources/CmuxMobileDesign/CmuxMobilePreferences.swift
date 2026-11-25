@@ -6,6 +6,8 @@ import Foundation
 /// `@AppStorage(CmuxMobilePreferences.Key...)` so a change applies at once.
 public enum CmuxMobilePreferences {
     public enum Key {
+        /// Settings → Transport → Quiet Connections. Presentation only; reconnects keep running.
+        public static let quietConnections = "cmuxMobile.settings.quietConnections"
         public static let terminalFontSize = "cmuxMobile.settings.terminalFontSize"
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
