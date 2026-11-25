@@ -39,18 +39,19 @@ fn is_daemon_job_label(label: &str) -> bool {
         || label.starts_with(super::login_placement::LABEL_PREFIX)
 }
 
-/// [`stands_by`] for this process.
-#[cfg(target_os = "macos")]
+/// [`stands_by`] for this process. launchd runs only on macOS: elsewhere no start has a
+/// launchd label, so none stands by.
 pub(super) fn this_start_stands_by(take_over: bool) -> bool {
-    // SAFETY: getppid has no preconditions.
-    let parent = unsafe { libc::getppid() } as u32;
-    stands_by(std::env::var("XPC_SERVICE_NAME").ok().as_deref(), parent, take_over)
-}
-
-/// launchd runs only on macOS.
-#[cfg(not(target_os = "macos"))]
-pub(super) fn this_start_stands_by(_take_over: bool) -> bool {
-    false
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: getppid has no preconditions.
+        let parent = unsafe { libc::getppid() } as u32;
+        stands_by(std::env::var("XPC_SERVICE_NAME").ok().as_deref(), parent, take_over)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        stands_by(None, 0, take_over)
+    }
 }
 
 #[cfg(test)]
