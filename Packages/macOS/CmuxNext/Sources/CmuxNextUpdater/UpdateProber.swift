@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxUpdater
 public import Foundation
 
@@ -30,7 +31,7 @@ nonisolated public struct URLSessionAppcastFetcher: AppcastFetching {
 
     /// Tests exercise redirects through URLSession with a deterministic protocol.
     init(configuration: URLSessionConfiguration, followsRedirects: Bool) {
-        session = URLSession(configuration: configuration,
+        session = CmuxEgress.session(site: "CmuxNextUpdater.UpdateProber", configuration: configuration,
                              delegate: followsRedirects ? nil : RedirectRejectingDelegate(), delegateQueue: nil)
     }
 

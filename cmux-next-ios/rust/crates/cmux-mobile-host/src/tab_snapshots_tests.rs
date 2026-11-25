@@ -42,7 +42,9 @@ fn a_new_daemon_run_drops_every_id_of_the_old_one_under_a_new_epoch() {
     let tabs = Tabs::new("e");
     tabs.offer_image("3", Part::Favicon, b"early".to_vec(), 0, 0, Mime::Png, 1);
     // The first connection is the run the epoch began with: nothing goes.
-    assert!(!tabs.daemon_run("unused"));
+    assert!(!tabs.daemon_run("unused", Some("1/main/0".into())));
+    // The feeder back on that run: nothing goes either.
+    assert!(!tabs.daemon_run("unused", Some("1/main/0".into())));
     assert_eq!(tabs.epoch(), "e");
     tabs.set_tabs(vec![tab("1", Kind::Browser, json!({})), tab("3", Kind::Browser, json!({}))]);
     assert_eq!(row(&tabs, "3").favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(b"early")));
@@ -52,7 +54,7 @@ fn a_new_daemon_run_drops_every_id_of_the_old_one_under_a_new_epoch() {
     tabs.offer_image("5", Part::Thumb, b"pending5".to_vec(), 576, 768, Mime::Jpeg, 3);
     let rev = tabs.rev();
 
-    assert!(tabs.daemon_run("e2"));
+    assert!(tabs.daemon_run("e2", Some("1/main/1".into())));
     assert_eq!(tabs.epoch(), "e2");
     assert!(tabs.tab_ids().is_empty());
     assert_eq!(tabs.stored_blobs(), 0);
@@ -138,6 +140,26 @@ fn set_tabs_orders_removes_and_keeps_screens() {
     let rev = tabs.rev();
     assert!(!tabs.set_tabs(vec![tab("3", Kind::Browser, json!({})), tab("1", Kind::Terminal, json!({}))]));
     assert_eq!(tabs.rev(), rev);
+}
+
+#[test]
+fn equal_screen_refresh_emits_no_snapshot_or_row_delta() {
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("1", Kind::Terminal, json!({})), tab("2", Kind::Terminal, json!({}))]);
+    assert!(tabs.set_screen("1", "same".to_owned()));
+    let rev = tabs.rev();
+    assert!(!tabs.set_screen("1", "same".to_owned()));
+    println!("SILENT_DELTA rust_screen_equal before=1 after=0");
+    assert_eq!(tabs.rev(), rev);
+    let delta = tabs.lock().producer.delta_since(rev).expect("current revision has a delta");
+    assert!(delta.changed.is_empty());
+
+    assert!(tabs.set_screen("1", "changed".to_owned()));
+    assert_eq!(tabs.rev(), rev + 1);
+    let delta = tabs.lock().producer.delta_since(rev).expect("changed row delta");
+    println!("SILENT_DELTA rust_screen_changed rows={}", delta.changed.len());
+    assert_eq!(delta.changed.len(), 1);
+    assert_eq!(delta.changed[0].tab_id, "1");
 }
 
 #[test]

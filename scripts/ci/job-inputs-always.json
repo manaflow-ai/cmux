@@ -29,7 +29,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -101,7 +100,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -231,7 +229,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -387,7 +384,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -471,7 +467,6 @@
           ".github/CODEOWNERS",
           ".github/actions/setup-cmux-tui-rust/",
           ".github/checkout-lean.json",
-          ".github/defaults-call-owners.json",
           ".github/workflows/",
           ".github/workflows/cmux-next-batch.yml",
           ".github/workflows/risk-tier-tests.yml",
@@ -514,7 +509,6 @@
         "why": "undeclared: runs on every pull request until its inputs are declared (added by job_inputs.py fix)",
         "suggested_inputs": [
           ".github/CODEOWNERS",
-          ".github/defaults-call-owners.json",
           ".github/workflows/",
           ".github/workflows/cmux-next-batch.yml",
           ".github/workflows/risk-tier-tests.yml",
@@ -591,6 +585,12 @@
       }
     },
     ".github/workflows/cmux-next-react-doctor.yml": {
+      "coalesce": {
+        "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
+        "suggested_inputs": [
+          ".github/workflows/base-coalesce.yml"
+        ]
+      },
       "fast-check-route": {
         "why": "a router: it reads the diff (or the pull request) to decide which other jobs run, so it runs on every pull request",
         "suggested_inputs": [
@@ -613,7 +613,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
@@ -799,7 +798,6 @@
           ".github/cloud-backend-paths.json",
           ".github/cloud-machine-count-probe/request",
           ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-          ".github/defaults-call-owners.json",
           ".github/design-surfaces.json",
           ".github/gateway-e2e/request",
           ".github/github-token-budget.json",
