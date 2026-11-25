@@ -19,7 +19,6 @@
 
 mod colors;
 pub mod contrast;
-pub mod frame_tone;
 pub mod render;
 pub mod two_tone;
 
