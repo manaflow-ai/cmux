@@ -1298,8 +1298,10 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
-  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
-  startupAdmission?: { sessionId: string; scalingUp: true };
+  /// The one-shot admission warning of an Auto start: with no `sessionId` while `session/new` waits
+  /// for a machine being added (`_acpmux/admission_waiting`), then the one `session/new` returned,
+  /// while its chat is starting.
+  startupAdmission?: { sessionId?: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
   /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */

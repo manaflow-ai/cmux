@@ -262,7 +262,7 @@ import {
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
 import { PromptHeads, type PromptHead } from "./promptHeads";
-import { PLACE_CHAT_METHOD } from "./autoWhereModel";
+import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -1348,8 +1348,12 @@ export class AcpmuxDirectClient {
     start: AcpmuxSessionStart | undefined;
     value: AcpmuxSnapshot["summary"];
   };
-  /// The scale-up warning from a just-completed `session/new`, before the attach starts the chat.
+  /// The scale-up warning of an Auto start: while its `session/new` waits for a machine being added
+  /// (`_acpmux/admission_waiting`, no `sessionId`), then from the completed `session/new` until the
+  /// attach starts the chat.
   private startupAdmission?: AcpmuxSnapshot["startupAdmission"];
+  /// The Auto start whose `session/new` is out (startSession): only it hears `_acpmux/admission_waiting`.
+  private admissionWait?: { generation: number };
   /// The usage read in flight (refreshUsage).
   private usageRead?: Promise<void>;
   private selectedSessionId?: string;
@@ -4071,6 +4075,29 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
     // acpmux refused this pane's Stop, which as a notification has no answer of its own.
     else if (notification.method === "_acpmux/cancel_refused") this.stopRefused(notification.params);
+    // acpmux holds this connection's Auto start for a machine being added (hub/admission.rs).
+    else if (notification.method === ADMISSION_WAITING_METHOD) this.admissionWaiting(notification.params);
+  }
+
+  /// `_acpmux/admission_waiting`: the Auto start still out, on the selection it began on, shows
+  /// "Auto is adding a machine" until `session/new` answers (startSession). The daemon decides that
+  /// it waits and says so (`scalingUp`); the page only draws it.
+  private admissionWaiting(params: unknown): void {
+    const wait = this.admissionWait;
+    if (!wait || wait.generation !== this.selectionGeneration || this.closed) return;
+    if ((params as { scalingUp?: unknown } | undefined)?.scalingUp !== true) return;
+    this.startupAdmission = { scalingUp: true };
+    this.emit();
+  }
+
+  /// The Auto start's `session/new` answered or failed: it no longer waits. A failed one drops the
+  /// waiting line; an answer replaces it with its own (startSession).
+  private admissionWaitEnded(wait: { generation: number }, failed: boolean): void {
+    if (this.admissionWait === wait) this.admissionWait = undefined;
+    if (failed && this.startupAdmission && this.startupAdmission.sessionId === undefined) {
+      this.startupAdmission = undefined;
+      this.emit();
+    }
   }
 
   /// A Stop acpmux refused (`_acpmux/cancel_refused`: a chat on another machine that only its owner
@@ -14576,6 +14603,7 @@ export class AcpmuxDirectClient {
     this.pendingPeerTrust = pending;
     this.refusedPeerTrust = undefined;
     this.waitingTrust = undefined;
+    if (autoPlace) this.admissionWait = pending;
     this.emit();
     const result = await this.newSession(
       newSessionParams(
@@ -14599,13 +14627,18 @@ export class AcpmuxDirectClient {
       declined,
       // A local start's caller fences it (`create`, HarnessSwitch); a peer start is fenced below.
       Boolean(pending.peer),
-    );
+    ).catch((error) => {
+      this.admissionWaitEnded(pending, true);
+      throw error;
+    });
+    this.admissionWaitEnded(pending, false);
     const admission = result?._meta?.acpmux?.admission;
+    const wasShown = this.startupAdmission !== undefined;
     this.startupAdmission =
       typeof result?.sessionId === "string" && admission?.scalingUp === true
         ? { sessionId: result.sessionId, scalingUp: true }
         : undefined;
-    if (this.startupAdmission) this.emit();
+    if (this.startupAdmission || wasShown) this.emit();
     // A deferred local harness switch intentionally leaves the displayed chat at first Send;
     // HarnessSwitch owns that start's cancellation. Only peer starts use this route fence.
     if (
