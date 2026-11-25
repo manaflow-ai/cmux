@@ -9,7 +9,8 @@ import CmuxNextWakeups
 /// the facts, logs the probe line (`cloud hybrid gui start: here` or `... off <reason>`) and runs
 /// `cmux cloud hybrid-begin SESSION new` once the chat here has its session. Kill switches:
 /// `CMUX_HYBRID_START=0`, `CMUX_GUI_HYBRID_START=0` (read by the FFI).
-public nonisolated enum CloudHybridGUIStart {
+public nonisolated struct CloudHybridGUIStart {
+    public nonisolated init() {}
     /// What the app knows of its Cloud send (cmux-cloud-start-core `hybrid_gui::Send`).
     public struct Send: Sendable {
         public var plan: String?, signedIn: Bool, cloudDisabled: Bool
