@@ -237,7 +237,7 @@ public final class HostsSidebar {
             info.caption = quiet ? nil : caption(for: machine)
             info.tooltip = machine.failure
             info.indent = 1
-            info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
+            // Never greyed: an offline machine says "Offline" in its caption, at full strength.
             info.activity = machine.isConnecting && !machine.failed && !quiet ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }

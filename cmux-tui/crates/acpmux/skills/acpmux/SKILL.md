@@ -524,7 +524,9 @@ groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
 switch, remove, list; `account readiness` says which still need installing or a
 sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+`stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
+workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
+`fetch` (one large download over parallel ranges), and `skill` (this guide).
 
 ## 8. Output
 

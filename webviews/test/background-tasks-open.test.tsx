@@ -245,7 +245,8 @@ describe("the Background tasks panel", () => {
     const view = await panel();
     try {
       const heads = [...view.host.querySelectorAll(".acpmux-bg__section-head")].map((node) => node.textContent);
-      expect(heads).toEqual(["Running1", "Finished2"]);
+      // Running is its mark and count, no word (Leo, 2026-11-23: ""running" doesn't need text").
+      expect(heads).toEqual(["1", "Finished2"]);
       const live = view.host.querySelector('[data-group="agent:live"]')!;
       expect(live.querySelector(".acpmux-bg__fold")?.textContent).toBe("3 tasks, 1 failed");
       // A heading folds its agents: Finished starts folded, as Claude Desktop's panel opens.

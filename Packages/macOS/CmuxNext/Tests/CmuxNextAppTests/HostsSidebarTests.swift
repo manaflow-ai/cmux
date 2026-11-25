@@ -71,7 +71,7 @@ struct HostsSidebarTests {
         #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", nil, "Offline", "Resuming…", "Failed"])
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .idle)
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.isMissing == false)
-        #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == false)
     }
 
     /// Leo, 2026-11-24: "all the connecting... indicators and the graying out of workspaces, nah let's not do that.

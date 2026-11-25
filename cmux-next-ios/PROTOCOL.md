@@ -513,14 +513,23 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
 
 - **Join:** `GET /v1/relay/:sessionId?deviceId=<id>`, a plain HTTP/1.1
   `Upgrade: websocket` with `Authorization: Bearer <Stack token>` (or the
-  `bearer.` subprotocol entry, as for signaling) and the build space
-  header of a dev build. The Worker selects `cmux-relay.v1` when offered.
-  It admits only a device the caller's own hub bound to that session at its
-  first admitted signal (the session's initiator or responder, while the
-  session lives: 24 h, or until `bye` or the device's removal), in the
-  caller's build space: anyone else gets `403 not_in_session`, a session no
-  signal opened too. `503 relay_off` when the Worker's `LINK_RELAY_MODE` is
-  `off` (the kill switch); an older Worker answers `404`.
+  `bearer.` subprotocol entry, as for signaling), `x-cmux-relay-ticket:
+  <ticket>`, and the build space header of a dev build. The Worker selects
+  `cmux-relay.v1` when offered. It admits only a device the caller's own hub
+  bound to that session at its first admitted signal (the session's
+  initiator or responder, while the session lives: 24 h, or until `bye` or
+  the device's removal), in the caller's build space, presenting that
+  device's own ticket: anyone else gets `403 not_in_session`, a session no
+  signal opened, a missing or wrong ticket, or another device's ticket too.
+  `503 relay_off` when the Worker's `LINK_RELAY_MODE` is `off` (the kill
+  switch); an older Worker answers `404`. A malformed `%` escape in the path
+  is `400`.
+- **Tickets:** when a session opens the hub makes a random ticket (32 bytes,
+  base64url) for each of its two devices, and stamps `relayTicket` on every
+  `wg-*` signal it forwards, the recipient's own ticket, replacing any value
+  a client wrote. A device learns its ticket only from its own signaling
+  socket, so a join proves which of the user's devices it is as far as the
+  service can tell (the user's token plus that device's socket).
 - **Where:** one `LinkRelay` Durable Object per session, named by the owner
   key, build space and session id (never a client value), created in the
   region that makes the two ends' round trips through it least ("Relay
@@ -535,7 +544,21 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   device id (the UUID's 16 bytes) and never reads the payload. Malformed
   frames, other kinds and frames past the per-socket limit (1500 frames and
   8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
-  at most every 5 s.
+  at most every 5 s. What a socket relays is first granted by the user's
+  hub (64 KiB, doubling up to 1 MiB per grant while the socket keeps
+  relaying), one budget per user and build space across all sessions
+  (`LINK_RELAY_USER_MIB_PER_MIN`, default 480: 8 MiB/s, kept in the hub's
+  storage so a wake grants no fresh minute); past it frames are dropped and
+  the sender hears `{"type":"error","code":"rate_limited"}`. A session asks
+  the hub one grant at a time (at most 256 frames wait for it); a refusal
+  holds for the hub's retry-after, and a hub that fails grants nothing for
+  1 s (fail closed), so frames past the budget cost no hub call each.
+- **Closes:** the service closes a relay socket with 4000 `replaced` (the
+  same device joined again), 4001 `ended` (the session's `bye`, also when the
+  peer's signaling socket is closed, or the session passed its 24 h), 4002
+  `removed` (a device of the session, or the account, was removed) and 4003
+  `relay_off` (the kill switch, at the socket's next frame). A client does
+  not rejoin after 4001 to 4003 (the join would be refused).
 - **Text frames, relay → client:** `{"type":"joined","peer":bool}` (the
   other party's socket is joined), then `{"type":"peer","online":bool}` when
   it joins or leaves, or at most every 5 s while frames find it absent. A
