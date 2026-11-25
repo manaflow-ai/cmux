@@ -468,6 +468,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
+    /// A read (no host is created): the open page's own background, else its Mac's theme.
+    func pageBackground(for tab: WorkspaceTab, in workspace: Workspace) -> Color? {
+        Color(uiColor: hosts[tab.id]?.model.pageBackground ?? TerminalModel.pageBackground(macID: workspace.macID))
+    }
+
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
         host(for: tab, in: workspace).model.focusComposer()
     }

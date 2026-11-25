@@ -190,8 +190,7 @@ public struct TerminalTabCard: View {
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
-                    ?? CmuxMobileGhosttyApp.background)
+                Color(uiColor: model.pageBackground)
                 let started = model.controller?.started == true
                 let content = TerminalCardContent.choose(sessionStarted: started,
                                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),

@@ -480,7 +480,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 address: .title(session, subtitle: "\(tab.title) · \(workspace.title)"),
                 // Back leaves the workspace: the tab has no history of its own.
                 navigation: TabsKitNavigationState(canGoBack: true),
-                features: [.history, .pageMenu]
+                features: [.history, .pageMenu],
+                pageColor: CmuxMobileChatBackdrop.topColor()
             )
         case .terminal:
             let directory = tab.subtitle ?? workspace.directory
@@ -492,7 +493,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 address: .title(tab.title, subtitle: status ?? directory, monospaced: status == nil),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
-                statusBarStyle: .lightContent
+                statusBarStyle: .lightContent,
+                // Its chat face (Show Chat) is the chat's backdrop.
+                pageColor: showsChatFace(tab, in: workspace) ? CmuxMobileChatBackdrop.topColor()
+                    : terminal.pageBackground(for: tab, in: workspace)
             )
         case .browser:
             let model: (any BrowserTabState)? = native.model(tab: tab.id, macID: workspace.macID)
@@ -520,7 +524,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 address: .title(tab.title, subtitle: "Simulator on \(macName)"),
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu],
-                statusBarStyle: .lightContent
+                statusBarStyle: .lightContent,
+                pageColor: .black
             )
         }
     }
