@@ -701,10 +701,8 @@ jobs:
     needs: coalesce
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it. A pull request into
-    # feat-cmux-next itself runs its checks as ci/steps.toml's static-notices-capabilities and
-    # static-defaults-menus-strings steps (pr-pipeline.yml), so the job skips it unless the docs-only fallback called it.
-    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
@@ -1312,8 +1310,6 @@ jobs:
   # A red own-change check (the size cap, the crash ratchet) or static check (page strings among them) on a pull
   # request into feat-cmux-next gets the same "red: <check>" comment as a red web check (chief 2026-10-12): ci.yml calls
   # this workflow after `web`; both callers update one comment, recomputed from all check runs of the head commit.
-  # static-checks skips such a pull request (its checks are pr-pipeline.yml linux steps, whose red check run the
-  # comment reads like any other) unless the docs-only fallback called this workflow.
   pr-red-checks:
     needs: [own-change-checks, static-checks]
     if: ${{ (github.event.action != 'ready_for_review') && (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') }}
