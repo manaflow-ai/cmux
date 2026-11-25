@@ -68,7 +68,7 @@ export default settingsPageEntry({
     ]),
     "claude-token": variant(
       mockModels.macLogins,
-      "Add a Connection > Claude Code: Open Terminal runs claude setup-token, then paste the token it prints.",
+      "Add a Connection > Claude Code: one Connect Claude button; Paste a token instead stays collapsed.",
       [
         shown,
         { selector: '[data-models-action="add"]', action: "click" },
@@ -83,6 +83,7 @@ export default settingsPageEntry({
         shown,
         { selector: '[data-models-action="add"]', action: "click" },
         { selector: '[data-models-choice="claude"]', action: "click" },
+        { selector: "[data-models-claude-paste] > summary", action: "click" },
         { selector: '[data-models-claude-form] input[type="password"]', action: "input", value: "not a token" },
       ],
     ),
