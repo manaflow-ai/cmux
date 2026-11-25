@@ -5,17 +5,17 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { plainAttach } from "./attachParams";
 
-const HOST_PARAMS = readFileSync(
-  `${import.meta.dir}/../../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift`,
-  "utf8",
-);
+/// The params the host lets through for `method`: the one contract, schemas/agent-pane/methods.json,
+/// which AcpmuxPaneMethodContractsTests holds knownParams equal to. Read there, never a list copied
+/// here: a copy went stale each time base added a param (seenSeq, then cutoverSeq).
+const CONTRACT = JSON.parse(
+  readFileSync(`${import.meta.dir}/../../../../schemas/agent-pane/methods.json`, "utf8"),
+) as { methods: Record<string, { params: string[] }> };
 
-/// The host's allowed top-level params of `method` (AcpmuxPaneMethods+Params.swift `knownParams`).
 function hostParams(method: string): string[] {
-  const line = HOST_PARAMS.split("\n").find((row) => row.trim().startsWith(`"${method}": (`));
-  if (!line) throw new Error(`no params rule for ${method}`);
-  const list = line.slice(line.indexOf("([") + 2, line.indexOf("]"));
-  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const entry = CONTRACT.methods[method];
+  if (!entry) throw new Error(`no contract entry for ${method}`);
+  return entry.params;
 }
 
 test("a hidden page's attach asks for no stream while hidden and keeps attending apart", () => {
@@ -31,9 +31,8 @@ test("a shown page whose reader is away is still on screen", () => {
   expect(params.attending).toBe(false);
 });
 
-test("the host lets every param of the plain attach and the view through", () => {
+test("the host lets every param of the plain attach through", () => {
   const params = plainAttach("chat-1", { settled: true, visible: true, attending: true, local: true, maxBytes: 1 });
   const allowed = new Set(hostParams("_acpmux/attach"));
   for (const key of Object.keys(params)) expect(allowed.has(key)).toBe(true);
-  expect(hostParams("_acpmux/view")).toEqual(["sessionId", "visible", "attending", "seenSeq"]);
 });
