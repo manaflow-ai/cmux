@@ -48,10 +48,10 @@ fn record_scene(dir: &Path, name: &str, ops: Value) {
     std::fs::write(dir.join("preview/scenes.json"), file.to_string()).unwrap();
     let path = dir.join("cmux-app.json");
     let mut manifest = read_json(&path);
-    if let Some(files) = manifest["files"].as_array_mut() {
-        if !files.contains(&json!("preview/")) {
-            files.push(json!("preview/"));
-        }
+    if let Some(files) = manifest["files"].as_array_mut()
+        && !files.contains(&json!("preview/"))
+    {
+        files.push(json!("preview/"));
     }
     std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
 }
@@ -431,7 +431,7 @@ fn publish_refuses_a_listing_whose_recorded_scenes_warn() {
 
     // The same check is `ext design --listing DIR`'s.
     let manifest = read_json(&dir.join("cmux-app.json"));
-    assert_eq!(super::design::listing(&dir, &manifest), report.design.clone().unwrap());
+    assert_eq!(super::design::listing(&dir, &manifest), report.design.unwrap());
 
     // Fixed and recorded again: ready.
     record_scene(&dir, "cmux.section/1", clean_scene());

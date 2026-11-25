@@ -10,7 +10,8 @@ export const HOVER_LOOK_SWITCH = "hoverLook";
 export const HOVER_LOOK_ATTRIBUTE = "data-hover-look";
 
 /// The hover surfaces the restyle paints itself, off the App's glass (ui/glass/hostGlass.ts): a
-/// Base UI tooltip and hover card, a title tooltip, a toolbar hint, a chart tooltip.
+/// Base UI tooltip and hover card, a title tooltip, a toolbar hint, a chart's tooltip (the same list
+/// ui/hoverLook.css paints).
 export const HOVER_LOOK_SURFACES = ".ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip";
 
 /// How tooltips and hover cards look once the switch is on (Leo, ask-68c2ce3e90: "i recall a lot of
@@ -37,8 +38,17 @@ export const hoverLook = defineExperiment({
       label: "Soft",
       description: "A clearer glass with a rounder corner, no ring and a wide diffuse shadow.",
     },
+    one: {
+      label: "One",
+      description:
+        "One material for every tooltip and hover card: the tooltip's contrast-fitted veil over the transient frost and the tooltip's corner, each blurring what it covers in place, one hover open at a time, shown and gone in one frame.",
+    },
   },
   defaultArm: "crisp",
 });
 
 export type HoverLook = keyof typeof hoverLook.arms;
+
+/// The arm that makes every hover surface one material and one at a time (Leo, 2026-11-22, softened:
+/// "multiple styles for hover previews plus bad-looking translucency blur, unacceptable").
+export const HOVER_LOOK_ONE: HoverLook = "one";

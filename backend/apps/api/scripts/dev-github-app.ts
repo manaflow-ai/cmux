@@ -32,6 +32,7 @@ export const SECRETS_FILE = join(homedir(), ".secrets", "cmux-next-integrations-
  * - Chief comments (providers.ts github.issue.comment): issues write.
  * - The org admin check at link time (providers.ts requireOrgAdmin): members read.
  * - metadata read: every App has it.
+ * - merge_queues read: GitHub sends merge_group (a merge queue's checks) only with it.
  * The staging App (cmux-cloud-staging) grants contents read and no checks, actions, statuses or workflows,
  * so a write token for `gh` or `git push` is refused there; development grants what the code asks.
  */
@@ -41,14 +42,34 @@ export const PERMISSIONS = {
   contents: "write",
   issues: "write",
   members: "read",
+  // The merge_group event (merge queue checks) is delivered only with this permission.
+  merge_queues: "read",
   metadata: "read",
   pull_requests: "write",
   statuses: "read",
   workflows: "write"
 } as const
 
-/** The staging App's events, plus what github-push.ts GITHUB_PUSH_EVENTS turns into live list updates. */
-export const EVENTS = ["check_run", "check_suite", "issue_comment", "issues", "pull_request", "pull_request_review", "pull_request_review_thread", "push", "status"] as const
+/**
+ * Every event a receiver handles (scripts/github-app-drift.ts RECEIVER_EVENTS checks it): the staging App's events,
+ * what github-push.ts GITHUB_PUSH_EVENTS turns into live list updates, Chief jobs' workflow_run, and the
+ * cmux-platform feed and triggers (workflow_run, workflow_job, pull_request_review_comment, merge_group).
+ */
+export const EVENTS = [
+  "check_run",
+  "check_suite",
+  "issue_comment",
+  "issues",
+  "merge_group",
+  "pull_request",
+  "pull_request_review",
+  "pull_request_review_comment",
+  "pull_request_review_thread",
+  "push",
+  "status",
+  "workflow_job",
+  "workflow_run"
+] as const
 
 /** The App manifest (https://docs.github.com/apps/sharing-github-apps/registering-a-github-app-from-a-manifest). */
 export const manifest = (redirectUrl = `http://127.0.0.1:${LOCAL_PORT}/created`) => ({

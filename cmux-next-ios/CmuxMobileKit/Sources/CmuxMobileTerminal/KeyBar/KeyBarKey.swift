@@ -5,6 +5,8 @@ enum KeyBarKey: Hashable, Sendable {
     case escape, tab, returnKey, control, alternate, command, shift
     case up, down, left, right, home, end, pageUp, pageDown
     case paste, zoomOut, zoomIn
+    /// Wide: the grid wider than the page, panned sideways (`TerminalModel.wideOutput`).
+    case wide
     /// The pinned compose key: opens, focuses or closes the composer (`ComposerDockState`).
     case composer
     /// Hides the key row, the composer and the keyboard until the next terminal tap.
@@ -31,7 +33,7 @@ enum KeyBarKey: Hashable, Sendable {
         case .end: "End"
         case .pageUp: "PgUp"
         case .pageDown: "PgDn"
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome: ""
+        case .paste, .zoomOut, .zoomIn, .wide, .composer, .hideChrome: ""
         case .chord("l"): "Clear"
         case .chord(let letter): "^" + String(letter).uppercased()
         case .symbol(let text): text
@@ -45,6 +47,7 @@ enum KeyBarKey: Hashable, Sendable {
         case .paste: "doc.on.clipboard"
         case .zoomOut: "minus.magnifyingglass"
         case .zoomIn: "plus.magnifyingglass"
+        case .wide: "arrow.left.and.right.square"
         // Shows or hides the text field (not "compose a new message").
         case .composer: "character.textbox"
         case .hideChrome: "chevron.down.square"
@@ -72,6 +75,7 @@ enum KeyBarKey: Hashable, Sendable {
         case .paste: "Paste"
         case .zoomOut: "Zoom Out"
         case .zoomIn: "Zoom In"
+        case .wide: "Wide"
         case .composer: "Text Field"
         case .hideChrome: "Hide Toolbar"
         case .chord("l"): "Clear (Control-L)"
@@ -102,6 +106,7 @@ enum KeyBarKey: Hashable, Sendable {
         case .paste: "paste"
         case .zoomOut: "zoom-out"
         case .zoomIn: "zoom-in"
+        case .wide: "wide"
         case .composer: "composer"
         case .hideChrome: "hide-chrome"
         case .chord(let letter): "ctrl-" + String(letter).lowercased()
@@ -123,7 +128,7 @@ enum KeyBarKey: Hashable, Sendable {
     var isGlyph: Bool {
         switch self {
         case .control, .alternate, .command, .shift, .up, .down, .left, .right, .returnKey: true
-        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome: true
+        case .paste, .zoomOut, .zoomIn, .wide, .composer, .hideChrome: true
         case .symbol: true
         default: false
         }
@@ -208,7 +213,7 @@ public enum KeyBarLayout: String, CaseIterable, Sendable {
             .chord("z"),
             .home, .end, .pageUp, .pageDown,
         ]
-        let end: [KeyBarKey] = [.zoomOut, .zoomIn, .hideChrome]
+        let end: [KeyBarKey] = [.zoomOut, .zoomIn, .wide, .hideChrome]
         return switch self {
         case .arrowsBeforeAgents: modifiers + chords + KeyBarKey.arrows + agents + tail + end
         case .arrowsAfterEscape: modifiers + KeyBarKey.arrows + chords + agents + tail + end

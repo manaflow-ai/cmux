@@ -42,3 +42,31 @@ extension PaneContentRidesTests {
         #expect(!content.paneRidesCommitMotion && content.paneCommitMotionHolder == nil, "a hidden \(name) rides or holds")
     }
 }
+
+/// A page that draws in a window of its own over its pane, as a cmux page on the Chromium engine does.
+@MainActor private final class OwnWindowPage: NSView, PaneContentOwnWindow {
+    var drawsInOwnWindow = true
+}
+
+extension PaneContentRidesTests {
+    /// The Markdown zoom of Lawrence's 2026-11-23 film: an internal page on the Chromium engine draws in Chromium's
+    /// child window, which the pane's moving clip does not cut. A pane that shows it does not ride: a zoom or an
+    /// unzoom of it shows in one frame, so the covered panes never show through the page and the page wraps its text
+    /// once. The same page on WebKit (no window of its own) rides.
+    @Test(arguments: internalPages)
+    func aPaneWhoseInternalPageDrawsInItsOwnWindowDoesNotRide(_ name: String) {
+        _ = NSApplication.shared
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let area = PaneContentAreaView(frame: content.bounds)
+        content.addSubview(area)
+        let page = OwnWindowPage()
+        let view = InternalPageView(key: "pane-own-window-\(name)", page: Self.internalPage(name), content: page)
+        view.frame = area.bounds
+        area.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(!content.paneRidesCommitMotion,
+                "a pane that shows \(name) in a window of its own rides: the move's clip does not cut that window, and the panes under it show through")
+        page.drawsInOwnWindow = false
+        #expect(content.paneRidesCommitMotion, "a pane that shows \(name) in its own layer does not ride")
+    }
+}

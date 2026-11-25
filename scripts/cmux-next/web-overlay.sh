@@ -800,9 +800,14 @@ PY
     ;;
   status)
     # First the answer (what the app loads its web UI from, and why), then the details.
-    setting=unknown
-    if command -v cmux >/dev/null 2>&1; then
-      setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    # `cmux live status` reads the setting itself, from the app it was pointed at (--app-socket),
+    # and passes it in CMUX_LIVE_WEB_RELOAD; run by hand, this asks the `cmux` on PATH.
+    setting="${CMUX_LIVE_WEB_RELOAD:-}"
+    if [[ -z "$setting" ]]; then
+      setting=unknown
+      if command -v cmux >/dev/null 2>&1; then
+        setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+      fi
     fi
     explain "$setting" "$(live_pid dev-server)"
     echo

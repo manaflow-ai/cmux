@@ -224,7 +224,7 @@ import CmuxNextDesignTokens
         swatch.wantsLayer = true
         swatch.layer?.backgroundColor = swatchColor.nsColor.cgColor
         container.addSubview(swatch)
-        let samples = catalog(scope: scope, disabled: disabled, onMenuGlass: ground.isGlass)
+        let samples = catalog(scope: scope, disabled: disabled)
         // The most any ink reaches on a see-through ground: the theme's own primary text there.
         // Read as the capture holds them, 8 bits a channel: Rose Pine Dawn's text is 2.363:1 on its exact ground and
         // 2.354:1 on the 8-bit one, so the theme's own ink failed its own ceiling.
@@ -243,6 +243,8 @@ import CmuxNextDesignTokens
         container.layoutSubtreeIfNeeded()
         for view in allViews(container) { view.viewDidChangeEffectiveAppearance(); view.needsDisplay = true }
         container.layoutSubtreeIfNeeded()
+        // No run loop pass: a SwiftUI control has the ground it sits on from its host (ThemedHostingView) before its first
+        // draw, so the capture below is its first frame.
         // The veil was added to the panel's content while it had no size, and draws in updateLayer, which
         // cacheDisplay does not run: it takes its content's bounds and draws now.
         for view in allViews(container) where view is GlassMenuVeilView {
@@ -299,16 +301,17 @@ import CmuxNextDesignTokens
         GlassMenuMaterial.glass(tokens, veil: GlassMenuMaterial.veil(for: tokens), over: page)
     }
 
-    /// Every shared button look, as the app constructs it: SwiftUI content a menu panel hosts is marked as on its glass
-    /// (`cmuxOnMenuGlass`), as the Downloads popup marks its own.
-    static func catalog(scope: ThemeScope, disabled: Bool, onMenuGlass: Bool = false) -> [Sample] {
+    /// Every shared button look, as the app constructs it. Nothing marks SwiftUI content as on a menu panel's glass: its
+    /// host (``ThemedHostingView``) finds the panel in the view tree, as each AppKit control does (``NSView/buttonGround(_:)``).
+    static func catalog(scope: ThemeScope, disabled: Bool) -> [Sample] {
         let enabled = !disabled
         func appKit(_ name: String, _ button: NSControl, icon: Bool = false) -> Sample {
             button.isEnabled = enabled
             return Sample(name: name, view: button, isIcon: icon)
         }
         func swiftUI(_ name: String, _ view: some View, reference: Bool = false) -> Sample {
-            let host = NSHostingView(rootView: AnyView(view.disabled(disabled)))
+            // As the app hosts SwiftUI on its surfaces: the content draws the theme's inks fit to its ground.
+            let host = ThemedHostingView(rootView: AnyView(view.disabled(disabled)))
             host.sizingOptions = [.intrinsicContentSize]
             return Sample(name: name, view: host, isIcon: false, isReference: reference)
         }
@@ -343,8 +346,18 @@ import CmuxNextDesignTokens
             swiftUI("system bezel: SwiftUI Button, selection tint", Button("More…") {}.tint(selection), reference: true),
             swiftUI("system bezel: SwiftUI Button", Button("Remove") {}, reference: true),
             swiftUI("CmuxDialogActionButton (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
-            swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)
-                .cmuxOnMenuGlass(onMenuGlass ? scope.tokens : nil)),
+            swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)),
+            // SwiftUI content that sets no ink of its own (Chief 2026-11-23): it draws the ink its host gives, the
+            // bookmark bubble's labels and title, a toggle's label and a button's label on every ground.
+            swiftUI("SwiftUI Text", Text("Bookmark added")),
+            swiftUI("SwiftUI Text (cmuxSecondary)", Text("Folder").foregroundStyle(.cmuxSecondary)),
+            // SwiftUI's own secondary level is the primary ink at a lower opacity: for the report only.
+            swiftUI("system level: SwiftUI Text (.secondary)", Text("Folder").foregroundStyle(.secondary), reference: true),
+            swiftUI("SwiftUI Toggle", Toggle("Show bookmarks bar", isOn: .constant(false)).toggleStyle(.checkbox)),
+            swiftUI("SwiftUI Button (cmuxPressFill, label's own ink)", Button("Reveal") {}.buttonStyle(.cmuxPressFill)),
+            // cmux draws its pickers with ThemedPicker (above as ThemedPopUpButton); SwiftUI's own is AppKit's bezel.
+            swiftUI("system bezel: SwiftUI Picker", Picker("Folder", selection: .constant(0)) { Text("Bookmarks Bar").tag(0) }
+                .labelsHidden().pickerStyle(.menu), reference: true),
         ]
     }
 

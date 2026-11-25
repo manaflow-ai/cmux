@@ -53,8 +53,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	clas
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.chatFolderMissing	26	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.peerRefused	21	20
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings	sessionTransfer.error.sourceAgentsStopped	16	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.list	18	12
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings	mobilePairing.page.ready.scan	13	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings	passwords.csv.guide.name.other	10	6
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.browser.notConnected	14	12
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings	remote.install.body	36	25

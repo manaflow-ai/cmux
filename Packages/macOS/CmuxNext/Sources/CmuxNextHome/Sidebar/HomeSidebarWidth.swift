@@ -6,10 +6,15 @@ public import Foundation
 /// width (the docked column, `column.update`) takes this value over when the
 /// daemon owns the column. It also keeps whether the list shows at all (``listShown``).
 public struct HomeSidebarWidth: Sendable {
-    /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth`
-    /// (HomeSidebarView reads them from the list; these match v1).
-    public static let minimum: CGFloat = 76
-    public static let standard: CGFloat = 320
+    /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth` (92 and 320) plus the
+    /// panel's 8 pt inset from the column's left (`HomeSidebarView.panelInset`): HomeSidebarView
+    /// reads them from the list.
+    public static let minimum: CGFloat = 100
+    public static let standard: CGFloat = 328
+    /// The narrowest list with names: MessagesLab's `compactBelow` (180) plus the 8 pt inset. Between the strip and this
+    /// the list shows no width, as Messages' avatar strip (the user, 2026-11-24: a wide strip looked weird; "do what
+    /// apple does and shift to the smaller/narrower size"): a width there snaps to one or the other.
+    public static let fullMinimum: CGFloat = 188
 
     /// The narrowest the transcript beside the list gets while the list can still shrink: about
     /// 30 characters of a bubble. Below it the list drops to its avatar-only minimum first, so a
@@ -17,10 +22,24 @@ public struct HomeSidebarWidth: Sendable {
     public static let transcriptMinimum: CGFloat = 280
 
     /// `width` kept between `minimum` and the smaller of half of `window` and what leaves the
-    /// transcript ``transcriptMinimum`` (a window too narrow for both keeps the list's minimum).
-    public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum,
+    /// transcript ``transcriptMinimum`` (a window too narrow for both keeps the list's minimum). A width under
+    /// ``fullMinimum`` is the strip (`minimum`).
+    public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum, fullMinimum: CGFloat = fullMinimum,
                              transcriptMinimum: CGFloat = transcriptMinimum) -> CGFloat {
-        max(minimum, min(width, window / 2, window - transcriptMinimum))
+        let fit = max(minimum, min(width, window / 2, window - transcriptMinimum))
+        return fit < fullMinimum ? minimum : fit
+    }
+
+    /// Where a divider drag to `proposed` puts the list, from the pointer alone (the old snap read the list's width too and
+    /// flipped between the two mid-drag): the full list follows the pointer from ``fullMinimum`` to `widest`; under it the
+    /// list snaps to the strip or the narrowest full list, whichever is nearer; 0 once the pointer is half way into the
+    /// strip, as Finder's sidebar (the user, 2026-11-24: "it's okay to remove the sidebar at a certain point"). Back past
+    /// that point in the same drag, the list is back. A window with no room for the full list keeps the strip.
+    public static func drag(_ proposed: CGFloat, minimum: CGFloat = minimum, fullMinimum: CGFloat = fullMinimum, widest: CGFloat) -> CGFloat {
+        if proposed < minimum / 2 { return 0 }
+        if widest < fullMinimum { return minimum }
+        if proposed < fullMinimum { return proposed < (minimum + fullMinimum) / 2 ? minimum : fullMinimum }
+        return min(proposed, widest)
     }
 
     /// The narrowest Home column that shows the list at its minimum and the transcript at its own.
