@@ -349,7 +349,8 @@ public final class TerminalProjectingSession: TerminalSession {
     public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { loadOlderHistory() }
 
     /// `page` with every hit moved through `locate` (host rows from the bottom and column -> phone's).
-    static func relocated(
+    /// Pure, so callers on any actor (its tests) can run it.
+    nonisolated static func relocated(
         _ page: TerminalFindPage,
         locate: (_ rowsFromBottom: Int, _ column: Int) -> (rowsFromBottom: Int, column: Int)?
     ) -> TerminalFindPage {
