@@ -423,9 +423,11 @@ public final class AgentChatStore {
     }
 
     /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
-    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes). A
+    /// history still loading counts as a wait too, so a slow catch-up says "Loading chat…" once
+    /// the bound passes (``loadingTextShows``); the lines that name the link still check the link.
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline || isLoadingHistory)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -434,7 +436,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline || source.loadsHistory)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -594,6 +596,11 @@ public final class AgentChatStore {
     public var effortOption: ACPConfigOption? { configOptions.first(where: \.isEffort) }
 
     // MARK: Intents
+
+    /// The composer's attachments changed: the source may start sending files ahead of Send.
+    public func composerAttachmentsChanged(_ attachments: [AgentAttachment]) {
+        source.prestageAttachments(attachments)
+    }
 
     /// `denyingPermission`: the message is "Reply instead" for the pending
     /// permission (SPEC 6.5): deny it so the agent goes on, and send the
@@ -1809,7 +1816,11 @@ public final class AgentChatStore {
                 markdown += text
                 turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                // The same message going on after a row of its own between (an image it sent)
+                // takes a new id: two rows never share one.
+                var id = messageId ?? UUID().uuidString
+                if turns[last].items.contains(where: { $0.id == "m-\(id)" }) { id += "-#\(turns[last].items.count)" }
+                turns[last].items.append(.message(id: id, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false

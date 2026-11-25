@@ -35,7 +35,7 @@ public struct TerminalTabUpgrade: Sendable {
 }
 
 /// The last frame of each terminal tab, kept on disk so a cold launch that
-/// restores a tab shows it (dimmed, under "Connecting…") instead of skeleton
+/// restores a tab shows it (at full strength, no waiting words) instead of skeleton
 /// rows until the Mac's terminal is attached (design/terminal R1-0).
 ///
 /// Stable identity for a terminal preview. Surface IDs repeat across Macs and
