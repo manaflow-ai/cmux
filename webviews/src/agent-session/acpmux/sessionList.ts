@@ -298,13 +298,23 @@ function doingLine(session: Record<string, any>): string | undefined {
   return step ?? tool ?? text(session.lane?.step);
 }
 
-/** What a session waits on the person for: only the person answers either, in the app. */
-export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+/** What a session waits on the person for: only the person answers any of them, in the app. acpmux
+ *  names every wait (`waitingOn`, subsession_send.rs `waiting_on`): a question, a tool's permission,
+ *  a secret's value, the password for one command as root, or an MCP server to connect. */
+export type SessionWaiting =
+  | { on: "question"; prompt?: string }
+  | { on: "permission" }
+  | { on: "secret" }
+  | { on: "elevation" }
+  | { on: "mcpConnect" };
 
 /** `waitingOn` while the session waits on the person, with a question's first prompt
  *  (`waitingPrompt`) when acpmux gives it. */
 export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
   if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn === "secret") return { on: "secret" };
+  if (session.waitingOn === "elevation") return { on: "elevation" };
+  if (session.waitingOn === "mcp_connect") return { on: "mcpConnect" };
   if (session.waitingOn !== "question") return undefined;
   const prompt = text(session.waitingPrompt);
   return prompt ? { on: "question", prompt } : { on: "question" };
@@ -552,10 +562,12 @@ const shown = (value: unknown): string | undefined => {
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
- * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE), or a DEV build's own,
+ * `~/Library/Application Support/cmux-next/builds/<key>/agent-home/<workspace-id>` (BuildStatePaths `agentHome`).
+ * It is not a project, so it is never shown by its id (cmux#53226: a tagged build listed its own by UUID).
  */
 export function isAgentHome(cwd: string | undefined): boolean {
-  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+  return /\/Library\/Application Support\/(?:cmux|cmux-next\/builds\/[^/]+)\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
 /**
@@ -715,6 +727,11 @@ export class FolderRecency {
     this.last = sessions;
     if (!replaced || !replaced.every((at) => this.moved(sessions[at]!))) this.build(sessions);
     return this.order;
+  }
+
+  /// When a chat here last worked in `folder` (of the list last read), if any did.
+  usedAt(folder: string): number | undefined {
+    return this.newest.get(folder);
   }
 
   private build(sessions: readonly AcpmuxSessionEntry[]) {

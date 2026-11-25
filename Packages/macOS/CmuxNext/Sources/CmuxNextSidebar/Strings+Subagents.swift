@@ -18,6 +18,11 @@ extension Strings {
         return parts.joined(separator: " · ")
     }
 
+    /// A row's failed subagents, for VoiceOver (the title line draws them as its failed chip).
+    static func subagentsFailed(_ count: Int) -> String {
+        String(localized: "sidebar.subagents.stack.failed", defaultValue: "\(count) failed", bundle: .localizedModule)
+    }
+
     /// The line past a chat's last listed subagents.
     static func moreSubagents(_ count: Int) -> String {
         String(localized: "sidebar.subagents.more", defaultValue: "\(count) more", bundle: .localizedModule)

@@ -40,6 +40,9 @@ public final class LaunchReveal {
     /// Regions shown by their deadline, not their data (the launch marks' `reveal.<region>.by_deadline`).
     @ObservationIgnored public private(set) var shownByDeadline: Set<LaunchRegion> = []
     @ObservationIgnored private let deadline: Duration
+    /// The launch's first window frame (the app's `FirstFrameGate`), for a region's view that holds its
+    /// own launch work until after it (``FirstFrameHold``). nil: no gate (tests), that work runs at once.
+    @ObservationIgnored public var firstFrame: FirstFrameGate?
     /// The pending waits of ``whenReady(_:orAfter:_:)``, by timer; each leaves at its region's ready or its fire.
     @ObservationIgnored private var waits: [ObjectIdentifier: DemandTimer] = [:]
     /// Page views wait for the first window frame (``LaunchPageDeferral``); the app binds its gate.
@@ -84,6 +87,12 @@ public final class LaunchReveal {
     /// Runs `work` once `region` is ready (at once when it is).
     public func whenReady(_ region: LaunchRegion, _ work: @escaping @MainActor () -> Void) {
         if isReady(region) { work() } else { waiters[region, default: []].append(work) }
+    }
+
+    /// Runs `ready` once the sidebar, the tab strips and the panes all show their content: when the
+    /// real launch window may swap in over stage 0 (LaunchShellContent.contentReady).
+    public func whenContentReady(_ ready: @escaping @MainActor () -> Void) {
+        whenReady(.sidebar) { [weak self] in self?.whenReady(.tabs) { self?.whenReady(.pane) { ready() } } }
     }
 
     /// Runs `work` once: when `region` is ready, or `wait` from now when it is not by then. A region

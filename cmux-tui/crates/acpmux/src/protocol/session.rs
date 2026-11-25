@@ -216,12 +216,6 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub task_list: Option<crate::task_list::TaskListSummary>,
-    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
-    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
-    /// older acpmux.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub rolling_summary: Option<crate::store::RollingSummary>,
     /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
     /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -303,8 +297,11 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
-    /// What it waits on the person for: `question` (an agent question) or
-    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    /// What it waits on the person for: `question` (an agent question), `permission`,
+    /// `secret` (a private card asking a secret's value), `elevation` (a card asking the
+    /// password to run one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server); null while it waits on nothing. A `waiting` status always has one. Only the
+    /// person allows a permission or answers a card.
     pub waiting_on: Option<String>,
     /// The first prompt of the question it waits on, cut to 120 characters.
     pub waiting_prompt: Option<String>,
@@ -805,8 +802,12 @@ pub struct Enforcement {
 pub struct LastTurn {
     pub turn_id: Option<String>,
     pub prompt_id: Option<String>,
-    /// `completed`, `failed` or `cancelled`.
+    /// `completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a
+    /// capacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).
     pub status: Option<String>,
+    /// When a `capacity` turn's continuation runs, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<u64>,
     pub stop_reason: Option<String>,
     pub error_text: Option<String>,
     pub error_source: Option<String>,
@@ -979,6 +980,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude peer sessions before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and
+    /// sessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the
+    /// chats a list shows on their own (capability `session-list-top-level-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_level_only: Option<bool>,
     /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<String>,
