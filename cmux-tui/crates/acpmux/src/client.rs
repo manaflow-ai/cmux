@@ -688,6 +688,12 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     .into()
 }
 
+/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
+fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
+    let warning = params?.get("warning")?.as_str()?;
+    Some(format!("acpmux: {warning}"))
+}
+
 #[cfg(test)]
 #[path = "client_closed_tests.rs"]
 mod closed_tests;
@@ -750,10 +756,4 @@ mod lineage_tests {
             json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
         assert!(reply_lacks_lineage(&on_a_peer));
     }
-}
-
-/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
-fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
-    let warning = params?.get("warning")?.as_str()?;
-    Some(format!("acpmux: {warning}"))
 }

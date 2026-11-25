@@ -973,6 +973,7 @@ async fn session(
 
 /// Whether a call with `headers` (lowercase names) is taken while `in_flight` calls run: an interactive
 /// one up to [`MAX_CALLS`], any other up to [`MAX_CALLS`] less [`INTERACTIVE_RESERVE`].
+#[cfg(test)]
 fn admits(in_flight: usize, headers: &[(String, String)]) -> bool {
     in_flight < cap(interactive(headers))
 }
