@@ -8,7 +8,7 @@ import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
-import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
+import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand, legacyErrorFilter } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 import { CMUX_CLOUD_HOME, CMUX_TUI_LEGACY_HOME } from "../services/vms/drivers/cmuxTuiDaemon";
@@ -51,6 +51,26 @@ describe("cmux VM image guest commands", () => {
     await bashSyntax(imageLeftoversCommand());
     // Existence only: the leftover scan never reads or prints a sign-in file's contents.
     expect(imageLeftoversCommand()).not.toMatch(/\b(cat|head -c|grep [^|]*credentials)\b/);
+  });
+
+  // Rolls 45541312694 and 45561599772 failed the smoke on an unbound VM's refusal line, which names no migration.
+  test("daemon uptime journal filter: the migration refusal matches, other refusals do not", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "uptime-journal-"));
+    try {
+      const log = path.join(dir, "journal.log");
+      writeFileSync(log, [
+        "cmux-host: cloud: auto-session machine: refused vm.unbound",
+        "cmux-host: carrier ticket: refused vm.unbound in 4 ms",
+        "cmux-host: session host started",
+        "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      ].join("\n") + "\n");
+      const result = await runChild("bash", ["-c", legacyErrorFilter(log)], { timeout: 20_000 });
+      expect(result.stdout.trim().split("\n")).toEqual([
+        "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
@@ -268,7 +288,9 @@ describe("cmux VM image apt index", () => {
   test("smoke refuses openbox only on an image without the agent tools", async () => {
     const command = rolesOffFontsOnCommand();
     expect(command).toContain("{ test -x /opt/cmux/agent-tools/bin/cmux-cua || ! command -v openbox >/dev/null; }");
-    expect(command).toContain("! command -v ffmpeg >/dev/null");
+    // Roll 3641: #56284 bakes ffmpeg, and smoke still refused it.
+    expect(command).toContain("command -v ffprobe >/dev/null");
+    expect(command).not.toContain("! command -v ffmpeg");
     await bashSyntax(command);
   });
 
@@ -508,6 +530,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
+      expect(out).not.toContain("Usage:");
+      expect(out.trimEnd().split("\n").at(-1)).toContain(`written after clean: ${leftover}`);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");
