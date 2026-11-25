@@ -280,7 +280,28 @@ jobs:
           rm -rf "$context"
           mkdir -p "$context/scripts"
           cp -R "$RUNNER_TEMP/autofix/scripts/cmux-next" "$context/scripts/"
-          cp -R "$RUNNER_TEMP/autofix/scripts/ci" "$context/scripts/"
+          # Repair only needs the base fixer's CI helpers and their routing inputs. Keeping the
+          # handoff to this small, explicit set avoids archiving every scripts/ci blob on every PR.
+          ci_helpers=(
+            scripts/ci/cargo_affected.py
+            scripts/ci/check_cmux_tui_tree_inputs.py
+            scripts/ci/defaults_guard.py
+            scripts/ci/job_inputs.py
+            scripts/ci/fast_check_route.py
+            scripts/ci/same_tree_reuse.py
+            scripts/ci/fast-check-inputs.json
+            scripts/ci/generated-files.json
+            scripts/ci/generated-files-baseline.txt
+            scripts/ci/generated_outputs.py
+            scripts/ci/affected-jobs.json
+            scripts/ci/pr_router.json
+            scripts/ci/job-inputs-always.json
+            scripts/ci/same_tree_reuse.json
+          )
+          for helper in "${ci_helpers[@]}"; do
+            mkdir -p "$context/$(dirname "$helper")"
+            cp "$RUNNER_TEMP/autofix/$helper" "$context/$helper"
+          done
           : > "$context/generator-inputs-verified"
 
       - name: Upload PR autofix context
@@ -1040,20 +1061,26 @@ jobs:
           if [[ -f "$RUNNER_TEMP/pr-autofix-context/generator-inputs-verified" ]]; then
             base_manifest="$RUNNER_TEMP/autofix-base-manifest"
             git ls-tree -r --full-tree "$BASE_SHA" -- scripts/cmux-next scripts/ci |
-              awk '$2 == "blob" && $4 !~ /\/\.gitignore$/ { print $4 }' > "$base_manifest"
+              awk '$2 == "blob" && $4 !~ /\/\.gitignore$/ { print $3 "\t" $4 }' > "$base_manifest"
             artifact_ok=true
-            while IFS= read -r helper; do
-              [[ -f "$RUNNER_TEMP/pr-autofix-context/$helper" ]] || { artifact_ok=false; break; }
-              expected=$(git ls-tree -r --full-tree "$BASE_SHA" -- "$helper" | awk '$2 == "blob" { print $3; exit }')
-              actual=$(git hash-object "$RUNNER_TEMP/pr-autofix-context/$helper")
-              [[ "$actual" == "$expected" ]] || { artifact_ok=false; break; }
-            done < "$base_manifest"
+            artifact_paths="$RUNNER_TEMP/autofix-artifact-paths"
+            (
+              cd "$RUNNER_TEMP/pr-autofix-context"
+              find scripts/cmux-next scripts/ci -type f ! -name .gitignore -printf '%P\n' | sort
+            ) > "$artifact_paths"
+            expected_hashes="$RUNNER_TEMP/autofix-base-hashes"
+            actual_hashes="$RUNNER_TEMP/autofix-artifact-hashes"
+            if ! awk 'NR == FNR { oid[$2] = $1; next }
+              { if (!($0 in oid)) bad = 1; else print oid[$0] }
+              END { exit bad ? 1 : 0 }' "$base_manifest" "$artifact_paths" > "$expected_hashes"; then
+              artifact_ok=false
+            fi
             if [[ "$artifact_ok" == true ]]; then
-              while IFS= read -r helper; do
-                rel="${helper#"$RUNNER_TEMP/pr-autofix-context/"}"
-                [[ "$rel" == */.gitignore ]] && continue
-                grep -Fxq "$rel" "$base_manifest" || { artifact_ok=false; break; }
-              done < <(find "$RUNNER_TEMP/pr-autofix-context/scripts" -type f -print)
+              (
+                cd "$RUNNER_TEMP/pr-autofix-context"
+                git hash-object --stdin-paths < "$artifact_paths"
+              ) > "$actual_hashes"
+              cmp -s "$expected_hashes" "$actual_hashes" || artifact_ok=false
             fi
             if [[ "$artifact_ok" != true ]]; then
               echo "::warning::PR autofix context artifact did not match the immutable base; using the batched restore."
