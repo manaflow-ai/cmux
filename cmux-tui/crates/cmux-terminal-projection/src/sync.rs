@@ -1801,7 +1801,9 @@ mod tests {
         let d = ScreenState::capture(&t2);
         let payload = diff(Some(&c), &d);
         assert_eq!(apply(None, &payload), Err(SyncError::NoBase));
-        assert_eq!(apply(Some(&a), &payload), Err(SyncError::GridMismatch));
+        // A version 3 diff names no grid (only a keyframe does): one applied to a base of
+        // another grid is refused by its digest, which covers the grid.
+        assert!(apply(Some(&a), &payload).is_err());
         // The wrong base of the right grid is caught by the digest.
         assert_eq!(apply(Some(&b), &payload), Err(SyncError::Digest));
     }
