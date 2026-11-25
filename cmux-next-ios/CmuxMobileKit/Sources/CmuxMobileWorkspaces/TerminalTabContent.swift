@@ -72,6 +72,9 @@ public protocol TerminalTabContent: AnyObject {
     /// (design/terminal P5). Nil keeps the directory. Read during view
     /// updates: must not create a tab's host or write state.
     func statusSubtitle(for tab: WorkspaceTab) -> String?
+    /// The terminal page's background, which TabsKit runs up under the top bar
+    /// (`TabsKitTab.pageColor`). Read during view updates: must not create a tab's host.
+    func pageBackground(for tab: WorkspaceTab, in workspace: Workspace) -> Color?
     /// The app went to the background (false) or came back: the grid's view
     /// still counts as visible in the background, so its refresh stops here.
     func sceneActiveChanged(_ active: Bool)
@@ -93,6 +96,8 @@ extension TerminalTabContent {
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
+    /// The placeholder terminal page is black.
+    public func pageBackground(for tab: WorkspaceTab, in workspace: Workspace) -> Color? { .black }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
 }

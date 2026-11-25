@@ -30,6 +30,14 @@ public final class TerminalModel {
     /// The terminal theme the surface shows now (its card paints the same background); nil until
     /// a Mac ever sent one.
     public internal(set) var hostTheme: CmuxMobileTerminalTheme?
+    /// The page's background: the theme it shows, else its Mac's known theme, else the phone's
+    /// terminal default. The card and the top bar's band paint it too.
+    public var pageBackground: UIColor { Self.pageBackground(macID: hostMacID, shown: hostTheme) }
+
+    /// A terminal of `macID`'s page background, with no model (a tab not opened yet).
+    public static func pageBackground(macID: String?, shown: CmuxMobileTerminalTheme? = nil) -> UIColor {
+        (shown ?? CmuxMobileTerminalThemes.shared.theme(for: macID))?.backgroundColor ?? CmuxMobileGhosttyApp.background
+    }
     /// Alternate screen: the program owns scrolling; the frame pins to the composer.
     public internal(set) var isTUI = false
     public internal(set) var keyboardVisible = false

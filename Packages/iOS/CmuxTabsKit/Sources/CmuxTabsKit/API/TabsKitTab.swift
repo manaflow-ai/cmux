@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// One tab as the kit shows it: a card in the grid, a page behind the
 /// toolbar, and the toolbar's address capsule. The client builds these from
@@ -28,10 +28,15 @@ public struct TabsKitTab: Identifiable, Hashable, Sendable {
     /// appearance). For a web page use `TabsKitStatusBarStyle(over:)` with
     /// the page's top color.
     public var statusBarStyle: TabsKitStatusBarStyle?
+    /// The page's own background at its top edge (a terminal's theme background, a chat's
+    /// backdrop). The paged strip's band under the top bar takes it, so the page runs up under
+    /// the bar to the top of the screen with no seam. Nil: the page draws no band (it runs
+    /// under the bar as it is, as with the strip off).
+    public var pageColor: Color?
 
     public init(id: ID, kind: TabsKitTabKind, title: String, subtitle: String = "", systemImage: String = "globe",
                 address: TabsKitAddress, navigation: TabsKitNavigationState = TabsKitNavigationState(),
-                features: TabsKitTabFeatures = .web, statusBarStyle: TabsKitStatusBarStyle? = nil) {
+                features: TabsKitTabFeatures = .web, statusBarStyle: TabsKitStatusBarStyle? = nil, pageColor: Color? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -41,6 +46,7 @@ public struct TabsKitTab: Identifiable, Hashable, Sendable {
         self.navigation = navigation
         self.features = features
         self.statusBarStyle = statusBarStyle
+        self.pageColor = pageColor
     }
 }
 
