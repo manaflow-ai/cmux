@@ -37,6 +37,24 @@ struct CloudChatTabMarkTests {
         #expect(CloudChatTabMark.mark(agent: false, frontedMachine: nil, sentToCloud: true, localSession: false) == nil, "a terminal never")
     }
 
+    /// 2026-11-24 (Austin): "we started the cloud chat but then for some reason the cloud icon didn't appear immediately on the horizontal
+    /// tab". New Cloud Chat opens a workspace whose chat has Cloud picked; only its sidebar row read the workspace's mark, so its tab had
+    /// no cloud until a Send. The tab wears it from the click, and a local chat in another workspace never does.
+    @Test func newCloudChatsTabHasTheCloudFromTheClick() throws {
+        let titles = AgentCloudStartTitles(), page = try Self.page(DaemonStore(), surface: 74)
+        let mark = { (workspace: String?) in
+            CloudChatTabMark.mark(agent: true, frontedMachine: nil, sentToCloud: titles.marksCloud(page, workspace: workspace), localSession: false)
+        }
+        #expect(mark("ws-cloud") == nil, "before the click")
+        titles.beginWorkspace("ws-cloud")
+        #expect(mark("ws-cloud") == CloudChatTabMark(machine: nil), "New Cloud Chat's tab, before any Send")
+        #expect(mark("ws-local") == nil, "a tab of another workspace")
+        #expect(mark(nil) == nil)
+        titles.begin(page, task: "1+1", untitled: "New Chat")
+        titles.endWorkspace("ws-cloud") // the runner's defer
+        #expect(mark("ws-cloud") == CloudChatTabMark(machine: nil), "its start, then a failure, keep it")
+    }
+
     /// A retry after a failure marks the tab again; another tab's send never marks this one.
     @Test func theMarkIsPerTab() throws {
         let store = DaemonStore(), titles = AgentCloudStartTitles()

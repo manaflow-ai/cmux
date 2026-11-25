@@ -59,6 +59,12 @@ public final class AgentCloudStartTitles {
     /// its tab shows the cloud (cmux#51000). Only the tab strip reads it; the sidebar row reads ``startsInCloud(_:)``.
     public func sentToCloud(_ tab: TabModel) -> Bool { cloudSends[ObjectIdentifier(tab)]?.tab === tab }
 
+    /// Whether `tab`, in workspace `workspace`, wears the cloud while it is a Cloud chat not yet shown in place (cmux#51000): its Send started
+    /// one (``sentToCloud(_:)``), or New Cloud Chat opened its workspace for it (``startsInCloud(workspace:)``), from the click, before any Send.
+    public func marksCloud(_ tab: TabModel, workspace: String?) -> Bool {
+        sentToCloud(tab) || workspace.map { startsInCloud(workspace: $0) } == true
+    }
+
     /// `tab`'s start opened its chat, which now shows in place: the front marks it from here (``sentToCloud(_:)`` ends).
     public func opened(_ tab: TabModel) {
         if cloudSends[ObjectIdentifier(tab)] != nil { cloudSends[ObjectIdentifier(tab)] = nil }
