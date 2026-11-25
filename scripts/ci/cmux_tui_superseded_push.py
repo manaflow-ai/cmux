@@ -18,7 +18,7 @@ Superseded means, for a push event only:
   - a lane branch (any ref but main, feat-cmux-next, next-batch/* and
     cmux-tui-pin-*) whose head is no longer SHA;
   - a cmux-tui-pin-* ref at GitHub's merge commit for a pull request
-    ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
+    ("Merge <head> into <base>", made by the retired PR merge-tree publisher) whose
     pull request is open with a different head now, and no pull request has
     that head any more;
   - such a pin whose pull request merged into feat-cmux-next at that head, and
