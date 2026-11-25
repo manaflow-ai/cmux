@@ -819,10 +819,12 @@ button.cv-subagent > :last-child {
 }
 /* Match the composer's fill and frost without a second tint over the shared material. */
 .acpmux-running-tray[data-card] {
+  /* The tray is .ui-glass (SubagentTray.tsx): the stack's tint and frost are its tokens, and
+     .ui-glass paints the blur. The fill stays named here so it outranks the inset fill above. */
   --acpmux-tray-frost: var(--acpmux-stack-backdrop);
+  --glass-tint: var(--acpmux-stack-tint);
+  --glass-backdrop: var(--acpmux-tray-frost);
   background: var(--acpmux-stack-tint);
-  -webkit-backdrop-filter: var(--acpmux-tray-frost);
-  backdrop-filter: var(--acpmux-tray-frost);
 }
 /* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
@@ -2731,6 +2733,7 @@ button.cv-subagent > :last-child {
     transition: none;
   }
 }
+/* one-material-allow: the hat fan's in-place backing blurs the header words under a spread icon; no surface of its own */
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-faces__row::before {
   content: "";
   position: absolute;
