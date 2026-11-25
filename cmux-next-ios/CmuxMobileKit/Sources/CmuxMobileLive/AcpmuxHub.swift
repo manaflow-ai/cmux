@@ -596,6 +596,12 @@ public final class AcpmuxHub {
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue
         switch notification.method {
+        case "_cmux/prompt_resend":
+            // The Mac's outbox resends a prompt it holds for this phone: Rust turns the notice
+            // into the chat's look (retrying) or its end (refused).
+            if let sessionID {
+                for entry in sources[sessionID] ?? [] { entry.source?.receive(promptResend: params) }
+            }
         case "_acpmux/event":
             if let sessionID {
                 for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
@@ -1027,7 +1033,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// write taken) before it comes back to the composer: a stall bound, not a send deadline. The
     /// terminal's key hold (`DaemonTerminalSession.inputHoldLimit`), so a blip is ridden out
     /// the same way in both (Leo, 2026-11-12, on LTE: "thjs chatters too often with connectivity").
-    var heldPromptWindow: Duration = .seconds(10) {
+    var heldPromptWindow: Duration = .milliseconds(Int64(clamping: chatPromptDefaultHoldMs())) {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             promptOutbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(heldPromptWindow))
@@ -1052,7 +1058,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// (acpmux runs a `promptId` once and checks its log), one write at a time in send order,
     /// retried with a jittered, capped backoff, queued while the link is down and given back
     /// past ``heldPromptWindow``. This source only writes what it hands out and reports back.
-    private let promptOutbox = ChatPromptOutbox(holdMs: 10_000, seed: UInt64.random(in: 0...UInt64.max))
+    private let promptOutbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: UInt64.random(in: 0...UInt64.max))
     /// The wake for the outbox's next hold or retry.
     private var promptWake: Task<Void, Never>?
 
@@ -1125,7 +1131,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// acpmux runs at most once), or the Mac refused it (the draft comes back with the reason).
     private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool) {
         let nowMs = ChatPromptClock.milliseconds(now())
-        guard error is AcpmuxConnection.RPCError else {
+        guard let rpc = error as? AcpmuxConnection.RPCError else {
             if written {
                 promptOutbox.lost(promptId: prompt.promptID, nowMs: nowMs)
             } else {
@@ -1133,7 +1139,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             }
             return
         }
-        _ = promptOutbox.refused(promptId: prompt.promptID)
+        // Rust decides: a "not now" goes again after its backoff (1 s doubling to 30 s) and is
+        // not given back; only a real refusal fails, with acpmux's own text.
+        switch promptOutbox.refusal(promptId: prompt.promptID, origin: rpc.origin, code: rpc.dataCode,
+                                    reason: rpc.reason, nowMs: nowMs) {
+        case .retry?, nil:
+            return
+        case .final?:
+            break
+        }
         promptPayloads[prompt.promptID] = nil
         let fullAccess = Self.isFullAccessRefusal(error)
         if fullAccess { hub?.fullAccessRefused() }
@@ -1157,6 +1171,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The link is back (or a prompt waits): what is due goes, in order.
     func flushHeldPrompts() {
+        pumpPrompts()
+    }
+
+    /// The Mac's `_cmux/prompt_resend` notice (`promptId`, `state`: sent | accepted | retrying |
+    /// refused, `retryInMs`, `message`): Rust changes the prompt's look; a refusal gives it back.
+    func receive(promptResend params: JSONValue) {
+        guard let promptID = params["promptId"]?.stringValue, let state = params["state"]?.stringValue else { return }
+        let nowMs = ChatPromptClock.milliseconds(now())
+        let retryIn = params["retryInMs"]?.numberValue.map { UInt64(max($0, 0)) }
+        if promptOutbox.resendNotice(promptId: promptID, state: state, retryInMs: retryIn, nowMs: nowMs) != nil,
+           let held = promptPayloads.removeValue(forKey: promptID) {
+            let reason = params["message"]?.stringValue ?? params["reason"]?.stringValue ?? "Not sent."
+            emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: held.promptID, reason: reason))
+        }
         pumpPrompts()
     }
 
@@ -1189,6 +1217,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     func flushHeldPrompts() {}
+    func receive(promptResend params: JSONValue) {}
     private func promptLinkDown() {}
     #endif
 

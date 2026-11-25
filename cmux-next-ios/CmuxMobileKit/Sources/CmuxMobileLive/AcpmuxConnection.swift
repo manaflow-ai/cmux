@@ -17,6 +17,10 @@ public actor AcpmuxConnection {
         public var reason: String?
         /// `error.data.retryAfterMs`: when acpmux paces a request (`list.paced`), how long to wait.
         public var retryAfterMs: Int? = nil
+        /// `error.data.origin` and `error.data.code` (a string): Rust tells a "not now" from a
+        /// real refusal by them and `reason`; Swift only carries them.
+        public var origin: String? = nil
+        public var dataCode: String? = nil
     }
 
     public struct Notification: Sendable {
@@ -350,7 +354,9 @@ public actor AcpmuxConnection {
                     code: Int(error["code"]?.numberValue ?? 0),
                     message: error["message"]?.stringValue ?? "error",
                     reason: error["data"]?["reason"]?.stringValue,
-                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) }
+                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) },
+                    origin: error["data"]?["origin"]?.stringValue,
+                    dataCode: error["data"]?["code"]?.stringValue
                 ))
             } else {
                 outcome = .success(value["result"] ?? .null)
