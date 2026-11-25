@@ -41,15 +41,15 @@ cmux_claude_wrapper_is_self_or_shim() {
 # mise keeps a shim for every tool one of its runtimes installed. Where no
 # version of the tool is selected, the shim runs the next `claude` on PATH
 # outside its own directory, and in a cmux terminal that is cmux's shim, which
-# starts this wrapper again. Every step of that chain is an exec, so the
-# process, its parent and the arguments stay the same; PATH may not, because
-# mise tidies it on the way. A wrapper that starts with a record matching those
-# three, and whose first choice of target is still a shim it recorded, knows
-# that shim came back and takes the target after it. Nothing else passes: a
-# child process has its own id, and a tool mise did start has its install ahead
-# of the shim on PATH, so one that replaces itself by name is prepared again
-# like any new launch. The names are lowercase so the passthrough's CMUX_*
-# cleanup leaves them in place.
+# starts this wrapper again. Every step of that chain is an exec, so the process
+# and the arguments stay the same. PATH may not, because mise tidies it on the
+# way, and neither may the parent, which can exit meanwhile. A wrapper that
+# starts with a record matching those two, and whose first choice of target is
+# still a shim it recorded, knows that shim came back and takes the target after
+# it. Nothing else passes: a child process has its own id, and a tool mise did
+# start has its install ahead of the shim on PATH, so one that replaces itself
+# by name is prepared again like any new launch. The names are lowercase so the
+# passthrough's CMUX_* cleanup leaves them in place.
 cmux_claude_wrapper_arguments_id() {
     printf '%s:' "$#"
     printf '%s\0' "$@" | /usr/bin/cksum
@@ -66,7 +66,7 @@ cmux_claude_wrapper_clear_handoff() {
 cmux_claude_wrapper_launch_may_have_returned=0
 cmux_claude_wrapper_launch_returned=0
 if [[ -n "${cmux_claude_wrapper_handoff_targets:-}" &&
-      "${cmux_claude_wrapper_handoff_process:-}" == "$$:$PPID" &&
+      "${cmux_claude_wrapper_handoff_process:-}" == "$$" &&
       "${cmux_claude_wrapper_handoff_arguments:-}" == "$(cmux_claude_wrapper_arguments_id "$@")" ]]; then
     cmux_claude_wrapper_launch_may_have_returned=1
 else
@@ -107,7 +107,7 @@ cmux_claude_wrapper_record_handoff() {
         else
             cmux_claude_wrapper_handoff_targets="$target"
         fi
-        cmux_claude_wrapper_handoff_process="$$:$PPID"
+        cmux_claude_wrapper_handoff_process="$$"
         cmux_claude_wrapper_handoff_arguments="$(cmux_claude_wrapper_arguments_id "$@")"
         # The caller clears the re-entry guard for the tool this target may
         # start. A launch that comes back is still inside the same shim chain,
@@ -1079,6 +1079,14 @@ if (( cmux_claude_wrapper_launch_may_have_returned == 1 )) && cmux_claude_wrappe
         cmux_claude_wrapper_launch_returned=0
     fi
     unset cmux_claude_wrapper_next_target
+fi
+if (( cmux_claude_wrapper_launch_returned == 1 )) &&
+   [[ -n "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" ]] &&
+   cmux_claude_wrapper_target_recorded "$CMUX_AGENT_LAUNCH_EXECUTABLE"; then
+    # The first pass captured the shim as the executable to resume this
+    # session with. Name the target that runs instead: the shim may be gone
+    # by then.
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
 fi
 if (( cmux_claude_wrapper_launch_returned == 1 )); then
     # The guard's count and history as the pass that recorded the shim had them.

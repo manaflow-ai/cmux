@@ -34,14 +34,14 @@ cmux_amp_is_self_or_shim() {
 # mise keeps a shim for every tool one of its runtimes installed. Where no
 # version of the tool is selected, the shim runs the next `amp` on PATH outside
 # its own directory, and in a cmux terminal that is cmux's shim, which starts
-# this wrapper again. Every step of that chain is an exec, so the process, its
-# parent and the arguments stay the same; PATH may not, because mise tidies it
-# on the way. A wrapper that starts with a record matching those three, and
-# whose first choice of target is still a shim it recorded, knows that shim came
-# back and takes the target after it. Nothing else passes: a child process has
-# its own id, and a tool mise did start has its install ahead of the shim on
-# PATH, so one that replaces itself by name is prepared again like any new
-# launch.
+# this wrapper again. Every step of that chain is an exec, so the process and
+# the arguments stay the same. PATH may not, because mise tidies it on the way,
+# and neither may the parent, which can exit meanwhile. A wrapper that starts
+# with a record matching those two, and whose first choice of target is still a
+# shim it recorded, knows that shim came back and takes the target after it.
+# Nothing else passes: a child process has its own id, and a tool mise did start
+# has its install ahead of the shim on PATH, so one that replaces itself by name
+# is prepared again like any new launch.
 cmux_amp_wrapper_arguments_id() {
     printf '%s:' "$#"
     printf '%s\0' "$@" | /usr/bin/cksum
@@ -56,7 +56,7 @@ cmux_amp_wrapper_clear_handoff() {
 cmux_amp_wrapper_launch_may_have_returned=0
 cmux_amp_wrapper_launch_returned=0
 if [[ -n "${cmux_amp_wrapper_handoff_targets:-}" &&
-      "${cmux_amp_wrapper_handoff_process:-}" == "$$:$PPID" &&
+      "${cmux_amp_wrapper_handoff_process:-}" == "$$" &&
       "${cmux_amp_wrapper_handoff_arguments:-}" == "$(cmux_amp_wrapper_arguments_id "$@")" ]]; then
     cmux_amp_wrapper_launch_may_have_returned=1
 else
@@ -105,7 +105,7 @@ cmux_amp_wrapper_exec_target() {
         else
             cmux_amp_wrapper_handoff_targets="$target"
         fi
-        cmux_amp_wrapper_handoff_process="$$:$PPID"
+        cmux_amp_wrapper_handoff_process="$$"
         cmux_amp_wrapper_handoff_arguments="$(cmux_amp_wrapper_arguments_id "$@")"
         export cmux_amp_wrapper_handoff_process cmux_amp_wrapper_handoff_arguments cmux_amp_wrapper_handoff_targets
     else
@@ -213,6 +213,14 @@ if (( cmux_amp_wrapper_launch_may_have_returned == 1 )) && cmux_amp_wrapper_targ
         cmux_amp_wrapper_launch_returned=0
     fi
     unset cmux_amp_wrapper_next_target
+fi
+if (( cmux_amp_wrapper_launch_returned == 1 )) &&
+   [[ -n "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" ]] &&
+   cmux_amp_wrapper_target_recorded "$CMUX_AGENT_LAUNCH_EXECUTABLE"; then
+    # The first pass captured the shim as the executable to resume this
+    # session with. Name the target that runs instead: the shim may be gone
+    # by then.
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_AMP"
 fi
 if (( cmux_amp_wrapper_launch_returned == 0 )); then
     cmux_amp_wrapper_clear_handoff
