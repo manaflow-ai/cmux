@@ -10,6 +10,7 @@ agentPane.dictationSource
 agentPane.display.code.family
 agentPane.display.code.scale
 agentPane.display.commandLabels
+agentPane.display.compactShortTurns
 agentPane.display.detail
 agentPane.display.environment.placement
 agentPane.display.finishSound
@@ -302,6 +303,7 @@ chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
 cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
+cloud.defaultImage
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
