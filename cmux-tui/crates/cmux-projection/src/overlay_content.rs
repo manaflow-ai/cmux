@@ -258,6 +258,20 @@ impl Content {
         fs::hard_link(self.blob_path(hash), to).is_ok()
     }
 
+    /// Releases this store's links under disk pressure. Pinned cache links retain their bytes.
+    pub(super) fn discard_cached_blobs(&self) -> bool {
+        let mut inner = self.lock();
+        let mut removed = false;
+        let hashes: Vec<_> = inner.blobs.keys().copied().collect();
+        for hash in hashes {
+            if fs::remove_file(self.blob_path(&hash)).is_ok() {
+                inner.forget(&hash);
+                removed = true;
+            }
+        }
+        removed
+    }
+
     /// Keeps `bytes` as `name`'s, making room down to the floor first (least recently used blobs
     /// go). Returns the hash it is kept under, or `None` when the disk has no room for it.
     pub(super) fn put(&self, name: Name, bytes: &[u8]) -> Option<Hash> {
