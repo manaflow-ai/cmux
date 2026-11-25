@@ -175,5 +175,5 @@ struct TabTransitionHandOffTests {
 }
 
 extension TabTransitionVariant: CustomTestStringConvertible {
-    var testDescription: String { name }
+    public var testDescription: String { name }
 }
