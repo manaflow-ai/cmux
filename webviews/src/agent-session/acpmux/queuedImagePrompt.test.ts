@@ -1,0 +1,46 @@
+// A message and its images are one prompt, queued behind a running turn or not. The send builds one
+// block list holding the words and every image (direct/queue.ts `sentPromptShape`), so nothing in
+// the queue splits the image from its text (Leo, 2026-11-25: "wait that message got split up and
+// queued"; his screenshots did not reach the agent).
+import { expect, test } from "bun:test";
+import type { ComposerAttachment } from "./attachments";
+import { sentPromptShape } from "./direct/queue";
+
+const image = (id: string): ComposerAttachment => ({
+  id,
+  kind: "image",
+  name: `${id}.png`,
+  mimeType: "image/png",
+  size: 3,
+  data: "AQID",
+  inline: true,
+});
+
+test("a message with an image is one prompt that holds its words and its image block", () => {
+  const shape = sentPromptShape("why is this font odd", [image("shot")], {});
+  expect(shape.blocks.map((block) => block.type)).toContain("image");
+  expect(shape.blocks.some((block) => block.type === "text" && block.text.includes("why is this font odd"))).toBe(true);
+});
+
+test("a message sent while a turn runs carries the same image block as one sent idle", () => {
+  const idle = sentPromptShape("look", [image("a")], {});
+  const queued = sentPromptShape("look", [image("a")], {});
+  expect(queued.blocks).toEqual(idle.blocks);
+  expect(queued.blocks.filter((block) => block.type === "image")).toHaveLength(1);
+});
+
+test("two images and words go as one prompt, not one prompt per piece", () => {
+  const shape = sentPromptShape("both of these", [image("a"), image("b")], {});
+  expect(shape.blocks.filter((block) => block.type === "image")).toHaveLength(2);
+  expect(
+    shape.blocks
+      .filter((block) => block.type === "text")
+      .map((block) => (block as { text: string }).text)
+      .join("\n"),
+  ).toContain("both of these");
+});
+
+test("an image alone is still a prompt with its image block", () => {
+  const shape = sentPromptShape("", [image("only")], {});
+  expect(shape.blocks.filter((block) => block.type === "image")).toHaveLength(1);
+});
