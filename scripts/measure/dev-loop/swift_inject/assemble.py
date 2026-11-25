@@ -47,14 +47,17 @@ def rounds_from(work, shell_log, watch_log, n):
         t_write, t_heard, t_drawn = writes[k - 1], heard[k - 1], redrawn[k]
         load_ms, t_applied = applied[k - 1]
         mine = [s for s in stamps if t_write <= s[0] <= t_drawn]
-        compile_ = [s for s in mine if s[2] == "xcrun" and "-c" in s[3] and "-emit-library" not in s[3]]
+        # inject.sh's compile: its patch_compile.py (the patch's own frontend jobs, from the kept driver plan), the
+        # driver plan it writes on a miss, or the whole-module compile it falls back to; first start to last end.
+        compile_ = [s for s in mine if (s[2] == "xcrun" and "-c" in s[3] and "-emit-library" not in s[3])
+                    or (s[2] == "python3" and any(a.endswith("patch_compile.py") for a in s[3]))]
         link = [s for s in mine if s[2] == "xcrun" and "-emit-library" in s[3]]
         sign = [s for s in mine if s[2] == "codesign"]
         moves = [s for s in mine if s[2] == "mv"]
         if not (compile_ and link and sign and moves):
             problems.append(f"round {k}: inject.sh's compile, link, codesign or mv has no stamp")
             break
-        c, l, g, m = compile_[0], link[0], sign[0], moves[-1]
+        c, l, g, m = (min(s[0] for s in compile_), max(s[1] for s in compile_)), link[0], sign[0], moves[-1]
         t_load = t_applied - load_ms / 1000
         ms = lambda a, b: round((b - a) * 1000, 3)
         stages = {
@@ -121,11 +124,13 @@ def main():
         "unchanged, and the round ends at the shell's 'redrawn generation=K' line, after the badge's PNG was written; every "
         "round's badge was checked wider than the last.",
         "Boundaries: the edit's write (python time.time just before it), the watcher's callback, each of inject.sh's xcrun, "
-        "codesign and mv runs (start and end, from swift_inject/stamp.c linked as those names first on PATH; it adds about a "
+        "python3, codesign and mv runs (start and end, from swift_inject/stamp.c linked as those names first on PATH; it adds about a "
         "millisecond per call, which lands in the stage it wraps), the shell's apply (its at= minus its load_ms, integer ms) "
         "and its redraw.",
-        "Stages: fs_event = write to the watcher's callback. compile = inject.sh's `xcrun swiftc -c` of EVERY file of the module "
-        "(it compiles all and links only the edited ones). link = its `xcrun swiftc -emit-library` of Badge.o. sign = its "
+        "Stages: fs_event = write to the watcher's callback. compile = inject.sh's patch_compile.py, which runs only the "
+        "frontend jobs of the files it links from the driver plan it keeps per toolchain, flags and file list (python3 start "
+        "included; on a plan miss also the `xcrun swiftc -c ... -###` that writes it, and on a fallback the whole-module "
+        "`xcrun swiftc -c`). link = its `xcrun swiftc -emit-library` of Badge.o. sign = its "
         "codesign. pickup = the patch renamed into the live folder to the shell starting the load (its DispatchSource on the "
         "folder, then a directory scan on the main queue). load = the shell's own load_ms (dlopen, layout check, interpose, "
         "rebind). paint = applied to redrawn: a main-queue hop, ImageRenderer of the badge, PNG encode and write. "

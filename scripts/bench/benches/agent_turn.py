@@ -30,6 +30,15 @@ STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
 LINE = re.compile(r"^AGENT-TURN (\{.*\})$")
 
 
+def read_lines(path: Path, line: re.Pattern[str]) -> list[dict]:
+    """Every JSON report `line` matches in a log, in order (an Actions log's time stamps skipped)."""
+    reports = []
+    for raw in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        if m := line.match(STAMP.sub("", raw.strip())):
+            reports.append(json.loads(m.group(1)))
+    return reports
+
+
 class AgentTurn(Bench):
     name = "agent-turn"
     summary = "One agent turn through acpmux with a stand-in model that answers at once: median and p95 by stage"
@@ -62,13 +71,10 @@ class AgentTurn(Bench):
         self.ingest(ctx, full if full.exists() else log)
 
     def ingest(self, ctx: Context, path: Path) -> None:
-        report = None
-        for raw in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-            if m := LINE.match(STAMP.sub("", raw.strip())):
-                report = json.loads(m.group(1))
-        if report is None:
+        reports = read_lines(path, LINE)
+        if not reports:
             raise BenchError(f"agent-turn: no AGENT-TURN line in {path}")
-        for row in report["rows"]:
+        for row in reports[-1]["rows"]:
             samples = [us / 1000.0 for us in row["samples"]]
             ctx.row(row["metric"], unit="ms", samples=samples)
 
