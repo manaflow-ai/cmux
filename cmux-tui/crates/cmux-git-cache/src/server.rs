@@ -4,7 +4,6 @@
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -15,6 +14,7 @@ use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
+use cmux_process::Stdio;
 use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -73,6 +73,8 @@ pub struct State {
     http: reqwest::Client,
     /// Repositories the edge answered for callers without credentials.
     via_edge: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Owns each local upload-pack's stdin writer and reaper.
+    scope: cmux_scope::Scope,
 }
 
 impl State {
@@ -91,6 +93,7 @@ impl State {
             cfg,
             http,
             via_edge: std::sync::Mutex::new(std::collections::HashSet::new()),
+            scope: cmux_scope::Scope::new("git-cache server"),
         }))
     }
 
@@ -425,6 +428,13 @@ async fn upload_pack(state: &State, route: &Route, headers: &HeaderMap, body: Bo
     }
 }
 
+/// Waits for `child` on a blocking thread (its stdout and stderr already read to their end).
+async fn reap(mut child: cmux_process::Child) -> Result<std::process::ExitStatus, String> {
+    tokio::task::spawn_blocking(move || child.wait().map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// `git upload-pack --stateless-rpc` on the mirror. An upload-pack that ends before its first
 /// byte is an error the caller turns into a pass-through, so a request the local git cannot
 /// answer still succeeds.
@@ -441,25 +451,30 @@ async fn serve_local(
     }
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let mut stdin = child.stdin.take().ok_or("no stdin")?;
-    tokio::spawn(async move {
+    let to_tokio = |e: std::io::Error| e.to_string();
+    let mut stdin = tokio::process::ChildStdin::from_std(child.stdin.take().ok_or("no stdin")?)
+        .map_err(to_tokio)?;
+    let mut stdout = tokio::process::ChildStdout::from_std(child.stdout.take().ok_or("no stdout")?)
+        .map_err(to_tokio)?;
+    let mut stderr = tokio::process::ChildStderr::from_std(child.stderr.take().ok_or("no stderr")?)
+        .map_err(to_tokio)?;
+    state.scope.spawn_until_cancelled("upload-pack stdin", async move {
         let _ = stdin.write_all(&body).await;
     });
-    let mut stdout = child.stdout.take().ok_or("no stdout")?;
-    let mut stderr = child.stderr.take().ok_or("no stderr")?;
     let mut first = vec![0u8; 64 << 10];
     let n = stdout.read(&mut first).await.map_err(|e| e.to_string())?;
     if n == 0 {
         let mut err = String::new();
         let _ = stderr.read_to_string(&mut err).await;
-        let status = child.wait().await.map_err(|e| e.to_string())?;
+        let status = reap(child).await?;
         return Err(format!("{status}: {}", err.trim().lines().last().unwrap_or("no output")));
     }
     first.truncate(n);
-    tokio::spawn(async move {
+    // Cancelled (the server closing), the child is dropped: cmux_process ends its group.
+    state.scope.spawn_until_cancelled("upload-pack reap", async move {
         let mut err = String::new();
         let _ = stderr.read_to_string(&mut err).await;
-        if let Ok(status) = child.wait().await
+        if let Ok(status) = reap(child).await
             && !status.success()
         {
             eprintln!(

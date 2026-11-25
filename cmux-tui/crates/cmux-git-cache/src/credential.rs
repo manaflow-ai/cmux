@@ -4,8 +4,8 @@
 //! `git credential fill|approve|reject` (lane-gh-credential, `cmux github credential`, the
 //! person's). Nothing is printed for any other URL. Never prompts.
 
+use cmux_process::{Command, Stdio};
 use std::io::{Read, Write};
-use std::process::{Command, Stdio};
 
 /// The rewritten request, or `None` when it is not one of the proxy's github.com paths.
 pub fn map_request(input: &str) -> Option<String> {
@@ -64,16 +64,15 @@ pub fn run(op: &str) -> u8 {
         return 0;
     }
     let Some(request) = map_request(&input) else { return 0 };
-    let child = Command::new("git")
-        .args(["credential", verb])
+    let mut cmd = Command::new("git");
+    cmd.args(["credential", verb])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env_remove("GIT_ASKPASS")
         .env_remove("SSH_ASKPASS")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn();
-    let Ok(mut child) = child else { return 0 };
+        .stderr(Stdio::null());
+    let Ok(mut child) = cmd.spawn() else { return 0 };
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(request.as_bytes());
     }

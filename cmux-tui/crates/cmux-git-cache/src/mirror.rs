@@ -9,20 +9,22 @@
 //! variables, never on a command line another user could read.
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
+use cmux_process::{Command, Stdio};
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const SHORT_TIMEOUT: Duration = Duration::from_secs(60);
 const REFSPECS: [&str; 2] = ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"];
 
 pub struct Mirrors {
     root: PathBuf,
     locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
+    /// Owns the background repacks.
+    scope: cmux_scope::Scope,
 }
 
 fn safe_component(s: &str) -> String {
@@ -33,7 +35,8 @@ fn safe_component(s: &str) -> String {
     if ok { s.to_owned() } else { crate::auth::caller_key(Some(s.as_bytes()))[..32].to_owned() }
 }
 
-/// A git that reads no user or system config and never prompts.
+/// A git that reads no user or system config and never prompts. Its `Child` ends with its
+/// handle (`cmux_process`).
 pub fn git() -> Command {
     let mut cmd = Command::new("git");
     cmd.env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -46,8 +49,7 @@ pub fn git() -> Command {
         .env_remove("GIT_TRACE_CURL")
         .env_remove("GIT_TRACE_PACKET")
         .env_remove("GIT_CURL_VERBOSE")
-        .stdin(Stdio::null())
-        .kill_on_drop(true);
+        .stdin(Stdio::null());
     cmd
 }
 
@@ -63,33 +65,83 @@ fn with_auth(cmd: &mut Command, authorization: Option<&[u8]>) {
     }
 }
 
-async fn status_ok(mut cmd: Command, what: &str) -> bool {
-    cmd.stdout(Stdio::null()).stderr(Stdio::piped());
-    let child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            eprintln!("git-cache: {what}: {e}");
-            return false;
+/// What one finished git said.
+pub struct Ran {
+    pub success: bool,
+    pub status: String,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+/// Runs `cmd` to its end on a blocking thread: `input` on its stdin, stdout and stderr read
+/// beside it (so neither pipe can fill and stall it), killed past `limit`.
+pub async fn run(mut cmd: Command, input: Option<Vec<u8>>, limit: Duration) -> Result<Ran, String> {
+    let blocking = tokio::task::spawn_blocking(move || -> Result<Ran, String> {
+        if input.is_some() {
+            cmd.stdin(Stdio::piped());
         }
-    };
-    match tokio::time::timeout(FETCH_TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(out)) if out.status.success() => true,
-        Ok(Ok(out)) => {
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        std::thread::scope(|threads| {
+            let writer = threads.spawn(move || {
+                if let (Some(mut pipe), Some(bytes)) = (stdin, input) {
+                    let _ = pipe.write_all(&bytes);
+                }
+            });
+            let out = threads.spawn(move || drain(stdout));
+            let err = threads.spawn(move || drain(stderr));
+            let status = match child.wait_timeout(limit) {
+                Ok(Some(status)) => Some(status),
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    None
+                }
+                Err(_) => None,
+            };
+            let _ = writer.join();
+            let stdout = out.join().unwrap_or_default();
+            let stderr = err.join().unwrap_or_default();
+            match status {
+                Some(status) => Ok(Ran {
+                    success: status.success(),
+                    status: status.to_string(),
+                    stdout,
+                    stderr,
+                }),
+                None => Err("timed out".to_owned()),
+            }
+        })
+    });
+    blocking.await.map_err(|e| e.to_string())?
+}
+
+fn drain<R: Read>(pipe: Option<R>) -> Vec<u8> {
+    let mut buf = Vec::new();
+    if let Some(mut pipe) = pipe {
+        let _ = pipe.read_to_end(&mut buf);
+    }
+    buf
+}
+
+async fn status_ok(cmd: Command, what: &str, limit: Duration) -> bool {
+    match run(cmd, None, limit).await {
+        Ok(ran) if ran.success => true,
+        Ok(ran) => {
             // git redacts credentials in its own messages; the header never appears in stderr.
-            let err = String::from_utf8_lossy(&out.stderr);
+            let err = String::from_utf8_lossy(&ran.stderr);
             eprintln!(
                 "git-cache: {what}: {} {}",
-                out.status,
+                ran.status,
                 err.trim().lines().last().unwrap_or("")
             );
             false
         }
-        Ok(Err(e)) => {
+        Err(e) => {
             eprintln!("git-cache: {what}: {e}");
-            false
-        }
-        Err(_) => {
-            eprintln!("git-cache: {what}: timed out");
             false
         }
     }
@@ -97,7 +149,11 @@ async fn status_ok(mut cmd: Command, what: &str) -> bool {
 
 impl Mirrors {
     pub fn new(root: PathBuf) -> Self {
-        Self { root, locks: Mutex::new(HashMap::new()) }
+        Self {
+            root,
+            locks: Mutex::new(HashMap::new()),
+            scope: cmux_scope::Scope::new("git-cache mirrors"),
+        }
     }
 
     /// The tenant's mirror of `repo_key` (`owner/repo`, already validated and lowercased).
@@ -122,20 +178,12 @@ impl Mirrors {
         }
         let mut cmd = git();
         cmd.arg("-C").arg(dir).args(["cat-file", "--batch-check=%(objectname) %(objecttype)"]);
-        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-        let Ok(mut child) = cmd.spawn() else { return false };
-        let input = wants.iter().map(|w| format!("{w}\n")).collect::<String>();
-        let Some(mut stdin) = child.stdin.take() else { return false };
-        let writer = tokio::spawn(async move {
-            let _ = stdin.write_all(input.as_bytes()).await;
-        });
-        let mut out = String::new();
-        if let Some(mut stdout) = child.stdout.take() {
-            let _ = stdout.read_to_string(&mut out).await;
-        }
-        let _ = writer.await;
-        let ok = matches!(child.wait().await, Ok(s) if s.success());
-        ok && out.lines().count() == wants.len() && !out.lines().any(|l| l.ends_with(" missing"))
+        let input = wants.iter().map(|w| format!("{w}\n")).collect::<String>().into_bytes();
+        let Ok(ran) = run(cmd, Some(input), SHORT_TIMEOUT).await else { return false };
+        let out = String::from_utf8_lossy(&ran.stdout);
+        ran.success
+            && out.lines().count() == wants.len()
+            && !out.lines().any(|l| l.ends_with(" missing"))
     }
 
     async fn init(dir: &Path) -> bool {
@@ -150,7 +198,7 @@ impl Mirrors {
         }
         let mut cmd = git();
         cmd.args(["init", "--bare", "--quiet"]).arg(dir);
-        if !status_ok(cmd, "init").await {
+        if !status_ok(cmd, "init", SHORT_TIMEOUT).await {
             return false;
         }
         for (key, value) in [
@@ -161,7 +209,7 @@ impl Mirrors {
         ] {
             let mut cmd = git();
             cmd.arg("-C").arg(dir).args(["config", key, value]);
-            if !status_ok(cmd, "config").await {
+            if !status_ok(cmd, "config", SHORT_TIMEOUT).await {
                 return false;
             }
         }
@@ -182,7 +230,7 @@ impl Mirrors {
             cmd.arg("--prune");
         }
         cmd.arg(url).args(REFSPECS);
-        status_ok(cmd, what).await
+        status_ok(cmd, what, FETCH_TIMEOUT).await
     }
 
     async fn fetch_oids(
@@ -194,7 +242,7 @@ impl Mirrors {
         let mut cmd = git();
         with_auth(&mut cmd, authorization);
         cmd.arg("-C").arg(dir).args(["fetch", "--quiet", "--no-write-fetch-head", url]).args(oids);
-        status_ok(cmd, "fetch wants").await
+        status_ok(cmd, "fetch wants", FETCH_TIMEOUT).await
     }
 
     /// Makes the mirror hold `wants`: from the peers in order, then upstream (refs, then the
@@ -227,7 +275,7 @@ impl Mirrors {
             && Self::has_all(dir, wants).await
         {
             if fresh {
-                Self::bitmap_later(dir.to_owned());
+                self.bitmap_later(dir.to_owned());
             }
             return true;
         }
@@ -237,11 +285,11 @@ impl Mirrors {
 
     /// After a mirror's first fill: one pack with a bitmap, so a clone from it reuses the pack
     /// instead of counting objects. Beside serving (git swaps packs atomically).
-    fn bitmap_later(dir: PathBuf) {
-        tokio::spawn(async move {
+    fn bitmap_later(&self, dir: PathBuf) {
+        self.scope.spawn_until_cancelled("repack with bitmap", async move {
             let mut cmd = git();
             cmd.arg("-C").arg(&dir).args(["repack", "-a", "-d", "-q", "--write-bitmap-index"]);
-            status_ok(cmd, "repack").await;
+            status_ok(cmd, "repack", FETCH_TIMEOUT).await;
         });
     }
 }

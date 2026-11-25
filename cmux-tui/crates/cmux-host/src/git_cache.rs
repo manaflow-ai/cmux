@@ -10,9 +10,8 @@
 //! GitHub directly, exactly as before. Off: `/etc/cmux/git-cache.disabled` exists, or
 //! `CMUX_GIT_CACHE=0` in the unit's environment.
 
-use std::os::unix::process::CommandExt;
+use cmux_process::{Command, Stdio};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::proc_roles::privilege::WorkUser;
@@ -163,37 +162,29 @@ fn supervise(program: &str, args: &[String], work: Option<&WorkUser>) {
     }
 }
 
+/// The proxy under `setpriv`: the work user's ids (no supplementary groups) when there is one,
+/// and SIGTERM when cmux host dies (the next start removes its include first). In a session
+/// of its own; the `Child` ends it with the supervisor.
 fn spawn(
     program: &str,
     args: &[String],
     work: Option<&WorkUser>,
-) -> std::io::Result<std::process::Child> {
-    let mut cmd = Command::new(program);
-    cmd.args(args).stdin(Stdio::null()).env_remove("NOTIFY_SOCKET");
-    let drop_to = work.map(|u| (u.uid, u.gid, PathBuf::from(&u.home)));
-    if let Some((_, _, home)) = &drop_to {
-        cmd.env("HOME", home).current_dir(home);
+) -> std::io::Result<cmux_process::Child> {
+    let mut cmd = Command::new("setpriv");
+    if let Some(u) = work {
+        cmd.arg(format!("--reuid={}", u.uid))
+            .arg(format!("--regid={}", u.gid))
+            .arg("--clear-groups")
+            .env("HOME", &u.home)
+            .current_dir(PathBuf::from(&u.home));
     }
-    let ids = drop_to.map(|(uid, gid, _)| (uid, gid));
-    // SAFETY: async-signal-safe calls only, nothing allocated after fork.
-    unsafe {
-        cmd.pre_exec(move || {
-            let mut set: libc::sigset_t = std::mem::zeroed();
-            libc::sigemptyset(&mut set);
-            libc::pthread_sigmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());
-            libc::setsid();
-            // The proxy dies with cmux host; the next start removes its include first.
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-            if let Some((uid, gid)) = ids
-                && (libc::setgroups(0, std::ptr::null()) < 0
-                    || libc::setgid(gid) < 0
-                    || libc::setuid(uid) < 0)
-            {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    cmd.arg("--pdeathsig=TERM")
+        .arg("--")
+        .arg(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .env_remove("NOTIFY_SOCKET")
+        .new_session();
     cmd.spawn()
 }
 
