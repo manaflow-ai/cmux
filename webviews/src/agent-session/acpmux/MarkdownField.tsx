@@ -74,6 +74,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { draftFoot } from "./draftFoot.experiment";
 import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
@@ -854,6 +855,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   },
   ref,
 ) {
+  // Read once per field: an arm changes with a reload (the gallery's arm, the debug key).
+  const [footArm] = React.useState(() => experimentArm(draftFoot));
   const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
@@ -1955,6 +1958,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
       // minimal scroller's inset track and no thumb while the field settles.
       {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // How a scrolled-up draft's foot fades (draftFoot.experiment.ts, markdownField.css).
+      data-draft-foot={footArm}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;
