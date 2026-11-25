@@ -24,7 +24,7 @@ import CmuxNextFocus
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences() {
-        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle) }
+        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle); soundGate.apply(preferences.sounds) }
     }
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
     typealias HighlightKey = NotificationOwnerKey
@@ -306,7 +306,7 @@ final class NotificationCenterService {
     func open(surface: SurfaceID?) {
         guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
         let context = AppActionContext(services: services)
-        context.reveal(located); services.agentTabs.existingView(located.tab.id)?.focusAsk()
+        context.reveal(located, front: true); services.agentTabs.existingView(located.tab.id)?.focusAsk()
         interacted(.open, tabID: located.tab.id)
     }
 

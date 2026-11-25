@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextRemoteView
 public import CmuxNextDevices
 public import CmuxNextWakeups
 import CmuxScreenKit
@@ -108,6 +109,10 @@ public final class MacScreenPages {
     /// Makes a device tab's session signaling from a ticket; tests replace it.
     var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
     private var namesWatch: Task<Void, Never>?
+    /// Sharing on by default (MacScreenHubHost+DefaultSharing), while a hub is set.
+    private var defaultSharingWatch: Task<Void, Never>?
+    /// The hub's last word on this Mac's sharing bit (nil: none yet).
+    private var lastHostShared: Bool?
     /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
     public let systemShortcuts: MacScreenSystemShortcuts
     public var events = MacScreenTabEvents()
@@ -133,6 +138,20 @@ public final class MacScreenPages {
         didSet {
             guard encodeProfile != oldValue else { return }
             for tab in tabs.values { tab.pane?.session?.encodeProfile = encodeProfile }
+        }
+    }
+    /// Settings > cmux Remote > Screen Sharing Quality and Bitrate Limit (`remoteDesktop.quality`,
+    /// `remoteDesktop.maxBitrateMbps`): the toolbar picks a new tab's session starts at, so its offer asks for them.
+    /// An open tab keeps the picks it has.
+    var defaultPreferences = ScreenPreferences()
+    /// `remoteDesktop.clipboard`: whether a session syncs clipboard text (default: own devices only).
+    public var clipboardSetting: RemoteDesktopSettings.Clipboard = .ownDevicesOnly
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the most the next
+    /// offer's `a=cmux-rd-max-fps` asks for; nil (Auto) leaves the quality's rate.
+    public var maxFpsCap: Int? {
+        didSet {
+            guard maxFpsCap != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.maxFpsCap = maxFpsCap }
         }
     }
     /// Tab key -> the record a person opened in it.
@@ -166,6 +185,9 @@ public final class MacScreenPages {
             }
         }
         hubHost.hub = { [weak self] in self?.hub }
+        // The person's switch is kept on this Mac; read only once the file is.
+        hubHost.sharingTurnedOff = { [store] in store.isLoaded ? store.sharingTurnedOff : nil }
+        hubHost.sharingChosen = { [store] on in store.setSharingTurnedOff(!on) }
         approval.hub = { [weak self] in self?.hub }
         // A Mac set up or started: read the devices again, so its row and tab show it online once it is.
         deviceSetup.succeeded = { [weak self] _, _ in
@@ -197,9 +219,27 @@ public final class MacScreenPages {
         }
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
         approval.follow(remoteHosted ? nil : hub)
+        lastHostShared = nil
         watchDeviceNames()
         // Tabs that asked before the hub came (a launch-time open while sign-in restored) ask now.
         if hub != nil { for viewer in hubViewers { viewer.hubArrived() } }
+        watchDefaultSharing()
+    }
+
+    /// Takes the default's step each time it changes: the hub lists this Mac, the grant reads, the
+    /// person's switch. One step per change, so a failed write waits for the next one.
+    private func watchDefaultSharing() {
+        defaultSharingWatch?.cancel()
+        defaultSharingWatch = nil
+        guard hub != nil else { return }
+        let host = hubHost
+        // task-owner: one default-sharing follow per hub, cancelled when the hub changes
+        defaultSharingWatch = Task { [weak host] in
+            for await step in ObservationStream({ [weak host] in host?.defaultSharingStep ?? .none }) {
+                guard let host, !Task.isCancelled else { return }
+                if step != .none { await host.followDefaultSharing() }
+            }
+        }
     }
 
     /// One `session.*` push: the viewer tab or the host it is for.
@@ -278,7 +318,12 @@ public final class MacScreenPages {
 
     /// The hub says whether this Mac allows Mac Screen; on, the first-use guide is done.
     func hostSharingChanged(_ on: Bool) {
-        if on { store.markSharedBefore() }
+        defer { lastHostShared = on }
+        guard on else { return }
+        store.markSharedBefore()
+        // Seen turning on (or on at the first read): not off by the person. Clears what a file from
+        // before the switch was kept read as turned off.
+        if lastHostShared != true { store.setSharingTurnedOff(false) }
     }
 
     /// Device tabs take their device's name from the hub (renames show live).
@@ -310,7 +355,7 @@ public final class MacScreenPages {
 
     /// The name of device `id`: the hub's, else the last one seen, else "Mac".
     func deviceName(_ id: String) -> String {
-        hub?.devices.first { $0.id == id }?.name ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
+        hub?.deviceNames[id] ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
     }
 
     /// Device tabs whose view is not made yet (restored, not selected) take their device's name.
@@ -575,7 +620,7 @@ public final class MacScreenPages {
         viewer.makeSignaling = makeSignaling
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), platform: hub?.devices.first { $0.id == deviceID }?.platform,
-                                 preferences: ScreenPreferences())
+                                 preferences: defaultPreferences)
         if confirmed[key] == record, let scope = tabScopes.removeValue(forKey: key) ?? pendingScopes.removeValue(forKey: deviceID) {
             viewer.resumeScope = scope
         }
@@ -589,6 +634,8 @@ public final class MacScreenPages {
         if relayOnly { pane.setRelayOnly(true) }
         #endif
         pane.session?.encodeProfile = encodeProfile
+        pane.session?.offersClipboard = RemoteClipboardPolicy.allows(clipboardSetting, ownDevice: isOwnDevice(deviceID, among: viewableDevices))
+        pane.session?.maxFpsCap = maxFpsCap
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }
