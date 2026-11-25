@@ -46,8 +46,10 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
+| pane-compile | `pane-compile-ab.mjs` (a pane built by `build-agent-pane-web.sh --out`) in headless Chrome on any Linux host | The agent pane's JS compile before first paint, cold and with a warm V8 code cache: FCP, main-thread compile ms and count, streaming parse, code cache deserializations. |
 | projection-scale | `projection-scale/measure.py` (Linux, any host; `--import rows.jsonl`) | RFD 0065's matrix on one harness: a projection's serve, link and mount, then cold and warm `find`, `rg` and `git status` (seconds, bytes down, asks), and git clone options against a local `git daemon` (depth 1, blob:none, sparse, `.git`-only zstd archive, overlay), with projected seconds per RFD 0067 link profile. |
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
+| local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 
 
 ## Dev loop
@@ -110,6 +112,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |
 | `hover-preload.sh` | Pointer sweep over sidebar rows: hover preload wakes and cost. | - | 2026-11-07 | active |
 | `chat-open.sh` | Sidebar click to first content for a chat. | - | 2026-11-03 | active |
+| `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
 | `close-flash.sh` | Close Window and close-key commit time in an active app. | - | 2026-11-01 | active |
@@ -188,6 +191,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
+| `published-benches-linux.sh` | The published benchmarks (RFD 0167 row 18): resume, fork, move and build times and the long session under load (`soak_secs=28800` is the 8 h run; p95 input latency, RSS); acpmux tests/published_bench.rs. hq docs/benchmarks/README.md publishes them. | benches-fresh | 2026-11-24 | active |
 | `daemon-restart-linux.sh` | Daemon restart to a non-empty chat attach (god_daemon.rs small and god homes), median of up to 3 runs; the perf cron's daemon-restart part. | - | 2026-11-18 | active |
 | `coord-sim-linux.sh` | Several synthetic coordinator chats at once against a release acpmux on Linux (bench coord-sim). | coord-sim | 2026-11-19 | active |
 | `journal-writes.py` | Bytes the acpmux journal writes per hour and write amplification. | hq#11322 | 2026-11-15 | active |
@@ -219,6 +223,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `agent-loop.py` | Python driver for agent-loop.sh. | hq#7149 L8 | 2026-11-05 | active |
 | `chief-build-cache.sh` | Chief build cache timing before and after. | #28481 | 2026-10-30 | active |
 | `chief-latency.sh` | Chief latency before/after: a scratch Chief at two refs on one Mac, the 15-ask `latency` scenario with a real model (chief-latency bench; how to run: `Native/OptChat/optchat-chief/measure/README-latency.md`). | Chief latency lane | 2026-11-23 | active |
+| `local-chat-first-reply.sh` | Local chat select to first reply on a build of a commit (local-chat bench; driver `local_chat_first_reply.py`). | local-instant-start | 2026-11-25 | active |
 | `chief-import.sh` | One Chief import of a 2,020-message corpus on a quiet Mac. | - | 2026-10-10 | stale |
 | `chief-prompt-bubble.sh` | Proof that a 140 KB Chief subagent prompt draws as the first bubble. | u4256 | 2026-10-27 | active |
 | `team-eval.sh` | One run of the coordinator-mode eval: one task, one arm. | - | 2026-11-07 | active |
@@ -235,6 +240,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `browser-fuzz.sh` | Seeded fuzz of URLs, navigation and tab storms (correctness). | fuzz row k | 2026-11-14 | active |
 | `browser-use-perf.sh` | cmux browser host REPL against other browser-automation tools, no model. | - | 2026-11-03 | active |
+| `pane-compile-ab.mjs` | The agent pane's JS compile before first paint, A against B, cold or with a warm code cache, in headless Chrome over http; `--attach PORT` checks a running cmux's pane for code cache consumption. | research:startup | 2026-11-23 | active |
 | `cef-tab.sh` | New Chromium tab: input to visible and to page pixels. | PL-cef-tab | 2026-10-27 | active |
 | `cef-embedder.sh` | CEF fork embedder tests against an unreleased fork build. | PL-cef-fork | 2026-11-12 | active |
 | `cef-helpers.sh` | Chromium helper check: renderer and GPU helpers start, no V8 OOM. | - | 2026-11-05 | active |

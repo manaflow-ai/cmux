@@ -23,6 +23,10 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
 
     /// Only keys the settings catalog lists, and their older names (``EffectiveSettings/legacyKeys``).
     public func limitedToCatalog() -> TeamPolicyLayer {
+        // An empty layer (every launch's `.none`) filters to itself: without this, `main` built the whole
+        // schema with its localized texts (`SettingsSchema.all`) on the main thread through
+        // `FontSmoothingSetting.applyBeforeLaunch`, 41 ms before the Dock stopped bouncing (CMUX-631).
+        guard !defaults.isEmpty || !enforced.isEmpty else { return self }
         let ids = Set(SettingsSchema.all.map(\.id)).union(EffectiveSettings.legacyKeys.keys)
         var copy = self
         copy.defaults = defaults.filter { ids.contains($0.key) }
