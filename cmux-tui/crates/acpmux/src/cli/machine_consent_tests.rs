@@ -143,27 +143,20 @@ fn any_other_join_makes_the_requirement_the_one_it_always_was() {
 fn after_a_sign_in_join_a_local_computer_use_call_passes_and_one_from_elsewhere_does_not() {
     let (_dir, a, b) = fixture();
     a.enroll_as(true).unwrap();
-    // The Mac's own Computer Use (the app's helper): a screenshot and a click pass the bridge's
-    // check and the helper's, on every tag.
+    // The Mac's own Computer Use: nothing is required of it, on every tag.
     for authority in [&a, &b] {
         let local = authority.status_for(true);
         assert_eq!(local["consentRequired"], false, "{local}");
         assert_eq!(local["localComputerUse"], "keptBySignIn");
-        assert!(crate::cua_v2::require_tool_consent(true, &local).is_ok());
-        assert!(crate::cua_v2::require_tool_consent(false, &local).is_ok());
     }
     // What reaches this Mac from elsewhere (a hand, the hub) still needs the consent.
     let elsewhere = a.status_for(false);
     assert_eq!(elsewhere, a.status());
     assert_eq!(elsewhere["consentRequired"], true);
-    let refused = crate::cua_v2::require_tool_consent(true, &elsewhere).unwrap_err();
-    assert_eq!(refused.to_string(), crate::cli::cloud_join::CONSENT_REQUIRED);
     // A consent the person set is theirs: the local use is gated by it, as it always was.
     a.set("screen", true).unwrap();
     let local = a.status_for(true);
     assert_eq!(local["consentRequired"], true);
-    assert!(crate::cua_v2::require_tool_consent(true, &local).is_ok());
-    assert!(crate::cua_v2::require_tool_consent(false, &local).is_err());
 }
 
 #[test]
@@ -173,8 +166,126 @@ fn a_join_the_person_made_gates_the_macs_own_computer_use_as_before() {
     let local = a.status_for(true);
     assert_eq!(local["consentRequired"], true);
     assert!(local.get("localComputerUse").is_none());
-    assert!(crate::cua_v2::require_tool_consent(true, &local).is_err());
     // Never joined: nothing is required either way.
     let (_dir, fresh, _) = fixture();
     assert_eq!(fresh.status_for(true), fresh.status());
+}
+/// "Control for my other machines signed in to this account": off after a sign-in join, granted
+/// and revoked only by a set, and any answer is recorded so the machine is asked once.
+#[test]
+fn signed_in_machines_is_off_by_default_and_answered_once() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    let status = b.status();
+    assert_eq!(status["consent"]["signedInMachines"], "none", "signing in grants nothing");
+    assert!(status["consent"]["signedInMachinesAnsweredAt"].is_null(), "not asked yet");
+    a.refused_from(crate::machine_record::SIGNED_IN_MACHINES, Some("studio")).unwrap();
+    let status = b.status();
+    assert_eq!(status["lastRefusal"]["surface"], "signedInMachines");
+    assert_eq!(status["lastRefusal"]["from"], "studio");
+    assert_eq!(status["consent"]["signedInMachines"], "none", "a refusal grants nothing");
+    // Not now: still off, and answered.
+    b.set_as("signedInMachines", false, Some("user-1".into())).unwrap();
+    let status = a.status();
+    assert_eq!(status["consent"]["signedInMachines"], "none");
+    assert!(status["consent"]["signedInMachinesAnsweredAt"].is_string());
+    // Allow, then Off again: revocable on this machine.
+    a.set_as("signedInMachines", true, Some("user-1".into())).unwrap();
+    assert_eq!(b.status()["consent"]["signedInMachines"], "granted");
+    assert_eq!(b.status()["consent"]["control"], "none", "it is not control from elsewhere");
+    b.set_as("signedInMachines", false, Some("user-1".into())).unwrap();
+    assert_eq!(a.status()["consent"]["signedInMachines"], "none");
+}
+/// A consent file an older build wrote (no signedInMachines) reads as off, and its other grants
+/// keep.
+#[test]
+fn an_older_consent_file_reads_signed_in_machines_as_off() {
+    let (_dir, a, _b) = fixture();
+    a.enroll().unwrap();
+    crate::config::write_atomic(
+        &a.root.join("consent.json"),
+        b"{\"screen\":\"granted\",\"control\":\"none\"}",
+    )
+    .unwrap();
+    let status = a.status();
+    assert_eq!(status["consent"]["screen"], "granted");
+    assert_eq!(status["consent"]["signedInMachines"], "none");
+}
+/// The grant names the account it was given for, and no grant goes without one.
+#[test]
+fn a_signed_in_machines_grant_names_its_account() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    assert!(a.set_as("signedInMachines", true, None).is_err(), "no account, nothing to allow");
+    assert_eq!(b.status()["consent"]["signedInMachines"], "none");
+    a.set_as("signedInMachines", true, Some("user-1".into())).unwrap();
+    assert_eq!(b.status()["consent"]["signedInMachinesUser"], "user-1");
+}
+/// After a switch to another account, an earlier account's grant, answer and pending ask read as
+/// never given: nothing is granted, the app shows no old ask, and the next request asks again.
+#[test]
+fn a_switch_to_another_account_reads_signed_in_machines_as_unasked() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    a.refused_by("signedInMachines", Some("studio"), Some("user-1")).unwrap();
+    a.set_as("signedInMachines", true, Some("user-1".into())).unwrap();
+    let mine = for_account(b.status(), Some("user-1"));
+    assert_eq!(mine["consent"]["signedInMachines"], "granted");
+    assert_eq!(mine["lastRefusal"]["user"], "user-1");
+    let other = for_account(b.status(), Some("user-2"));
+    assert_eq!(other["consent"]["signedInMachines"], "none", "another account's grant");
+    assert!(
+        other["consent"]["signedInMachinesAnsweredAt"].is_null(),
+        "and answer, are not this one's"
+    );
+    assert!(other["lastRefusal"].is_null(), "another account's ask is not shown");
+    let none = for_account(b.status(), None);
+    assert_eq!(none["consent"]["signedInMachines"], "none", "no account, nothing granted");
+    // Screen and control, and asks for them, are not the account's.
+    a.set("screen", true).unwrap();
+    a.refused("control").unwrap();
+    let other = for_account(b.status(), Some("user-2"));
+    assert_eq!(other["consent"]["screen"], "granted");
+    assert_eq!(other["lastRefusal"]["surface"], "control");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_supervised_home_is_accepted_at_its_real_path() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let account = dir.path().join("account");
+    let real = account.join(".acpmux-supervised/hb");
+    std::fs::create_dir_all(&real).unwrap();
+    symlink(&real, account.join(".acpmux")).unwrap();
+    let resolved = crate::config::resolve_supervised_home(&account);
+    assert_eq!(resolved, std::fs::canonicalize(&real).unwrap());
+    let authority =
+        Authority { root: resolved.join("machine-consent"), legacy: dir.path().join("tag") };
+    authority.enroll().unwrap();
+    // The consent lives where ~/.acpmux/machine-consent reaches.
+    assert!(account.join(".acpmux/machine-consent/enrolled.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_home_outside_the_supervised_home_stays_refused() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let account = dir.path().join("account");
+    let foreign = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::create_dir_all(&foreign).unwrap();
+    symlink(&foreign, account.join(".acpmux")).unwrap();
+    // Not under .acpmux-supervised: left unresolved, and the consent check refuses it.
+    let resolved = crate::config::resolve_supervised_home(&account);
+    assert_eq!(resolved, account.join(".acpmux"));
+    let authority =
+        Authority { root: resolved.join("machine-consent"), legacy: dir.path().join("tag") };
+    assert!(authority.enroll().is_err());
+    // A link to a sibling of the supervised folder, or a nested one, is foreign too.
+    std::fs::create_dir_all(account.join(".acpmux-supervised/hb/inner")).unwrap();
+    std::fs::remove_file(account.join(".acpmux")).unwrap();
+    symlink(account.join(".acpmux-supervised/hb/inner"), account.join(".acpmux")).unwrap();
+    assert_eq!(crate::config::resolve_supervised_home(&account), account.join(".acpmux"));
 }

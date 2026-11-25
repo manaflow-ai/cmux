@@ -83,7 +83,7 @@ public struct ArtifactsBrowser: View {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.cmuxPressFill)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -149,12 +149,12 @@ public struct ArtifactsBrowser: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .frame(minHeight: 34)
-                            .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
+                            .cmuxMobilePressBackground(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
                             // 44 pt target around the 34 pt capsule.
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }
@@ -164,7 +164,7 @@ public struct ArtifactsBrowser: View {
         .trailingOverflowFade(width: 24)
         .textCase(nil)
         .foregroundStyle(.primary)
-        .sensoryFeedback(.selection, trigger: state.filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: state.filter)
     }
 }
 

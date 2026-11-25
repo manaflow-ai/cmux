@@ -14,7 +14,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case address(browser: Int32, url: String)
     case title(browser: Int32, title: String)
     case favicon(browser: Int32, url: String)
-    case loadingState(browser: Int32, loading: Bool, canGoBack: Bool, canGoForward: Bool)
+    /// `visibleURL`: with `loading`, the address Chrome's omnibox shows for the pending load
+    /// (Chromium's visible entry; "" when none), as the load starts: CEF's own address comes at commit.
+    case loadingState(browser: Int32, loading: Bool, canGoBack: Bool, canGoForward: Bool, visibleURL: String = "")
     /// `fromPost`: the committed entry came from a form submission (BR-R1).
     case loadStart(browser: Int32, url: String, fromPost: Bool)
     case loadEnd(browser: Int32, httpStatus: Int)
@@ -71,6 +73,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
     /// `cmux_shim_password_prompt_answer(promptID, …)`.
     case passwordPrompt(browser: Int32, promptID: Int32, json: String)
+    /// A server's 401 asks for a user name and password (AUTH_PROMPT), answered with
+    /// `cmux_shim_auth_continue(token, …)`.
+    case authPrompt(browser: Int32, token: Int32, host: String, realm: String, isSecure: Bool)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -110,6 +115,15 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case statusMessage(browser: Int32, text: String)
     case unknown(kind: Int32)
 
+    /// An event that shows in the tab's address, title and loading state: a browser Chromium
+    /// created keeps these until its tab takes it (``CEFOrphanTabs/keepEarly(_:browser:)``).
+    var isDisplayEvent: Bool {
+        switch self {
+        case .loadingState, .loadStart, .loadEnd, .loadError, .address, .title, .favicon, .progress: true
+        default: false
+        }
+    }
+
     /// A load event of a tab's main frame (``CEFTab/handle(_:)``).
     var isLoadEvent: Bool {
         switch self {
@@ -128,7 +142,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 4: self = .address(browser: browser, url: s1)
         case 5: self = .title(browser: browser, title: s1)
         case 6: self = .favicon(browser: browser, url: s1)
-        case 7: self = .loadingState(browser: browser, loading: a & 1 != 0, canGoBack: a & 2 != 0, canGoForward: a & 4 != 0)
+        case 7: self = .loadingState(browser: browser, loading: a & 1 != 0, canGoBack: a & 2 != 0, canGoForward: a & 4 != 0, visibleURL: s1)
         case 8: self = .loadStart(browser: browser, url: s1, fromPost: a == 1)
         case 9: self = .loadEnd(browser: browser, httpStatus: Int(a))
         case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2, chromiumInterstitial: b != 0)
@@ -181,6 +195,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         case 51: self = .statusMessage(browser: browser, text: s1)
+        case 52: self = .authPrompt(browser: browser, token: request, host: s1, realm: s2, isSecure: a != 0)
         default: self = .unknown(kind: kind)
         }
     }

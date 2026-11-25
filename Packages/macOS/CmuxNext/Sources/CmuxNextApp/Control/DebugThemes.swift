@@ -18,7 +18,10 @@ enum DebugThemes {
             object["room"] = .string(controller.state.profileID.rawValue)
             object["appearance"] = .string(controller.window?.appearance?.name.rawValue ?? "")
             object["edge_fades"] = .array(controller.window?.contentView.map(Self.edgeFades) ?? [])
-            object["backdrop"] = .object((controller.window.map(ColorTransition.presentedBackdrop) ?? [:]).mapValues(JSONValue.string))
+            var backdrop = controller.window.map(ColorTransition.presentedBackdrop) ?? [:]
+            // A switching background's next change (shuffle, Time of Day, dynamic by the sun), ISO-8601 UTC.
+            backdrop["next_change"] = services.terminalTheme.backdropClock.nextChange.map { $0.ISO8601Format() } ?? ""
+            object["backdrop"] = .object(backdrop.mapValues(JSONValue.string))
             object["workspaces"] = .array(controller.mountedContents.map { content in
                 var workspace = scope(content.themeScope)
                 workspace["workspace"] = .string(content.workspace.id)

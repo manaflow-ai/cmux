@@ -79,7 +79,10 @@ fn shown_on_row_one() -> HoverCardMachine<Id> {
 
 #[test]
 fn hover_timing_tokens_match_the_swift_values() {
-    assert_eq!(HOVER_CARD_SHOW_DELAY, 400_000_000, "the fast cold delay (Leo 2026-11-01)");
+    assert_eq!(
+        HOVER_CARD_SHOW_DELAY, 1_300_000_000,
+        "Chrome's delay at standard tab width (Lawrence 2026-11-15)"
+    );
     assert_eq!(HOVER_CARD_RESHOW_WINDOW, 300_000_000);
     assert_eq!(HOVER_CARD_SWEEP_INTERVAL, 150_000_000);
     assert_eq!(HOVER_CARD_PIN_LIFETIME, 10_000_000_000);
@@ -164,7 +167,77 @@ fn hover_card_a_gap_longer_than_the_grace_lets_the_card_go() {
 fn hover_card_coming_back_soon_after_it_hid_shows_at_once() {
     let mut m = shown_on_row_one();
     assert!(hides(&run(&mut m, hit(None, true))), "off the sidebar it hides at once");
-    assert_eq!(run(&mut m, hit(Some(row(2)), true)), vec![E::CancelTimer, show(row(2), false)]);
+    // Another row's content fades in over the card that is fading out.
+    assert_eq!(run(&mut m, hit(Some(row(2)), true)), vec![E::CancelTimer, show(row(2), true)]);
+}
+
+/// `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`
+/// (Leo 2026-11-02: "THE HOVER PREVIEW SHOULD NOT MAKE THE SIDEBAR FLICKER ... THEN I LEAVE IT
+/// THEN I GO BACK AND IT RE-RENDERS THE SPINNER VIEW").
+#[test]
+fn hover_card_coming_back_to_the_same_row_shows_the_same_card_with_no_crossfade() {
+    let mut m = shown_on_row_one();
+    assert!(hides(&run(&mut m, hit(None, true))));
+    assert_eq!(
+        m.last_shown_id(),
+        Some(&row(1).id),
+        "the hidden card's target is kept through its hide"
+    );
+    assert_eq!(run(&mut m, hit(Some(row(1)), true)), vec![E::CancelTimer, show(row(1), false)]);
+}
+
+/// A delayed card whose deadline fires while another target's card is still fading out
+/// fades its content in over it; the first card ever, or the same target again, does not.
+#[test]
+fn hover_card_a_delayed_card_after_another_targets_card_fades_in_over_it() {
+    let mut first = HoverCardMachine::new();
+    run(&mut first, hit(Some(row(1)), true));
+    assert_eq!(fire_armed(&mut first), vec![show(row(1), false)], "the first card ever");
+
+    let mut m = shown_on_row_one();
+    assert!(hides(&run(&mut m, hit(None, true))));
+    // The reshow window passes: the next hover waits the delay again.
+    assert!(fire_armed(&mut m).is_empty());
+    run(&mut m, hit(Some(row(2)), true));
+    assert_eq!(fire_armed(&mut m), vec![show(row(2), true)]);
+    assert_eq!(m.last_shown_id(), Some(&row(2).id));
+
+    let mut same = shown_on_row_one();
+    assert!(hides(&run(&mut same, hit(None, true))));
+    assert!(fire_armed(&mut same).is_empty());
+    run(&mut same, hit(Some(row(1)), true));
+    assert_eq!(fire_armed(&mut same), vec![show(row(1), false)], "the same row's card again");
+}
+
+/// `WorkspaceHoverCardBehaviorTests.aRowRightAfterAnOwnedCardShowsAtOnce`: an owner's card (the
+/// update highlights, the pull request card) that just went leaves the next card warm, as any
+/// card does (Chrome's `kShowWithoutDelayTimeBuffer`); after the reshow window the delay is back.
+#[test]
+fn hover_card_a_row_right_after_an_owned_card_shows_at_once() {
+    let mut m = HoverCardMachine::new();
+    run(&mut m, HoverCardEvent::Owned(true));
+    let ended = run(&mut m, HoverCardEvent::Owned(false));
+    let grace = m.armed_token().expect("a reshow window after the owned card went");
+    assert_eq!(ended, vec![E::Schedule { token: grace, after: RESHOW }]);
+    assert_eq!(run(&mut m, hit(Some(row(1)), true)), vec![E::CancelTimer, show(row(1), true)]);
+
+    let mut cold = HoverCardMachine::new();
+    run(&mut cold, HoverCardEvent::Owned(true));
+    run(&mut cold, HoverCardEvent::Owned(false));
+    assert!(fire_armed(&mut cold).is_empty());
+    let effects = run(&mut cold, hit(Some(row(1)), true));
+    let token = cold.armed_token().unwrap();
+    assert_eq!(effects, vec![E::Schedule { token, after: DELAY }]);
+
+    // Only an owned card that showed, with nothing else going on, leaves the window warm.
+    let mut never = HoverCardMachine::<Id>::new();
+    assert!(run(&mut never, HoverCardEvent::Owned(false)).is_empty());
+    assert_eq!(never.phase(), &HoverCardPhase::Idle);
+    let mut suppressed = HoverCardMachine::<Id>::new();
+    run(&mut suppressed, HoverCardEvent::Owned(true));
+    run(&mut suppressed, HoverCardEvent::Suppress(HoverSuppression::Scroll));
+    assert!(run(&mut suppressed, HoverCardEvent::Owned(false)).is_empty());
+    assert_eq!(suppressed.phase(), &HoverCardPhase::Idle);
 }
 
 #[test]
@@ -277,8 +350,9 @@ fn hover_card_tab_resting_on_the_card_keeps_it_and_off_it_hides_at_once() {
     let off = run(&mut m, hit(None, true));
     let grace = m.armed_token().unwrap();
     assert_eq!(off, vec![E::Hide, E::Schedule { token: grace, after: RESHOW }]);
-    // Back onto a tab within the grace: its card at once.
-    assert_eq!(run(&mut m, hit(Some(row(2)), true)), vec![E::CancelTimer, show(row(2), false)]);
+    // Back onto another tab within the grace: its card at once, its content fading in over the
+    // card that is fading out (#32688).
+    assert_eq!(run(&mut m, hit(Some(row(2)), true)), vec![E::CancelTimer, show(row(2), true)]);
     // Off again, past the grace: the next tab waits the delay again.
     run(&mut m, hit(None, true));
     let grace = m.armed_token().unwrap();
@@ -956,10 +1030,14 @@ fn hover_c_machine_round_trips_every_field() {
         aiming: false,
         bridging: false,
     });
+    m.reduce(HoverCardEvent::Deadline(m.armed_token().unwrap()));
+    assert_eq!(m.last_shown_id(), Some(&9));
     m.reduce(HoverCardEvent::Suppress(HoverSuppression::Scroll));
     m.reduce(HoverCardEvent::PointerOnCard(true));
     m.leave_window = millis(123);
     let c = CmuxHoverCardMachine::from(&m);
+    assert!(c.has_last_shown);
+    assert_eq!(c.last_shown, 9);
     assert_eq!(HoverCardMachine::<u64>::from(c), m);
     assert_eq!(
         CmuxHoverCardMachine::new(),
@@ -1075,7 +1153,7 @@ fn hover_c_struct_layouts_match_the_header() {
     use std::mem::{align_of, size_of};
     // The C sizes of cmux_motion_ffi.h's structs (8-byte aligned, fields in header order).
     assert_eq!(size_of::<CmuxHoverTarget>(), 40);
-    assert_eq!(size_of::<CmuxHoverCardMachine>(), 144);
+    assert_eq!(size_of::<CmuxHoverCardMachine>(), 152);
     assert_eq!(size_of::<CmuxHoverCardEvent>(), 56);
     assert_eq!(size_of::<CmuxHoverCardEffect>(), 64);
     assert_eq!(size_of::<CmuxHoverTiming>(), 72);
@@ -1085,7 +1163,8 @@ fn hover_c_struct_layouts_match_the_header() {
     assert_eq!(size_of::<HoverRect>(), 32);
     assert_eq!(size_of::<CmuxHoverEscapeGeometry>(), 136);
     assert_eq!(align_of::<CmuxHoverCardMachine>(), 8);
-    assert_eq!(std::mem::offset_of!(CmuxHoverCardMachine, phase), 136);
+    assert_eq!(std::mem::offset_of!(CmuxHoverCardMachine, last_shown), 136);
+    assert_eq!(std::mem::offset_of!(CmuxHoverCardMachine, phase), 144);
     assert_eq!(std::mem::offset_of!(CmuxHoverCardEvent, kind), 48);
     assert_eq!(std::mem::offset_of!(CmuxHoverCardEffect, kind), 56);
 }

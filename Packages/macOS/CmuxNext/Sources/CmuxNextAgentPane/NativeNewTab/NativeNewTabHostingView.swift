@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import AppKit
 
 /// The native New Tab page in a pane tab: the AppKit ``NativeNewTabView``, plus the field the pane
@@ -41,10 +42,21 @@ public final class NativeNewTabHostingView: NSView {
     override public func layout() {
         super.layout()
         guard let window else { return }
-        if window.firstResponder === self { window.makeFirstResponder(page.fieldView) }
+        if window.firstResponder === self { FocusRoute(.system, "new tab page laid out: its field takes the host's keys").moveKeyboard(in: window, to: page.fieldView) }
         if let ready = onFieldReady {
             onFieldReady = nil
             ready()
         }
+    }
+}
+
+extension NativeNewTabHostingView {
+    /// The shown native New Tab page under `view`, depth first.
+    public static func shown(in view: NSView) -> NativeNewTabHostingView? {
+        if let host = view as? NativeNewTabHostingView, !host.isHiddenOrHasHiddenAncestor { return host }
+        for subview in view.subviews {
+            if let host = shown(in: subview) { return host }
+        }
+        return nil
     }
 }

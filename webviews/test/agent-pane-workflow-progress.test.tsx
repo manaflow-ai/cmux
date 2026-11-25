@@ -3,6 +3,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -58,7 +60,6 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 
-const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { rememberTrayOpen } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 // A tray of more than one line starts folded and builds no rows (cmux#29250); these tests read rows.
 for (const chat of [fixtures.SESSION_ID, "late-root-tray"]) rememberTrayOpen(chat, true);
@@ -132,7 +133,6 @@ for (const producer of [false, true])
       markAgentProgressSource(next.rows, fold.progressSource);
       return next;
     };
-    configureSubagentTray(true);
     (dom.window as unknown as { webkit: unknown }).webkit = {
       messageHandlers: {
         agentSession: {
@@ -151,7 +151,7 @@ for (const producer of [false, true])
     try {
       await mountApp(root);
       await act(async () => receive(publish(structuredClone(agents))));
-      const rows = () => [...dom.window.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      const rows = () => [...dom.window.document.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(rows()).toHaveLength(2);
       const [first, second] = rows();
       const before = second!.innerHTML;
@@ -191,7 +191,6 @@ for (const producer of [false, true])
 const PROGRESS = ".acpmux-agent-line__progress, .acpmux-running-tray__stats";
 
 test("bridge repopulates progress when switching sessions", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -221,7 +220,6 @@ test("bridge repopulates progress when switching sessions", async () => {
 });
 
 test("versioned bridge snapshots retain progress when an unrelated snapshot omits the delta", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -258,7 +256,6 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
 });
 
 test("compatibility snapshots without a progress delta refresh the row from its latest agent", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -288,7 +285,6 @@ test("compatibility snapshots without a progress delta refresh the row from its 
 });
 
 test("a rebuilt producer source refreshes rows even when its structure counter restarts", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -377,7 +373,6 @@ test("one usage event touches one source entry regardless of sibling count", () 
 
 for (const surface of ["tray", "inspector"] as const)
   test(`late root identification retires phantom progress from the ${surface}`, async () => {
-    configureSubagentTray(true);
     (dom.window as unknown as { webkit: unknown }).webkit = {
       messageHandlers: {
         agentSession: {
@@ -410,7 +405,7 @@ for (const surface of ["tray", "inspector"] as const)
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const container = () =>
-      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-session-info");
+      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : SESSION_INFO);
     // Session Info starts closed in a new chat: opened before the chat binds, it is this chat's.
     if (surface === "inspector") {
       bindSessionInfoPane(undefined);
@@ -448,3 +443,10 @@ for (const surface of ["tray", "inspector"] as const)
       await act(async () => root.unmount());
     }
   });
+
+// This suite checks the headers from before the `tally` arm (trayFoldHead.experiment.ts, the default since
+// Leo's 2026-11-23 ask); subagent-tray-tally.test.tsx checks `tally`. Read when each tray mounts.
+{
+  const host = globalThis as { cmuxExperiments?: Record<string, string> };
+  host.cmuxExperiments = { ...host.cmuxExperiments, "subagent-tray-fold-head": "kinds" };
+}

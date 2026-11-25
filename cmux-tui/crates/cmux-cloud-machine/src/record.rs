@@ -5,84 +5,14 @@
 //! timestamps in epoch milliseconds, statuses and reasons as their raw words. The app writes the
 //! same JSON back when it asks a rule about a record it holds.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::json::{self, Strict, int, present};
 
-/// A machine's status. The in-between states stay their own (cloud-machine-ops.ts
-/// `CloudMachineStatus`): a pausing machine is not paused yet, and a deleting one is not gone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Status {
-    Provisioning,
-    Running,
-    Failed,
-    Paused,
-    Destroyed,
-    Unknown,
-    /// A Pause Machine (or the idle auto-pause) the server accepted; the provider call has not
-    /// landed yet, so the machine is not paused.
-    Pausing,
-    /// A Resume Machine the server accepted; the VM is starting again.
-    Starting,
-    /// A Kill Machine the server accepted; the VM is not gone yet.
-    Deleting,
-}
-
-impl Status {
-    pub const ALL: [Status; 9] = [
-        Status::Provisioning,
-        Status::Running,
-        Status::Failed,
-        Status::Paused,
-        Status::Destroyed,
-        Status::Unknown,
-        Status::Pausing,
-        Status::Starting,
-        Status::Deleting,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Status::Provisioning => "provisioning",
-            Status::Running => "running",
-            Status::Failed => "failed",
-            Status::Paused => "paused",
-            Status::Destroyed => "destroyed",
-            Status::Unknown => "unknown",
-            Status::Pausing => "pausing",
-            Status::Starting => "starting",
-            Status::Deleting => "deleting",
-        }
-    }
-
-    /// The status a word names; `Unknown` for any other word.
-    pub fn from_word(word: &str) -> Status {
-        Status::ALL.into_iter().find(|status| status.as_str() == word).unwrap_or(Status::Unknown)
-    }
-
-    /// A machine whose daemon can be reached (or soon will be).
-    pub fn is_live(self) -> bool {
-        matches!(self, Status::Running | Status::Provisioning | Status::Starting)
-    }
-
-    /// A pause, resume or delete is on its way. Power actions wait until it ends.
-    pub fn is_changing(self) -> bool {
-        matches!(self, Status::Pausing | Status::Starting | Status::Deleting)
-    }
-}
-
-impl Serialize for Status {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for Status {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Status::from_word(&String::deserialize(deserializer)?))
-    }
-}
+/// Shared lifecycle vocabulary. UI records may display `Unknown`; operation
+/// boundaries parse strictly before constructing a lifecycle capability.
+pub use cmux_lifeline::vm::Status;
 
 /// Why a paused machine is paused: cmux's idle auto-pause (`idle`) or a person or caller's Pause
 /// Machine (`user`).
@@ -353,6 +283,7 @@ pub struct Machine {
     pub id: String,
     #[serde(default)]
     pub provider: String,
+    #[serde(deserialize_with = "status_compat")]
     pub status: Status,
     #[serde(default)]
     pub display_name: Option<String>,
@@ -403,6 +334,17 @@ pub struct Machine {
     /// epoch ms); nil when the record does not say (an older server, or one not deleting yet).
     #[serde(default)]
     pub evict_at: Option<f64>,
+    /// The guest's root disk (cmux-platform's last `acpmux machine load` sample, the record's
+    /// `disk_health`): used, free and the system / project / caches split; nil when not reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk: Option<cmux_cloud_disk::DiskReport>,
+    /// Each chat's bytes on that disk (`~/chats/<id>` and its worktrees), largest first; empty
+    /// when the guest does not report them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disk_chats: Vec<cmux_cloud_disk::ChatDisk>,
+    /// What the guest cleared the last time its disk ran low (caches, idle build output).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_evicted: Option<cmux_cloud_disk::DiskEviction>,
     /// The auto-size pick a create with `autosize` answered (`{vcpus, memoryGb, pick, reason}`).
     #[serde(default)]
     pub size_pick: Option<Value>,
@@ -411,6 +353,7 @@ pub struct Machine {
     pub last_change_failure: Option<ChangeFailure>,
     /// The newest unresolved Pause, Resume or Kill sent from this app (never read from a server).
     #[serde(default)]
+    #[serde(deserialize_with = "optional_status_compat")]
     pub pending_change: Option<Status>,
     #[serde(default, rename = "pendingMutationID")]
     pub pending_mutation_id: Option<String>,
@@ -419,6 +362,25 @@ pub struct Machine {
     /// The cmux-next record's `desktop`: the machine serves its agent display over the link.
     #[serde(default)]
     pub serves_desktop: bool,
+}
+
+/// Presentation records are forward-compatible: an unknown provider word is
+/// retained as `Unknown`. Operation boundaries use `Status`'s strict parser and
+/// never deserialize through this compatibility adapter.
+fn status_compat<'de, D>(deserializer: D) -> Result<Status, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Status::from_word(&word))
+}
+
+fn optional_status_compat<'de, D>(deserializer: D) -> Result<Option<Status>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+        .map(|word| word.map(|word| Status::from_word(&word)))
 }
 
 impl Machine {
@@ -447,6 +409,9 @@ impl Machine {
             server_revision: None,
             running_since: None,
             evict_at: None,
+            disk: None,
+            disk_chats: Vec::new(),
+            disk_evicted: None,
             size_pick: None,
             last_change_failure: None,
             pending_change: None,
@@ -641,6 +606,19 @@ pub fn from_next(value: &Value) -> Option<Machine> {
         let message = json::text(error.get("message")).unwrap_or_default();
         Some(ChangeFailure::new(code.to_owned(), message, error.get("at").and_then(Value::as_f64)))
     });
+    // The machine's size (protocol `CloudMachineSize`: `cpu`, `memory_mb`, `disk_mb`), which the
+    // classic record names `cpu`, `memoryMb`, `storageMb`. A field that is not a whole number drops
+    // only itself; a size with none of the three is no size.
+    machine.size = fields.get("size").and_then(Value::as_object).and_then(|size| {
+        let read = Size {
+            name: None,
+            cpu: size.get("cpu").and_then(int),
+            memory_mb: size.get("memory_mb").and_then(int),
+            storage_mb: size.get("disk_mb").and_then(int),
+        };
+        (read.cpu.is_some() || read.memory_mb.is_some() || read.storage_mb.is_some())
+            .then_some(read)
+    });
     machine.server_revision = json::text(fields.get("revision"));
     // The machine serves `desktop` (cloud-machine-ops.ts CloudMachine.desktop); absent from an older server.
     machine.serves_desktop = fields.get("desktop").and_then(Value::as_bool).unwrap_or(false);
@@ -653,6 +631,11 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.evict_at = first(fields, &["evict_at", "evictAt"])
         .and_then(Value::as_f64)
         .filter(|at| at.is_finite() && *at > 0.0);
+    // The guest's disk use (cmux-platform `disk_health`); absent before the first sample.
+    let health = first(fields, &["disk_health", "diskHealth"]);
+    machine.disk = health.and_then(cmux_cloud_disk::DiskReport::from_health);
+    machine.disk_chats = health.map(cmux_cloud_disk::chats_from_health).unwrap_or_default();
+    machine.disk_evicted = health.and_then(cmux_cloud_disk::eviction_from_health);
     Some(machine)
 }
 
@@ -669,6 +652,23 @@ pub fn is_agent_infrastructure(name: Option<&str>) -> bool {
         return false;
     };
     AGENT_INFRASTRUCTURE_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+}
+
+/// The prefix of the name `cmux cloud start-chat` gives the machine it makes (cmux-tui
+/// `cloud_start_chat`'s `fresh_name`): `chat-` and 16 hex characters of a fresh UUID.
+pub const CHAT_MACHINE_NAME_PREFIX: &str = "chat-";
+
+/// The name `cmux cloud start-chat` gives a machine it makes, from a fresh UUID's simple form.
+pub fn chat_machine_name(uuid_simple: &str) -> String {
+    format!("{CHAT_MACHINE_NAME_PREFIX}{}", uuid_simple.chars().take(16).collect::<String>())
+}
+
+/// Whether `name` is one cmux generated rather than words a person reads: a start-chat
+/// machine's `chat-` and 16 hex characters (trimmed, case-insensitive).
+pub fn is_generated_name(name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    name.strip_prefix(CHAT_MACHINE_NAME_PREFIX)
+        .is_some_and(|hex| hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// What the app reads off one record, in one answer.
@@ -689,6 +689,10 @@ pub struct Facts {
     pub agent_infrastructure: bool,
     /// Open Desktop's viewer when none is named (`rd` or `web`) for the signed-in user.
     pub desktop_viewer: &'static str,
+    /// The name for a title a person reads: the shown name, or none when the machine has no
+    /// name or only a generated one ([`is_generated_name`]), so the app names it "Cloud machine"
+    /// instead of showing an id.
+    pub human_name: Option<String>,
 }
 
 /// The facts of `machine` for the signed-in `user`.
@@ -710,6 +714,11 @@ pub fn facts(machine: &Machine, user: Option<&str>) -> Facts {
             .any(|status| matches!(status, Status::Destroyed | Status::Deleting)),
         agent_infrastructure: is_agent_infrastructure(machine.shown_name()),
         desktop_viewer: desktop_viewer(machine, &capabilities, user),
+        human_name: machine
+            .shown_name()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !is_generated_name(name))
+            .map(str::to_owned),
         capabilities,
     }
 }

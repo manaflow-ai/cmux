@@ -67,7 +67,7 @@ import Testing
     }
 
     /// The split `+ ⌄` (the default since Lucas 2026-11-12, #41212: "only on hover"): an open ⌄ menu fills the ⌄'s
-    /// whole segment, a tab's height, with the group's trailing corners rounded as a tab's, in the pressed fill. It is
+    /// whole segment, the ⋮'s height, with the group's trailing corners rounded as a tab's, in the pressed fill. It is
     /// the right half of one control, not a square plate of its own.
     @Test func theSplitChevronFillsItsOwnSegmentWhileItsMenuIsOpen() throws {
         let harness = Harness()
@@ -81,7 +81,7 @@ import Testing
         #expect(fills.count == 1, "one fill: \(fills.map { "\($0.bounds.size)" })")
         let fill = try #require(fills.first)
         #expect(fill.frame == chooser.bounds, "the fill is the whole segment")
-        #expect(fill.cornerRadius == NewTabButtonView.splitCornerRadius)
+        #expect(fill.cornerRadius == PlusButtonLook.splitCornerRadius, "the +'s corner, a tab's")
         #expect(fill.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner], "only the group's trailing corners round")
         chooser.isHighlighted = false
         #expect(filledLayers(layer).isEmpty, "no fill once the menu closes and the pointer is away")
@@ -111,9 +111,11 @@ import Testing
         #expect(cell.titleLayer.mask != nil, "the clipped title fades out at the tab's trailing end")
     }
 
-    @Test func aTabTitleIsChromesTwelvePoints() {
+    /// The density's `tabTitleSize`, 12.75 pt at Default (9 pt capitals, Lucas 2026-11-15), else Chrome's 12.
+    @Test func aTabTitleIsTheDensitysTitleSize() {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
-        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == 12 * Typography.userScale) }
+        let size = CGFloat(DesignSettings.shared.densityTokens.tokens["tabTitleSize"] ?? 12) * Typography.userScale
+        for cell in harness.strip.cells.values { #expect(cell.titleFont.pointSize == size) }
     }
 }

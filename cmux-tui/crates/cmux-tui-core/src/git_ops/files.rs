@@ -63,12 +63,21 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (candidates, mut cut) = candidates(repository, directory, &below, OPERATION)?;
+    // The repository's cached listing: one `ls-files` answers every query.
+    let listed = super::read_cache::listed(repository, directory, &below, OPERATION)?;
+    let mut cut = listed.truncated();
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
-    for path in &candidates {
+    // Only a match is looked at: a keystroke's looks grow with its matches,
+    // not with every path in the folder (`files_stress_tests`).
+    let mut reached = Folders::of(repository, &below);
+    for path in listed.iter() {
         match scorer.score(path) {
-            Scored::Match(score, matches) => ranked.push(Ranked { path, score, matches }),
+            Scored::Match(score, matches) => {
+                if reached.kind(path).is_some() {
+                    ranked.push(Ranked { path, score, matches });
+                }
+            }
             Scored::NoMatch => {}
             Scored::OutOfBudget => {
                 // The rest are unranked; say the results are partial.
@@ -184,6 +193,8 @@ impl Folders {
     /// there or cannot be opened, the path has too many folders, or there
     /// is no look at all. A path with no kind is no candidate and no result.
     pub(super) fn kind(&mut self, path: &str) -> Option<Kind> {
+        #[cfg(test)]
+        LOOKS.with(|looks| looks.set(looks.get() + 1));
         self.tree.as_mut()?.entry(&self.below.join(path)).ok()?.kind()
     }
 
@@ -194,22 +205,32 @@ impl Folders {
     }
 }
 
-/// The files under `directory`, relative to it and sorted, and whether the
-/// listing was cut. `below` is the result of [`folder`] for `directory`.
+#[cfg(test)]
+thread_local! {
+    /// Looks ([`Folders::kind`]) made on this thread: the stress tests count
+    /// work with it (`files_stress_tests`).
+    pub(super) static LOOKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The paths git lists under `directory`, relative to it, sorted and with no
+/// repeat, and whether the listing was cut.
 ///
 /// git gives the names: the paths of its index and the untracked names. It
 /// is not asked if a tracked path is still there, because git looks at a
 /// path by its name and so through a link. The daemon looks itself
 /// ([`Folders::kind`]): a candidate is a listed path that it reaches through
-/// real folders and that has a name on the disk.
-pub(super) fn candidates(
+/// real folders and that has a name on the disk. That look is the caller's,
+/// made only for the paths it needs (a match, a child), so its cost is what
+/// the reply shows, not every path below `directory`.
+pub(super) fn listed(
     repository: &Repository,
     directory: &Path,
-    below: &Path,
     operation: &'static str,
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
+    #[cfg(test)]
+    super::read_probe::ran(super::read_probe::Read::Listing, &repository.root);
     let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
     let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
         .map_err(|failure| git_failed(operation, &failure))?;
@@ -224,8 +245,7 @@ pub(super) fn candidates(
     // folder one time.
     files.sort_unstable();
     files.dedup();
-    let mut folders = Folders::of(repository, below);
-    files.retain(|path| !path.contains('\u{FFFD}') && folders.kind(path).is_some());
+    files.retain(|path| !path.contains('\u{FFFD}'));
     Ok((files, listed.truncated))
 }
 

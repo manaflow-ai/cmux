@@ -38,7 +38,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux/cmux-next.json}"
+# The app's settings file, whose folder holds web-dev.json: a DEV build's own (its CMUX_NEXT_CONFIG_FILE,
+# which `cmux live` passes on), else NEXT's ~/.config/cmux-next since #53567 (BuildStatePaths.configDirectory).
+# Writing web-dev.json into the Classic config folder pointed no release or nightly app anywhere (#56156).
+config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux-next/cmux-next.json}"
 config_dir="$(dirname "$config_file")"
 web_dev="$config_dir/web-dev.json"
 overlay="${CMUX_WEB_OVERLAY_DIR:-$HOME/Library/Application Support/cmux-next/web-overlay}"
@@ -58,21 +61,24 @@ DEFAULT_PORT=4200
 # set_key [--if-ours URL TOKEN] KEY VALUE [KEY VALUE]...
 # Every write holds .web-dev.lock beside it, so each writer's read and write are one step. With
 # --if-ours, it writes only while web-dev.json names server URL (`*`: any) with TOKEN (a non-empty
-# one), and otherwise fails, writing nothing.
+# one), and otherwise fails, writing nothing. Every running cmux NEXT build reloads every page on any
+# change to the file, so a write that leaves its JSON as it is writes nothing, and a write that
+# changes it names the running apps that reload.
 set_key() {
   mkdir -p "$config_dir"
-  python3 - "$web_dev" "$@" <<'PY'
-import fcntl, json, os, sys, tempfile
-path, pairs = sys.argv[1], sys.argv[2:]
+  python3 - "$web_dev" "$APP_PAGES" "$@" <<'PY'
+import fcntl, json, os, re, subprocess, sys, tempfile
+path, pages, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
 lock = open(os.path.join(os.path.dirname(path), ".web-dev.lock"), "a")
 fcntl.flock(lock, fcntl.LOCK_EX)  # released when this process ends
 try:
     with open(path) as f:
         data = json.load(f)
+    before = json.loads(json.dumps(data))
     if not isinstance(data, dict):
         data = {}
 except (OSError, ValueError):
-    data = {}
+    data, before = {}, None
 if pairs[:1] == ["--if-ours"]:
     url, token, pairs = pairs[1], pairs[2], pairs[3:]
     if not token or data.get("token") != token or url not in ("*", data.get("server")):
@@ -83,12 +89,68 @@ for key, raw in zip(pairs[::2], pairs[1::2]):
         data.pop(key, None)
     else:
         data[key] = value
+if data == before:
+    print(f"{path}: unchanged, not written (no app reloads)")
+    sys.exit(0)
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".web-dev.")  # 0600: it holds the token
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
 os.replace(tmp, path)  # one rename, so the app never reads half a file (and reloads once)
 print(f"{path}: {json.dumps(data)}")
+# The running apps that watch it: a main executable of an .app that ships the NEXT pages bundle.
+try:
+    listing = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True, timeout=5).stdout
+except (OSError, subprocess.SubprocessError):
+    listing = ""
+apps = sorted({m.group(1) for m in re.finditer(r"^(/.*?\.app)/Contents/MacOS/", listing, re.M)
+               if os.path.isdir(os.path.join(m.group(1), pages))})
+print("reloads every page in: " + (", ".join(apps) if apps else "no running cmux NEXT app"))
+PY
+}
+
+# The bundled pages of a cmux NEXT .app, and the web ABI file in them (WebDevOverride.bundledABI).
+APP_PAGES="Contents/Resources/CmuxNext_CmuxNextPages.bundle"
+APP_ABI="$APP_PAGES/Contents/Resources/pages/web-abi.json"
+# The web ABI file of a checkout's web UI, which a dev server serves from.
+TREE_ABI="webviews/src/web-abi.json"
+
+# The apps a write to web-dev.json or the overlay is for: $CMUX_WEB_OVERLAY_APP, else the installed
+# NEXT builds.
+target_apps() {
+  if [[ -n "${CMUX_WEB_OVERLAY_APP:-}" ]]; then
+    echo "$CMUX_WEB_OVERLAY_APP"
+  else
+    printf '%s\n' "/Applications/cmux NIGHTLY.app" "/Applications/cmux NEXT.app"
+  fi
+}
+
+# Exits 1, before anything is written, when the web ABI in file $1 (the web code of $2) is not the
+# web ABI of a target app: the app would refuse that overlay (WebDevOverride.refusal), or its pages
+# would call host ops it lacks, and any write to web-dev.json reloads every page it shows. A source
+# or an app with no web-abi.json is not checked, as the app does not check it.
+abi_preflight() {
+  local apps=() app
+  while IFS= read -r app; do apps+=("$app"); done < <(target_apps)
+  python3 - "$1" "$2" "$APP_ABI" "${apps[@]}" <<'PY' || exit 1
+import json, os, sys
+source, what, app_abi, apps = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+def abi(path):
+    try:
+        with open(path) as f:
+            return int(json.load(f)["abi"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+want = abi(source)
+if want is None:
+    sys.exit(0)
+for app in apps:
+    have = abi(os.path.join(app, app_abi)) if os.path.isdir(app) else None
+    if have is not None and have != want:
+        print(f"web-overlay.sh: nothing written: {what} needs web ABI {want}, {app} has web ABI {have} "
+              f"(it would refuse it and reload every page); try it in a side copy instead: "
+              f"`cmux app try .` in that checkout, or use a tree at web ABI {have}", file=sys.stderr)
+        sys.exit(1)
 PY
 }
 
@@ -98,6 +160,7 @@ json_string() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1
 install_dirs() {
   local pane="$1" pages="$2" app="$3" source_commit="$4"
   local stamp gen
+  abi_preflight "$pages/web-abi.json" "the overlay ($source_commit)"
   stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
   gen="$overlay/.gen-$stamp"
   mkdir -p "$gen"
@@ -169,6 +232,7 @@ checkout_commit() {
 # commit it was built from when known (DEV builds carry no CMUXCommit).
 install_app() {
   local res="$1/Contents/Resources" commit="${2:-}"
+  [[ -n "$commit" || -f "$1/Contents/Info.plist" ]] || commit=unknown
   [[ -n "$commit" ]] || commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
   install_dirs "$res/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane" \
     "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" "$commit"
@@ -269,6 +333,7 @@ start_local() {
       return
     elif [[ "$(cat "$state/dev-server.tree" 2>/dev/null)" == "$tree:$port" ]]; then
       echo "dev server: http://127.0.0.1:$port/ from $tree (already running)"
+      reused=1
       return
     fi
   fi
@@ -282,8 +347,13 @@ start_local() {
   answers "$port" && for _ in 1 2 3 4 5; do sleep 1; answers "$port" || break; done
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
-  # The generated string tables are gitignored; the dev server imports them.
-  (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1)
+  # The generated string tables are gitignored; the dev server imports them. A failure says its own
+  # words: silenced, set -e ended this script with no output at all (hot-verify's empty
+  # "web-overlay.sh server --local:", 2026-11-22).
+  local said
+  if ! said="$(cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort 2>&1)"; then
+    echo "webviews/scripts/pages/gen-strings.mjs failed in $tree: $(tail -n 20 <<<"$said")" >&2; exit 1
+  fi
   # Each module's React Compiler output, kept across starts (webviews/reactCompiler.mjs keys it by
   # the file's text, path and bun.lock), so a second start serves the agent pane in seconds, not
   # half a minute. About 50 MB per tree; entries older than 14 days go at each start.
@@ -303,10 +373,20 @@ start_local() {
   echo "$tree:$port" >"$state/dev-server.tree"
   # A server that another process holds the port for answers too; only ours, still running, counts.
   if ! answers "$port" 60 || ! ours_listens "$port"; then
-    echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
+    # Its own last words, not only where they are: `cmux app try .` shows this line alone.
+    echo "the dev server did not start: $(grep -E 'Error|error' "$state/dev-server.log" 2>/dev/null | head -n 3 | tr '\n' ' ')(log: $state/dev-server.log)" >&2; exit 1
   fi
   trap - EXIT
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
+}
+
+# abi_preflight for a server on 127.0.0.1:$1 that this script started from a checkout (its tree is
+# known); another program's server, or a slot's, serves a tree this Mac cannot read.
+served_tree_preflight() {
+  local recorded
+  recorded="$(cat "$state/dev-server.tree" 2>/dev/null || true)"
+  [[ -n "$recorded" && "${recorded##*:}" == "$1" && -n "$(live_pid dev-server)" ]] || return 0
+  abi_preflight "${recorded%:*}/$TREE_ABI" "the dev server's tree ${recorded%:*}"
 }
 
 # Waits beside the dev server (pid $1, port $2), in its process group: `stop_started` ends both.
@@ -338,9 +418,15 @@ ensure_token() {
 
 # Points the app at a server on port $1; $2 is the token its answers carry (default: ours).
 # The token is kept in the state folder too, so a dev server's exit watch clears only its own pick.
+# A server start_local found already running (`reused`) that web-dev.json already names keeps its
+# token, so pointing at it again writes nothing and no page reloads.
 point_at() {
-  local token
-  token="$(ensure_token "${2:-}")"
+  local token="${2:-}" pick
+  if [[ -z "$token" && -n "${reused:-}" ]]; then
+    pick="$(our_pick)"
+    [[ "$(sed -n 1p <<<"$pick")" == "http://127.0.0.1:$1/" ]] && token="$(sed -n 2p <<<"$pick")"
+  fi
+  token="$(ensure_token "$token")"
   mkdir -p "$state"
   (umask 077 && echo "$token" >"$state/dev-server.token")
   set_key server "$(json_string "http://127.0.0.1:$1/")" token "$(json_string "$token")" enabled true
@@ -538,6 +624,7 @@ case "$cmd" in
             *) usage 1 ;;
           esac
         done
+        abi_preflight "$tree/$TREE_ABI" "the dev server's tree $tree"
         start_local "$tree" "$port"
         point_at "$port"
         ;;
@@ -547,6 +634,7 @@ case "$cmd" in
           echo "no slot in $web_dev (\"slot\": {\"host\": \"<ssh host>\", \"port\": N}); using a local dev server" >&2
         elif answers "$port"; then
           echo "127.0.0.1:$port already answers; using it"
+          served_tree_preflight "$port"
           point_at "$port"; exit 0
         else
           # The same port on both ends: the Vite client opens its HMR socket on the server's port.
@@ -559,20 +647,27 @@ case "$cmd" in
             # The slot's server sends the token of web-dev.json on its own machine.
             remote_token="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" python3 - <<'PY' 2>/dev/null || true
 import json, os
-try:
-    print(json.load(open(os.path.expanduser("~/.config/cmux/web-dev.json"))).get("token") or "")
-except Exception:
-    print("")
+# The NEXT folder since #53567 first, then the one a host from before it still writes.
+token = ""
+for folder in ("cmux-next", "cmux"):
+    try:
+        token = json.load(open(os.path.join(os.path.expanduser("~"), ".config", folder, "web-dev.json"))).get("token") or ""
+    except Exception:
+        continue
+    if token:
+        break
+print(token)
 PY
 )"
             if [[ ${#remote_token} -lt 32 ]]; then
-              echo "warning: $host has no token in ~/.config/cmux/web-dev.json; start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
+              echo "warning: $host has no token in its web-dev.json (~/.config/cmux-next, or the Classic config folder before #53567); start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
             fi
             point_at "$port" "$remote_token"; exit 0
           fi
           kill "$(cat "$state/tunnel.pid")" 2>/dev/null || true; rm -f "$state/tunnel.pid"
           echo "the slot on $host:$port does not answer; using a local dev server" >&2
         fi
+        abi_preflight "$ROOT/$TREE_ABI" "the dev server's tree $ROOT"
         start_local "$ROOT" "$port"
         point_at "$port"
         ;;
@@ -580,6 +675,8 @@ PY
         url="$mode"
         [[ "$url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+(/.*)?$ ]] || {
           echo "the server must be http://127.0.0.1:PORT/" >&2; exit 1; }
+        port="$(sed -E 's#^http://[^:]+:([0-9]+).*#\1#' <<<"$url")"
+        served_tree_preflight "$port"
         if ! curl -fsS -o /dev/null --max-time 5 "${url%/}/agent-pane/index.html"; then
           echo "warning: ${url%/}/agent-pane/index.html does not answer yet; the app uses the bundled pages until it does" >&2
         fi
@@ -624,6 +721,7 @@ PY
     fi
     # The files on disk are this head now, so status names it even if a step below fails.
     echo "$pr $head" >"$state/follow.pr"
+    abi_preflight "$tree/$TREE_ABI" "#$pr's head $head"
     # Another program's server on the port would serve its own files, not this head.
     if answers "$port" && ! ours_listens "$port"; then
       echo "127.0.0.1:$port answers, but not from a server this script started; stop it or use --port N" >&2
@@ -651,6 +749,7 @@ PY
     install_app "$(cd "$1" && pwd)"
     ;;
   build)
+    abi_preflight "$ROOT/$TREE_ABI" "this checkout ($ROOT)"
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-build.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
     "$ROOT/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$out"
@@ -678,14 +777,18 @@ PY
     args+=(--tag "$tag" --backend-mode local)
     ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
     [[ -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
+    out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
+    trap 'rm -rf "$out"' EXIT
     if [[ -n "$working_tree" ]]; then
       args+=(--working-tree)
+      abi_preflight "$ROOT/$TREE_ABI" "this checkout ($ROOT)"
     else
       ref="${ref:-$(git -C "$ROOT" rev-parse HEAD)}"
       args+=(--ref "$ref" --workspace "$workspace")
+      # Before a build: install_app checks the built bundles again.
+      git -C "$ROOT" show "$ref:$TREE_ABI" >"$out/ref-web-abi.json" 2>/dev/null || true
+      abi_preflight "$out/ref-web-abi.json" "$ref"
     fi
-    out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
-    trap 'rm -rf "$out"' EXIT
     job_json="$(cd "$ROOT" && "$ci" build cmux --builder linux "${args[@]}")"
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$job_json")"
     echo "fleet job $job" >&2
@@ -706,9 +809,14 @@ PY
     ;;
   status)
     # First the answer (what the app loads its web UI from, and why), then the details.
-    setting=unknown
-    if command -v cmux >/dev/null 2>&1; then
-      setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    # `cmux live status` reads the setting itself, from the app it was pointed at (--app-socket),
+    # and passes it in CMUX_LIVE_WEB_RELOAD; run by hand, this asks the `cmux` on PATH.
+    setting="${CMUX_LIVE_WEB_RELOAD:-}"
+    if [[ -z "$setting" ]]; then
+      setting=unknown
+      if command -v cmux >/dev/null 2>&1; then
+        setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+      fi
     fi
     explain "$setting" "$(live_pid dev-server)"
     echo
@@ -723,16 +831,14 @@ PY
     cat "$overlay/manifest.json" 2>/dev/null || echo "(no overlay installed)"
     # The app's bridge check (WebDevOverride.refusal): an overlay for another web ABI is not served.
     # CMUX_WEB_OVERLAY_APP names the app; else the installed NEXT builds.
-    apps=("/Applications/cmux NIGHTLY.app" "/Applications/cmux NEXT.app")
-    [[ -z "${CMUX_WEB_OVERLAY_APP:-}" ]] || apps=("$CMUX_WEB_OVERLAY_APP")
-    for app in "${apps[@]}"; do
+    while IFS= read -r app; do
       [[ -f "$overlay/manifest.json" && -d "$app" ]] || continue
-      python3 - "$overlay/manifest.json" "$app" <<'PY'
+      python3 - "$overlay/manifest.json" "$app" "$APP_ABI" <<'PY'
 import json, sys
-manifest, app = sys.argv[1], sys.argv[2]
+manifest, app, app_abi = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     want = json.load(open(manifest)).get("abi")
-    have = json.load(open(app + "/Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"))["abi"]
+    have = json.load(open(app + "/" + app_abi))["abi"]
 except (OSError, ValueError, KeyError):
     sys.exit(0)
 if want is not None and want != have:
@@ -740,7 +846,7 @@ if want is not None and want != have:
 elif want is not None:
     print(f"served by {app}: web ABI {have}")
 PY
-    done
+    done < <(target_apps)
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 1 ;;

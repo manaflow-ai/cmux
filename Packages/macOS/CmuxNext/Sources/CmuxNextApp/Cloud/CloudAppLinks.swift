@@ -29,7 +29,9 @@ enum CloudAppLinks {
         case .openDirectory(let path, let parent)?: CloudStrings.linkOpenDirectory(path, fix: CloudLinkError.chmodFix(path: path, parent: parent))
         case .unsafeSocket?, .invalidAnswer?: CloudStrings.linkCheckFailed
         case .notUp(let state)?: CloudStrings.linkNotReady(state)
-        case .failed(let code, let message)?: CloudStrings.linkFailed(message.isEmpty ? code : message)
+        // A bare code (`cmux.cloud.x`) stays in the log (``logEnded(_:)``), never the sentence.
+        case .failed(_, let message)?, .helperRefused(_, let message)?:
+            message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? CloudStrings.linkFailedNoDetail : CloudStrings.linkFailed(message)
         case .unsupported?: CloudStrings.linkUnsupported
         }
     }

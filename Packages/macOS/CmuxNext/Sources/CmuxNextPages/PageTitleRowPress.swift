@@ -133,7 +133,9 @@ extension PageWebView: TitleRowSelfHandling {
     /// the left button is still down, or runs the double-click action.
     func titleRowPressed(_ report: PageTitleRowPress.Report) {
         // Page script can post at any time: only right after the person's own press in the page.
-        guard let window, recentUserGestureEvent(within: 0.5) != nil, takesTitleRowPress(report) else { return }
+        // An app page (no host ops, ``PageDescriptor/servesHostOps``) never acts on the window: a click
+        // in it is a gesture, so a report it fabricates there would pass the check below.
+        guard descriptor.servesHostOps, let window, recentUserGestureEvent(within: 0.5) != nil, takesTitleRowPress(report) else { return }
         switch report.kind {
         case .double:
             WindowTitlebar.performDoubleClick(in: window)

@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type BrowserType } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Read = { phase?: string; thread: number; rows: { id: string; top: number; opacity: number }[]; ended: boolean };
 type Still = Read & { png: Buffer; movedPx: number };
@@ -86,11 +87,11 @@ await requireBrowserLane("turn-end-stills.test.ts", async () => {
   }
 
   /// The rows in view now: id, where each paints, its opacity; and whether the turn's footer is in.
-  function read(): Read {
+  function read({ TRANSCRIPT_ROW }: { TRANSCRIPT_ROW: string }): Read {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const view = scroller.getBoundingClientRect();
     const rows: { id: string; top: number; opacity: number }[] = [];
-    for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+    for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
       const box = row.getBoundingClientRect();
       if (box.height === 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
       rows.push({ id: row.dataset.rowId!, top: box.top, opacity: Number.parseFloat(getComputedStyle(row).opacity) });
@@ -146,7 +147,7 @@ await requireBrowserLane("turn-end-stills.test.ts", async () => {
         let last: Read | undefined;
         for (let frame = 0; frame < 600 && after.length < 7; frame += 1) {
           await page.evaluate(() => (window as unknown as { __advance: () => Promise<void> }).__advance());
-          const now = await page.evaluate(read);
+          const now = await page.evaluate(read, { TRANSCRIPT_ROW });
           const was = new Map((last?.rows ?? []).map((row) => [row.id, row.top]));
           let movedPx = 0;
           for (const row of now.rows) {

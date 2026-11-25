@@ -30,9 +30,10 @@ pub(in crate::cli::cloud_start_chat) fn past_deadline() -> Value {
     json!({"code": "carrier_fault.timeout", "message": PAST_DEADLINE_SAID})
 }
 
+/// The error object itself on stderr (not under `{"ok": false, "error": ...}`), as `step_result` reads a step's
+/// error: its own code reaches the answer, never `step.failed` with the JSON as its message.
 fn ran_past_deadline() -> Ran {
-    let error = json!({"ok": false, "error": past_deadline()});
-    Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: error.to_string() }
+    Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: past_deadline().to_string() }
 }
 
 /// The process groups of the bounded steps still running (each step's leader is unreaped while its id is here, so
@@ -70,6 +71,7 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
     if Instant::now() >= until {
         return ran_past_deadline();
     }
+    keep_children();
     command
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::piped())
@@ -121,19 +123,39 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
     end_group(&mut child);
     // After the kill the leader is gone or going: this reap returns at once.
     let status = child.wait().ok().filter(|_| exited);
+    let ended = pipes.iter().all(|pipe| pipe.ended);
+    let mut text = pipes.into_iter().map(|pipe| String::from_utf8_lossy(&pipe.read).into_owned());
+    let (stdout, stderr) = (text.next().unwrap_or_default(), text.next().unwrap_or_default());
     match status {
         // A pipe still held at `until` (a process that left the group) is not waited for.
-        Some(status) if pipes.iter().all(|pipe| pipe.ended) => {
-            let mut text =
-                pipes.into_iter().map(|pipe| String::from_utf8_lossy(&pipe.read).into_owned());
-            Ran {
-                code: status.code().unwrap_or(1),
-                stdout: text.next().unwrap_or_default(),
-                stderr: text.next().unwrap_or_default(),
-            }
+        Some(status) if ended => Ran { code: status.code().unwrap_or(1), stdout, stderr },
+        // Only a deadline that came is a timeout. A step whose exit could not be read before it (another reaper
+        // took it) is that step's own failure, with what it printed: never "--timeout ran out" with time left.
+        _ if Instant::now() < until => {
+            let error = json!({
+                "code": UNWAITED,
+                "message": format!("the step ended but its exit could not be read: {stderr}"),
+            });
+            Ran { code: 1, stdout, stderr: error.to_string() }
         }
         _ => ran_past_deadline(),
     }
+}
+
+/// What a bounded step answers whose exit could not be read with its deadline still ahead.
+const UNWAITED: &str = "step.unwaited";
+
+/// Makes this process keep its children's exit until it reads it, once, before its first bounded step. A process
+/// started with `SIGCHLD` ignored (inherited across exec from whatever ran the drill) has the system reap every
+/// child at its exit: a step's exit can then never be read, and its group id is no longer proven its own.
+/// `carrier tunnel` takes the default back the same way (`carrier::tunnel::reap_own_children`).
+fn keep_children() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if !cmux_tui_platform::ended_children::keep_their_ids() {
+            let _ = crate::carrier::tunnel::reap_own_children();
+        }
+    });
 }
 
 /// How long one wait on a step's pipes lasts before the step's exit is checked again.
@@ -272,36 +294,5 @@ pub(in crate::cli::cloud_start_chat) fn read_by(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A stdin that never ends (a pipe nobody closes) stops the prompt's read at the deadline; one that ends is read
-    /// whole. Without the bound the drill waited on such a stdin past any `--timeout`.
-    #[test]
-    fn a_stdin_read_stops_at_the_deadline() {
-        use std::io::Write as _;
-        // A pipe nobody closes: its reader never sees an end.
-        let (reader, writer) = std::io::pipe().unwrap();
-        let began = Instant::now();
-        assert!(read_by(&reader, began + Duration::from_millis(200)).is_err());
-        assert!(began.elapsed() < Duration::from_secs(5), "{:?}", began.elapsed());
-        // One that ends is read whole.
-        let (reader, mut writer_two) = std::io::pipe().unwrap();
-        writer_two.write_all(b"count").unwrap();
-        drop(writer_two);
-        let read = read_by(&reader, began + Duration::from_secs(5));
-        assert_eq!(read, Ok("count".to_owned()));
-        drop(writer);
-    }
-
-    /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the
-    /// machine's `timeout` holds those whole seconds, the script quoted whole.
-    #[test]
-    fn a_remote_script_holds_the_seconds_left() {
-        assert_eq!(remote_script("true", Duration::from_millis(3_999)), None);
-        assert_eq!(
-            remote_script("echo a b", Duration::from_millis(5_900)).as_deref(),
-            Some("timeout -k 1 2 sh -c 'echo a b'")
-        );
-    }
-}
+#[path = "bounded_tests.rs"]
+mod tests;

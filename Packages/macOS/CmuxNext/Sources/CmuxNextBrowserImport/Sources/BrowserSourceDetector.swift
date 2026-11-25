@@ -59,9 +59,12 @@ public struct BrowserSourceDetector: Sendable {
         let appURL = browser.bundleIDs.lazy.compactMap(environment.locateApp).first
             ?? browser.appNames.lazy.compactMap(environment.locateAppNamed).first
         let webKitCookies = browser.family.isPrivateStore ? webKitCookieFile(browser) : nil
-        guard FileManager.default.fileExists(atPath: directory.path) || webKitCookies != nil else { return nil }
+        // A folder in another app's container is never looked at by a build that may not (a try copy).
+        let mayLook = environment.mayLook(at: directory)
+        guard (mayLook && FileManager.default.fileExists(atPath: directory.path)) || webKitCookies != nil else { return nil }
         switch browser.family {
         case .chromium:
+            guard mayLook else { return nil }
             let entries = browser.profileIsDataDirectory ? Self.rootProfileEntries(directory, browser: browser) : ChromiumProfileList().entries(in: directory)
             let profiles = entries.map { entry in
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
@@ -88,13 +91,15 @@ public struct BrowserSourceDetector: Sendable {
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
+            guard mayLook else { return nil }
             let profiles = FirefoxProfileList().entries(in: directory).map { entry in
                 BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
                                      path: entry.path, availability: Self.firefoxAvailability(entry.path, browser: browser))
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .safari:
-            let cookies = browser.safariCookieFile.map { environment.homeDirectory.appending(path: $0) }
+            guard mayLook else { return nil }
+            let cookies = browser.safariCookieFile.map { environment.homeDirectory.appending(path: $0) }.flatMap { environment.mayLook(at: $0) ? $0 : nil }
             let availability = Self.safariAvailability(directory, cookies: cookies)
             let blocked = availability.values.contains(.needsFullDiskAccess)
             let profile = BrowserSourceProfile(browser: browser, directoryName: "Safari", displayName: browser.displayName,
@@ -129,7 +134,7 @@ public struct BrowserSourceDetector: Sendable {
         #else
         let files = (browser.safariCookieFile.map { [$0] } ?? [])
             + browser.bundleIDs.map { "Library/HTTPStorages/\($0).binarycookies" }
-        return files.map(environment.file).first { FileManager.checked.fileExists(atPath: $0.path) }
+        return files.map(environment.file).first { environment.mayLook(at: $0) && FileManager.checked.fileExists(atPath: $0.path) }
         #endif
     }
 
@@ -165,7 +170,8 @@ public struct BrowserSourceDetector: Sendable {
         let files = browser.source?.files
         func present(_ name: String?) -> Bool { name.map { FileManager.default.fileExists(atPath: profile.appending(path: $0).path) } ?? false }
         let sessions = profile.appending(path: "Sessions")
-        let hasSession = ChromiumSessionReader().latestSessionFile(in: sessions) != nil || present("Current Session")
+        let sessionLogs = (try? FileManager.checked.contentsOfDirectory(atPath: sessions.path)) ?? []
+        let hasSession = sessionLogs.contains { $0.hasPrefix("Session_") } || present("Current Session")
         return [
             .bookmarks: present(files?.bookmarks ?? "Bookmarks") ? .available : .absent,
             .history: present(files?.history ?? "History") ? .available : .absent,
@@ -178,6 +184,9 @@ public struct BrowserSourceDetector: Sendable {
         ]
         #endif
     }
+
+    /// A Firefox profile's session stores, newest first.
+    static let firefoxSessionFiles = ["sessionstore-backups/recovery.jsonlz4", "sessionstore.jsonlz4", "sessionstore-backups/previous.jsonlz4"]
 
     static func firefoxAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
         #if CMUX_NO_BROWSER_DATA_IMPORT
@@ -192,7 +201,7 @@ public struct BrowserSourceDetector: Sendable {
         return [
             .bookmarks: places,
             .history: session(places),
-            .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
+            .openTabs: session(Self.firefoxSessionFiles.contains(where: present) ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
             .searchEngines: present("search.json.mozlz4") ? .available : .absent,
             // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
@@ -227,8 +236,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: state(directory.appending(path: "History.db")),
             .cookies: cookies.map(state) ?? .absent,
             .passwords: .unsupported(.exportFromSource),
-            // A Mac setting (NSPreferredWebServices), not a file in Safari's folder.
-            .searchEngines: SafariSearchEngineReader().read() != nil ? .available : .absent,
+            // A Mac setting (NSPreferredWebServices), not a file in Safari's folder: a provider is set.
+            .searchEngines: BrowserDataReader.safariServices() != nil ? .available : .absent,
         ]
         #endif
     }

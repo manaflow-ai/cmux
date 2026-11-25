@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
@@ -7,7 +8,7 @@ import CmuxNextWakeups
 /// 2026-10-20: the page shifted in a new workspace opened from a split one). They are kept with
 /// what they show: a change of the chat list or of the picked model drops them (and every page's
 /// own remembered frame, `AgentPageRedraw`), so no page ever draws old chats or an old model; a
-/// frame's size and appearance must match the pane's.
+/// frame's size and appearance must match the pane's, so a pane with no size yet draws none.
 @MainActor
 public final class AgentPaneNewTabFrame {
     public static let shared = AgentPaneNewTabFrame()
@@ -29,9 +30,13 @@ public final class AgentPaneNewTabFrame {
 
     public init() {}
 
-    /// The frame drawn at `size` (zero: a pane not laid out yet) and `appearance`, with today's content.
+    /// The frame drawn at `size` and `appearance`, with today's content. None for a pane not laid out yet (a zero
+    /// size): it has no size to pick a frame by, and the newest frame of any size drew a split pane's page top-left
+    /// in a new workspace's whole area until its page painted (Lawrence 2026-11-19: Cmd-N's page shifted). Its page
+    /// asks again at the layout that gives it a size (``AgentPageRedraw/askPictureAtNewSize(of:)``).
     public func image(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {
-        frames.last { $0.generation == generation && $0.appearance == appearance && (size == .zero || size == $0.size) }?.image
+        guard size != .zero else { return nil }
+        return frames.last { $0.generation == generation && $0.appearance == appearance && size == $0.size }?.image
     }
 
     /// Keeps `image` as the frame at `size` and `appearance`, the newest one.
@@ -119,5 +124,30 @@ public final class AgentPaneNewTabFrame {
         content[keyPath: field] = value
         generation &+= 1
         frames = []
+    }
+}
+
+extension AgentPageRedraw {
+    /// From the pane view's ``AgentPaneView/layout()``: a New Tab page that has not painted asks its pane for its
+    /// picture (``AgentPaneView/drawsLastPage``) at each size it gets in a pane. A pane can show its page before the
+    /// pane's own first layout (a new workspace's pane made with its page's view: a spare still loading), when it has
+    /// no size to pick a frame by (``AgentPaneNewTabFrame/image(size:appearance:)``). A view laid out in its pane is
+    /// in the pane's layout pass, so the frame at the pane's size is in the pane's first frame with this view. A view
+    /// still parked (``PageOffscreenParking``: a spare its pane has not taken yet) asks nothing: its pane has no size
+    /// yet and gives no picture; the move into the pane asks again (``paneWired(_:)``). A pane that already shows
+    /// a picture keeps it (the closure draws none over one).
+    func askPictureAtNewSize(of pane: NSView) {
+        guard let view = pane as? AgentPaneView, view.model.newTab != nil, !view.model.hasPainted, view.bounds.size != pictureAskedAt,
+              !view.bounds.isEmpty, !(view.superview is PageOffscreenParking), let draw = view.drawsLastPage else { return }
+        pictureAskedAt = view.bounds.size
+        _ = draw()
+    }
+
+    /// A pane set `view`'s ``AgentPaneView/drawsLastPage`` (each show), or `view` has another superview (a parked
+    /// spare its pane took): the page asks that pane again at its next layout, also at a size it asked its last pane
+    /// at (a spare closed before it painted, taken again by the next Cmd-N) or at the size it was parked at.
+    func paneWired(_ view: AgentPaneView) {
+        pictureAskedAt = .zero
+        if view.model.newTab != nil, !view.model.hasPainted { view.needsLayout = true }
     }
 }

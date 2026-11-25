@@ -33,15 +33,15 @@ function kept(team = "team_personal"): MemoryStorage {
 /** The account read answers only when the test lets it. */
 class HeldAuthProvider extends MockCloudProvider {
   private release?: () => void;
-  private held = new Promise<void>((resolve) => (this.release = resolve));
+  private authHeld = new Promise<void>((resolve) => (this.release = resolve));
   answer(): void {
     this.release?.();
   }
   hold(): void {
-    this.held = new Promise<void>((resolve) => (this.release = resolve));
+    this.authHeld = new Promise<void>((resolve) => (this.release = resolve));
   }
   override async call<R>(op: string, params: unknown): Promise<R> {
-    if (op === CloudOps.authStatus) await this.held;
+    if (op === CloudOps.authStatus) await this.authHeld;
     return super.call<R>(op, params);
   }
   asked(op: string): number {

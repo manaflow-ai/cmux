@@ -42,6 +42,7 @@ mod hidden;
 mod journal;
 mod query;
 mod search_index;
+mod search_syntax;
 mod visit_stores;
 mod visits;
 
@@ -57,7 +58,9 @@ pub use hidden::{HiddenHistory, HiddenRange, hidden_id};
 pub use journal::EntryContext;
 pub use query::{HistoryQuery, HistoryRange, apply, is_displayable, matches, search_text};
 pub use search_index::{
-    Backfill, BackfillStep, SearchDoc, SearchFeed, SearchHit, SearchIndex, SearchKind,
+    Backfill, BackfillStep, MAX_TEXT_BYTES, SearchDoc, SearchFeed, SearchHit, SearchIndex,
+    SearchKind,
 };
+pub use search_syntax::SearchFilter;
 pub use visit_stores::{Removal, VisitStores, profile_file_name, profile_from_file_name};
 pub use visits::{MAX_VISITS, NewVisit, RETENTION_MS, Visit, VisitStore, VisitSummary};

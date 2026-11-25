@@ -48,6 +48,17 @@ impl HostLauncher {
 /// start; pooled starts themselves wait on liveness and report progress.
 #[cfg(unix)]
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
+    spawn_with_fds(launcher, spec, &[]).await
+}
+
+/// [`spawn`], the host inheriting `fds` as its descriptors 3, 4, ... (a replacement host of the
+/// agent holder, `custody::respawn`).
+#[cfg(unix)]
+pub async fn spawn_with_fds(
+    launcher: &HostLauncher,
+    spec: &SpawnSpec,
+    fds: &[std::os::fd::RawFd],
+) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
     let mut cmd = tokio::process::Command::new(launcher.program());
@@ -79,15 +90,37 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
     }
     // Debug builds only: the test process whose end ends the host (`daemon/owner_exit.rs`).
     #[cfg(debug_assertions)]
-    if let Some(pid) = std::env::var_os(crate::daemon::owner_exit::TEST_OWNER_PID_ENV) {
-        cmd.env(crate::daemon::owner_exit::TEST_OWNER_PID_ENV, pid);
+    if let Some(pid) = std::env::var_os(crate::owner_exit::TEST_OWNER_PID_ENV) {
+        cmd.env(crate::owner_exit::TEST_OWNER_PID_ENV, pid);
     }
-    // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
+    // Above every target number first, so no dup2 below overwrites a source not moved yet.
+    let high: Vec<std::os::fd::OwnedFd> = fds
+        .iter()
+        .map(|fd| {
+            // SAFETY: fcntl F_DUPFD_CLOEXEC on a descriptor the caller holds open.
+            let raw = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 64) };
+            if raw < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // SAFETY: a new descriptor owned here.
+            Ok(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) })
+        })
+        .collect::<std::io::Result<_>>()
+        .context("dup the inherited descriptors")?;
+    let inherit: Vec<std::os::fd::RawFd> =
+        high.iter().map(std::os::fd::AsRawFd::as_raw_fd).collect();
+    // SAFETY: setsid and dup2 are async-signal-safe and touch no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
+            }
+            for (i, fd) in inherit.iter().enumerate() {
+                // dup2 leaves the copy open across exec.
+                if libc::dup2(*fd, 3 + i as libc::c_int) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             Ok(())
         });
@@ -95,6 +128,8 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
     let child = cmd
         .spawn()
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
+    // The child has its copies.
+    drop(high);
     // Until it answers, the host is ended with this start: a caller that
     // stops waiting leaves no host behind.
     let mut host = Bootstrapping::new(child)?;
@@ -208,6 +243,7 @@ pub struct Adopted {
     pub acked_h: u64,
     pub max_out_id: i64,
     pub exited: Option<Option<i32>>,
+    pub launch_credential: super::LaunchCredential,
 }
 
 pub enum Connect {
@@ -232,7 +268,8 @@ pub struct QueryReply {
 
 type Queries = Arc<std::sync::Mutex<std::collections::HashMap<u64, oneshot::Sender<QueryReply>>>>;
 
-/// The fences of the lines sent to a host (`ControllerFrame::Line`), with its incarnation,
+/// The fences of the lines sent to a host (`ControllerFrame::Line`), with its start nonce (a
+/// replacement host keeps its incarnation, `custody.rs`, but never its nonce),
 /// until its receipt (`WRITTEN_METHOD`, `settle_receipt`) or its end (`settle_receipts_of`)
 /// settles them. Shared by every connection this daemon makes, so a receipt a later connection
 /// to the same host gets settles its line (review 82 of #23322). A protocol-1 host gives no
@@ -293,14 +330,14 @@ fn hold_receipt(host: &HostRecord, receipt: u64, fence: &crate::agent::Fence) {
     let mut receipts = RECEIPTS.lock_or_recover();
     // Settled ones another way (an answered request) go.
     receipts.retain(|_, (_, f)| !f.is_settled());
-    receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    receipts.insert(receipt, (host.start_nonce.clone(), fence.clone()));
     drop(receipts);
     watch_end(host);
 }
 
 /// Watches `host`'s end once, from its first held line.
 fn watch_end(host: &HostRecord) {
-    if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
+    if WATCHED.lock_or_recover().insert(host.start_nonce.clone()) {
         // task-owner: ends with the host, or when its lock can not be watched.
         tokio::spawn(watch_host_end(host.clone()));
     }
@@ -324,7 +361,7 @@ pub fn adopt_receipt(host: &HostRecord, receipt: u64) -> crate::agent::Fence {
         at.and_then(|at| unclaimed.remove(at)).map(|(_, written)| written)
     };
     if came.is_none() {
-        receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+        receipts.insert(receipt, (host.start_nonce.clone(), fence.clone()));
     }
     drop(receipts);
     match came {
@@ -347,7 +384,7 @@ pub fn adopt_untold(host: &HostRecord) -> crate::agent::Fence {
     fence
 }
 
-/// The host incarnations whose end is watched (`watch_host_end`), one watch each.
+/// The host processes (start nonces) whose end is watched (`watch_host_end`), one watch each.
 static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
     std::sync::LazyLock::new(Default::default);
 
@@ -357,9 +394,9 @@ static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<S
 /// receipt or `Exit` (fail closed).
 async fn watch_host_end(record: HostRecord) {
     let gone = host_ended(&record).await;
-    WATCHED.lock_or_recover().remove(&record.incarnation);
+    WATCHED.lock_or_recover().remove(&record.start_nonce);
     if gone {
-        settle_receipts_of(&record.incarnation);
+        settle_receipts_of(&record.start_nonce);
     }
 }
 
@@ -385,12 +422,12 @@ pub async fn host_ended(record: &HostRecord) -> bool {
     }
 }
 
-/// The host incarnation `incarnation` ended: what it had is never written now.
-pub fn settle_receipts_of(incarnation: &str) {
+/// The host process of start nonce `nonce` ended: what it had is never written now.
+pub fn settle_receipts_of(nonce: &str) {
     let ended: Vec<_> = {
         let mut receipts = RECEIPTS.lock_or_recover();
         let ids: Vec<u64> =
-            receipts.iter().filter(|(_, (i, _))| i == incarnation).map(|(r, _)| *r).collect();
+            receipts.iter().filter(|(_, (n, _))| n == nonce).map(|(r, _)| *r).collect();
         ids.into_iter().filter_map(|r| receipts.remove(&r)).collect()
     };
     for (_, fence) in ended {
@@ -410,8 +447,14 @@ pub struct Link {
     detach_ack: Mutex<Option<oneshot::Receiver<()>>>,
     /// Set when the host closed the connection or another owner took over.
     pub closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Set when this link's writer panicked (#54378): lines it took may never have reached the
+    /// host, so their requests get no answer from it; the reader marks the link broken.
+    pub writer_panicked: Arc<std::sync::atomic::AtomicBool>,
     /// The last entry the host sent on this link (`replay_end_within`).
     highest: Arc<std::sync::atomic::AtomicU64>,
+    /// The ring offsets the host's entries carried (`HostFrame::Entry::o`, the agent holder),
+    /// by entry, until the reader logs them (`take_offset_through`).
+    offsets: Arc<std::sync::Mutex<std::collections::VecDeque<(u64, u64)>>>,
 }
 
 /// Connect as owner and resume after `resume_after` (the last entry already
@@ -526,7 +569,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             min: PROTOCOL_MIN,
             max,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::build().to_owned(),
+            controller_build: crate::build_info::build().to_owned(),
         },
     )
     .await?;
@@ -540,6 +583,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         }) => Adopted {
             version,
             host_build,
@@ -549,6 +593,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         },
         Some(HostFrame::Incompatible { min, max, host_build }) => {
             return Ok(Connect::Incompatible { min, max, host_build });
@@ -587,36 +632,74 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     // is answered (review 83 of #23322).
     let receipted = adopted.version >= RECEIPT_VERSION;
     let host = record.clone();
+    // Set by a writer that panicked: the reader ends the link too, as a lost one, so its agent
+    // reaches the host again; the socket itself stays open and would never tell it (#54378).
+    let writer_gone = Arc::new(tokio::sync::Notify::new());
+    let gone = writer_gone.clone();
+    let writer_panicked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let panicked = writer_panicked.clone();
     tokio::spawn(async move {
-        while let Some((mut frame, written, fence)) = rx.recv().await {
-            if fence.as_ref().is_some_and(|f| !f.begin()) {
-                continue;
-            }
-            let mut receipt = None;
-            if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) = (&fence, &mut frame) {
-                let r = await_receipt(&host, f);
-                if receipted {
-                    *asked = Some(r);
+        use futures_util::FutureExt as _;
+        // The frame being written and its receipt, settled below if the writer panics on it.
+        let mut in_flight: Option<(crate::agent::Fence, Option<u64>)> = None;
+        let wrote = std::panic::AssertUnwindSafe(async {
+            while let Some((mut frame, written, fence)) = rx.recv().await {
+                if fence.as_ref().is_some_and(|f| !f.begin()) {
+                    continue;
                 }
-                receipt = Some(r);
-            }
-            if write_frame(&mut wr, &frame).await.is_err() {
-                if let Some(r) = receipt {
-                    RECEIPTS.lock_or_recover().remove(&r);
+                let mut receipt = None;
+                if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) =
+                    (&fence, &mut frame)
+                {
+                    let r = await_receipt(&host, f);
+                    if receipted {
+                        *asked = Some(r);
+                    }
+                    receipt = Some(r);
                 }
-                if let Some(f) = fence {
-                    f.failed();
+                in_flight = fence.clone().map(|f| (f, receipt));
+                #[cfg(debug_assertions)]
+                if let ControllerFrame::Line { msg, .. } = &frame {
+                    crate::supervise::panic_point_with("link writer", || msg.to_string());
                 }
-                break;
+                if write_frame(&mut wr, &frame).await.is_err() {
+                    if let Some(r) = receipt {
+                        RECEIPTS.lock_or_recover().remove(&r);
+                    }
+                    if let Some(f) = fence {
+                        f.failed();
+                    }
+                    break;
+                }
+                in_flight = None;
+                if let Some(f) = fence.filter(|_| receipt.is_none()) {
+                    f.written();
+                }
+                // The frame is in the socket: a caller that must not outlive an
+                // unsent frame (the Exit ack before the daemon exits) waits here.
+                if let Some(written) = written {
+                    let _ = written.send(());
+                }
             }
-            if let Some(f) = fence.filter(|_| receipt.is_none()) {
-                f.written();
+        })
+        .catch_unwind()
+        .await;
+        // A writer that panicked never writes the frame it had: its message fails, so its holder
+        // never waits on it (#54378), and its link is cut below like a closed one.
+        if wrote.is_err()
+            && let Some((f, receipt)) = in_flight.take()
+        {
+            if let Some(r) = receipt {
+                RECEIPTS.lock_or_recover().remove(&r);
             }
-            // The frame is in the socket: a caller that must not outlive an
-            // unsent frame (the Exit ack before the daemon exits) waits here.
-            if let Some(written) = written {
-                let _ = written.send(());
-            }
+            f.failed();
+        }
+        if wrote.is_err() {
+            // On stderr too (`daemon.log`): stdout may be gone with the process that read it.
+            eprintln!("acpmux: agent host link writer panicked; its link ends");
+            tracing::error!("agent host link writer panicked; its link ends");
+            panicked.store(true, std::sync::atomic::Ordering::SeqCst);
+            gone.notify_one();
         }
         // Never sent now: what it still queues is cut, so no holder waits on it.
         rx.close();
@@ -627,15 +710,24 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
         }
     });
     let highest = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let offsets: Arc<std::sync::Mutex<std::collections::VecDeque<(u64, u64)>>> = Arc::default();
     {
         let closed = closed.clone();
         let queries = queries.clone();
         let highest = highest.clone();
+        let offsets = offsets.clone();
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
-                match read_frame::<_, HostFrame>(&mut rd).await {
-                    Ok(Some(HostFrame::Entry { h, e })) => {
+                let frame = tokio::select! {
+                    frame = read_frame::<_, HostFrame>(&mut rd) => frame,
+                    () = writer_gone.notified() => break,
+                };
+                match frame {
+                    Ok(Some(HostFrame::Entry { h, e, o })) => {
+                        if let Some(o) = o {
+                            offsets.lock_or_recover().push_back((h, o));
+                        }
                         #[cfg(debug_assertions)]
                         if late.is_some_and(|last_h| h > last_h) {
                             late = None;
@@ -694,7 +786,9 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             entries: Mutex::new(entries_rx),
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
+            writer_panicked,
             highest,
+            offsets,
         }),
         adopted,
     ))
@@ -822,28 +916,19 @@ impl Link {
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
+
+    /// The last ring offset among the entries through `h` (they are in the log now), dropping
+    /// them: where a replacement host reads the harness's output again (`custody.rs`).
+    pub fn take_offset_through(&self, h: u64) -> Option<u64> {
+        let mut offsets = self.offsets.lock_or_recover();
+        let mut last = None;
+        while offsets.front().is_some_and(|(at, _)| *at <= h) {
+            last = offsets.pop_front().map(|(_, o)| o);
+        }
+        last
+    }
 }
 
 #[cfg(test)]
-mod launcher_tests {
-    use super::HostLauncher;
-    use std::path::PathBuf;
-
-    /// A daemon whose binary an update replaced still starts agent hosts: on
-    /// Linux its own binary is exec'd from the open inode, never `PATH
-    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
-    /// acpmux by it). Another binary is exec'd as given.
-    #[test]
-    fn the_host_starts_from_the_open_inode_on_linux() {
-        let launcher = HostLauncher::current().expect("launcher");
-        let exe = std::env::current_exe().expect("current exe");
-        assert_eq!(launcher.exe, exe);
-        if cfg!(target_os = "linux") {
-            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
-        } else {
-            assert_eq!(launcher.program(), exe);
-        }
-        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
-        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
-    }
-}
+#[path = "link_launcher_tests.rs"]
+mod launcher_tests;

@@ -9,10 +9,17 @@
 // Run on a Freestyle VM, one phase per call, in order: PHASE=a, PHASE=more (repeat until both levels pass
 // their included amounts), PHASE=cap (the personal team runs to its cap: calls and machine starts refused),
 // PHASE=b, PHASE=c, PHASE=cleanup.
-// /root/.wt/secrets.json (written 0600 and shredded by the VM helper): { stripe, levels, project, publishable,
-// email, password }. Nothing here prints a secret; it prints ids and amounts only.
+// Secrets: from the environment (the billing-e2e workflow, .github/workflows/billing-e2e.yml: E2E_STRIPE_TEST_KEY,
+// E2E_BILLING_LEVELS_KEY, E2E_STACK_EMAIL, E2E_STACK_PASSWORD), else /root/.wt/secrets.json (written 0600 and shredded
+// by the VM helper): { stripe, levels, project, publishable, email, password }. The run's state is E2E_STATE (default
+// /root/e2e-state-both.json). Nothing here prints a secret; it prints ids and amounts only.
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-const sec = JSON.parse(readFileSync("/root/.wt/secrets.json", "utf8"))
+/** The development sign-in project and its public client key (cloud-journey.ts `dev`). */
+const DEV_PROJECT = { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", publishable: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" }
+const fromEnv = process.env.E2E_STRIPE_TEST_KEY
+  ? { ...DEV_PROJECT, stripe: process.env.E2E_STRIPE_TEST_KEY, levels: process.env.E2E_BILLING_LEVELS_KEY, email: process.env.E2E_STACK_EMAIL, password: process.env.E2E_STACK_PASSWORD }
+  : null
+const sec = fromEnv ?? JSON.parse(readFileSync("/root/.wt/secrets.json", "utf8"))
 if (!/^(sk|rk)_test_/.test(sec.stripe)) throw new Error("test key only")
 if (sec.project !== "454ecd03-1db2-4050-845e-4ce5b0cd9895") throw new Error("dev sign-in project only")
 const ORIGIN = "https://cmux-api-development.debussy.workers.dev"
@@ -58,9 +65,12 @@ const submit = async (token: string, op: string, params: unknown) => {
   const res = await fetch(`${ORIGIN}/v1/ops`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ op, params, idempotency_key: `usage-e2e-${crypto.randomUUID()}`, origin: "cli" }) })
   return { status: res.status, body: (await res.json().catch(() => null)) as any }
 }
-const filler = "The quick brown fox jumps over the lazy dog. ".repeat(Number(process.env.E2E_REPEAT ?? "26000"))
-/** One AI call for the personal team, or (team set) for the shared team named in x-cmux-team. */
-const chat = async (token: string, team?: string) => {
+const REPEAT = Number(process.env.E2E_REPEAT ?? "26000")
+/** A team's cap refuses a call whose most it could cost passes the cap (team-cap.ts), not only a team at the cap. */
+const capRefused = (r: 200 | string) => r !== 200 && r.startsWith("402") && r.includes("team.cap_reached")
+/** One AI call for the personal team, or (team set) for the shared team named in x-cmux-team, `repeat` filler sentences long. */
+const chat = async (token: string, team?: string, repeat = REPEAT) => {
+  const filler = "The quick brown fox jumps over the lazy dog. ".repeat(repeat)
   const res = await fetch(`${ORIGIN}/v1/inference/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(team ? { "x-cmux-team": team } : {}) }, body: JSON.stringify({ model: "deepseek/deepseek-v4-pro", max_tokens: 8, messages: [{ role: "user", content: `${filler}\nReply with ok.` }] }) })
   const text = await res.text()
   return res.status === 200 ? 200 : `${res.status} ${text.slice(0, 160)}`
@@ -84,7 +94,7 @@ const planPrice = async (prefix: string) => {
   return found[0]
 }
 
-const STATE = "/root/e2e-state-both.json"
+const STATE = process.env.E2E_STATE ?? "/root/e2e-state-both.json"
 const phase = process.env.PHASE ?? "a"
 const st: any = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {}
 const save = () => writeFileSync(STATE, JSON.stringify(st))
@@ -95,7 +105,21 @@ const SIDES: ReadonlyArray<Side> = ["team", "seat"]
 const levelItem = (side: Side) => (side === "team" ? { stack_user: stackUser } : { stack_team: STACK_TEAM })
 const levelNow = async (side: Side) => (await internal("/v1/internal/billing/levels", { items: [{ ...levelItem(side), from: st[side].start * 1000, to: st[side].end * 1000 }] })).levels[0]
 const sync = (side: Side) => internal("/v1/internal/billing/sync", { subscription: st[side].sub })
-const call = (side: Side) => chat(token, side === "seat" ? st.team_id : undefined)
+/**
+ * One call for a side, sized to the cap's headroom (#40356 F1): the default call reserves about 1.50 USD against the
+ * e2e set's 2 USD cap, so a team with 0.50 spent is refused while under it. A cap refusal halves the call and tries
+ * again, down to 1/256 of the default; only a call that small being refused returns the refusal. The size is kept
+ * for the side's next calls in this run.
+ */
+const sizeOf: Record<Side, number> = { team: REPEAT, seat: REPEAT }
+const call = async (side: Side) => {
+  for (;;) {
+    const r = await chat(token, side === "seat" ? st.team_id : undefined, sizeOf[side])
+    if (!capRefused(r) || sizeOf[side] <= Math.ceil(REPEAT / 256)) return r
+    sizeOf[side] = Math.ceil(sizeOf[side] / 2)
+    log(`call_smaller_${side}`, { repeat: sizeOf[side] })
+  }
+}
 /** What each meter should show: the whole level per team, the level above included x seats per seat. */
 const meterValue = (side: Side, usd: number) => (side === "seat" ? Math.max(0, Math.round((usd - INCLUDED.seat) * 1e6) / 1e6) : usd)
 /** Stripe aggregates meter events asynchronously (45-50 s measured): wait, bounded, until the summary shows the level sent. */
@@ -159,24 +183,52 @@ if (phase === "more") {
 }
 if (phase === "cap") {
   // The personal team (Pro, 1 USD included) spends on to its default cap, 2 x the pool: the sync marks it, the level is
-  // billed (overage x 1.1), and the next call past the cap is refused for the team. Then a machine start is refused
-  // the same way (cmux-platform SpendCap.ts), and the plan read shows the cap and any pending pause.
+  // billed (overage x 1.1), and the next call whose most it could cost passes the cap is refused (team.cap_reached).
+  // A refused call leaves the billed spend just under the cap, so the machine side is not at the cap yet: the team's
+  // admin sets the cap to the spend (usage.cap.set), and the plan read must show at_cap before a machine start is
+  // refused (cmux-platform SpendCap.ts, #40327 F2). The cap goes back to the default at the end.
   const n = Number(process.env.E2E_CAP_CALLS ?? "40")
   let refusal: string | null = null
   for (let i = 0; i < n && refusal === null; i++) {
-    const r = await chat(token)
-    if (r !== 200) refusal = r
+    const r = await call("team")
+    if (capRefused(r)) refusal = r
+    else if (r !== 200) log("chat_error_before_cap", r)
     if (i % 4 === 3) await syncAndLevel("sync-cap")
   }
   log("cap_refusal", refusal)
+  if (refusal === null) throw new Error(`no team.cap_reached refusal in ${n} calls`)
+  await syncAndLevel("sync-at-cap")
   log("level_at_cap", { billed_usd: st.team.level.micros / 1e6, cost_usd: st.team.level.cost_micros / 1e6, markup_bp: st.team.level.markup_bp })
-  log("plan_spend_cap", (await read(token, "cloud.plan.get")).body?.value?.spend_cap ?? null)
-  const create = await submit(token, "cloud.machine.create", { name: "usage-e2e-at-cap", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
-  const frame = (create.body?.frames ?? []).find((f: any) => f.t === "result" || f.t === "reject")
-  log("machine_create_at_cap", { status: create.status, t: frame?.t ?? null, code: frame?.code ?? create.body?.code ?? null })
-  // A create that was admitted (not at the cap on the platform's read) is deleted at once: nothing left running.
-  const made = frame?.t === "result" ? frame.value?.machine?.id : null
-  if (made) log("machine_cleanup", (await submit(token, "cloud.machine.delete", { machine: made })).status)
+  const capSet = async (cap_usd: number | null) => {
+    const r = await submit(token, "usage.cap.set", { cap_usd })
+    if (r.body?.ok !== true) throw new Error(`usage.cap.set ${cap_usd}: ${r.status} ${JSON.stringify(r.body?.error ?? r.body)}`)
+  }
+  const spendCap = async () => (await read(token, "cloud.plan.get")).body?.value?.spend_cap ?? null
+  let cap = await spendCap()
+  if (cap?.state !== "at_cap") {
+    const at = Math.floor(st.team.level.micros / 10_000) / 100
+    await capSet(at)
+    log("cap_set_to_spend", { cap_usd: at })
+    // The platform reads the team's cap at most every 5 minutes (SpendCap.ts CAP_CHECK_EVERY_MS).
+    for (let i = 0; i < 40 && (cap = await spendCap())?.state !== "at_cap"; i++) await Bun.sleep(10_000)
+  }
+  log("plan_spend_cap", cap)
+  try {
+    if (cap?.state !== "at_cap") throw new Error(`the plan never read at_cap: ${JSON.stringify(cap)}`)
+    // /v1/ops answers {ok, value, error} (cmux-platform CloudOps.ts OpResponse; #40327 F1).
+    const create = await submit(token, "cloud.machine.create", { name: "usage-e2e-at-cap", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+    log("machine_create_at_cap", { status: create.status, ok: create.body?.ok ?? null, code: create.body?.error?.code ?? null })
+    // A create that was admitted is deleted at once: nothing left running.
+    const made = create.body?.ok === true ? create.body.value?.machine?.id : null
+    if (made) {
+      const del = await submit(token, "cloud.machine.delete", { machine: made })
+      log("machine_cleanup", { status: del.status, ok: del.body?.ok ?? null, code: del.body?.error?.code ?? null })
+      if (del.body?.ok !== true) throw new Error(`machine ${made} was admitted at the cap and its delete failed`)
+    }
+  } finally {
+    await capSet(null)
+    log("cap_reset", null)
+  }
 }
 if (phase === "b") {
   for (const side of SIDES) log(`summary_before_end_${side}`, await settledSummary(side, st[side].level.micros / 1e6))
@@ -203,15 +255,24 @@ if (phase === "c") {
     const usageCents = (renewal?.lines.data ?? []).filter((l: any) => /AI usage/i.test(l.description ?? "")).reduce((n: number, l: any) => n + l.amount, 0)
     const usd = st[side].level.micros / 1e6
     const expect = Math.round(Math.max(0, usd - INCLUDED[side]) * 100)
-    // The billed level carries the model overage at list + 10%: above the pool it is more than the level at cost.
-    const cost = st[side].level.cost_micros / 1e6
-    checks[side] = { level_usd: usd, cost_usd: cost, markup_bp: st[side].level.markup_bp, marked_up: usd > INCLUDED[side] ? usd > cost : null, included_usd: INCLUDED[side], meter_summary: summary.data.map((x: any) => x.aggregated_value), expected_usage_cents: expect, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, pass: usageCents > 0 && usageCents === expect && renewal?.total === st[side].plan_cents + expect }
+    // The billed level, worked out here from the level's model and machine amounts (#40356 F4), not read back: the
+    // pool at cost, then the overage split pro rata to models and machines, the model part x 1.10 (Leo, 2026-11-09:
+    // list + 10%). The period must pin exactly 11000 bp.
+    const { models_micros: models, machine_micros: machine, markup_bp } = st[side].level
+    const pool = INCLUDED[side] * 1e6
+    const over = Math.max(0, models + machine - pool)
+    const overModels = models + machine > 0 ? Math.floor((over * models) / (models + machine)) : 0
+    const billed = Math.min(models + machine, pool) + Math.round(overModels * 1.1) + (over - overModels)
+    const markedUp = markup_bp === 11_000 && Math.abs(billed - st[side].level.micros) <= 1
+    checks[side] = { level_usd: usd, cost_usd: st[side].level.cost_micros / 1e6, models_usd: models / 1e6, machine_usd: machine / 1e6, markup_bp, expected_level_usd: billed / 1e6, marked_up: over > 0 ? markedUp : null, included_usd: INCLUDED[side], meter_summary: summary.data.map((x: any) => x.aggregated_value), expected_usage_cents: expect, invoice_usage_cents: usageCents, invoice_total: renewal?.total ?? null, pass: markedUp && over > 0 && usageCents > 0 && usageCents === expect && renewal?.total === st[side].plan_cents + expect }
   }
   log("check", checks)
 }
 if (phase === "cleanup") {
   for (const side of SIDES) if (st[side]?.sub) await stripe("DELETE", `/v1/subscriptions/${st[side].sub}`).then(() => log("cleanup", `${side} subscription canceled`)).catch((e) => log("cleanup_error", String(e)))
   if (st.clock) await stripe("DELETE", `/v1/test_helpers/test_clocks/${st.clock}`).then(() => log("cleanup", `test clock ${st.clock} deleted`)).catch((e) => log("cleanup_error", String(e)))
+  // The personal team's cap goes back to the default however the cap phase ended.
+  log("cap_reset", (await submit(token, "usage.cap.set", { cap_usd: null })).body?.ok ?? null)
   // The shared e2e team goes back to the per-team default (from its next period).
   const back = await internal("/v1/internal/billing/team-mode", { stack_team: STACK_TEAM, mode: "per_team", actor: "e2e-hq-84", reason: "cx-y79zh.1 e2e cleanup" })
   log("team_mode_reset", { before: back.before, mode: back.mode, changed: back.changed })

@@ -133,3 +133,67 @@ export function memberKey(stash: string, member: string): string {
 export function memberCount(groups: readonly StashGroup[]): number {
   return groups.reduce((sum, group) => sum + group.members.length, 0);
 }
+
+/**
+ * The reply's groups, each member that did not change kept as the object the page already holds
+ * (and a group whose every member and field held, as its old object): a reply re-sends every stash,
+ * and a memoized row draws again only for the member that changed.
+ */
+export function keepUnchanged(previous: readonly StashGroup[], next: readonly StashGroup[]): StashGroup[] {
+  if (!previous.length) return [...next];
+  const held = new Map(previous.map((group) => [group.id, group]));
+  return next.map((group) => {
+    const old = held.get(group.id);
+    if (!old) return group;
+    const oldMembers = new Map(old.members.map((member) => [member.id, member]));
+    const members = group.members.map((member) => {
+      const kept = oldMembers.get(member.id);
+      return kept && same(kept, member) ? kept : member;
+    });
+    const unchanged =
+      members.length === old.members.length &&
+      members.every((member, index) => member === old.members[index]) &&
+      same({ ...old, members: [] }, { ...group, members: [] });
+    return unchanged ? old : { ...group, members };
+  });
+}
+
+/** Wire records are plain data: equal when their JSON is. */
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** One windowed item: a group's header, or one of its members' rows. */
+export type StashItem =
+  | { kind: "group"; group: StashGroup; whole: StashGroup }
+  | { kind: "row"; group: StashGroup; whole: StashGroup; member: StashMember; row: number };
+
+export interface StashList {
+  items: StashItem[];
+  /** Member rows among the items: the screen reader's "3 of 1000". */
+  rows: number;
+  /** An item's key (`stashItemKey`) to its index: a kept row is found without a scan. */
+  place: Map<string, number>;
+  /** A group by id, whole (not only the members a search shows): Restore All and Delete Group take it. */
+  wholes: Map<string, StashGroup>;
+}
+
+export function stashItemKey(item: StashItem): string {
+  return item.kind === "group" ? `group:${item.group.id}` : memberKey(item.group.id, item.member.id);
+}
+
+/** Built once per reply, search or delete, not per render, scroll or focus. */
+export function stashList(shown: readonly StashGroup[], groups: readonly StashGroup[]): StashList {
+  const wholes = new Map(groups.map((group) => [group.id, group]));
+  const items: StashItem[] = [];
+  const place = new Map<string, number>();
+  let rows = 0;
+  const add = (item: StashItem) => {
+    place.set(stashItemKey(item), items.length);
+    items.push(item);
+  };
+  for (const group of shown) {
+    const whole = wholes.get(group.id) ?? group;
+    add({ kind: "group", group, whole });
+    for (const member of group.members) add({ kind: "row", group, whole, member, row: rows++ });
+  }
+  return { items, rows, place, wholes };
+}

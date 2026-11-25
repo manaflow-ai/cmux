@@ -11,6 +11,8 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
+    /// Start the same guided Share This Mac action used by the sidebar and Devices.
+    public var shareThisMac: () -> Void = {}
 
     public init() {}
 }
@@ -31,7 +33,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
     /// What the rows show now (nil before the first build).
@@ -40,6 +42,10 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// Your Devices' Offline group is open (the quiet look folds offline Macs under one row).
+    var offlineExpanded = false
+    /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
+    private(set) var built: MacScreenHomeSnapshot?
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -50,6 +56,12 @@ final class MacScreenHomeView: MacScreenThemedView {
         self.systemShortcuts = systemShortcuts
         self.devices = devices
         super.init(frame: .zero)
+        // A plain NSView is not an accessibility element, so its identifier never reached the AX tree (the
+        // feature-flows probe's `macScreen.home` read found nothing, 2026-11-22 09:50Z). A labelled group keeps its
+        // children reachable and names the page for VoiceOver.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(L.t("macScreen.home.title", "Screen Sharing"))
         setAccessibilityIdentifier("macScreen.home")
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -164,12 +176,18 @@ final class MacScreenHomeView: MacScreenThemedView {
 
     /// Builds the rows of `snapshot` (the page's own draw; tests and galleries pass a made-up one).
     func build(_ snapshot: MacScreenHomeSnapshot) {
+        built = snapshot
         column.arrangedSubviews.forEach { $0.removeFromSuperview() }
         builtWithBorders = colors.borders
         needsLayout = true
         layoutPage()
         MacScreenStack.addFullWidth(header(), to: column)
-        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
+        if snapshot.sharing?.showFirstUse == true {
+            MacScreenStack.addFullWidth(firstUseGuide(), to: column)
+        }
+        if let list = snapshot.devices {
+            MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook, placement: snapshot.setupPlacement), to: column)
+        }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
         paint(column)
@@ -185,6 +203,13 @@ final class MacScreenHomeView: MacScreenThemedView {
         MacScreenStack.addFullWidth(MacScreenText(L.t("macScreen.home.subtitle", "See and control your other Macs from a cmux tab."),
                                                   font: MacScreenType.subtitle, ink: \.secondary, wraps: true), to: column)
         return column
+    }
+
+    /// The first-use recipe stays above the device list so a person knows which
+    /// Mac needs the permission and which buttons to press here.
+    private func firstUseGuide() -> NSView {
+        MacScreenHomeParts.note(L.t("macScreen.home.firstUse",
+            "First time? 1. Turn on Allow Mac Screen on the other Mac. 2. Click View Only or Full Control here."))
     }
 
     /// This Mac's access to each host is that host's permission list: read it for the hosts shown, again when they change.

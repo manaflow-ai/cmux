@@ -1,24 +1,19 @@
 //! Windows screen-share host support.
 //!
-//! The session agent owns the capture and input handles.  DXGI duplication and
-//! Media Foundation are probed first (the service can use those backends when
-//! the desktop is available); the portable runner fallback below uses a GDI
-//! readback and the same OpenH264 trait as Linux.  Keeping the fallback in the
-//! host makes the Windows CI selftest useful on runners without a GPU while
-//! preserving the production backend seam for the signed service.
+//! The session agent owns capture and input handles. Desktop Duplication is
+//! preferred; an unsupported driver or lost duplication falls back to GDI.
+//! Both feed the existing OpenH264 encoder and production media engine.
 
 use crate::args::Opts;
 use crate::clock::now_ns;
-use crate::encoder::{self, EncCfg, H264Encoder};
+use crate::encoder::{self, EncCfg};
 use crate::Res;
 use cmux_encode::{bgrx_rect_to_i420, I420};
-use cmux_rd_core::cc::PathKind;
-use cmux_rd_core::flow::Rect;
-use cmux_rd_engine::{EngineConfig, MediaEngine, Output};
 use cmux_rd_proto::control::Control;
 use cmux_rd_proto::{InputEvent, MAX_DATAGRAM_DEFAULT};
-use std::collections::{hash_map::DefaultHasher, BTreeSet};
-use std::hash::Hasher;
+// `loopback` (feature bench) reads it through `use super::*`.
+#[cfg(feature = "bench")]
+use std::collections::BTreeSet;
 use std::io::{self, Read, Write};
 use std::mem::{size_of, zeroed};
 use std::net::{IpAddr, TcpListener, TcpStream};
@@ -30,10 +25,37 @@ use windows_sys::Win32::Graphics::Gdi::{
     HGDIOBJ, HORZRES, SRCCOPY, VERTRES,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DrawIconEx, GetCursorInfo, GetIconInfo, CURSORINFO, CURSOR_SHOWING, DI_NORMAL, ICONINFO,
+};
+
+mod capture;
+mod dxgi;
+use capture::DesktopCapture;
+
+#[cfg(feature = "bench")]
+mod loopback;
+mod session;
+use session::TcpWire;
+pub(crate) use session::{Incoming, WindowsSession, Wire};
+
+#[derive(Default, serde::Serialize)]
+pub(crate) struct HostMetrics {
+    capture_ms: Vec<f64>,
+    convert_ms: Vec<f64>,
+    encode_ms: Vec<f64>,
+    capture_details: serde_json::Value,
+}
+
+fn sample(samples: &mut Vec<f64>, start: Instant) {
+    if samples.len() < 8192 {
+        samples.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+}
 
 /// A bounded GDI capture used by the service fallback and the Windows runner.
 /// The bitmap is top-down BGRA, matching `cmux_encode::bgrx_rect_to_i420`.
-struct GdiCapture {
+pub(crate) struct GdiCapture {
     screen: windows_sys::Win32::Graphics::Gdi::HDC,
     memory: windows_sys::Win32::Graphics::Gdi::HDC,
     bitmap: windows_sys::Win32::Graphics::Gdi::HBITMAP,
@@ -44,7 +66,7 @@ struct GdiCapture {
 }
 
 impl GdiCapture {
-    fn new(requested: Option<(u32, u32)>) -> Res<Self> {
+    pub(crate) fn new(requested: Option<(u32, u32)>) -> Res<Self> {
         // SAFETY: these are process-owned GDI handles; every successful handle
         // is released in Drop below.
         let screen = unsafe { GetDC(0 as HWND) };
@@ -92,11 +114,11 @@ impl GdiCapture {
         })
     }
 
-    fn size(&self) -> (u32, u32) {
+    pub(crate) fn size(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
-    fn capture(&mut self) -> Res<&[u8]> {
+    pub(crate) fn capture(&mut self) -> Res<&[u8]> {
         // SAFETY: all handles and the destination rectangle belong to this value.
         let copied = unsafe {
             BitBlt(
@@ -112,8 +134,16 @@ impl GdiCapture {
             )
         };
         if copied == 0 {
-            return Err("Windows screen capture: BitBlt failed".into());
+            // The usual cause: no desktop to copy, as in an SSH session or a service (session
+            // 0) or a runner with no signed-in console.
+            return Err(format!(
+                "Windows screen capture: BitBlt failed ({}); run cmux-rd in the signed-in \
+                 desktop session, not over SSH or as a service",
+                std::io::Error::last_os_error()
+            )
+            .into());
         }
+        self.draw_cursor();
         let mut info: BITMAPINFO = unsafe { zeroed() };
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -153,6 +183,52 @@ impl GdiCapture {
             return Err("Windows screen capture: GetDIBits failed".into());
         }
         Ok(&self.pixels)
+    }
+
+    /// `BitBlt` copies the desktop without the mouse pointer, so the viewer would see none.
+    /// Draws the current pointer into the copy at its hotspot. A hidden pointer (a touch
+    /// screen, a full-screen game) or a failed call leaves the frame without one.
+    fn draw_cursor(&self) {
+        let mut cursor: CURSORINFO = unsafe { zeroed() };
+        cursor.cbSize = size_of::<CURSORINFO>() as u32;
+        // SAFETY: `cursor` is a valid CURSORINFO with its size set.
+        if unsafe { GetCursorInfo(&mut cursor) } == 0
+            || cursor.flags & CURSOR_SHOWING == 0
+            || cursor.hCursor.is_null()
+        {
+            return;
+        }
+        let mut icon: ICONINFO = unsafe { zeroed() };
+        // SAFETY: the cursor handle comes from GetCursorInfo; GetIconInfo hands us copies of
+        // its bitmaps, which are deleted right below.
+        let (hot_x, hot_y) = if unsafe { GetIconInfo(cursor.hCursor, &mut icon) } != 0 {
+            unsafe {
+                if !icon.hbmMask.is_null() {
+                    DeleteObject(icon.hbmMask as HGDIOBJ);
+                }
+                if !icon.hbmColor.is_null() {
+                    DeleteObject(icon.hbmColor as HGDIOBJ);
+                }
+            }
+            (icon.xHotspot as i32, icon.yHotspot as i32)
+        } else {
+            (0, 0)
+        };
+        // SAFETY: the memory DC holds our bitmap; screen coordinates match it because the
+        // copy starts at the desktop's origin.
+        unsafe {
+            DrawIconEx(
+                self.memory,
+                cursor.ptScreenPos.x - hot_x,
+                cursor.ptScreenPos.y - hot_y,
+                cursor.hCursor,
+                0,
+                0,
+                0,
+                std::ptr::null_mut(),
+                DI_NORMAL,
+            );
+        }
     }
 }
 
@@ -256,7 +332,53 @@ fn dxgi_desktop_duplication_probe() -> bool {
 /// Capture and encode a bounded sample.  This is the Windows CI selftest and
 /// the service's preflight: it exercises a real desktop frame, the BGRX to
 /// I420 conversion, and Annex-B output through the production encoder trait.
+/// Why this process cannot read the interactive desktop, or None when it can:
+/// session 0 is the services session and has no user desktop, and a failed
+/// `OpenInputDesktop` means no input desktop reaches this window station.
+fn no_interactive_desktop() -> Option<String> {
+    use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, OpenInputDesktop, DESKTOP_READOBJECTS,
+    };
+    let mut session = u32::MAX;
+    // SAFETY: `session` is a valid out pointer for the duration of the call.
+    let known = unsafe { ProcessIdToSessionId(std::process::id(), &mut session) } != 0;
+    if known && session == 0 {
+        return Some("no_interactive_session: this process runs in session 0 (a service session with no desktop)".into());
+    }
+    // SAFETY: a plain query; a returned handle is closed at once.
+    let desktop = unsafe { OpenInputDesktop(0, 0, DESKTOP_READOBJECTS) };
+    if desktop.is_null() {
+        return Some(format!(
+            "no_input_desktop: OpenInputDesktop failed in session {} ({})",
+            if known { session.to_string() } else { "unknown".into() },
+            io::Error::last_os_error()
+        ));
+    }
+    unsafe { CloseDesktop(desktop) };
+    None
+}
+
+/// A moving top-down BGRX test pattern, for the encoder when no desktop can be captured.
+fn generated_frame(pixels: &mut Vec<u8>, width: u32, height: u32, frame: usize) {
+    let (width, height) = (width as usize, height as usize);
+    pixels.resize(width * height * 4, 0);
+    let shift = frame * 4;
+    for (y, row) in pixels.chunks_exact_mut(width * 4).enumerate() {
+        for (x, px) in row.chunks_exact_mut(4).enumerate() {
+            px[0] = (x + shift) as u8;
+            px[1] = (y + shift / 2) as u8;
+            px[2] = ((x ^ y) >> 2) as u8;
+            px[3] = 255;
+        }
+    }
+}
+
 pub fn selftest(opts: &Opts) -> Res<()> {
+    #[cfg(feature = "bench")]
+    if opts.flag("loopback") {
+        return loopback::run(opts);
+    }
     let frames: usize = opts.num_or("frames", 60)?;
     let requested = match (opts.get("width"), opts.get("height")) {
         (Some(w), Some(h)) => Some((
@@ -266,8 +388,20 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         (None, None) => None,
         _ => return Err("--width and --height must be supplied together".into()),
     };
-    let mut capture = GdiCapture::new(requested)?;
-    let (width, height) = capture.size();
+    // A process with no interactive desktop (a runner service in session 0, a
+    // locked or disconnected session) cannot BitBlt the screen. Then only the
+    // capture cell is skipped, with its reason, and the encoder still runs on
+    // generated frames of the same size.
+    let capture_skipped = no_interactive_desktop();
+    let mut capture = match capture_skipped {
+        Some(_) => None,
+        None => Some(DesktopCapture::new(requested, &opts.str_or("capture", "auto"))?),
+    };
+    let (width, height) = match &capture {
+        Some(capture) => capture.size(),
+        None => requested.map_or((1920, 1080), |(w, h)| (w.max(2) & !1, h.max(2) & !1)),
+    };
+    let mut generated = Vec::new();
     let codec = opts.str_or("codec", "openh264");
     let mut encoder = encoder::open(&EncCfg {
         width,
@@ -287,7 +421,13 @@ pub fn selftest(opts: &Opts) -> Res<()> {
     let mut idr = 0usize;
     let start = now_ns();
     for frame in 0..frames {
-        let pixels = capture.capture()?;
+        let pixels = match capture.as_mut() {
+            Some(capture) => capture.capture()?,
+            None => {
+                generated_frame(&mut generated, width, height, frame);
+                &generated[..]
+            }
+        };
         bgrx_rect_to_i420(pixels, &mut picture, 0, 0, width as usize, height as usize, 2);
         if encoder.encode(&picture, frame == 0, frame as i64 * 16_667, &mut access_unit)? {
             idr += 1;
@@ -300,7 +440,9 @@ pub fn selftest(opts: &Opts) -> Res<()> {
         "{}",
         serde_json::json!({
             "platform": "windows",
-            "capture": "gdi-readback",
+            "capture": capture.as_ref().map_or("skipped", |capture| capture.name()),
+            "capture_details": capture.as_ref().map(|capture| capture.statistics()),
+            "capture_skipped_reason": capture_skipped,
             "desktop_duplication_available": dxgi_desktop_duplication_probe(),
             "hardware_backend_probe": "media-foundation",
             "media_foundation_available": media_foundation_probe(),
@@ -310,7 +452,8 @@ pub fn selftest(opts: &Opts) -> Res<()> {
             "encoded_bytes": bytes,
             "idr_frames": idr,
             "fps": fps,
-            "capture_encode_ok": frames > 0 && bytes > 0,
+            "encode_ok": frames > 0 && bytes > 0,
+            "capture_encode_ok": capture_skipped.is_none() && frames > 0 && bytes > 0,
         })
     );
     if frames == 0 || bytes == 0 {
@@ -561,7 +704,7 @@ fn hid_to_scancode(usage: u32) -> Option<u16> {
     Some(code)
 }
 
-fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<()> {
+fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<HostMetrics> {
     stream.set_nodelay(true)?;
     let (ty, payload) = read_blocking_frame(&mut stream)?;
     if ty != FRAME_CONTROL {
@@ -572,11 +715,11 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<()> {
     };
     if service != cmux_rd_proto::SERVICE_DESKTOP {
         write_control(&mut stream, &Control::Refused { reason: "UnsupportedService".into() })?;
-        return Ok(());
+        return Ok(HostMetrics::default());
     }
     if max_datagram < 512 {
         write_control(&mut stream, &Control::Refused { reason: "DatagramTooSmall".into() })?;
-        return Ok(());
+        return Ok(HostMetrics::default());
     }
     let (ty, payload) = read_blocking_frame(&mut stream)?;
     if ty != FRAME_CONTROL
@@ -613,216 +756,25 @@ fn serve_connection(mut stream: TcpStream, opts: &Opts) -> Res<()> {
     )?;
     write_control(&mut stream, &Control::Started { session: 1 })?;
     stream.set_nonblocking(true)?;
+    let kbps = opts.num_or("kbps", 8_000)?;
     let mut session = WindowsSession::new(
         capture,
         encoder,
-        width,
-        height,
         max_datagram.min(MAX_DATAGRAM_DEFAULT),
         opts.num_or("max-fps", 60)?,
-        opts.num_or("kbps", 8_000)?,
-        opts.num_or("threads", 2)?,
-    )?;
-    session.run(&mut stream)
-}
-
-struct WindowsSession {
-    capture: GdiCapture,
-    encoder: Box<dyn H264Encoder>,
-    picture: I420,
-    engine: MediaEngine,
-    held_keys: BTreeSet<u16>,
-    held_buttons: BTreeSet<u8>,
-    last_frame_fingerprint: Option<u64>,
-    width: u32,
-    height: u32,
-    interval: Duration,
-}
-
-impl WindowsSession {
-    fn new(
-        capture: GdiCapture,
-        encoder: Box<dyn H264Encoder>,
-        width: u32,
-        height: u32,
-        max_datagram: usize,
-        fps: u32,
-        kbps: u32,
-        _threads: u16,
-    ) -> Res<Self> {
-        let fps = fps.max(1);
-        Ok(Self {
-            capture,
-            encoder,
-            picture: I420::new(width as usize, height as usize),
-            engine: MediaEngine::new(
-                EngineConfig {
-                    width,
-                    height,
-                    max_fps: fps,
-                    start_bps: u64::from(kbps) * 1000,
-                    max_bps: u64::from(kbps) * 1000,
-                    max_datagram,
-                    path: PathKind::ViaCloudRegion,
-                    ..EngineConfig::default()
-                },
-                now_ns() / 1000,
-            ),
-            held_keys: BTreeSet::new(),
-            held_buttons: BTreeSet::new(),
-            last_frame_fingerprint: None,
-            width,
-            height,
-            interval: Duration::from_secs_f64(1.0 / f64::from(fps)),
-        })
-    }
-
-    fn run(&mut self, stream: &mut TcpStream) -> Res<()> {
-        let result = self.run_loop(stream);
-        let cleanup = self.release_all();
-        match (result, cleanup) {
-            (Err(error), _) => Err(error),
-            (Ok(()), Err(error)) => Err(error),
-            (Ok(()), Ok(())) => Ok(()),
+        kbps,
+        kbps,
+    );
+    if opts.flag("loopback") {
+        let duration = opts.num_or("duration-s", 10u64)?;
+        if !(2..=30).contains(&duration) {
+            return Err("loopback requires --duration-s 2..30".into());
         }
+        session.metrics = Some(HostMetrics::default());
+        session.deadline = Some(Instant::now() + Duration::from_secs(duration + 10));
     }
-
-    fn run_loop(&mut self, stream: &mut TcpStream) -> Res<()> {
-        let mut input = Vec::new();
-        let mut next = Instant::now();
-        loop {
-            loop {
-                let Some((ty, payload)) = read_frame(stream, &mut input)? else {
-                    return Ok(());
-                };
-                if payload.is_empty() && ty == 0 {
-                    break;
-                }
-                match ty {
-                    FRAME_CONTROL
-                        if matches!(
-                            serde_json::from_slice::<Control>(&payload),
-                            Ok(Control::Stop)
-                        ) =>
-                    {
-                        write_control(
-                            stream,
-                            &Control::Ended { reason: "stopped by viewer".into() },
-                        )?;
-                        return Ok(());
-                    }
-                    FRAME_DATAGRAM => {
-                        let output = self.engine.on_datagram(&payload, true, now_ns() / 1000);
-                        self.send_output(stream, output)?;
-                    }
-                    _ => {}
-                }
-            }
-            let now = Instant::now();
-            if now >= next {
-                let now_us = now_ns() / 1000;
-                let pixels = self.capture.capture()?.to_vec();
-                let mut fingerprint = DefaultHasher::new();
-                fingerprint.write(&pixels);
-                let fingerprint = fingerprint.finish();
-                let changed =
-                    self.last_frame_fingerprint.map_or(true, |previous| previous != fingerprint);
-                self.last_frame_fingerprint = Some(fingerprint);
-                if changed {
-                    if let Some(req) = self.engine.damage(
-                        0,
-                        Rect { x: 0, y: 0, width: self.width, height: self.height },
-                        now_us,
-                    ) {
-                        self.encode(stream, &req, &pixels)?;
-                    }
-                }
-                let output = self.engine.tick(true, now_us);
-                self.send_output(stream, output)?;
-                next = now + self.interval;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-    }
-
-    fn encode(
-        &mut self,
-        stream: &mut TcpStream,
-        req: &cmux_rd_engine::EncodeRequest,
-        pixels: &[u8],
-    ) -> Res<()> {
-        bgrx_rect_to_i420(
-            pixels,
-            &mut self.picture,
-            0,
-            0,
-            self.width as usize,
-            self.height as usize,
-            2,
-        );
-        let mut au = Vec::new();
-        let idr =
-            self.encoder.encode(&self.picture, req.force_idr, now_ns() as i64 / 1000, &mut au)?;
-        let out = self
-            .engine
-            .encoded(
-                req,
-                Some(cmux_rd_engine::Encoded {
-                    access_unit: au,
-                    idr,
-                    t_capture_us: now_ns() / 1000,
-                }),
-                now_ns() / 1000,
-            )
-            .map_err(|e| format!("packetize: {e:?}"))?;
-        self.send_output(stream, out)
-    }
-
-    fn send_output(&mut self, stream: &mut TcpStream, out: Output) -> Res<()> {
-        for datagram in out.datagrams {
-            write_frame(stream, FRAME_DATAGRAM, &datagram)?;
-        }
-        for event in out.inject {
-            apply_input(&event, self.width, self.height)?;
-            match event {
-                InputEvent::Key { usage, down } => {
-                    if let Some(scancode) = hid_to_scancode(usage) {
-                        if down {
-                            self.held_keys.insert(scancode);
-                        } else {
-                            self.held_keys.remove(&scancode);
-                        }
-                    }
-                }
-                InputEvent::Button { button, down } => {
-                    if mouse_button_event(button, down).is_some() {
-                        if down {
-                            self.held_buttons.insert(button);
-                        } else {
-                            self.held_buttons.remove(&button);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    fn release_all(&mut self) -> Res<()> {
-        let keys = std::mem::take(&mut self.held_keys);
-        for scancode in keys {
-            send_input_scancode(scancode, false)?;
-        }
-        let buttons = std::mem::take(&mut self.held_buttons);
-        for button in buttons {
-            let Some((flags, data)) = mouse_button_event(button, false) else {
-                continue;
-            };
-            send_mouse(0, 0, flags, data)?;
-        }
-        Ok(())
-    }
+    session.run(&mut TcpWire { stream: &mut stream, input: Vec::new() })?;
+    Ok(session.metrics.unwrap_or_default())
 }
 
 /// Windows host entry point. The stream carrier keeps this phase independent of

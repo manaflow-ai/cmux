@@ -32,6 +32,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 FAKE = os.path.join(ROOT, "cmux-tui/crates/acpmux/tests/fake_agent.py")
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--tag", required=True)
@@ -179,6 +180,35 @@ def shown_session():
     return page("chat_state").get("sessionId")
 
 
+def settled_chips(what="the composer's chips"):
+    """The chips once they stop changing (0.4 s alike): a pick, a switch or a relaunch redraws them."""
+    return wait_stable(chips, what, timeout=10, interval=0.1, reads=5, raise_on_timeout=False)
+
+
+def shown_tab():
+    """The focused pane's shown tab (debug.surfaces)."""
+    panes = [p for w in (rpc("debug.surfaces") or {}).get("windows") or [] for p in w.get("panes") or []]
+    focused = next((p for p in panes if p.get("focused")), None) or {}
+    return focused.get("selected_tab") or focused.get("shown_tab")
+
+
+def new_tab():
+    """Cmd-T; returns once the focused pane shows a new tab whose composer draws its model chip."""
+    before = shown_tab()
+    key("t", ["command"])
+    if not wait(lambda: shown_tab() not in (None, before) and chips()["model"], 10, 0.1):
+        say(f"Cmd-T: no new tab with a model chip in 10 s (shown tab {shown_tab()}, was {before})")
+    return shown_tab()
+
+
+def close_tab():
+    """Cmd-W on the shown tab; returns once the pane shows another tab."""
+    before = shown_tab()
+    key("w", ["command"])
+    if not wait(lambda: shown_tab() != before, 10, 0.1):
+        say(f"Cmd-W: the pane still shows {before} after 10 s")
+
+
 # ---- the app --------------------------------------------------------------------------------
 
 def setup():
@@ -231,18 +261,22 @@ def pick(chip_label, row):
     """Opens the chip whose label is `chip_label` and clicks `row`; for the model menu it types
     the row's name first, as a person may, so a menu covered by other chrome cannot eat the click."""
     page("click", text=chip_label)
-    time.sleep(0.4)
+    menu = '[role="menu"], [role="listbox"], [role="menuitem"], [role="menuitemradio"], [role="option"], .ui-popup'
+    if not wait(lambda: page("query", selector=menu).get("elements"), 5, 0.05):
+        say(f"the {chip_label!r} chip's menu did not show in 5 s; clicking {row!r} anyway")
     reply = page("click", text=row)
-    time.sleep(0.6)
+    settled_chips(f"the chips after picking {row!r}")
     return reply.get("clicked") is True
 
 
 def send_from_composer(text):
     """Types `text` into the composer and clicks Send, as a person does."""
     page("click", selector="textarea")
-    time.sleep(0.2)
+    if not wait(lambda: page("composer_focused").get("focused"), 5, 0.05):
+        say("the composer did not take focus in 5 s; typing anyway")
     type_text(text)
-    time.sleep(0.2)
+    if not wait(lambda: (page("readiness").get("composer_text_length") or 0) >= len(text), 5, 0.05):
+        say(f"the composer holds {page('readiness').get('composer_text_length')} of {len(text)} typed characters")
     page("click", selector='button[aria-label*="Send"], button[aria-label*="Ask"]')
 
 
@@ -254,15 +288,13 @@ def answer_trust():
 def new_tab_chat(folder, prompt, model=None, effort=None):
     """Cmd-T, the optional picks, a folder pick, a prompt sent with a click; returns the session id."""
     before = set(sessions())
-    key("t", ["command"])
-    time.sleep(1.2)
+    new_tab()
     if model:
         pick(chips()["model"], model)
     if effort:
         pick(chips()["effort"], effort)
     page("pick_folder", cwd=os.path.join(PROJECTS, folder))
-    time.sleep(0.8)
-    picked = chips()
+    picked = settled_chips("the chips after the folder pick")
     send_from_composer(prompt)
     answer_trust()
     # The chip picks started a deferred session in the page's first folder: the chat is the new
@@ -276,7 +308,7 @@ def new_tab_chat(folder, prompt, model=None, effort=None):
     session_id = new[0] if new else None
     wait(lambda: shown_session() == session_id, 10, 0.2)
     wait(lambda: page("chat_state").get("lastAssistant"), 10, 0.3)
-    time.sleep(0.5)
+    settled_chips("the new chat's chips")
     return session_id, picked
 
 
@@ -302,15 +334,13 @@ def pass1():
 
     # A New Tab after the pick names what its chat will start on, from its first frame.
     key("t", ["command"])
-    time.sleep(0.25)
+    time.sleep(0.25)  # sleep-ok: the check is what the chips name 250 ms after Cmd-T (the first frames)
     early = chips()
     snap("p1-new-tab-after-pick")
-    time.sleep(1.5)
-    settled = chips()
+    settled = settled_chips("the New Tab's chips")
     check(P, "a New Tab after a pick names the pick from its first frame (no stale default)",
-          "Haiku" in early["model"] and early["effort"] == "Low", f"at 250 ms {json.dumps(early)}, at 1.75 s {json.dumps(settled)}")
-    key("w", ["command"])
-    time.sleep(0.8)
+          "Haiku" in early["model"] and early["effort"] == "Low", f"at 250 ms {json.dumps(early)}, settled {json.dumps(settled)}")
+    close_tab()
 
     chat2, picked2 = new_tab_chat("proj-b", "second chat", model="Sonnet 5.5")
     check(P, "a second chat starts on its own pick", sessions().get(chat2, {}).get("model") == "claude-sonnet-5-5",
@@ -321,20 +351,20 @@ def pass1():
 
     key("[", ["command", "shift"])
     wait(lambda: shown_session() == chat1, 5)
-    time.sleep(0.4)
-    one = chips()
+    one = settled_chips("chat 1's chips")
     check(P, "switching chats never changes the other chat's picks",
           "Haiku" in one["model"] and one["effort"] == "Low" and session_effort(chat1) == "low", json.dumps(one))
     key("]", ["command", "shift"])
     wait(lambda: shown_session() == chat2, 5)
-    time.sleep(0.4)
-    two = chips()
+    two = settled_chips("chat 2's chips")
     check(P, "switching back shows the chat's own picks", "Sonnet" in two["model"] and two["effort"] == "High",
           json.dumps(two))
 
     quit_keep_sessions()
     launch()
-    time.sleep(1.5)
+    if not wait(lambda: shown_session(), 15, 0.2):
+        say("after the relaunch the pane shows no chat after 15 s")
+    settled_chips("the chips after the relaunch")
     shown_now = shown_session()
     for _ in range(2):
         now = chips()
@@ -352,15 +382,13 @@ def pass1():
         check(P, "after a relaunch the first switch to the other chat shows no blank pane", (blank or 0) <= 17,
               f"blank for {blank:.0f} ms" if blank else "")
         wait(lambda: shown_session() not in (None, shown_now), 5)
-        time.sleep(1.0)
+        settled_chips("the chips after the switch")
         shown_now = shown_session()
-    key("t", ["command"])
-    time.sleep(1.2)
-    last = chips()
+    new_tab()
+    last = settled_chips("the New Tab's chips")
     check(P, "after a relaunch a New Tab names the latest pick and full access",
           "Sonnet" in last["model"] and last["effort"] == "High" and full_access(last["mode"]), json.dumps(last))
-    key("w", ["command"])
-    time.sleep(0.8)
+    close_tab()
 
 
 # ---- pass 2 -----------------------------------------------------------------------------------
@@ -402,8 +430,10 @@ def pass2():
     made = 0
     for w in range(workspaces):
         if w:
+            count = len(sidebar_order())
             rpc("action.run", {"action": "workspace new", "args": {"focus": True}, "origin": "script"})
-            time.sleep(1.5)
+            if not wait(lambda: len(sidebar_order()) > count, 15, 0.1):
+                say(f"workspace new: the sidebar still has {count} workspaces after 15 s")
         for t in range(-(-opts.chats // workspaces)):
             if made >= opts.chats:
                 break

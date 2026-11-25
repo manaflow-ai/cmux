@@ -9,6 +9,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { teardownDom } from "./support/domTeardown";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -35,7 +36,12 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
-  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  // Frame callbacks get the clock the page reads (`performance.now`), as a browser's do. jsdom stamps
+  // them on its window's own clock, which starts when the JSDOM is made, after this file's imports:
+  // the glide's start (scrollMotion.ts runScroll) then read seconds ahead of its frames, and on a
+  // loaded runner the jump had not moved when the test looked (job 138405547914: 5014, not 5588).
+  requestAnimationFrame: (callback: FrameRequestCallback) =>
+    dom.window.requestAnimationFrame(() => callback(performance.now())),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
@@ -108,8 +114,7 @@ for (const motion of ["off", "on"] as const) {
       const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const latest = scrollerEnd(scroller);
       expect(scroller.scrollTop).toBe(latest);
-      const button = () =>
-        dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest:not(.acpmux-jump-up)")!;
+      const button = () => dom.window.document.querySelector<HTMLButtonElement>(JUMP_LATEST)!;
 
       // The reader flings up the chat; a few frames in, they press Jump to latest.
       for (const delta of fling.slice(0, 8)) await wheelFrame(scroller, delta);

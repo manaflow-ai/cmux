@@ -23,6 +23,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MAIN_DOCK, MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
@@ -60,8 +61,11 @@ type Row = {
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
+  /** The composer's pickers, passed into the page function that measures the row. */
+  type Pickers = { MODEL_PICKER: string; PLUS_PICKER: string };
+  const PICKERS: Pickers = { MODEL_PICKER, PLUS_PICKER };
   /** Runs in the page: the row's geometry. */
-  function measure(): Row {
+  function measure({ MODEL_PICKER, PLUS_PICKER }: Pickers): Row {
     const rect = (element: Element): Rect => {
       const { left, right, top, bottom, width } = element.getBoundingClientRect();
       return { left, right, top, bottom, width };
@@ -72,8 +76,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const box = document.querySelector(".acpmux-composer-box")!;
     const footer = document.querySelector(".acpmux-composer-strip");
     const named: [string, string][] = [
-      ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
-      ["model", ".acpmux-model .acpmux-picker-button"],
+      ["plus", PLUS_PICKER],
+      ["model", MODEL_PICKER],
       ["access", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
     ];
@@ -131,12 +135,12 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
         model: label(
-          ".acpmux-model .acpmux-picker-button",
+          MODEL_PICKER,
           '[data-fit-part="model"][data-fit-forms~="full"], .acpmux-model-name:not([data-short])',
           ".acpmux-model",
         ),
         effort: label(
-          ".acpmux-model .acpmux-picker-button",
+          MODEL_PICKER,
           '.acpmux-model-detail[data-fit-forms~="full"]:not(.acpmux-fit-label)',
           ".acpmux-model",
         ),
@@ -225,7 +229,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       await page.keyboard.type(draft);
       await page.locator(".acpmux-composer-bar .acpmux-send:not(.acpmux-cancel)").waitFor();
     }
-    const measured = await page.evaluate(measure);
+    const measured = await page.evaluate(measure, PICKERS);
     await page.close();
     return measured;
   };
@@ -296,23 +300,26 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       await page.goto(stageURL("queued"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
       await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
-      const drawn = await page.evaluate(() => {
-        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
-        const main = rect(".acpmux-main")!;
-        const foot = rect(".acpmux-composer-foot")!;
-        const box = rect(".acpmux-composer-box")!;
-        const queue = rect(".acpmux-composer-queue");
-        const transcript = rect(".acpmux-main .acpmux-scroll")!;
-        const stack = rect(".acpmux-main > .acpmux-dock")!;
-        return {
-          footInside: foot.bottom <= main.bottom + 0.5,
-          footUnderBox: foot.top >= box.bottom - 0.5,
-          queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
-          transcriptRoom: Math.round(stack.top - transcript.top),
-          footBottom: Math.round(foot.bottom),
-          paneBottom: Math.round(main.bottom),
-        };
-      });
+      const drawn = await page.evaluate(
+        ({ MAIN_DOCK }) => {
+          const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+          const main = rect(".acpmux-main")!;
+          const foot = rect(".acpmux-composer-foot")!;
+          const box = rect(".acpmux-composer-box")!;
+          const queue = rect(".acpmux-composer-queue");
+          const transcript = rect(".acpmux-main .acpmux-scroll")!;
+          const stack = rect(MAIN_DOCK)!;
+          return {
+            footInside: foot.bottom <= main.bottom + 0.5,
+            footUnderBox: foot.top >= box.bottom - 0.5,
+            queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
+            transcriptRoom: Math.round(stack.top - transcript.top),
+            footBottom: Math.round(foot.bottom),
+            paneBottom: Math.round(main.bottom),
+          };
+        },
+        { MAIN_DOCK },
+      );
       await page.close();
       console.log(`queued at ${height} px`, JSON.stringify(drawn));
       expect({

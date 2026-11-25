@@ -161,7 +161,6 @@ def built_nothing(ref, state, adopt_result="success"):
         "needs.tree-preflight.outputs.run_macos": "false",
         "needs.tree-preflight.outputs.owns_key": "false",
         "needs.tree-owner-wait.outputs.takeover": "false",
-        "needs.build-linux.result": "skipped",
         "needs.build.result": "skipped",
         "needs.publish.result": "skipped",
         "needs.verify-publish.result": "skipped",
@@ -173,12 +172,12 @@ def built_nothing(ref, state, adopt_result="success"):
 
 def machine_channel_follows_an_adopted_manifest(all_jobs):
     """2026-11-13, 93d73d7b (the squash merge of #42609, run 43479235288): its tree was published by
-    the lane head's run, so build-linux, publish and verify-publish skipped, and both Cloud machine
+    the lane head's run, so build, publish and verify-publish skipped, and both Cloud machine
     channel jobs with them. adopt-commit-manifest wrote cmux-tui/<sha>/manifest.json at 18:07:54Z, and
     the channel stayed on the previous commit until the next build at 18:22Z. The channel moves from
     the adopted manifest too, onto the fat cmux-tui/<sha>/ names that manifest serves: a run that
     builds nothing has no machine/ copy of its commit (only point-machine-channel-early uploads one,
-    from this run's build-linux), and updater/channel.rs allowed_urls accepts both paths."""
+    from this run's build), and updater/channel.rs allowed_urls accepts both paths."""
     channel_jobs = ("point-machine-channel-early", "point-machine-channel")
     feat = "refs/heads/feat-cmux-next"
 
@@ -212,6 +211,23 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
            "the Linux release file is signed only by a run that built and published")
     _check(env.get("VERIFY_PUBLISH") == "${{ needs.verify-publish.result }}",
            "the step reads verify-publish's result")
+    # 2026-11-15: an adopted tree moved the channel from the thin build of its tree to the fat build of
+    # the same source, and every Cloud machine updated to identical code. The Cloud machine call keeps
+    # a channel whose commit has this commit's tree key (cmux-machine-channel-point.sh --same-tree,
+    # tests/test_cmux_machine_channel.py CloudMachinePoint); the Linux release file's call does not.
+    calls = [line.strip() for line in script.splitlines()
+             if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
+    _check(calls[:1] == ['scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree'],
+           f"point-machine-channel keeps a channel of the same tree key ({calls[:1]})")
+    _check(len(calls) == 2 and "--same-tree" not in calls[1], f"only the Cloud machine call takes --same-tree ({calls})")
+    early = all_jobs["point-machine-channel-early"]["steps"]
+    _check(not any("--same-tree" in str(step.get("run", "")) for step in early),
+           "point-machine-channel-early moves by its new build, as before")
+    # The same-tree rule computes the tree key of the commit the channel names, so the job's checkout
+    # holds history (the full checkout's fetch-depth), not a sparse or single-commit one.
+    checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+    _check("sparse-checkout" not in checkout.get("with", {}) and int(checkout["with"].get("fetch-depth", 1)) > 1,
+           "point-machine-channel checks out the tree key inputs with history")
 
     # The fat URL the manifest payload names is the first of the two the updater accepts.
     rust = Path(ROOT, "cmux-tui/crates/cmux-host/src/updater/channel.rs").read_text(encoding="utf-8")

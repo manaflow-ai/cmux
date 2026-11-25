@@ -4,7 +4,7 @@
    with a fade, on the house settle, so the composer moves with it in one transition; motion off or
    Reduce Motion shows and hides it at once. */
 .acpmux-cloud-hint-fold {
-  --acpmux-cloud-hint-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-cloud-hint-fill: var(--ds-surface-card);
   --acpmux-cloud-hint-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
   --acpmux-cloud-hint-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
   display: grid;
@@ -60,8 +60,12 @@
   max-width: 760px;
   min-width: 0;
   margin: 0 auto var(--ds-space-2, 8px);
-  padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-3, 12px);
-  border-radius: var(--ds-radius-control, 8px);
+  /* Concentric with its buttons (Lawrence 2026-11-15): Use and close sit one padding from the top, the
+     bottom and the trailing side; the strip rounds by the button corner plus it, the text starts that far in. */
+  --concentric-padding: var(--ds-space-1, 4px);
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
+    calc(var(--ds-radius-control, 8px) + var(--concentric-padding));
+  border-radius: calc(var(--ds-radius-control, 8px) + var(--concentric-padding));
   background: var(--acpmux-cloud-hint-fill);
   color: var(--agent-muted);
   font-size: var(--text-detail);
@@ -95,7 +99,7 @@
   flex: none;
   box-sizing: border-box;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control, 8px);
   background: var(--acpmux-cloud-hint-fill-strong);
   color: var(--agent-text);
   font: inherit;
@@ -127,6 +131,27 @@
   outline-offset: 1px;
 }
 
+/* The line inside the strip (cardFit.css): the cloud, the sentence, then Use Cloud and the X. In a
+   narrow pane the sentence keeps its place beside the cloud and the actions take the line under it,
+   starting where the sentence starts. */
+.acpmux-cloud-hint-row {
+  flex: 1 1 auto;
+  column-gap: var(--ds-space-2, 8px);
+}
+.acpmux-cloud-hint-actions.cv-fit-actions {
+  gap: var(--ds-space-2, 8px);
+}
+@container (max-width: 359.98px) {
+  .acpmux-cloud-hint.cv-fit .acpmux-cloud-hint-row > .acpmux-cloud-hint-text {
+    flex-basis: 0;
+  }
+  .acpmux-cloud-hint.cv-fit .acpmux-cloud-hint-row > .acpmux-cloud-hint-actions {
+    box-sizing: border-box;
+    flex-basis: 100%;
+    padding-inline-start: calc(14px + var(--ds-space-2, 8px));
+  }
+}
+
 /* Card: a title over the sentence on a taller block, the actions on the right. */
 .acpmux-cloud-hint[data-look="card"] {
   align-items: center;
@@ -143,6 +168,11 @@
   margin-inline: auto;
   padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-2, 8px);
   gap: var(--ds-space-1, 4px);
+}
+.acpmux-cloud-hint[data-look="chip"] .acpmux-cloud-hint-row,
+.acpmux-cloud-hint[data-look="chip"] .acpmux-cloud-hint-actions {
+  flex-wrap: nowrap;
+  column-gap: var(--ds-space-1, 4px);
 }
 .acpmux-cloud-hint[data-look="chip"] .acpmux-cloud-hint-use {
   background: transparent;

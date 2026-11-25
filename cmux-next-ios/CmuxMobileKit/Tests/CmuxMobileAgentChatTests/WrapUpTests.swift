@@ -31,7 +31,7 @@ import Testing
     }
 
     static func hasToolRow(_ rows: [ChatTurnRows]) -> Bool {
-        rows.flatMap(\.rows).contains { row in
+        rows.flatMap(\.rows).unfolded.contains { row in
             switch row.kind {
             case .tool, .toolGroup: true
             default: false

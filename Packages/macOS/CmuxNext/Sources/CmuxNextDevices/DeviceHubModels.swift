@@ -4,8 +4,21 @@ public import Foundation
 /// other than ids decode leniently: a missing or differently typed optional
 /// field is nil, so a newer server never breaks an older app.
 
+/// A device's platform. `linux` is a Linux desktop that hosts its screen
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views. `windows` is a Windows
+/// PC on the account (`cmux-rd windows-host`): listed, not yet viewable.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios
+    case macos, ios, linux, windows
+
+    /// Whether this Mac can view a screen this platform hosts: a Mac or a Linux desktop, never an iPhone.
+    /// A Windows PC is listed but not viewed yet. Settings > Devices and the sidebar's screen actions ask
+    /// this, and the switch is exhaustive, so a new platform says here whether the Mac views it.
+    public var hostsScreenThisMacViews: Bool {
+        switch self {
+        case .macos, .linux: true
+        case .ios, .windows: false
+        }
+    }
 }
 
 /// What a viewer may do on a host's screen.
@@ -30,19 +43,37 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var lastSeenAt: Date?
     public var macScreenShared: Bool
     public var online: Bool
+    /// The hub's id of the physical machine, per account (PROTOCOL.md, One record per machine):
+    /// records with one `machineId` are one device. Nil for a record registered without a `machineKey`.
+    public var machineId: String?
+    /// The app install whose identity the record is (the macOS bundle id), when it sent one.
+    public var appId: String?
 
     public init(id: String, name: String, platform: DevicePlatform? = nil, signingKey: String? = nil, agreementKey: String? = nil,
-                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false) {
+                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false,
+                machineId: String? = nil, appId: String? = nil) {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
         self.macScreenShared = macScreenShared; self.online = online
+        self.machineId = machineId; self.appId = appId
+    }
+
+    /// Whether this Mac can view this device's screen (``DevicePlatform/hostsScreenThisMacViews``); a device
+    /// with no platform is not offered.
+    public var hostsScreenThisMacViews: Bool { platform?.hostsScreenThisMacViews ?? false }
+
+    /// Known screen destinations (Macs and Linux desktops), including hosts whose user has yet to allow sharing.
+    /// Lowercase device IDs are stable identity keys; display names never participate.
+    public static func macScreenAvailability(in devices: [HubDevice]) -> [String: Bool] {
+        Dictionary(devices.filter(\.hostsScreenThisMacViews).map { ($0.id.lowercased(), $0.online) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     /// The signing key's display fingerprint, when the key is valid.
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online
+        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online, machineId, appId
     }
 
     public init(from decoder: any Decoder) throws {
@@ -56,6 +87,8 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         lastSeenAt = c.date(.lastSeenAt)
         macScreenShared = c.flag(.macScreenShared)
         online = c.flag(.online)
+        machineId = c.lenient(String.self, .machineId).flatMap { $0.isEmpty ? nil : $0 }
+        appId = c.lenient(String.self, .appId)
     }
 }
 
@@ -239,6 +272,33 @@ public struct HubMe: Codable, Sendable, Equatable {
         userId = try c.decode(String.self, forKey: .userId)
         plan = c.lenient(DevicePlan.self, .plan) ?? .free
         device = c.lenient(HubDevice.self, .device)
+    }
+}
+
+/// The account's settings (`GET /v1/settings`): one value per account, read by every device.
+public struct HubAccountSettings: Codable, Sendable, Equatable {
+    /// "My agents can turn screen sharing and control on my machines" (off unless a person turned it on).
+    public var agentsMayShare: Bool
+
+    public init(agentsMayShare: Bool) {
+        self.agentsMayShare = agentsMayShare
+    }
+
+    enum CodingKeys: String, CodingKey { case agentsMayShare }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        agentsMayShare = c.flag(.agentsMayShare)
+    }
+}
+
+/// The owner's agent session behind a sharing change (the hub's audit detail).
+public struct HubAgentActor: Codable, Sendable, Equatable {
+    public var session: String
+    public var device: String
+
+    public init(session: String, device: String) {
+        self.session = session; self.device = device
     }
 }
 

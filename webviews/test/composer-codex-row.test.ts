@@ -8,6 +8,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-codex-row.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-codex-row", "chromium", chromium))) return;
@@ -41,7 +42,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
   /** Every control's box relative to the composer box, and whether it sits inside the box. */
   const measure = (page: Page, composerSelector: string, boxSelector: string) =>
     page.evaluate(
-      ({ composerSelector, boxSelector }) => {
+      ({ composerSelector, boxSelector, MODEL_PICKER, PLUS_PICKER }) => {
         const composer = document.querySelector(composerSelector)!;
         const box = composer.querySelector(boxSelector)!;
         const b = box.getBoundingClientRect();
@@ -49,9 +50,9 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         const prompt = paragraph?.getBoundingClientRect();
         const controls = Object.fromEntries(
           [
-            ".acpmux-composer-plus .acpmux-picker-button",
+            PLUS_PICKER,
             ".acpmux-access-trigger",
-            ".acpmux-model .acpmux-picker-button",
+            MODEL_PICKER,
             ".acpmux-context-ring",
             ".acpmux-mic",
             ".acpmux-send",
@@ -95,7 +96,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           grid: box.hasAttribute("data-composer-grid") || !!box.querySelector(".nt-input[data-split]"),
         };
       },
-      { composerSelector, boxSelector },
+      { composerSelector, boxSelector, MODEL_PICKER, PLUS_PICKER },
     );
 
   for (const theme of ["light", "dark"])
@@ -134,10 +135,10 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             expect(geometry.foot).toBe(true);
             expect(geometry.unreachable).toEqual([]);
             const { controls } = geometry;
-            expect(Object.keys(controls)).toContain(".acpmux-model .acpmux-picker-button");
+            expect(Object.keys(controls)).toContain(MODEL_PICKER);
             expect(Object.keys(controls)).toContain(".acpmux-access-trigger");
             // + and the mic keep equal side insets, and the same row and control size.
-            const plus = controls[".acpmux-composer-plus .acpmux-picker-button"]!;
+            const plus = controls[PLUS_PICKER]!;
             expect(plus.inside).toBe(true);
             expect(plus.width).toBe(28);
             expect(plus.height).toBe(28);
@@ -158,11 +159,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               expect(Math.abs(send.top - plus.top)).toBeLessThanOrEqual(0.5);
               expect(send.width).toBe(28);
             }
-            for (const selector of [
-              ".acpmux-access-trigger",
-              ".acpmux-model .acpmux-picker-button",
-              ".acpmux-context-ring",
-            ])
+            for (const selector of [".acpmux-access-trigger", MODEL_PICKER, ".acpmux-context-ring"])
               if (controls[selector]) {
                 const control = controls[selector]!;
                 if (look === "claude") {
@@ -181,7 +178,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           }
           // Codex's two-row layout: a 40px editor with 12px above it, 18px side insets,
           // 8px before the 28px controls and 8px under them.
-          const plus = codex.controls[".acpmux-composer-plus .acpmux-picker-button"]!;
+          const plus = codex.controls[PLUS_PICKER]!;
           expect(codex.prompt).not.toBeNull();
           expect(Math.abs(codex.prompt!.top - 12)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(codex.prompt!.left - 18)).toBeLessThanOrEqual(0.5);
@@ -192,7 +189,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           // the row reads ring, model, mic, Send; Claude's quiet row still ends on the ring.
           const at = (geometry: typeof codex, selector: string) => geometry.controls[selector];
           const ring = at(codex, ".acpmux-context-ring");
-          const model = at(codex, ".acpmux-model .acpmux-picker-button")!;
+          const model = at(codex, MODEL_PICKER)!;
           const codexMic = at(codex, ".acpmux-mic");
           const codexSend = at(codex, ".acpmux-send")!;
           expect(ring).toBeDefined();
@@ -204,7 +201,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           const claudeRing = at(claude, ".acpmux-context-ring");
           if (claudeRing)
             // The ring stands just left of the model button (Lawrence and Lucas 2026-11-11).
-            expect(claudeRing.right).toBeLessThanOrEqual(at(claude, ".acpmux-model .acpmux-picker-button")!.left + 0.5);
+            expect(claudeRing.right).toBeLessThanOrEqual(at(claude, MODEL_PICKER)!.left + 0.5);
           console.log(`COMPOSER_PROMPT_CONTROL_GAP ${theme}-${width} ${plus.top - codex.prompt!.bottom}`);
           // The switch keeps every control and both horizontal edge insets.
           expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);
@@ -212,7 +209,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           expect(Object.keys(codex.controls).sort()).toEqual(
             [...new Set([...Object.keys(claude.controls), ".acpmux-send"])].sort(),
           );
-          for (const selector of [".acpmux-composer-plus .acpmux-picker-button"]) {
+          for (const selector of [PLUS_PICKER]) {
             const c = claude.controls[selector];
             const x = codex.controls[selector];
             if (!c || !x) continue;
@@ -278,7 +275,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: "codex-send-stop", accent: "magenta" })}`,
       );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-box .acpmux-md").first().click();
+      await page.locator(COMPOSER_MD).first().click();
       const stopColor = () =>
         page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-composer-box .acpmux-cancel")!).color);
       const rest = await stopColor();
@@ -294,16 +291,16 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
     }
   });
 
-  // New Tab in Codex's look splits as Claude's: + before the field, the mic and Send after it, the
+  // New Tab keeps Claude's layout: + before the field, the mic and Send after it, the
   // mode and model in the quiet row under the box; a narrow pane steps the labels down there.
   for (const width of [1200, 720, 480, 420, 280])
-    test(`codex New Tab ${width}: Claude's split, the chips in the quiet row`, async () => {
+    test(`New Tab ${width}: Claude's split, the chips in the quiet row`, async () => {
       const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
-        const open = async (look: "claude" | "codex") => {
+        const open = async () => {
           await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: `newtab-${look}`, width })}`,
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant: "newtab-claude", width })}`,
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForSelector(".nt-composer .acpmux-composer-foot .acpmux-model");
@@ -315,38 +312,32 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             ...(await measure(page, ".nt-composer", ".nt-box")),
           };
         };
-        const codex = await open("codex");
+        const geometry = await open();
         await page
           .locator(".nt-composer")
-          .screenshot({ path: path.join(out, `codex-newtab-${width}.png`), animations: "disabled", caret: "hide" });
-        expect(codex.look).toBe("codex");
-        expect(codex.plusSplit).toBe(true);
-        expect(codex.foot).toBe(true);
-        for (const selector of [".acpmux-access-trigger", ".acpmux-model .acpmux-picker-button"])
-          expect(codex.controls[selector]?.inside).toBe(false);
-        for (const selector of [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"])
-          if (codex.controls[selector]) expect(codex.controls[selector]!.inside).toBe(true);
-        const claude = await open("claude");
-        expect(claude.look).toBeNull();
-        expect(Object.keys(codex.controls)).toEqual(Object.keys(claude.controls));
-        for (const geometry of [claude, codex]) {
-          expect(geometry.unreachable).toEqual([]);
-          expect(geometry.lineHeight).not.toBeNull();
-          const plus = geometry.controls[".acpmux-composer-plus .acpmux-picker-button"]!;
-          const send = geometry.controls[".acpmux-send"]!;
-          // Each compact New Tab row derives its side inset from its own line height.
-          // Codex's 20px line and Claude's 22.75px line intentionally give different insets.
-          const inset = geometry.lineHeight! / 2;
-          expect(Math.abs(plus.left - inset)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(geometry.box.width - send.right - inset)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(geometry.box.height - geometry.lineHeight! - 28)).toBeLessThanOrEqual(0.5);
-          for (const control of Object.values(geometry.controls)) {
-            if (control.inside) {
-              expect(control.width).toBe(28);
-              expect(control.height).toBe(28);
-              expect(Math.abs((control.top + control.bottom) / 2 - geometry.box.height / 2)).toBeLessThanOrEqual(0.5);
-            } else expect(control.top).toBeGreaterThanOrEqual(geometry.box.height);
-          }
+          .screenshot({ path: path.join(out, `claude-newtab-${width}.png`), animations: "disabled", caret: "hide" });
+        expect(geometry.look).toBeNull();
+        expect(geometry.plusSplit).toBe(true);
+        expect(geometry.foot).toBe(true);
+        for (const selector of [".acpmux-access-trigger", MODEL_PICKER])
+          expect(geometry.controls[selector]?.inside).toBe(false);
+        for (const selector of [PLUS_PICKER, ".acpmux-mic", ".acpmux-send"])
+          if (geometry.controls[selector]) expect(geometry.controls[selector]!.inside).toBe(true);
+        expect(geometry.unreachable).toEqual([]);
+        expect(geometry.lineHeight).not.toBeNull();
+        const plus = geometry.controls[PLUS_PICKER]!;
+        const send = geometry.controls[".acpmux-send"]!;
+        // Each compact New Tab row derives its side inset from its own line height.
+        const inset = geometry.lineHeight! / 2;
+        expect(Math.abs(plus.left - inset)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(geometry.box.width - send.right - inset)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(geometry.box.height - geometry.lineHeight! - 28)).toBeLessThanOrEqual(0.5);
+        for (const control of Object.values(geometry.controls)) {
+          if (control.inside) {
+            expect(control.width).toBe(28);
+            expect(control.height).toBe(28);
+            expect(Math.abs((control.top + control.bottom) / 2 - geometry.box.height / 2)).toBeLessThanOrEqual(0.5);
+          } else expect(control.top).toBeGreaterThanOrEqual(geometry.box.height);
         }
       } finally {
         await page.close();

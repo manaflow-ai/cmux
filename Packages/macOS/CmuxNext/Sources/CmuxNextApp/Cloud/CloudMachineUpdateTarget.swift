@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
 
@@ -13,8 +14,8 @@ import Foundation
 /// API's exec instead (``CloudLegacyMachineUpdate``), with the same guarantees.
 ///
 /// When: whenever the policy asks, with no wait for idle, also while an agent works there; the new
-/// daemon adopts the terminals and chats that kept running and resumes what it interrupted (Leo:
-/// "OUR SHIT IS HARDLY EVER GOING TO GO IDLE ... IT RESUMES WHATEVER IT INTERRUPTED"). So it has no
+/// daemon adopts the terminals and chats that kept running and resumes what it interrupted (the
+/// rule of the daemon update, in the code since 2026-10-26: no wait for an idle machine). So it has no
 /// idle check of its own and `whileBusy` changes nothing; it answers `busy` only when the CLI
 /// cannot update now, or while a chat start brings the machine up (``Source/starting``: a start in flight
 /// does not resume after a restart, it fails). A machine whose daemon the app refused (`incompatible`) goes first: it cannot
@@ -144,10 +145,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // binary (cmux-tui `link/machine_update/apply.rs`). Never a toast for it.
         case "machine_update_pending":
             return .busy
-        // The machine's daemon runs someone's own build from another path: not this app's to
-        // replace, and nothing failed. Nothing shows; the log keeps the reason, and the next launch
-        // asks again (Leo, 2026-11-02, on "Couldn't update leo-cloud": "WHY WOULD THIS STILL HAPPEN").
-        case "machine_update_foreign_daemon":
+        // The machine's daemon runs someone's own build from another path (or a start's own update ran past its bound): not this app's to
+        // replace, and nothing failed. Nothing shows; the log keeps the reason, and the next launch (or start) asks again, so the queue
+        // moves on (the rule for this case, in the code since 2026-11-02: no failure toast).
+        case "machine_update_foreign_daemon", .some(CloudMoveCLI.machineUpdateAbandoned):
             return .held(reason: detail)
         // This app carries no pinned machine build (a dev build), or its download failed: nothing
         // changed; not recorded, so a later connect or launch tries again.

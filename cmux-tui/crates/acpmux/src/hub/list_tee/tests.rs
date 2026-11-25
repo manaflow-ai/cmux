@@ -343,6 +343,48 @@ async fn reconcile_corrects_a_stale_typed_archived_bit() {
     writer.await.unwrap().unwrap();
 }
 
+/// Row 7c: a row the index holds from before summaries kept `cmux.chief` (the same summary
+/// without that tag) has it after the next start, so a Chief's readers find every one of its
+/// chats with no rewrite of the store.
+#[tokio::test]
+async fn a_start_gives_an_old_row_the_chief_tag_its_summary_now_keeps() {
+    let v1 = memory_hub();
+    let session = v1.insert_test_session(meta("chief-row"));
+    v1.edit_test_meta(&session, |meta| {
+        meta.tags.insert(
+            "cmux.chief".into(),
+            crate::store::Tag { value: "0a1b2c3d".into(), expires_at: None },
+        );
+    });
+    let chief = |row: &Summary| {
+        serde_json::from_str::<serde_json::Value>(row.extra.get()).unwrap()["tags"]["cmux.chief"]
+            == "0a1b2c3d"
+    };
+    let mut old = summary_from_session(&v1, &session).unwrap();
+    let mut extra: serde_json::Value = serde_json::from_str(old.extra.get()).unwrap();
+    extra["tags"].as_object_mut().unwrap().remove("cmux.chief");
+    old.extra = serde_json::value::to_raw_value(&extra).unwrap();
+    assert!(!chief(&old));
+    let index = acpmux_book::index::SummaryIndex::new().apply(1, old);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = Arc::new(V2::new(hub, writer));
+    let (_, task) = start_v2_tee(v1, v2.clone());
+    let tee = tokio::spawn(task);
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    // timeout: Test-only deadline detects a tag that never reaches the v2 row; no user request is cancelled.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !v2.hub.snapshot().get("chief-row").is_some_and(|row| chief(&row)) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the start did not give the old row its chief tag");
+    tee.abort();
+    let _ = tee.await;
+    v2.hub.close();
+    writer.await.unwrap().unwrap();
+}
+
 #[tokio::test]
 async fn quiet_live_turn_crossing_marks_without_another_record() {
     let mut config = crate::config::Config::default();
@@ -703,14 +745,16 @@ async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
     v1.peers.lock().unwrap().insert("empty".into(), peer);
     let state = Arc::new(TeeState::default());
     v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
-
-    let send = |notice| async {
+    // As a link sends them: its `Connected` follows its `Listed`, which settles nothing.
+    use crate::peer::PeerNotice::{Connected, Disconnected, Listed};
+    let send = |notices: Vec<crate::peer::PeerNotice>| async {
         let mut settled = v1.peer("empty").unwrap().settled();
-        v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        for notice in notices {
+            v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        }
         settled.changed().await.unwrap();
     };
-
-    send(crate::peer::PeerNotice::Disconnected("reset".into())).await;
+    send(vec![Disconnected("reset".into())]).await;
     let first = state.take_origins(1);
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].0, "empty");
@@ -718,32 +762,30 @@ async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
     assert!(state.take_remote(1).is_empty(), "a drop with no rows emits no row mark");
 
     // A flap before the deadline gets a connected record and never a stale record.
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
-    send(crate::peer::PeerNotice::Disconnected("flap".into())).await;
+    send(vec![Disconnected("flap".into())]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
     tokio::time::advance(std::time::Duration::from_secs(9)).await;
     tokio::task::yield_now().await;
     assert!(state.take_origins(1).is_empty(), "a short flap does not become stale");
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
 
     // The next continuous outage emits stale exactly when its grace ends, even without rows.
-    send(crate::peer::PeerNotice::Disconnected("outage".into())).await;
+    send(vec![Disconnected("outage".into())]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
     tokio::time::advance(std::time::Duration::from_secs(10)).await;
     tokio::task::yield_now().await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Stale);
     assert!(state.take_remote(1).is_empty());
-
     // Failed retries after stale do not append another origin record.
     for _ in 0..10 {
-        send(crate::peer::PeerNotice::Disconnected("retry".into())).await;
+        send(vec![Disconnected("retry".into())]).await;
     }
     assert!(state.take_origins(1).is_empty());
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
-
     assert!(!state.has_pending());
 }
 
@@ -917,6 +959,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         no_queue: false,
         admitted: false,
         after_turn: false,
+        steer_on_start: false,
+        answer_due: None,
     };
     let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
     let mut waiting = Box::pin(v1.queue_slot(&child, slot, &mut accepted));
@@ -928,7 +972,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
     })
     .await;
     assert!(v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     assert_eq!(event.summary.chat_id, child.id);
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert_eq!(extra.get("waitsForSlot"), Some(&json!(true)));
@@ -939,7 +984,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().is_err()
     );
     assert!(!v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert!(!extra.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false));
     assert!(subscribed.receiver.try_next().is_none());

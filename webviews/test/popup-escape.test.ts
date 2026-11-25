@@ -299,19 +299,32 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     return labels;
   };
 
-  test("a short window sends the New Tab suggestions past its edge", async () => {
-    const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
-    // The default (Cards) template's field heads the page, so its rows open under it.
-    const labels = await checkSuggestions(page, ".nt-field .acpmux-md", ".nt-rows", "release");
-    expect(labels).toContain("Release notes cmux.dev");
-    await page.close();
-  });
+  /** New Tab's suggestions stay in the page in a short window: no native panel (it draws text rows only, so the
+      glyphs, the Return hint and the create strip went with it; 2026-11-16), every row the page's own, the list
+      inside the window. */
+  const checkSuggestionsStayInPage = async (page: Page, query: string) => {
+    const field = ".nt-field .acpmux-md";
+    await page.click(field);
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await page.waitForSelector(".nt-rows [role=option]", { state: "detached" });
+    await recordPopups(page);
+    await page.keyboard.type(query);
+    await page.waitForSelector(".nt-rows [role=option]", { state: "attached", timeout: 10_000 });
+    expect(await page.locator(".nt-rows[data-escaped], [data-escaped] > .nt-rows").count()).toBe(0);
+    expect((await popupCalls(page)).some((call) => call.method === "popup.show")).toBe(false);
+    // The glyphs the native panel dropped are drawn.
+    expect(await page.locator(".nt-rows .nt-row-glyph").count()).toBeGreaterThan(0);
+    const box = await page.locator(".nt-rows").boundingBox();
+    const viewport = page.viewportSize();
+    expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height + 0.5).toBe(true);
+    return page.locator(".nt-rows [role=option]").allTextContents();
+  };
 
-  test("a short window sends the stage layout's New Tab suggestions past its edge, above the composer", async () => {
-    const page = await stage("agent-pane.new-tab", "typed-tab-match-stage", { width: 600, height: 260 });
-    // Default's stage layout keeps the composer at the foot of the page, so its rows open above it.
-    const labels = await checkSuggestions(page, ".nt-field .acpmux-md", ".nt-rows", "release", "top");
-    expect(labels).toContain("Release notes cmux.dev");
+  test("a short window keeps the New Tab suggestions in the page", async () => {
+    const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
+    const labels = await checkSuggestionsStayInPage(page, "release");
+    expect(labels.join(" ")).toContain("Release notes");
     await page.close();
   });
 

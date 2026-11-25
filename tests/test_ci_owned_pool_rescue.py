@@ -1518,6 +1518,16 @@ class SideLanes(unittest.TestCase):
         self.assertFalse(rescue.owned_rerun({"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 3,
                                              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
 
+    def test_every_attempt_side_workflows_are_followed_through_bot_attempt_three(self):
+        for path in sorted(rescue.OWNED_EVERY_ATTEMPT_PATHS):
+            with self.subTest(path=path):
+                for attempt, expected in ((2, True), (3, True), (4, False)):
+                    self.assertEqual(rescue.owned_rerun({
+                        "path": path,
+                        "run_attempt": attempt,
+                        "triggering_actor": {"login": rescue.RESCUE_ACTOR},
+                    }), expected, (path, attempt))
+
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
             return [refused_job("diagnostic-presentation", labels=(SIDE,)) if seconds >= 60 else
@@ -1759,14 +1769,17 @@ class Nightly(unittest.TestCase):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         workflows = {"ci.yml": [], "cmux-next.yml": [
             {"id": RUN_ID, "path": ".github/workflows/cmux-next.yml", "event": "pull_request", "run_attempt": 2,
+             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}],
+                     "cmux-next-car-guards.yml": [
+            {"id": RUN_ID + 1, "path": ".github/workflows/cmux-next-car-guards.yml", "event": "push", "run_attempt": 2,
              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}]}
 
         def request(method, path, **_):
             name = path.split("/actions/workflows/")[1].split("/")[0]
-            return {"workflow_runs": workflows[name] if "status=queued" in path else []}
+            return {"workflow_runs": workflows.get(name, []) if "status=queued" in path else []}
 
         api.request = request
-        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2)])
+        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2), (RUN_ID + 1, 2)])
 
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
@@ -2438,6 +2451,7 @@ class Workflow(unittest.TestCase):
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily", "cmux-next-ios kit tests",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
+             "cmux-next car guards", "cmux-rd Windows host", "macOS cross-compile parity",
              "nightly-next launch smoke", "cmux NEXT Stable"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
@@ -2487,11 +2501,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
+        # Never from an owned pool it may rescue (the repair JIT label is one-job VMs), and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue.
         self.assertEqual(
             workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
-            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

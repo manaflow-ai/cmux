@@ -9,7 +9,10 @@ import PackageDescription
 //
 //   CmuxRemoteWire           -> JSON lines, process stamps, peer checks (no AppKit)
 //   CmuxRemoteHost           -> Wire, AppKit (supervisor link, worker supervision, permissions, app socket)
-//   CmuxRemoteComputerUse    -> Wire, CmuxCuaHelperCore (the Computer Use worker: upstream Cua Driver)
+//   CCmuxComputerUse         -> the cmux Computer Use C ABI header (types only; the dylib is dlopened)
+//   CmuxRemoteComputerUse    -> Wire, CCmuxComputerUse, CmuxAgentCursor, AppKit, ScreenCaptureKit (the Computer
+//                               Use worker: hosts libcmux_computer_use, draws the agent cursor, asks the person,
+//                               captures windows, watches for the person's takeover)
 //   CmuxRemoteScreenSharing  -> Wire, CmuxDeviceHub, CmuxVNCWebRTC, AppKit (this Mac's device, sessions, banner)
 //   cmux-remote              -> all of them (the executable in "cmux Remote.app")
 let swiftSettings: [SwiftSetting] = [
@@ -26,22 +29,28 @@ let package = Package(
         .library(name: "CmuxRemoteWire", targets: ["CmuxRemoteWire"]),
     ],
     dependencies: [
-        .package(path: "../CmuxComputerUseHelper"),
+        .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxDeviceHub"),
+        .package(path: "../../Shared/CmuxTheme"),
         .package(path: "../../Shared/CmuxVNCWebRTC"),
     ],
     targets: [
         .target(name: "CmuxRemoteWire", swiftSettings: swiftSettings),
         .target(
             name: "CmuxRemoteHost",
-            dependencies: ["CmuxRemoteWire"],
+            dependencies: ["CmuxRemoteWire", .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub")],
             swiftSettings: swiftSettings,
-            linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"), .linkedFramework("Security")]
+            linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"), .linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
         ),
+        .target(name: "CCmuxComputerUse"),
         .target(
             name: "CmuxRemoteComputerUse",
-            dependencies: ["CmuxRemoteWire", .product(name: "CmuxCuaHelperCore", package: "CmuxComputerUseHelper")],
-            swiftSettings: swiftSettings
+            dependencies: ["CmuxRemoteWire", "CCmuxComputerUse", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
+                           .product(name: "CmuxTheme", package: "CmuxTheme")],
+            resources: [.process("Resources")],
+            swiftSettings: swiftSettings,
+            linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"),
+                             .linkedFramework("ScreenCaptureKit"), .linkedFramework("QuartzCore"), .linkedFramework("Carbon")]
         ),
         .target(
             name: "CmuxRemoteScreenSharing",
@@ -49,6 +58,7 @@ let package = Package(
                 "CmuxRemoteWire",
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
                 .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC"),
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings,
@@ -60,10 +70,18 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
         .testTarget(
+            name: "CmuxRemoteComputerUseTests",
+            dependencies: ["CmuxRemoteComputerUse", "CmuxRemoteHost"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
             // Process-level: the executable is a dependency so `swift test`
             // builds it; the tests drive a real host over its sockets.
             name: "CmuxRemoteProcessTests",
-            dependencies: ["cmux-remote", "CmuxRemoteWire"],
+            dependencies: [
+                "cmux-remote", "CmuxRemoteWire", "CmuxRemoteHost", "CmuxRemoteScreenSharing",
+                .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
+            ],
             swiftSettings: swiftSettings
         ),
     ]

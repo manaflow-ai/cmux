@@ -1,0 +1,46 @@
+{
+  "title": "The browser toolbar's profile button menu over a page (debug.object_menu menu:browserProfile), for #42437: the same browser profile actions the command palette offers; needs --whole-host for the menu shot",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Browser workspace",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "The profile button's menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "browserProfile"
+        }
+      },
+      "wait": 2,
+      "display": true,
+      "optional": "the menu shot needs --whole-host"
+    },
+    {
+      "title": "Close the menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "dismiss": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false,
+      "optional": "debug.object_menu is DEBUG only"
+    }
+  ]
+}

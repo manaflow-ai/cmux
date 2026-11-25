@@ -8,24 +8,13 @@ use super::ls::LsArgs;
 use crate::cli::list_read::Via;
 use crate::client::Client;
 use crate::hub::Hub;
-use acpmux_book::index::SummaryIndex;
+use crate::test_support::list_daemon::{self, Counted, ListDaemon, Serves, emit};
 use acpmux_core::life::V2;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
-
-/// What the v2 side of a daemon serves.
-#[derive(Clone, Copy, PartialEq)]
-enum Serves {
-    /// No v2 handle: the upgrade is not a method.
-    NoV2,
-    /// v2 with no surface: the upgrade names `list`, and is refused.
-    ListOff,
-    /// v2 with `list`.
-    List,
-}
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 /// A daemon in this process on a unix socket, and a v1 client connected to it.
 struct Daemon {
@@ -34,76 +23,21 @@ struct Daemon {
     path: PathBuf,
     client: Arc<Client>,
     _dir: tempfile::TempDir,
+    /// The daemon's server, tee and writer: they stop when it drops.
+    _tasks: cmux_scope::Scope,
 }
 
-fn memory_hub() -> Arc<Hub> {
-    let mut config = crate::config::Config::default();
-    config.store.mode = crate::config::StoreMode::Memory;
-    let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(config, store)
-}
-
-/// A session's record: `status`, updated at `at`, with `tags` (`{key: value}`).
+/// A session's record (`list_daemon::meta`).
 fn meta(id: &str, name: &str, status: &str, at: u64, tags: Value) -> crate::store::SessionMeta {
-    let tags: serde_json::Map<String, Value> = tags
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(key, value)| (key.clone(), json!({"value": value})))
-        .collect();
-    serde_json::from_value(json!({
-        "schema": crate::store::META_SCHEMA, "id": id, "name": name, "title": format!("{name}'s title"),
-        "harness": "claude", "cwd": "/work", "status": status, "createdAt": at - 1_000,
-        "updatedAt": at, "turnCount": 3, "nameGiven": true, "tags": tags,
-    }))
-    .unwrap()
+    list_daemon::meta(id, name, status, at, tags).unwrap()
 }
 
-/// Serves a new hub on a new socket, `seed` giving it its rows (and their count). With the v2
-/// list, the tee is started first and fills its index from the hub, and this waits until it
-/// holds that many rows.
+/// Serves a new hub on a new socket (`list_daemon::serve`), and connects a v1 client to it.
 async fn serve(serves: Serves, seed: impl FnOnce(&Hub) -> usize) -> Daemon {
-    let hub = memory_hub();
-    let v2 = match serves {
-        Serves::NoV2 => None,
-        Serves::ListOff | Serves::List => {
-            let (index, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
-            let surfaces = if serves == Serves::List {
-                ["list".to_owned()].into_iter().collect()
-            } else {
-                Default::default()
-            };
-            let v2 = Arc::new(V2::with_surfaces(index, writer, surfaces));
-            let (tee, task) = crate::hub::list_tee::start_v2_tee(hub.clone(), v2.clone());
-            hub.install_v2_tee(tee);
-            v2.hub.set_page_provider(Arc::new(crate::hub::list_tee::V1PageProvider::new(
-                hub.clone(),
-            )));
-            tokio::spawn(task);
-            tokio::spawn(v2.take_writer().unwrap().run());
-            Some(v2)
-        }
-    };
-    let rows = seed(&hub);
-    if let Some(v2) = &v2 {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        while v2.hub.snapshot().len() < rows {
-            let held: Vec<String> =
-                v2.hub.snapshot().iter().map(|row| row.key().chat_id.to_string()).collect();
-            assert!(
-                Instant::now() < deadline,
-                "the tee holds {} of {rows} rows: {held:?}",
-                held.len()
-            );
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("acpmux.sock");
-    let listener = crate::server::bind_unix(&path).await.unwrap();
-    tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
-    let client = Client::connect(&path).await.unwrap();
-    Daemon { _hub: hub, v2, path, client, _dir: dir }
+    let daemon = list_daemon::serve(serves, seed).await.unwrap();
+    let client = Client::connect(&daemon.path).await.unwrap();
+    let ListDaemon { hub, v2, path, dir, tasks } = daemon;
+    Daemon { _hub: hub, v2, path, client, _dir: dir, _tasks: tasks }
 }
 
 /// The differential fixture: live and closed chats, a child whose parent is closed, a child whose
@@ -234,6 +168,8 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         vec!["-w"],
         vec!["--live"],
         vec!["--leads"],
+        vec!["--archived"],
+        vec!["--json", "--archived"],
         vec!["--pending"],
         vec!["--status", "idle"],
         vec!["--status", "running"],
@@ -310,6 +246,35 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
     assert!(more["nextCursor"].is_string(), "{more}");
 }
 
+/// `ls --archived` lists only the archived chats, here and on the v2 list alike, newest archive
+/// first, with `archivedAt` (null for an older client's `1`) and `archivedBy`.
+#[tokio::test]
+async fn ls_archived_lists_only_the_archived_chats() {
+    let daemon = serve(Serves::List, |hub| {
+        let rows = fixture(hub);
+        let tags = json!({"archived": "1700000000000", "archivedBy": "auto"});
+        hub.insert_test_session(meta("c-settled", "settled", "closed", 1_600_000_000_000, tags));
+        rows + 1
+    })
+    .await;
+    let now = 1_700_000_000_000 + 2 * 3_600_000;
+    for v2 in [false, true] {
+        let rows: Value =
+            serde_json::from_str(&ls(&daemon, &["--json", "--archived"], v2, now).await).unwrap();
+        let rows = rows["sessions"].as_array().unwrap();
+        let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["settled", "archived-parent"], "v2: {v2}");
+        assert_eq!(rows[0]["archivedAt"], 1_700_000_000_000_u64);
+        assert_eq!(rows[0]["archivedBy"], "auto");
+        assert_eq!(rows[1]["archivedAt"], Value::Null);
+        assert_eq!(rows[1]["archivedBy"], "person");
+        let text = ls(&daemon, &["--archived"], v2, now).await;
+        assert!(text.starts_with("NAME"), "{text}");
+        assert!(text.contains("settled") && text.contains("2h ago"), "{text}");
+        assert!(!text.contains("closed-parent"), "{text}");
+    }
+}
+
 /// A walk of the whole view reads v1, whole, while another machine lists a closed row, and when
 /// the status does not say; a live form walks v2 all the same (decision 213).
 #[tokio::test]
@@ -348,6 +313,7 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
                     harness: "claude".into(),
                     state: "idle".into(),
                     last_seen_at: crate::store::now_ms(),
+                    ..Default::default()
                 };
                 hub.set_mesh_book(hosts, vec![row]);
             }
@@ -380,6 +346,60 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
 }
 
 /// `--limit 2`, then `--cursor` with what it printed: no row twice and none skipped.
+/// `ls` lists every machine's sessions: with a peer's row in the list it has a stderr line that
+/// says so and names `--machine local`; with this machine's rows only it has none. Its stdout
+/// is the same bytes either way, and stays parseable JSON (2026-11-20: a boot hook read a
+/// fleet-wide `ls --json` as its own sessions).
+#[tokio::test]
+async fn ls_says_on_stderr_when_its_rows_span_machines_and_stdout_is_unchanged() {
+    let daemon = serve(Serves::List, fixture).await;
+    let now = crate::store::now_ms();
+    for v2 in [false, true] {
+        let via = || if v2 { Via::List(daemon.path.clone()) } else { Via::V1 };
+        for (argv, json_out, spans) in [
+            (&[][..], true, true),
+            (&["--live"][..], true, true),
+            (&["--fields", "name,status"][..], false, true),
+            (&[][..], false, true),
+            (&["--machine", "local"][..], true, false),
+            (&["--machine", "local", "--fields", "name"][..], false, false),
+            (&["far/*"][..], true, true),
+        ] {
+            let (out, scope) =
+                super::ls::scoped_output(ls_args(argv), json_out, &daemon.client, via(), now)
+                    .await
+                    .unwrap();
+            let plain = super::ls::output(ls_args(argv), json_out, &daemon.client, via(), now)
+                .await
+                .unwrap();
+            assert_eq!(out, plain, "stdout of ls {argv:?} is the same with the notice");
+            assert!(!out.contains("--machine local lists"), "the notice never reaches stdout");
+            if json_out {
+                serde_json::from_str::<Value>(&out).expect("stdout stays JSON");
+            }
+            match scope {
+                Some(line) if spans => {
+                    assert!(line.starts_with("ls: "), "{line}");
+                    assert!(line.ends_with("--machine local lists only this one"), "{line}");
+                }
+                None if !spans => {}
+                other => panic!("ls {argv:?} (v2 {v2}): scope {other:?}, spans {spans}"),
+            }
+        }
+    }
+    let (_, scope) =
+        super::ls::scoped_output(ls_args(&[]), true, &daemon.client, Via::V1, now).await.unwrap();
+    // Every row of the fixture's: this machine's and the peer `far`'s.
+    let rows: Value = serde_json::from_str(&ls(&daemon, &["--json"], false, now).await).unwrap();
+    let n = rows["sessions"].as_array().unwrap().len();
+    assert_eq!(
+        scope.as_deref(),
+        Some(
+            format!("ls: {n} sessions on 2 machines; --machine local lists only this one").as_str()
+        )
+    );
+}
+
 #[tokio::test]
 async fn a_limit_then_its_cursor_read_every_row_once() {
     let daemon = serve(Serves::List, fixture).await;
@@ -411,121 +431,143 @@ async fn a_limit_then_its_cursor_read_every_row_once() {
     assert_eq!(read, ids(&whole));
 }
 
-/// A counting proxy for `daemon`'s socket: what the daemon sends to every client through it.
-struct Counted {
-    path: PathBuf,
-    bytes: Arc<AtomicU64>,
-    _dir: tempfile::TempDir,
+/// A send relay whose listing sleeps 30 s gives this daemon's rows anyway, at once: exit 0,
+/// under 2 s, one stderr line naming what is not listed, `remote.state` "missing". With a kept
+/// listing, its rows are merged and marked stale (Leo, 2026-11-22: "we need it to be able to run
+/// blazingly fast under duress"; `ls` exited 1 after 15 s while `lane-gh sessions` stalled).
+#[tokio::test]
+async fn a_stalled_relay_never_holds_or_fails_the_local_listing() {
+    use crate::cli::ls_far::{self, FAR_BUDGET};
+    let daemon = serve(Serves::List, fixture).await;
+    let now = crate::store::now_ms();
+    let plain: Value = serde_json::from_str(&ls(&daemon, &["--json"], false, now).await).unwrap();
+    let local = plain["sessions"].as_array().unwrap().len();
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join(ls_far::CACHE_FILE);
+    let stalled = || ls_far::tests::stalled_relay();
+    let far = |relay| {
+        ls_far::start_with(Some(relay), cache.clone(), Some(daemon.client.clone()), FAR_BUDGET)
+    };
+
+    let started = Instant::now();
+    let (out, line) = super::ls::scoped_output_with_far(
+        ls_args(&[]),
+        true,
+        &daemon.client,
+        Via::V1,
+        now,
+        far(stalled()),
+    )
+    .await
+    .expect("the local listing never fails for a far read");
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(2), "ls took {took:?} with a stalled relay");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["sessions"].as_array().unwrap().len(), local, "every local row is listed");
+    assert_eq!(v["remote"]["state"], "missing");
+    let line = line.unwrap();
+    assert!(
+        line.starts_with(
+            "acpmux: other machines' sessions through sh: not read within 1.5s; not listed\n"
+        ),
+        "{line}"
+    );
+
+    // A kept listing is merged, its rows with their asOfMs (not `stale`: no down peer's), and said on
+    // stderr with its age.
+    let row = json!({"peer": "relayed-vm", "sessionId": "r-1", "name": "relayed-vm/worker", "status": "idle", "updatedAt": now - 1});
+    ls_far::write_cache(&cache, "sh", &[row], now - 120_000);
+    // With a kept listing the relay is not waited on at all.
+    let started = Instant::now();
+    let (out, line) = super::ls::scoped_output_with_far(
+        ls_args(&[]),
+        true,
+        &daemon.client,
+        Via::V1,
+        now,
+        far(stalled()),
+    )
+    .await
+    .unwrap();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    let rows = v["sessions"].as_array().unwrap();
+    assert_eq!(rows.len(), local + 1);
+    let cached = rows.iter().find(|r| r["sessionId"] == "r-1").unwrap();
+    assert!(cached.get("stale").is_none(), "{cached}");
+    assert_eq!(cached["asOfMs"], now - 120_000);
+    assert_eq!(v["remote"]["state"], "stale");
+    assert_eq!(v["remote"]["asOfMs"], now - 120_000);
+    let took = started.elapsed();
+    assert!(
+        took < std::time::Duration::from_millis(500),
+        "a kept listing waited on the relay: {took:?}"
+    );
+    assert!(line.unwrap().contains("from the last listing, refreshing; listed as of 2m ago"));
+
+    // The text view prints the local rows too, under the same budget.
+    let started = Instant::now();
+    let (text, _) = super::ls::scoped_output_with_far(
+        ls_args(&["--all"]),
+        false,
+        &daemon.client,
+        Via::V1,
+        now,
+        far(stalled()),
+    )
+    .await
+    .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(text.contains("chat-0"), "{text}");
 }
 
+/// A counting proxy for `daemon`'s socket: what the daemon sends to every client through it.
 async fn counted(target: PathBuf) -> Counted {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("counted.sock");
-    let listener = tokio::net::UnixListener::bind(&path).unwrap();
-    let bytes = Arc::new(AtomicU64::new(0));
-    let total = bytes.clone();
-    tokio::spawn(async move {
-        while let Ok((client, _)) = listener.accept().await {
-            let Ok(server) = tokio::net::UnixStream::connect(&target).await else { return };
-            let total = total.clone();
-            tokio::spawn(async move {
-                use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                let (mut client_read, mut client_write) = client.into_split();
-                let (mut server_read, mut server_write) = server.into_split();
-                let up = tokio::spawn(async move {
-                    let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
-                });
-                let mut buf = vec![0_u8; 64 * 1024];
-                while let Ok(n) = server_read.read(&mut buf).await {
-                    if n == 0 || client_write.write_all(&buf[..n]).await.is_err() {
-                        break;
-                    }
-                    total.fetch_add(n as u64, Ordering::Relaxed);
-                }
-                up.abort();
-            });
-        }
-    });
-    Counted { path, bytes, _dir: dir }
+    list_daemon::counted(target).await.unwrap()
 }
 
 /// A hub with 20 live chats and `closed` closed ones beside them, served with the v2 list.
 async fn gate_daemon(closed: usize) -> Daemon {
-    serve(Serves::List, |hub| gate_rows(hub, closed)).await
-}
-
-fn gate_rows(hub: &Hub, closed: usize) -> usize {
-    let now = crate::store::now_ms();
-    for n in 0..20_u64 {
-        let tags = json!({"area": "acpmux"});
-        hub.insert_test_session(meta(
-            &format!("live-{n:02}"),
-            &format!("live-{n}"),
-            "idle",
-            now - n * 1_000,
-            tags,
-        ));
-    }
-    for n in 0..closed as u64 {
-        hub.insert_test_session(meta(
-            &format!("closed-{n:05}"),
-            &format!("closed-{n}"),
-            "closed",
-            now - 60_000 - n,
-            json!({}),
-        ));
-    }
-    20 + closed
+    serve(Serves::List, |hub| list_daemon::twenty_live_beside(hub, closed).unwrap()).await
 }
 
 /// One caller's run through the v2 list on a new client of `proxy`: its wall time and the bytes
-/// the daemon sent.
+/// the daemon sent. Past the clock, the run's connections end (`Counted::settled`) before the
+/// bytes are read, so they are all the daemon sent.
 async fn gate_run(caller: &str, proxy: &Counted) -> (u128, u128) {
     let client = Client::connect(&proxy.path).await.unwrap();
     let via = || Via::List(proxy.path.clone());
     let before = proxy.bytes.load(Ordering::Relaxed);
     let started = Instant::now();
-    match caller {
+    // The MCP `ls` answers a refusal as a value, never an error: kept, and checked past the clock.
+    let mcp_reply = match caller {
         "ls" => {
             super::ls::output(ls_args(&[]), false, &client, via(), crate::store::now_ms())
                 .await
                 .unwrap();
+            None
         }
         "pending" => {
             super::standard::pending_output(&client, via(), false).await.unwrap();
+            None
         }
         "send_tag_dry_run" => {
             super::fanout::targets_via(&client, via(), "area=acpmux", None).await.unwrap();
+            None
         }
-        "mcp_ls" => {
-            crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await;
-        }
+        "mcp_ls" => Some(crate::acpmux_mcp::ls_via(&client, &json!({}), via()).await),
         _ => unreachable!(),
-    }
+    };
     let wall = started.elapsed().as_nanos();
     drop(client);
+    // A timed sample proves it did the work (decision 271): a refused `ls` is no fast `ls`.
+    if let Some(reply) = mcp_reply {
+        assert_eq!(reply["isError"], json!(false), "the gate's MCP ls was refused: {reply}");
+        let sessions = reply["structuredContent"]["sessions"].as_array().map(Vec::len);
+        assert_eq!(sessions, Some(20), "the gate's MCP ls lists its 20 live chats");
+    }
+    proxy.settled().await.unwrap();
     // The client's initialize reply is counted too, alike on both sides.
     (wall, u128::from(proxy.bytes.load(Ordering::Relaxed) - before))
-}
-
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
-}
-
-fn emit(name: &str, small: &[Vec<u128>], god: &[Vec<u128>], unit: &str) -> (u128, u128) {
-    let best = |rounds: &[Vec<u128>]| rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap_or(0);
-    let (small_p95, god_p95) = (best(small), best(god));
-    let line =
-        json!({"name": name, "small_p95": small_p95, "god_p95": god_p95, "unit": unit}).to_string();
-    eprintln!("{line}");
-    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(file, "{line}");
-        }
-    }
-    (small_p95, god_p95)
 }
 
 /// Each caller through the v2 list: 20 live chats with 11,000 closed beside them against 20 live
@@ -538,6 +580,7 @@ async fn v2_pr07b_callers() {
     let god = gate_daemon(11_000).await;
     let (small_proxy, god_proxy) =
         (counted(small.path.clone()).await, counted(god.path.clone()).await);
+    let fds = list_daemon::open_fds();
     for caller in ["ls", "pending", "send_tag_dry_run", "mcp_ls"] {
         let (mut small_wall, mut small_bytes, mut god_wall, mut god_bytes) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -555,7 +598,11 @@ async fn v2_pr07b_callers() {
             small_bytes.push(sb);
             god_wall.push(gw);
             god_bytes.push(gb);
+            list_daemon::assert_fds_given_back(&format!("v2.pr07b.{caller}"), fds);
         }
+        // Round one's samples, where a cost a fixture builds up would land first.
+        let (small_one, god_one) = (&small_wall[0], &god_wall[0]);
+        eprintln!("v2.pr07b.{caller}_wall round 1: small {small_one:?} god {god_one:?}");
         for (measure, small, god, unit) in
             [("bytes", &small_bytes, &god_bytes, "bytes"), ("wall", &small_wall, &god_wall, "ns")]
         {
@@ -574,4 +621,157 @@ async fn v2_pr07b_callers() {
     assert!(source.connection().unhanded_peak() <= 1, "{}", source.connection().unhanded_peak());
     drop(god.v2);
     drop(small.v2);
+}
+
+/// A hub for the usage pass's gate: [`list_daemon::usage_beside`] with `closed` rows closed two
+/// days ago or more, settled (decision 284): its order built, and two passes run, the first
+/// finding each chat's transcript and the second reading nothing new.
+async fn usage_gate_daemon(closed: usize) -> (ListDaemon, tempfile::TempDir) {
+    let store = tempfile::tempdir().unwrap();
+    let path = store.path().to_path_buf();
+    let daemon = list_daemon::serve(Serves::NoV2, |hub| {
+        list_daemon::usage_beside(hub, closed, &path).unwrap()
+    })
+    .await
+    .unwrap();
+    daemon.hub.warm_list_order_for_test();
+    for _ in 0..2 {
+        daemon.hub.usage_pass_due_for_test();
+        daemon.hub.refresh_usage_stats().await;
+    }
+    daemon.hub.warm_list_order_for_test();
+    (daemon, store)
+}
+
+/// Row `v2.pr07b.usage_first_read`: a usage pass (`Hub::refresh_usage_stats`, which `ls --json`,
+/// `--wide`, `_acpmux/info` and `_acpmux/sessions {usage: true}` wait for), wall time within 1.2x
+/// with 110,000 closed rows beside the same live and closed-today chats against 1,100. Each
+/// timed sample is a pass that ran over the same 16 chats on both sides (decision 271), each
+/// side holds the closed rows its name says (decision 278), and the kept list order is patched,
+/// never sorted again, in every sample. Both hubs settled first, then their rounds in turn.
+#[ignore = "Linux release gate: a usage pass at 110,000 closed rows against 1,100"]
+#[tokio::test(flavor = "multi_thread")]
+async fn v2_pr07b_usage_first_read() {
+    let sources = list_daemon::USAGE_LIVE + list_daemon::USAGE_CLOSED_TODAY;
+    let (small, _small_store) = usage_gate_daemon(1_100).await;
+    let (god, _god_store) = usage_gate_daemon(110_000).await;
+    for (side, closed) in [(&small, 1_100), (&god, 110_000)] {
+        let sessions = side.hub.session_handles();
+        let shut = sessions
+            .iter()
+            .filter(|s| s.read_meta(|m| m.status == crate::store::SessionStatus::Closed))
+            .count();
+        assert_eq!(sessions.len() - shut, list_daemon::USAGE_LIVE, "live chats");
+        assert_eq!(shut, closed + list_daemon::USAGE_CLOSED_TODAY, "closed rows");
+    }
+    let built = [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
+    let (mut small_wall, mut god_wall) = (Vec::new(), Vec::new());
+    for _ in 0..5 {
+        let (mut sw, mut gw) = (Vec::new(), Vec::new());
+        for _ in 0..20 {
+            for (side, walls) in [(&small, &mut sw), (&god, &mut gw)] {
+                side.hub.usage_pass_due_for_test();
+                // One row told before each pass: every timed sample pays a patch of the order.
+                side.hub.tell_row_for_test("today-00");
+                let (passes, _) = side.hub.usage_passes_for_test();
+                let started = Instant::now();
+                side.hub.refresh_usage_stats().await;
+                walls.push(started.elapsed().as_nanos());
+                assert_eq!(side.hub.usage_passes_for_test(), (passes + 1, sources), "a pass ran");
+            }
+        }
+        small_wall.push(sw);
+        god_wall.push(gw);
+    }
+    let rebuilt =
+        [small.hub.list_order_rebuilds_for_test(), god.hub.list_order_rebuilds_for_test()];
+    assert_eq!(rebuilt, built, "a timed pass sorted every chat again");
+    // The row's rounds and line last (`emit` prints both), with no assert after it: the home
+    // judges the ratio.
+    emit("v2.pr07b.usage_first_read", &small_wall, &god_wall, "ns");
+}
+
+/// One in-process daemon for [`probe_order_at_start`]: `aged` is the usage gate's fixture
+/// ([`list_daemon::usage_beside`]), `recent` is [`list_daemon::twenty_live_beside`] (every closed
+/// chat a minute old). Its kept list order is put back unsorted, as a deferred start holds it
+/// before its start task runs.
+async fn order_probe_daemon(fixture: &str, closed: usize) -> (ListDaemon, tempfile::TempDir) {
+    let store = tempfile::tempdir().unwrap();
+    let path = store.path().to_path_buf();
+    let daemon = list_daemon::serve(Serves::NoV2, |hub| match fixture {
+        "aged" => list_daemon::usage_beside(hub, closed, &path).unwrap(),
+        _ => list_daemon::twenty_live_beside(hub, closed).unwrap(),
+    })
+    .await
+    .unwrap();
+    daemon.hub.unsort_list_order_for_test();
+    (daemon, store)
+}
+
+/// The first reader in a deferred start's window (the daemon answers, its logs are not read
+/// yet), at 1,100 and 110,000 closed chats, in µs. `before`: nothing has sorted the kept list
+/// order, so the reader sorts every chat (as before the start task sorted it). `after`: the start
+/// task's first step (`Hub::sort_list_order`, `daemon.rs`) ran, timed as `window`, then the
+/// reader. Readers: `_acpmux/info {usage:true}` and a first `_acpmux/sessions` page of 20. Then
+/// `recent_F`: a first usage pass with the order sorted, every closed chat a minute old (all
+/// candidates), and its candidates read as #43807 deduped them and as now (`recent_candidates`).
+/// One daemon alive at a time. Prints `PROBE` lines, asserts nothing of the times.
+#[ignore = "probe: the first reader in a deferred start's window at 1,100 and 110,000 closed chats"]
+#[tokio::test(flavor = "multi_thread")]
+async fn probe_order_at_start() {
+    let us = |at: Instant| at.elapsed().as_micros();
+    let keys: Vec<String> = (0..list_daemon::USAGE_LIVE).map(|n| format!("live-{n:02}")).collect();
+    for closed in [1_100, 110_000] {
+        for reader in ["info_usage", "page"] {
+            for case in ["before", "after"] {
+                let (d, store) = order_probe_daemon("aged", closed).await;
+                let window = if case == "after" {
+                    let at = Instant::now();
+                    d.hub.sort_list_order();
+                    us(at)
+                } else {
+                    0
+                };
+                let client = Client::connect(&d.path).await.unwrap();
+                let (method, params) = match reader {
+                    "info_usage" => (
+                        crate::rpc::method::MUX_INFO,
+                        json!({"sessionIds": keys, "row": true, "usage": true}),
+                    ),
+                    _ => (crate::rpc::method::MUX_SESSIONS, json!({"limit": 20})),
+                };
+                let at = Instant::now();
+                let reply = client.request(method, params).await.unwrap();
+                let first = us(at);
+                assert!(reply.is_object(), "{reply}");
+                eprintln!(
+                    "PROBE closed={closed} reader={reader} case={case} window_us={window} \
+                     first_reader_us={first} rebuilds={}",
+                    d.hub.list_order_rebuilds_for_test()
+                );
+                drop(client);
+                drop(d);
+                drop(store);
+            }
+        }
+    }
+    let (d, store) = order_probe_daemon("recent", 110_000).await;
+    d.hub.sort_list_order();
+    let at = Instant::now();
+    d.hub.refresh_usage_stats().await;
+    let pass = us(at);
+    // Candidates both ways, each read three times on the same patched order.
+    for round in 1..=3 {
+        let (copied, live, count) = d.hub.usage_candidates_both_for_test();
+        eprintln!(
+            "PROBE closed=110000 part=recent_candidates round={round} copied_ids_us={copied} \
+             live_set_us={live} candidates={count}"
+        );
+    }
+    eprintln!(
+        "PROBE closed=110000 part=recent_F first_us={pass} passes={:?}",
+        d.hub.usage_passes_for_test()
+    );
+    drop(d);
+    drop(store);
 }

@@ -10,7 +10,11 @@
 //!
 //! - `agent-session-children {surface}` answers `{sessions}`: the attached
 //!   session's descendants as acpmux summarizes them (`_acpmux/sessions`),
-//!   in acpmux's order, at most [`MAX_CHILDREN`] and [`MAX_PAGE_BYTES`].
+//!   in acpmux's order, at most [`MAX_CHILDREN`] and [`MAX_PAGE_BYTES`]. On
+//!   the v2 list (row 7c) they are found by `page` with `family` and read by
+//!   id ([`kin_ids`]); the edge followed is then each chat's one list parent,
+//!   and where that lists other chats than v1's walk the parity test names
+//!   them (`agent_session_kin_parity_tests.rs`, decision 146).
 //! - The attachment follows its descendants: their `session_changed` go out
 //!   as `agent-session-changed`, so the app sees a child appear, run, wait
 //!   and finish. A change whose summary names a followed parent adds that
@@ -33,6 +37,8 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
+use super::agent_session_link::list_source::{self, INFO_ROWS, Opened};
+use super::agent_session_link::{AcpmuxLink, LinkError};
 use super::{Attachment, CALL_TIMEOUT, MAX_PAGE_BYTES, Refusal};
 
 pub const AGENT_SESSION_CHILDREN_CAPABILITY: &str = "agent-session-children-v1";
@@ -117,6 +123,59 @@ pub(crate) fn descendants(root: &str, sessions: &[Value]) -> Vec<Value> {
     sessions.iter().zip(taken).filter(|(_, taken)| *taken).map(|(s, _)| s.clone()).collect()
 }
 
+/// The v2 list (row 7c) the kin readers read through ([`kin_ids`]): `None` when the daemon
+/// serves no v2 list or no rows by id (`info-rows-v1`), and the caller reads v1's list.
+pub(super) fn kin_source(
+    socket: &std::path::Path,
+    link: &AcpmuxLink,
+) -> Result<Option<list_source::Source>, LinkError> {
+    if !link.capabilities(None, CALL_TIMEOUT).iter().any(|c| c == INFO_ROWS) {
+        return Ok(None);
+    }
+    Ok(match list_source::open(socket, CALL_TIMEOUT).map_err(list_error)? {
+        Opened::List(source) => Some(source),
+        Opened::V1 => None,
+    })
+}
+
+/// `root`'s descendants' ids through `source` ([`list_source::kin`], at most
+/// [`MAX_CHILDREN`]). With `cold` false, the hot part only (the attach, decision 301): the hub
+/// says `coldUnread` whenever its snapshot is not empty, and a cold part is the snapshot's
+/// pager (256 KiB a request, its closed rows / 400 requests a pass, 1 + the cold kin found
+/// passes), so a cold read would grow an attach with the machine's closed chats. With `cold`,
+/// the cold kin too, at that cost (the children verb).
+pub(super) fn kin_ids(
+    source: &mut list_source::Source,
+    root: &str,
+    cold: bool,
+) -> Result<Vec<String>, LinkError> {
+    let kin = list_source::kin(source, root, MAX_CHILDREN, cold).map_err(list_error)?;
+    Ok(kin.into_iter().map(|row| row.chat_id).collect())
+}
+
+/// The attached session's descendants, cold kin too ([`kin_ids`]), then their rows by id as
+/// `_acpmux/sessions` writes them, in v1's order.
+fn kin_rows(attachment: &Attachment) -> Result<Option<Vec<Value>>, LinkError> {
+    let Some(socket) =
+        attachment.mux.upgrade().and_then(|mux| mux.control_clients.agent_sessions.socket())
+    else {
+        return Ok(None);
+    };
+    let Some(mut source) = kin_source(&socket, &attachment.link)? else {
+        return Ok(None);
+    };
+    let ids = kin_ids(&mut source, &attachment.session, true)?;
+    list_source::rows_by_id(&attachment.link, ids, CALL_TIMEOUT).map(Some)
+}
+
+/// A list read that failed: past its deadline, or a socket or wire error.
+fn list_error(error: std::io::Error) -> LinkError {
+    match error.kind() {
+        std::io::ErrorKind::TimedOut => LinkError::Timeout,
+        _ => LinkError::BadList(error.to_string()),
+    }
+}
+
 /// The ids of `root`'s descendants in an `_acpmux/sessions` or `_acpmux/watch` answer.
 pub(super) fn descendant_ids(root: &str, answer: &Value) -> Vec<String> {
     let sessions = answer.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
@@ -191,14 +250,23 @@ impl Attachment {
 /// `agent-session-children`: the attached session's descendants, read from
 /// acpmux's own list, bounded, and followed from now on.
 pub(super) fn list(attachment: &Attachment) -> Result<Value, Refusal> {
-    let all = attachment
-        .link
-        .call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT)
-        .map_err(Refusal::of)?;
-    let sessions = all.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    let found = match kin_rows(attachment).map_err(Refusal::of)? {
+        Some(rows) => rows,
+        // The daemon has no v2 list: v1's whole list, read and walked here (a named fallback,
+        // `agent_session_list_scan_tests.rs`).
+        None => {
+            let all = attachment
+                .link
+                .call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT)
+                .map_err(Refusal::of)?;
+            let sessions =
+                all.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+            descendants(&attachment.session, sessions)
+        }
+    };
     let mut listed = Vec::new();
     let mut bytes = 0;
-    for summary in descendants(&attachment.session, sessions) {
+    for summary in found {
         bytes += serde_json::to_string(&summary).map_or(0, |text| text.len());
         if listed.len() >= MAX_CHILDREN || bytes > MAX_PAGE_BYTES {
             break;

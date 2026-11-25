@@ -27,6 +27,14 @@ impl LeaderExit {
         Self::open_native(pid)
     }
 
+    /// The exit event of the process `pidfd` names (Linux): a replacement agent host's harness,
+    /// which is no child of it (`agent_host/custody.rs`).
+    #[cfg(target_os = "linux")]
+    pub(crate) fn from_pidfd(fd: OwnedFd) -> Option<Self> {
+        let fd = tokio::io::unix::AsyncFd::with_interest(fd, tokio::io::Interest::READABLE).ok()?;
+        Some(Self { fd: Some(fd) })
+    }
+
     #[cfg(target_os = "linux")]
     fn open_native(pid: u32) -> Option<Self> {
         let pid = libc::pid_t::try_from(pid).ok()?;
@@ -88,14 +96,5 @@ impl LeaderExit {
 /// Tests only: this thread's agents start as if the kernel had no exit event, so their readers
 /// keep the timed check (`agent_idle_tests.rs`).
 #[cfg(test)]
-pub(crate) mod timed_check_only {
-    thread_local! {
-        static ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    }
-    pub(crate) fn set(on: bool) {
-        ON.with(|o| o.set(on));
-    }
-    pub(super) fn on() -> bool {
-        ON.with(std::cell::Cell::get)
-    }
-}
+#[path = "leader_exit_timed_check_only_tests.rs"]
+pub(crate) mod timed_check_only;

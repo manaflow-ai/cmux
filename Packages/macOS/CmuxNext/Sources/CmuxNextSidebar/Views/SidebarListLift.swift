@@ -37,7 +37,7 @@ import AppKit
     /// The members' lines of the open groups among `rows` (list coordinates).
     static func lines(_ list: SidebarListView, _ rows: [SidebarRow], frame: ((SidebarRow) -> CGRect)? = nil) -> [SidebarGroupLine] {
         // The list's own look (`styled`): `sidebar.showColors` off, no group color on the lifted card either.
-        list.styled(SidebarGroupLine.lines(rows, colors: list.lineColors) { frame?($0) ?? list.frame(for: $0) })
+        list.styled(SidebarGroupLine.lines(rows, colors: list.lineColors, style: list.model.groupHeaderDetails.background) { frame?($0) ?? list.frame(for: $0) })
     }
 
     /// The lifted card's content: one live row view, or for several rows (a
@@ -52,6 +52,7 @@ import AppKit
             let view = GroupLineView()
             view.frame = line.frame.offsetBy(dx: -block.minX, dy: -block.minY)
             view.isBlock = line.isBlock
+            view.rail = line.localRail
             view.color = line.color
             view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
