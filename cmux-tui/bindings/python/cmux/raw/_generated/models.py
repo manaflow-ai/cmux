@@ -1155,6 +1155,13 @@ class ListWorkspacesKnown:
 
 
 @dataclass(frozen=True)
+class ListWorkspacesSince:
+    __cmux_schema_path__: ClassVar[str] = 'types/ListWorkspacesSince'
+    epoch: str
+    seq: int
+
+
+@dataclass(frozen=True)
 class LivePane:
     __cmux_schema_path__: ClassVar[str] = 'types/LivePane'
     active_tab: int
@@ -1335,6 +1342,13 @@ class ReattachViewResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ReattachViewResult'
     participant: str
     state: SizeState
+
+
+@dataclass(frozen=True)
+class ReleaseWorkspaceNamesResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ReleaseWorkspaceNamesResult'
+    released: int
+    still_pinned: int
 
 
 @dataclass(frozen=True)
@@ -2468,10 +2482,16 @@ class TerminalResumeCommandResult:
 class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
+    changed: Union[List[Workspace], MissingType] = field(default=MISSING)
+    delta: Union[bool, MissingType] = field(default=MISSING)
+    epoch: Union[str, MissingType] = field(default=MISSING)
     generation: Union[str, MissingType] = field(default=MISSING)
     next: Union[int, MissingType] = field(default=MISSING)
+    order: Union[List[Id], MissingType] = field(default=MISSING)
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
+    removed: Union[List[Id], MissingType] = field(default=MISSING)
+    seq: Union[int, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     total: Union[int, MissingType] = field(default=MISSING)
     tree_revision: Union[str, MissingType] = field(default=MISSING)
@@ -4102,6 +4122,7 @@ class ListClientsRequest:
 class ListNotificationsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-notifications/request'
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    stats: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4167,6 +4188,7 @@ class ListWorkspacesRequest:
     after: Union[int, None, MissingType] = field(default=MISSING)
     known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    since: Union[ListWorkspacesSince, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4739,6 +4761,12 @@ class ReleaseAttachedViewSizeRequest:
 class ReleaseSurfaceSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-surface-size/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class ReleaseWorkspaceNamesRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-workspace-names/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -6895,6 +6923,7 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'ListWorkspacesKnown',
+    'ListWorkspacesSince',
     'LivePane',
     'MachineListeningTcpResult',
     'MachinePlatform',
@@ -6914,6 +6943,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'ReleaseWorkspaceNamesResult',
     'RemoteHostAppPermissions',
     'RemoteHostAppResult',
     'RenderCursor',
@@ -7285,6 +7315,7 @@ __all__ = [
     'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
+    'ReleaseWorkspaceNamesRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
     'RemoteHostAppRequest',

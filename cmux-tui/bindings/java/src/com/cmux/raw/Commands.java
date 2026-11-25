@@ -160,7 +160,7 @@ public final class Commands {
     public static final CommandMetadata LIST_TERMINAL_COMMANDS = new CommandMetadata("list-terminal-commands", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACE_GROUPS = new CommandMetadata("list-workspace-groups", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("after", 12L), Map.entry("known", 12L), Map.entry("limit", 12L)), Map.ofEntries(Map.entry("after", "list-workspaces-page-v1"), Map.entry("known", "list-workspaces-known-v1"), Map.entry("limit", "list-workspaces-limit-v1")));
+    public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("after", 12L), Map.entry("known", 12L), Map.entry("limit", 12L)), Map.ofEntries(Map.entry("after", "list-workspaces-page-v1"), Map.entry("known", "list-workspaces-known-v1"), Map.entry("limit", "list-workspaces-limit-v1"), Map.entry("since", "workspace-list-delta-v1")));
     public static final CommandMetadata MACHINE_LISTENING_TCP = new CommandMetadata("machine-listening-tcp", Authority.CONTROL, 12, "machine-listening-tcp-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -217,6 +217,7 @@ public final class Commands {
     public static final CommandMetadata REGISTER_BROWSER_PROVIDER = new CommandMetadata("register-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("hosting", "browser-provider-native-hosting-v1")));
     public static final CommandMetadata RELEASE_ATTACHED_VIEW_SIZE = new CommandMetadata("release-attached-view-size", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata RELEASE_SURFACE_SIZE = new CommandMetadata("release-surface-size", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata RELEASE_WORKSPACE_NAMES = new CommandMetadata("release-workspace-names", Authority.CONTROL, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RELOAD_CONFIG = new CommandMetadata("reload-config", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOTE_HOST_APP = new CommandMetadata("remote-host-app", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REMOTE_HOST_CALL = new CommandMetadata("remote-host-call", Authority.LOCAL_ADMIN, 12, "remote-host-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -533,6 +534,7 @@ public final class Commands {
         values.put("register-browser-provider", REGISTER_BROWSER_PROVIDER);
         values.put("release-attached-view-size", RELEASE_ATTACHED_VIEW_SIZE);
         values.put("release-surface-size", RELEASE_SURFACE_SIZE);
+        values.put("release-workspace-names", RELEASE_WORKSPACE_NAMES);
         values.put("reload-config", RELOAD_CONFIG);
         values.put("remote-host-app", REMOTE_HOST_APP);
         values.put("remote-host-call", REMOTE_HOST_CALL);
