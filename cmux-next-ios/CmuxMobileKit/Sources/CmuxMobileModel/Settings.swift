@@ -249,7 +249,7 @@ public final class SettingsStore {
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
         horizontalTabs = defaults.object(forKey: "cmuxMobile.settings.horizontalTabs") == nil
-            ? false : defaults.bool(forKey: "cmuxMobile.settings.horizontalTabs")
+            ? true : defaults.bool(forKey: "cmuxMobile.settings.horizontalTabs")
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
         }

@@ -72,6 +72,8 @@ final class PaneDragMoveUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_MOCK_PANES"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
+        // The address capsule this test drives (Settings › Horizontal tabs off).
+        app.launchArguments += ["-cmuxMobile.settings.horizontalTabs", "<false/>"]
         app.launch()
 
         let choose = app.scrollViews["setup.teams.choose"]

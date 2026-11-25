@@ -52,7 +52,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
     public static let defaultDismissKeyboardAfterSend = true
-    public static let defaultHorizontalTabs = false
+    public static let defaultHorizontalTabs = true
 
     /// Whether a workspace's top bar shows the paged strip of its pane's tabs.
     public static func horizontalTabs(_ defaults: UserDefaults = .standard) -> Bool {

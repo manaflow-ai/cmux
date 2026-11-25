@@ -18,6 +18,8 @@ final class AgentCardOpenShiftUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore", "-cmux-mobile-tab", "workspaces"]
+        // The address capsule this test drives (Settings › Horizontal tabs off).
+        app.launchArguments += ["-cmuxMobile.settings.horizontalTabs", "<false/>"]
         app.launch()
         defer { app.terminate() }
 

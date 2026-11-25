@@ -20,6 +20,8 @@ final class ReviewDemoUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_REVIEW_DEMO"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore",
                                 "-cmuxMobile.settings.appearance", look]
+        // The address capsule this test drives (Settings › Horizontal tabs off).
+        app.launchArguments += ["-cmuxMobile.settings.horizontalTabs", "<false/>"]
         app.launch()
         return app
     }
