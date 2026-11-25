@@ -477,6 +477,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ELEVATION_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
+        // Secrets for one chat only (`chat_secrets.rs`).
+        untyped(method::MUX_CHAT_SECRETS_SET, Request),
+        untyped(method::MUX_CHAT_SECRETS_CLEAR, Request),
+        untyped(method::MUX_CHAT_SECRETS_LIST, Request),
         // Chats (`server/chats.rs`).
         untyped("_acpmux/chats", Request),
         untyped("_acpmux/chats_watch", Request),
