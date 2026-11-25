@@ -49,6 +49,7 @@ use serde_json::{Value, json};
 
 use super::local::Source as Origin;
 use super::local::{self, LocalFile, Rules};
+use crate::link::seed::carry;
 
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
@@ -1084,7 +1085,7 @@ fn projection_carry(folder: &Path) -> Option<CarryFiles> {
         return None;
     }
     let pack_path = folder_out.join("carry.pack");
-    if super::seed::carry::pack(folder, &base, &pack_path).is_err() {
+    if carry::pack(folder, &base, &pack_path).is_err() {
         let _ = std::fs::remove_dir_all(&folder_out);
         return None;
     }
