@@ -595,11 +595,11 @@ pub(super) fn check_cut(
 
 pub(super) fn check_capacity_cut(session: &Session, cut: &str) -> Result<(), RpcError> {
     let pending = session.auto_resume.lock();
-    let stopped = matches!(
+    let was_stopped = matches!(
         pending.as_ref(),
         Some(Mark::Stopping { turn, .. } | Mark::Stopped(turn)) if turn == cut
     );
-    if stopped {
+    if was_stopped {
         return Err(stopped());
     }
     check_cut(session, Some(cut), false, None)

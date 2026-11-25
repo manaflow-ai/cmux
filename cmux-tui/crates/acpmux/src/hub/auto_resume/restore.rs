@@ -410,15 +410,16 @@ impl Hub {
             if super::super::capacity::exhausted(&error) {
                 hub.restore_capacity_retry(&session, &error, last.at, not_before).await;
             }
-            if !hub.retry_waits_for_capacity(&session, &error).await {
+            let _permit = if !hub.retry_waits_for_capacity(&session, &error).await {
                 // A restored rate limit holds the chat again until its deadline.
                 hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
-            } else {
                 // A restored capacity wait reads as an outage still on: the first due probes it.
+                // Keep the probe slot until its resumed attempt ends, as on the live path.
                 hub.capacity_gate_cut(&session, Some(retry.reason));
-                let _permit =
-                    hub.capacity_gate_admit(&session, &turn_id, retry.reason, &wake).await;
-            }
+                hub.capacity_gate_admit(&session, &turn_id, retry.reason, &wake).await
+            } else {
+                None
+            };
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,
