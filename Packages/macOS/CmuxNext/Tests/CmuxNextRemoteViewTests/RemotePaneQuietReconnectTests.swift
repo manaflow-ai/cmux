@@ -40,9 +40,22 @@ import Testing
         #expect(!back.reconnectNoticeDue)
     }
 
+    /// A state no reducer stamped (a gallery's or a test's) still draws the connecting card.
     @Test func aFirstConnectStillSaysConnecting() {
         let state = RemotePaneState(hostName: "vm", requestedMode: .view)
         #expect(state.overlay == .connecting)
+    }
+
+    /// The pane stamps its first connect at its start: no card for the coming-up time, then the card with Cancel.
+    @Test func aNewPaneHoldsItsConnectingCardForTheComingUpTime() throws {
+        let source = MockRemoteStreamSource(status: RemoteViewStatus(state: .connecting))
+        let pane = RemoteDesktopPane(hostName: "vm", source: source, inputSink: nil, initialMode: .view)
+        let since = try #require(pane.state.connectingSince)
+        #expect(pane.state.overlay == nil)
+        #expect(pane.view.connectingCard == nil)
+        let due = RemotePaneReducer().reduce(pane.state, .connectNoticeCheck, now: since + RemotePaneState.connectNoticeDelay)
+        #expect(due.overlay == .connecting)
+        #expect(due.connectingSince == since)
     }
 
     /// The path closes under a live picture: the pane reconnects at once, silently.

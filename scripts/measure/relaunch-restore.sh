@@ -19,6 +19,8 @@
 #                round, load_1m, quit_to_usable_ms, launch_to_usable_ms, relaunch_ms) and L5-PAIRS {json}, per side
 #                medians and how many pairs head was faster (relaunch-restore-pairs.py). rounds= is the pair count.
 #   fronts=LIST  what each round leaves in front at the quit (the check's --fronts; default terminal,chat)
+#   film=1       film the relaunched sidebar per display frame and report its shifts and settle time per round
+#                (sidebar_film in l5.json; a bench-hooks build); shift_gate=1 also fails a round on any shift
 # Prints L5-ROUND lines per relaunch and one L5 {json} verdict; keeps l5.json, report.json and app.log in report.tgz.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
@@ -31,6 +33,8 @@ for arg in "$@"; do
     rounds=*) rounds="${arg#rounds=}" ;;
     budget_ms=*) extra+=(--budget-ms "${arg#budget_ms=}") ;;
     fronts=*) extra+=(--fronts "${arg#fronts=}") ;;
+    film=1) extra+=(--layout-film) ;;
+    shift_gate=1) extra+=(--layout-film --fail-on-shift) ;;
     config=bench|config=Release|config=Debug) config="${arg#config=}" ;;
     build=*) build_sha="${arg#build=}" ;;
     base=*) base_sha="${arg#base=}" ;;

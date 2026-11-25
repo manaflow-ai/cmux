@@ -534,6 +534,8 @@ pub(super) async fn join(
     token: Option<String>,
     began: Option<Began<'_>>,
 ) -> Result<()> {
+    // Every join (a pasted line, a sign-in's) checks its home before it can redeem.
+    crate::cli::join_input::refuse_symlinked_home()?;
     if set_aside_copied_pending(host_fingerprint::current().as_deref())? && report != Report::Quiet
     {
         eprintln!(

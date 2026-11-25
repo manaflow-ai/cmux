@@ -4,7 +4,7 @@ public import Foundation
 /// The user's customization folder, the package of the `local/customize` app.
 ///
 /// It resolves the path the daemon watches (`customize_dir` in cmux-tui-core): `$CMUX_CUSTOMIZE_DIR`,
-/// else `$XDG_CONFIG_HOME/cmux/customize`, else `~/.config/cmux/customize`. The daemon installs the
+/// else `$XDG_CONFIG_HOME/cmux-next/customize`, else `~/.config/cmux-next/customize`. The daemon installs the
 /// app by itself the first time the folder holds a manifest, so writing the starter is all it takes
 /// to make one.
 ///
@@ -33,7 +33,7 @@ public nonisolated struct CustomizeFolder: Sendable, Hashable {
         }
         guard let config = value("XDG_CONFIG_HOME").map({ URL(filePath: $0, directoryHint: .isDirectory) })
             ?? value("HOME").map({ URL(filePath: $0, directoryHint: .isDirectory).appending(path: ".config") }) else { return nil }
-        url = config.appending(path: "cmux").appending(path: "customize")
+        url = config.appending(path: BuildStatePaths.nextFolder).appending(path: "customize")
     }
 
     /// The app's manifest, `cmux-app.json`.
@@ -130,7 +130,7 @@ function renderSection() {
         () => (tasks().length === 0 ? EmptyState({ title: "Nothing left", symbol: "checkmark.circle" }) : null)
       ])
     ]),
-    Row({ title: "Edit ~/.config/cmux/customize/main.js", symbol: "pencil", tint: cmux.theme.text.secondary })
+    Row({ title: "Edit ~/.config/cmux-next/customize/main.js", symbol: "pencil", tint: cmux.theme.text.secondary })
   ])
 }
 

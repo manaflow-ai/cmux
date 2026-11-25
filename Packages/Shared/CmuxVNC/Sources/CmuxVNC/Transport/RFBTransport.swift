@@ -1,5 +1,8 @@
 import Foundation
+#if canImport(Network)
+import CmuxEgress
 import Network
+#endif
 
 /// A byte stream to an RFB server. `NetworkRFBTransport` is TCP; an app can
 /// supply another carrier (a tunnel, a test pipe).
@@ -15,6 +18,7 @@ public protocol RFBTransport: AnyObject, Sendable {
     func close()
 }
 
+#if canImport(Network)
 /// TCP through Network.framework, Nagle off (input events go out at once).
 public final class NetworkRFBTransport: RFBTransport {
     private let connection: NWConnection
@@ -26,7 +30,8 @@ public final class NetworkRFBTransport: RFBTransport {
         tcp.noDelay = true
         tcp.connectionTimeout = 15
         let parameters = NWParameters(tls: nil, tcp: tcp)
-        connection = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 5900, using: parameters)
+        CmuxEgress.allowNamed(host)   // the VNC host the person entered
+        connection = CmuxEgress.connection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 5900, using: parameters, site: "CmuxVNC.RFBTransport")
     }
 
     public func open() async throws {
@@ -131,3 +136,4 @@ final class TransportLifecycle: @unchecked Sendable {
         finishOpen(RFBError.connectionClosed)
     }
 }
+#endif

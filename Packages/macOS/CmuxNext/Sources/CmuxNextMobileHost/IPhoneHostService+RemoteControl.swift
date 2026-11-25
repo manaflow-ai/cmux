@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 
 /// Session Info's Remote Control switch (``AgentPaneRemoteControl``) on the iPhone host's side: it
-/// is this host's own switch, `mobile.allowIPhoneConnections`, the one the Mobile Pairing page and
+/// is this host's own switch, `mobile.allowIPhoneConnections`, the one Settings > Accounts > iPhone and
 /// Settings > Mobile show, so cmux on the same account's iPhone can open this Mac's chats. It is
 /// app-wide, all or nothing: every chat's row shows and writes this one switch, and no chat has
 /// an exposure of its own. It is shown while this Mac can serve phones (an account signed in, a
@@ -13,7 +13,7 @@ extension IPhoneHostService {
     /// Wires ``remoteControl`` to `auth`'s sign-in and the settings `wire` follows (called by `wire`).
     func wireRemoteControl(auth: CloudAuth, settings: @escaping @MainActor @Sendable () -> SettingsController?) {
         let control = remoteControl
-        // The person's own change, as the Mobile Pairing page writes it (agent policy `userOnly`),
+        // The person's own change, as Settings > Accounts > iPhone writes it (agent policy `userOnly`),
         // from whichever chat's row it came.
         control.set = { on in
             guard let settings = settings() else { throw CocoaError(.featureUnsupported) }

@@ -123,6 +123,11 @@ extension AppsTransport {
     /// wrote it, `{commands, mentions}`.
     public func composerPlaces() async throws(AppsTransportError) -> AppJSON { try await storeCall("apps.composer.list") }
 
+    /// The toolbar band's app items (`apps.toolbar.list`), in the daemon's order.
+    public func toolbarItems() async throws(AppsTransportError) -> [AppToolbarContribution] {
+        AppToolbarContribution.list(try await storeCall("apps.toolbar.list"))
+    }
+
     /// The installed extensions' `@` items for a query, ranked by the daemon (`apps.composer.mentions`):
     /// `{mentions: [{app, extension, prefix, id, label, detail?, insert}]}`.
     public func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {

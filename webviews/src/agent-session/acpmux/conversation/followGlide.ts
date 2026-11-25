@@ -24,6 +24,7 @@
 import { MOTION_EASE_OUT, MOTION_EASE_SEND, MOTION_MS, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import type { AcpmuxRow } from "../model";
 import { geometryOf, type GeometrySource } from "../conversationGeometry";
+import { motionToken } from "../../../ui/motion/motionTokens";
 import { cssTimeMs } from "./fold";
 import { THINKING } from "./turns";
 
@@ -66,9 +67,7 @@ function glideMs(node: HTMLElement, send = false): number {
   const view = node.ownerDocument.defaultView;
   if (!view || view.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return 0;
   if (node.ownerDocument.documentElement.dataset.agentMotion === "off") return 0;
-  const token = cssTimeMs(
-    view.getComputedStyle(node).getPropertyValue(send ? "--agent-motion-send" : "--agent-motion-move"),
-  );
+  const token = cssTimeMs(motionToken(node, send ? "--agent-motion-send" : "--agent-motion-move"));
   return token ?? (send ? MOTION_SEND_MS : MOTION_MS.standard);
 }
 

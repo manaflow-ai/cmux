@@ -155,6 +155,11 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
                 request.target.isEditable, link: request.target.linkURL) { request.complete(nil) }))
         case .notice(let text):
             logger.info("page \(self.pageID, privacy: .public) notice: \(text, privacy: .public)")
+        case .devTools(let command):
+            // A cmux page is no browser tab the palette's actions name: its DevTools divider moves its own tools.
+            if let placement = command.placement { (tab as? any BrowserDevToolsHosting)?.performDevTools(placement) }
+        case .goToHistoryEntry(let offset):
+            (tab as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         default:
             break
         }

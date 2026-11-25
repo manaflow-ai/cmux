@@ -174,19 +174,3 @@ pub(crate) fn set_test_free(home: &Path, free: Option<u64>) {
         None => drop(map.remove(home)),
     }
 }
-
-/// A full disk or quota anywhere in the error's chain.
-pub(super) fn is_out_of_space(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.downcast_ref::<std::io::Error>().is_some_and(io_out_of_space))
-}
-
-fn io_out_of_space(error: &std::io::Error) -> bool {
-    if matches!(error.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) {
-        return true;
-    }
-    #[cfg(unix)]
-    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
-        return true;
-    }
-    false
-}

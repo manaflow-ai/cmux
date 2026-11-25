@@ -1,5 +1,5 @@
 //! Snapshot files of the output store: one per terminal, the screen plus
-//! about [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
+//! up to [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
 //! gzip-compressed, replaced atomically (temporary file, fsync, rename).
 //!
 //! A terminal's snapshot is written only when its content changed: the
@@ -48,8 +48,12 @@ use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
 pub(super) const MAGIC: &[u8] = b"CMUXSNAP1\n";
 pub(super) const SUFFIX: &str = "snap";
-/// The largest uncompressed replay one snapshot holds.
-pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = 4 * 1024 * 1024;
+/// The largest uncompressed replay one snapshot holds: the respawn seed's
+/// own budget ([`crate::surface::SEED_REPLAY_MAX_BYTES`]), so a snapshot that
+/// fills it still seeds the respawned terminal whole. It was 4 MiB (and a
+/// 2,000-line estimate below it), which cut a long terminal's history at
+/// the snapshot well before its live scrollback did.
+pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = crate::surface::SEED_REPLAY_MAX_BYTES;
 /// The smallest replay budget, so a narrow terminal still keeps its lines.
 const MIN_SNAPSHOT_REPLAY_BYTES: usize = 256 * 1024;
 /// A snapshot file larger than this is not read back (corrupt or foreign).
@@ -761,9 +765,10 @@ fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
     Some(hasher.finish())
 }
 
-/// Bytes for the screen plus about [`SNAPSHOT_HISTORY_LINES`] lines (a VT
-/// replay is bounded in bytes; it keeps the newest rows that fit).
-fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
+/// Bytes for the screen plus up to [`SNAPSHOT_HISTORY_LINES`] lines. The VT
+/// replay remains bounded by the configured per-terminal byte cap and keeps
+/// the newest rows that fit.
+pub(super) fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
     let lines = SNAPSHOT_HISTORY_LINES + usize::from(rows);
     let estimate = lines.saturating_mul(usize::from(cols).max(1)).saturating_mul(3);
     let cap = usize::try_from(max_per_terminal)
@@ -781,7 +786,7 @@ pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf 
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
 }
 
-fn write(
+pub(super) fn write(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,
@@ -934,6 +939,18 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     );
 }
 
+/// Removes the saved shell states (`crate::shell_state`) of terminals no
+/// longer in the session: a closed tab's, and any a crash left behind.
+fn remove_unowned_shell_states(mux: &Mux, live: &HashSet<TerminalPublicId>) {
+    let Some(dir) = mux.shell_state_dir() else { return };
+    let removed = dir.remove_unowned(live);
+    if removed > 0 {
+        eprintln!(
+            "cmux-tui: removed {removed} shell-state file(s) of terminals that left the session"
+        );
+    }
+}
+
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
 /// Returns the parked terminals of the session, for the parked trim; `None`
@@ -961,6 +978,15 @@ pub(super) fn remove_unowned(
                  terminal.persistence.mode is memory"
             );
         }
+        // Shell state is not screen output: memory mode keeps a parked tab's.
+        if let Ok(live) = mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live_terminal_public_ids()
+        {
+            remove_unowned_shell_states(mux, &live);
+        }
         return None;
     }
     let live = mux
@@ -969,6 +995,7 @@ pub(super) fn remove_unowned(
         .unwrap_or_else(PoisonError::into_inner)
         .live_terminal_public_ids()
         .ok()?;
+    remove_unowned_shell_states(mux, &live);
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };

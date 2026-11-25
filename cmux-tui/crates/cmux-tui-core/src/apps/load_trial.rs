@@ -23,11 +23,18 @@ const TRIAL_DEADLINE: Duration = Duration::from_secs(5);
 
 /// The `Init` message that loads `main` for `package` under `grant`, the same
 /// for a live host and a trial.
-pub(super) fn init_message(package: &Package, main: String, grant: &Grant) -> ToHost {
+/// `settings` is the values the app starts with: its manifest defaults with the person's
+/// stored values over them (`app_settings::effective`).
+pub(super) fn init_message(
+    package: &Package,
+    main: String,
+    grant: &Grant,
+    settings: serde_json::Value,
+) -> ToHost {
     let table = ScopeTable::get();
     ToHost::Init {
         app: AppInfo { id: package.id.clone(), version: package.version.clone() },
-        settings: package.default_settings(),
+        settings,
         api_version: "1.0.0".into(),
         ops: Some(table.allowed_ops(grant)),
         known_ops: Some(table.known_ops()),
@@ -61,7 +68,7 @@ impl Supervisor {
         )
         .ok()?;
         self.host_spawns.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        process.send(&init_message(package, main, grant));
+        process.send(&init_message(package, main, grant, package.default_settings()));
         // A bounded deadline, not a poll: a script that never answers must not hold the reload thread.
         let error = answers.recv_timeout(TRIAL_DEADLINE).ok().flatten();
         process.kill();
