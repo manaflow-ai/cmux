@@ -12,12 +12,6 @@
   },
   "entries": [
     {
-      "file": "cmux-tui/crates/cmux-cloud-api/src/classic_runs.rs",
-      "pattern": "segments:/api/runs",
-      "count": 3,
-      "reason": "keep: an incognito send's sandboxed Run, which classic Cloud runs with no chat in the app so its prompt and reply never show outside the incognito window (#39022 review F1), and the drain of a Run a person started before the daemon ran Runs (its wait and cancel, for a Run the daemon never made, so an upgrade never drops its result or strands its VM); goes once a daemon Run can start an incognito chat"
-    },
-    {
       "file": "cmux-tui/crates/cmux-cloud-environment/src/client_config.rs",
       "pattern": "base:cmux-staging",
       "count": 1,

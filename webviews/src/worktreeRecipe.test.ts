@@ -87,3 +87,24 @@ test("an edit becomes the saved override: empty scripts stay (they turn the repo
   expect(savedRecipe({ include: [""] })).toBeNull();
   expect(savedRecipe({})).toBeNull();
 });
+
+test("a repository recipe's approval reads with its fingerprint; a reply without one has none", () => {
+  const read = readSetupReply({
+    root: "/w/fix",
+    recipe: {
+      setup: "make setup",
+      teardown: "make clean",
+      include: [".env"],
+      repository: { setup: "make setup" },
+      files: [".cmux/worktree.toml"],
+      approval: { fingerprint: "ab12", approved: false },
+    },
+    run: { state: "awaiting_approval" },
+  });
+  expect(read?.run.state).toBe("awaiting_approval");
+  expect(read?.recipe?.approval).toEqual({ fingerprint: "ab12", approved: false });
+  expect(isFinalSetupState("awaiting_approval")).toBe(true);
+  expect(
+    readSetupReply({ root: "/w", recipe: { include: [] }, run: { state: "none" } })?.recipe?.approval,
+  ).toBeUndefined();
+});

@@ -69,6 +69,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from state_wait import wait_stable  # noqa: E402
 FAKE_AGENT = HERE.parent.parent / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py"
 MARK = re.compile(r"\b(HUB|DIRECT)-(\d+)\b")
 LEASE_S = 15.0
@@ -695,15 +697,23 @@ class Stress:
                 break
             time.sleep(2)
         # Late duplicates: a lease that ends unacked comes back after LEASE_S.
+        # sleep-ok: an observation window a lease must outlive for a late duplicate to show up.
         time.sleep(LEASE_S + 5)
         reaper_stop.set()
         self.reattach_exited()
-        time.sleep(1)
-        tails_alive = {k: t.poll() is None for k, t in self.tails.items()}
-        tail_events = {}
-        for k, t in self.tails.items():
-            files = sorted(self.out.glob(f"attached-{k}-*.ndjson"), key=lambda p: p.stat().st_mtime)
-            tail_events[k] = sum(1 for _ in files[-1].open(errors="replace")) if files else 0
+
+        def tails_now():
+            alive = {k: t.poll() is None for k, t in self.tails.items()}
+            events = {}
+            for k in self.tails:
+                files = sorted(self.out.glob(f"attached-{k}-*.ndjson"), key=lambda p: p.stat().st_mtime)
+                events[k] = sum(1 for _ in files[-1].open(errors="replace")) if files else 0
+            return alive, events
+
+        # The attached clients (some just reattached) until their liveness and event counts hold still.
+        settled = wait_stable(tails_now, "the attached clients' event counts", timeout=10, interval=0.25,
+                              raise_on_timeout=False)
+        tails_alive, tail_events = settled if settled is not None else tails_now()
         meta = {"acpmux": version, "seed": a.seed, "duration_s": a.duration, "sessions": a.sessions,
                 "t0": self.t0, "load_t0": self.load_t0, "lifted": self.lifted, "end": now(),
                 "hub_counts": self.hub.counts, "hub_left_queued": len(self.hub.queue),

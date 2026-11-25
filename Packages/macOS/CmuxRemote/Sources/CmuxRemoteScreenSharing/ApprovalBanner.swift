@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import AppKit
 import CmuxDeviceHub
+import CmuxTheme
 import Darwin
 import Foundation
 
@@ -97,6 +98,9 @@ final class ApprovalBanner {
         panel.onAllow = { [weak self, id = request.id] in self?.answer($0, for: id) }
         self.panel = panel
         let hadKeys = panel.isKeyWindow
+        // The app's theme, as the app's own prompt wears it (PromptTheme); the system's look when the app left none.
+        ApprovalLook.theme = PromptTheme.load(from: PromptTheme.defaultURL)
+        panel.appearance = ApprovalLook.theme?.appearance
         let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self, id = request.id] in self?.answer($0, for: id) }
         panel.contentView = content
         content.layoutSubtreeIfNeeded()
@@ -243,6 +247,7 @@ enum ApprovalLook {
     static let buttonHeight: CGFloat = 26
     static let buttonCorner: CGFloat = 8
     static var cardCorner: CGFloat { buttonCorner + padding }
+    /// The app icon at the card's left, without the app's theme (``theme`` is nil).
     static let iconSize: CGFloat = 40
     static let iconGap: CGFloat = 12
     static let keycapInset: CGFloat = 3
@@ -253,10 +258,53 @@ enum ApprovalLook {
     static let captionFont = NSFont.systemFont(ofSize: 11)
     static let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let keycapFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    /// The icon beside the title, as the app's floating prompts name who asks (`CmuxDialogMetrics.headerIconSize`).
+    static let headerIconSize: CGFloat = 20
+    static let headerIconGap: CGFloat = 8
+
+    /// The app's theme for the prompt now on screen (``PromptTheme``); nil: the system's colors and the banner's
+    /// layout as it was. The app leaves one only while Settings > Experiments > Themed Floating Prompts is on (off by
+    /// default, Leo's UI merge hold, 2026-11-24).
+    static var theme: PromptTheme?
+
+    /// The banner's inks: the theme's, fit to read on its prompt glass over any app, else the system's.
+    enum Ink { case text, secondary, tertiary, danger, card }
+
+    static func ink(_ ink: Ink) -> NSColor {
+        guard let theme else {
+            return switch ink {
+            case .text: .labelColor
+            case .secondary: .secondaryLabelColor
+            case .tertiary: .tertiaryLabelColor
+            case .danger: .systemRed
+            case .card: .textBackgroundColor
+            }
+        }
+        let hex: String = switch ink {
+        case .text: theme.text
+        case .secondary: theme.secondaryText
+        case .tertiary: theme.tertiaryText
+        case .danger: theme.danger
+        case .card: theme.card
+        }
+        return PromptTheme.color(hex)
+    }
+
+    /// The theme's veil over the glass (the app's `SurfaceRole.prompt`: the glass tint at a density that reads over
+    /// any app); none without a theme.
+    static func veil(_ content: NSView) {
+        guard let theme else { return }
+        content.wantsLayer = true
+        content.layer?.backgroundColor = PromptTheme.color(theme.veil).cgColor
+        content.layer?.cornerRadius = cardCorner
+        content.layer?.cornerCurve = .continuous
+        content.layer?.masksToBounds = true
+    }
 
     /// The card's material: Liquid Glass on macOS 26 and later, the popover blur before; both turn opaque under
     /// Reduce Transparency on their own.
     static func card(content: NSView) -> NSView {
+        veil(content)
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
             glass.cornerRadius = cardCorner
@@ -315,7 +363,10 @@ final class ApprovalView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
         wantsLayer = true
         let look = ApprovalLook.self
-        let textWidth = Self.width - look.padding * 2 - look.iconSize - look.iconGap
+        // Themed: the text takes the card's width and the icon sits small beside the title (who asks), as the app's
+        // prompt. Without the app's theme: the large icon at the left, as before.
+        let themed = look.theme != nil
+        let textWidth = Self.width - look.padding * 2 - (themed ? 0 : look.iconSize + look.iconGap)
         let content = NSView()
         let card = look.card(content: content)
         card.setAccessibilityElement(true)
@@ -327,7 +378,7 @@ final class ApprovalView: NSView {
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.setAccessibilityElement(false)
         icon.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(icon)
+        if !themed { content.addSubview(icon) }
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = look.spacing
@@ -337,36 +388,51 @@ final class ApprovalView: NSView {
             card.leadingAnchor.constraint(equalTo: leadingAnchor), card.trailingAnchor.constraint(equalTo: trailingAnchor),
             card.topAnchor.constraint(equalTo: topAnchor), card.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalToConstant: Self.width),
-            icon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
-            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
-            icon.widthAnchor.constraint(equalToConstant: look.iconSize), icon.heightAnchor.constraint(equalToConstant: look.iconSize),
-            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: look.iconGap),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
             stack.widthAnchor.constraint(equalToConstant: textWidth),
             content.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: look.padding),
         ])
+        NSLayoutConstraint.activate(themed ? [
+            icon.widthAnchor.constraint(equalToConstant: look.headerIconSize), icon.heightAnchor.constraint(equalToConstant: look.headerIconSize),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
+        ] : [
+            icon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
+            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
+            icon.widthAnchor.constraint(equalToConstant: look.iconSize), icon.heightAnchor.constraint(equalToConstant: look.iconSize),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: look.iconGap),
+        ])
         let title = Self.label(String(format: request.scope == .full
                 ? RemoteText.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
                 : RemoteText.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName),
-            font: look.titleFont, width: textWidth)
-        stack.addArrangedSubview(title)
-        stack.setCustomSpacing(look.subtitleGap, after: title)
+            font: look.titleFont, width: themed ? textWidth - look.headerIconSize - look.headerIconGap : textWidth)
+        if themed {
+            let header = NSStackView(views: [icon, title])
+            header.orientation = .horizontal
+            header.alignment = .centerY
+            header.spacing = look.headerIconGap
+            stack.addArrangedSubview(header)
+        } else {
+            stack.addArrangedSubview(title)
+            stack.setCustomSpacing(look.subtitleGap, after: title)
+        }
         let full = request.scope == .full
         stack.addArrangedSubview(Self.label(full
                 ? RemoteText.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
                 : RemoteText.t("macScreen.approval.bodyView", "It can see your screen but can’t control it."),
-            font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
+            font: look.bodyFont, color: look.ink(.secondary), width: textWidth))
+        // What Allow keeps: themed, a quieter note under the question.
+        let note = look.ink(themed ? .tertiary : .secondary)
         stack.addArrangedSubview(Self.label(String(format: full
                 ? RemoteText.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
                 : RemoteText.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."),
-            request.viewerName), font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
+            request.viewerName), font: themed ? look.captionFont : look.bodyFont, color: note, width: textWidth))
         if let fingerprint = request.viewerKeyFingerprint {
             stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.deviceKey", "Device key"), font: look.captionFont,
-                                                color: .secondaryLabelColor, width: textWidth))
+                                                color: note, width: textWidth))
             stack.addArrangedSubview(CodeWell(Self.fingerprintLines(fingerprint), width: textWidth))
         }
         if let error {
-            let line = Self.label(error, font: look.captionFont, color: .systemRed, width: textWidth)
+            let line = Self.label(error, font: look.captionFont, color: look.ink(.danger), width: textWidth)
             line.setAccessibilityIdentifier("macScreen.approval.error")
             stack.addArrangedSubview(line)
         }
@@ -422,10 +488,10 @@ final class ApprovalView: NSView {
             .map { $0.joined(separator: " ") }.joined(separator: "\n")
     }
 
-    static func label(_ text: String, font: NSFont, color: NSColor = .labelColor, width: CGFloat) -> NSTextField {
+    static func label(_ text: String, font: NSFont, color: NSColor? = nil, width: CGFloat) -> NSTextField {
         let field = NSTextField(wrappingLabelWithString: text)
         field.font = font
-        field.textColor = color
+        field.textColor = color ?? ApprovalLook.ink(.text)
         field.preferredMaxLayoutWidth = width
         field.isSelectable = false
         return field
@@ -468,9 +534,9 @@ final class CodeWell: NSView {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.cornerRadius = ApprovalLook.buttonCorner
             layer?.cornerCurve = .continuous
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+            layer?.backgroundColor = ApprovalLook.ink(.text).withAlphaComponent(0.06).cgColor
             layer?.borderWidth = contrast ? 1 : 1 / max(window?.backingScaleFactor ?? 2, 1)
-            layer?.borderColor = NSColor.labelColor.withAlphaComponent(contrast ? 0.5 : 0.12).cgColor
+            layer?.borderColor = ApprovalLook.ink(.text).withAlphaComponent(contrast ? 0.5 : 0.12).cgColor
         }
     }
 }
@@ -532,9 +598,9 @@ final class ApprovalButton: NSButton {
 
     private var ink: NSColor {
         switch role {
-        case .primary: .textBackgroundColor
-        case .secondary: .labelColor
-        case .quietDestructive: .systemRed
+        case .primary: ApprovalLook.ink(.card)
+        case .secondary: ApprovalLook.ink(.text)
+        case .quietDestructive: ApprovalLook.ink(.danger)
         }
     }
 
@@ -542,9 +608,9 @@ final class ApprovalButton: NSButton {
         let step: CGFloat = isHighlighted ? 2 : hovering ? 1 : 0
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let fill: NSColor = switch role {
-            case .primary: NSColor.labelColor.blended(withFraction: step * 0.08, of: .textBackgroundColor) ?? .labelColor
-            case .secondary: NSColor.labelColor.withAlphaComponent(0.08 + step * 0.04)
-            case .quietDestructive: NSColor.systemRed.withAlphaComponent(step * 0.08)
+            case .primary: ApprovalLook.ink(.text).blended(withFraction: step * 0.08, of: ApprovalLook.ink(.card)) ?? ApprovalLook.ink(.text)
+            case .secondary: ApprovalLook.ink(.text).withAlphaComponent(0.08 + step * 0.04)
+            case .quietDestructive: ApprovalLook.ink(.danger).withAlphaComponent(step * 0.08)
             }
             layer?.backgroundColor = fill.cgColor
             layer?.cornerRadius = ApprovalLook.buttonCorner

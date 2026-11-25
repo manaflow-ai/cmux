@@ -2,7 +2,9 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, targets, wait};
+use cmux_cloud_start_core::moves::{
+    autosize, cli, folder, ledger, pin, place, priority, progress, seed, settle, targets, wait,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -44,6 +46,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             cli::read(request.reading, &request.output)
+        }
+        // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_progress" => {
+            let facts: progress::Facts = read(request)?;
+            to_value(progress::line(&facts))?
         }
         b"cloud_move_restarted_daemon" => {
             let answer: cli::Answer = read(request)?;
@@ -326,6 +333,17 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         }
         // The waits' rules.
         b"cloud_move_deadlines" => to_value(wait::DEADLINES)?,
+        b"cloud_move_settle" => {
+            // One machine's transient states for every caller that needs it running (ask-259986a6c4).
+            let mut look: settle::SettleLook = read(request)?;
+            look.killed |= settle::killed(std::env::var(settle::KILL_SWITCH).ok().as_deref());
+            let act = settle::settle(look);
+            let mut answer = to_value(act)?;
+            if let Value::Object(fields) = &mut answer {
+                fields.insert("waking".to_owned(), Value::Bool(act.waking()));
+            }
+            answer
+        }
         b"cloud_move_link_look" => {
             let look: wait::LinkLook = read(request)?;
             let (done, cleared) = wait::link_look(look);
@@ -334,6 +352,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_start_redial" => {
             let look: wait::RedialLook = read(request)?;
             json!({ "redial": to_value(wait::start_redial(look))? })
+        }
+        b"cloud_move_rereads_record" => {
+            let look: wait::RecordLook = read(request)?;
+            json!({ "rereads": wait::rereads_record(look) })
         }
         b"cloud_move_relinked" => {
             #[derive(Deserialize)]
@@ -410,6 +432,31 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             to_value(targets::ssh_move_result(&request.stdout, &request.stderr, request.status))?
         }
+        // What the move means for the tab: the session it opens, the one question, or the failure.
+        b"cloud_move_ssh_move_run" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                stdout: String,
+                #[serde(default)]
+                stderr: String,
+                status: i32,
+                #[serde(default)]
+                moved: String,
+                destination: String,
+                #[serde(default)]
+                dry_run: bool,
+            }
+            let request: Request = read(request)?;
+            let result = targets::ssh_move_result(&request.stdout, &request.stderr, request.status);
+            to_value(targets::ssh_move_run(
+                &request.moved,
+                &request.destination,
+                request.dry_run,
+                &result,
+            ))?
+        }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -464,6 +511,88 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_plan_request" => {
             let facts: wait::PlanFacts = read(request)?;
             json!({ "request": wait::plan_request(&facts) })
+        }
+        // Where a chat runs and moving it (`moves/place.rs`): the move's state machine and its
+        // view, the Auto rule, Evacuate's plan and the own-VM pick.
+        b"cloud_move_place_reduce" => {
+            #[derive(Deserialize)]
+            struct Request {
+                flow: Option<place::Flow>,
+                event: place::Event,
+            }
+            let request: Request = read(request)?;
+            let (flow, next) = place::reduce(request.flow, request.event);
+            json!({ "flow": flow, "next": next })
+        }
+        b"cloud_move_place_view" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                flow: place::Flow,
+                now_ms: u64,
+            }
+            let request: Request = read(request)?;
+            to_value(place::view(&request.flow, request.now_ms))?
+        }
+        b"cloud_move_place_auto" => {
+            #[derive(Deserialize)]
+            struct Request {
+                mode: place::Mode,
+                chat: place::ChatState,
+                signals: place::Signals,
+            }
+            let request: Request = read(request)?;
+            to_value(place::auto(request.mode, &request.chat, &request.signals))?
+        }
+        b"cloud_move_place_evacuate" => {
+            #[derive(Deserialize)]
+            struct Request {
+                chats: Vec<place::EvacuateChat>,
+                #[serde(default)]
+                selected: Option<Vec<String>>,
+                /// `toCloud` (Evacuate, the default) or `toLocal` (Bring Back All).
+                #[serde(default)]
+                direction: Option<place::Direction>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::evacuate_toward(
+                &request.chats,
+                request.selected.as_deref(),
+                request.direction.unwrap_or(place::Direction::ToCloud),
+            ))?
+        }
+        // One chat's cloud control: blocked (signed out, no plan) or every slot held
+        // (`moves/priority.rs` `control`, from `Admit`). The app sends facts; the state is Rust's.
+        b"cloud_move_place_control" => {
+            let facts: priority::ControlFacts = read(request)?;
+            to_value(priority::control(&facts))?
+        }
+        b"cloud_move_place_vm_failure" => {
+            let error: place::VmError = read(request)?;
+            to_value(serde_json::json!({ "cause": place::vm_failure_cause(&error) }))?
+        }
+        b"cloud_move_place_own_machine" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                #[serde(default)]
+                before: Option<String>,
+                #[serde(default)]
+                machines: Vec<place::Machine>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::own_machine(
+                &request.session,
+                request.before.as_deref(),
+                &request.machines,
+            ))?
+        }
+        b"cloud_move_place_steps" => {
+            let steps: Vec<_> = place::Step::ALL
+                .iter()
+                .map(|step| json!({ "step": step.name(), "cancellable": step.cancellable(), "landed": step.landed(), "agentMovePhases": step.agent_move_phases() }))
+                .collect();
+            json!({ "steps": steps, "budgetMs": place::BUDGET_MS })
         }
         _ => return Err(ERR_INVALID),
     };
