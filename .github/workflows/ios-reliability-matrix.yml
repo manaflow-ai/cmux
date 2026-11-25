@@ -247,7 +247,9 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: ios-reliability-matrix
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the
+          # first save was restored forever and its stale third-party crates rebuilt on every run (2026-11-24).
+          key: ios-reliability-matrix-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
 
       - name: cargo test (cmux-next-ios/rust workspace, matrix cells included)
         working-directory: cmux-next-ios/rust
@@ -306,29 +308,34 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
-      # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
-      # about 3 minutes of a Mac (run 43652999096). A pull request only
-      # reads the cache; other events save what they built.
+      # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes. The key is the one
+      # cmux-next-ios-kit.yml uses (scripts/ci/ios_link_ffi_key.py: the packages the FFI library compiles, the lock,
+      # the toolchain, the build script and the checked-in bindings, plus the selected Xcode), so the entry a
+      # feat-cmux-next kit run saves is this job's hit too. The older key (.github/scripts/ios_link_ffi_key.py) hashed
+      # the whole cmux-next-ios/rust tree, cmux-mobile-host and every tests/ included, so most Rust merges moved it and
+      # the build (150-275 s of a Mac) ran on 13 of 19 runs (2026-11-24). A pull request only reads the cache; other
+      # events save what they built when its bindings match the checked-in ones (the kit's drift check). A key that
+      # cannot be read (no Python 3.11 tomllib, a ref from before the script) builds, as before.
       - name: The framework's inputs
         id: ffi-key
+        continue-on-error: true
         run: |
           set -euo pipefail
-          # A ref from before the key script, or a key that fails, builds as before.
-          if [ -f .github/scripts/ios_link_ffi_key.py ]; then
-            python3 -I .github/scripts/ios_link_ffi_key.py --repo . --explain \
-              --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" --extra "runner=$RUNNER_OS-$RUNNER_ARCH" >> "$GITHUB_OUTPUT" \
-              || echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
+          if [ -f scripts/ci/ios_link_ffi_key.py ]; then
+            inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+            xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+            echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no cache key for CmuxMobileLinkFFI.xcframework; building it"
           fi
       - name: Restore the framework built from the same inputs
         id: ffi
         if: steps.ffi-key.outputs.key != ''
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
-          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.ffi-key.outputs.key }}
       - name: Set up pinned Rust
         if: steps.ffi.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -342,23 +349,30 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: ios-reliability-matrix-apple
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the
+          # first save was restored forever and its stale third-party crates rebuilt on every run (2026-11-24).
+          key: ios-reliability-matrix-apple-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Build CmuxMobileLinkFFI.xcframework
         if: steps.ffi.outputs.cache-hit != 'true'
         env:
           JOBS: "4"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
-      - name: Save the framework for later runs
+      - name: Do the built bindings match the checked-in ones
+        id: ffi-drift
         if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        run: |
+          # The build rewrites the bindings and restores Cargo.lock: a tracked change is drift, and the kit's
+          # entries promise none, so a drifted build is used here but not saved.
+          if git diff --quiet -- cmux-next-ios/; then echo "clean=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the framework for later runs
+        if: steps.ffi-drift.outputs.clean == 'true'
         # Another job saving the same key first is not a failure.
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
-          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.ffi-key.outputs.key }}
 
       - name: xcodebuild test (matrix cells)
         working-directory: cmux-next-ios/CmuxMobileKit
