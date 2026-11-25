@@ -1,7 +1,7 @@
 //! The cases of Swift `ThemeFileTests` (CmuxNextSettingsTests), so both
 //! readers agree, and the render round trip.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -444,6 +444,7 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         "meadow",
         "lily-pond",
         "minimal-sessions",
+        "miku",
     ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
@@ -629,6 +630,83 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+/// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
+/// subtle edge, 30 pt rows, an 8 pt hover corner, muted shortcuts and section labels, thin
+/// separators, flush submenus, a muted second line, the usage popover's strong header and thicker
+/// track): every `appearance.menu.*` and `appearance.popover.*` key is a look a theme file sets.
+/// The look packs copy this fragment.
+const CLAUDE_MENU_FRAGMENT: &str = r##"{
+  "appearance.menu.cornerRadius": 12,
+  "appearance.menu.borderOpacity": 0.1,
+  "appearance.menu.shadow": "standard",
+  "appearance.menu.fill": "#2b2b2b",
+  "appearance.menu.padding": 8,
+  "appearance.menu.highlightRadius": 8,
+  "appearance.menu.rowHeight": 30,
+  "appearance.menu.shortcuts": "muted",
+  "appearance.menu.sectionLabel": "muted",
+  "appearance.menu.separator": "subtle",
+  "appearance.menu.destructiveInk": "standard",
+  "appearance.menu.submenu": "flush",
+  "appearance.menu.subtitle": "muted",
+  "appearance.popover.padding": 12,
+  "appearance.popover.header": "strong",
+  "appearance.popover.progressHeight": 6,
+  "appearance.popover.progressFill": "standard"
+}"##;
+
+#[test]
+fn a_theme_file_sets_the_menu_and_popover_look() {
+    let file = overlay(CLAUDE_MENU_FRAGMENT);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys().len(), 17, "{:?}", file.keys());
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.menu.cornerRadius"), Some(&json!(12)));
+    assert_eq!(at(&root, "appearance.menu.fill"), Some(&json!("#2b2b2b")));
+    assert_eq!(at(&root, "appearance.menu.submenu"), Some(&json!("flush")));
+    assert_eq!(at(&root, "appearance.popover.progressHeight"), Some(&json!(6)));
+    // Nested, as cmux-next.json writes it, reads the same.
+    let nested = overlay(r#"{ "appearance": { "menu": { "rowHeight": 28, "shadow": "none" } } }"#);
+    assert!(nested.diagnostics.is_empty(), "{:?}", nested.diagnostics);
+    assert_eq!(nested.keys(), vec!["appearance.menu.rowHeight", "appearance.menu.shadow"]);
+}
+
+/// The schema rows refuse what the app cannot draw, as `cmux settings set` does: a choice the menu
+/// does not know, a size past its range, a fill that is no color.
+#[test]
+fn a_theme_file_menu_look_refuses_bad_values() {
+    let file = overlay(
+        r#"{ "appearance.menu.shadow": "huge", "appearance.menu.rowHeight": 90, "appearance.menu.fill": 3, "appearance.menu.cornerRadius": 10 }"#,
+    );
+    assert_eq!(file.keys(), vec!["appearance.menu.cornerRadius"]);
+    let shadow = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.menu.shadow")
+        .expect("shadow refused");
+    assert!(shadow.message.starts_with("expected one of"), "{}", shadow.message);
+    let height = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.menu.rowHeight")
+        .expect("row height refused");
+    assert!(height.message.starts_with("expected a number from 18 to 40"), "{}", height.message);
+    assert!(file.diagnostics.iter().any(|d| d.path == "appearance.menu.fill"));
+}
+
+/// Unset menu keys are today's look: a theme file without them adds none, so the app and the pages
+/// draw exactly what they drew.
+#[test]
+fn a_theme_file_without_menu_keys_sets_none() {
+    let file = overlay(r#"{ "appearance.accent": "blue" }"#);
+    assert!(
+        file.keys()
+            .iter()
+            .all(|key| !key.starts_with("appearance.menu.")
+                && !key.starts_with("appearance.popover."))
+    );
+}
+
 /// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
 /// and its tokens apply, and a tokens object with an unknown token is refused with its key.
 #[test]
@@ -750,6 +828,69 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_theme_file_picks_slot_variants_and_drops_unknown_ones() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "slots": {
+    "chat.thinkingIndicator": "counting-dots",
+    "chat.jumpToBottom": "no-such-variant",
+    "chat.nope": "default",
+    "chat.jumpToBottom ": 3
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    assert_eq!(
+        file.slots,
+        BTreeMap::from([("chat.thinkingIndicator".to_string(), "counting-dots".to_string())])
+    );
+    // `slots` is no setting: the look still applies and `slots` is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        refused,
+        vec!["slots.chat.jumpToBottom", "slots.chat.jumpToBottom ", "slots.chat.nope"]
+    );
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    let variant = &file.diagnostics[0];
+    assert_eq!(variant.line, Some(5), "{variant:?}");
+    assert!(variant.message.contains("nudge"), "{}", variant.message);
+    assert!(
+        file.diagnostics[2].message.contains("no such slot"),
+        "{}",
+        file.diagnostics[2].message
+    );
+}
+
+#[test]
+fn a_theme_file_slots_value_that_is_no_object_is_refused() {
+    for text in [r#"{ "slots": "pulse" }"#, r#"{ "slots": ["pulse"] }"#, r#"{ "slots": null }"#] {
+        let file = overlay(text);
+        assert!(file.slots.is_empty(), "{text}");
+        assert_eq!(file.diagnostics.len(), 1, "{text}: {:?}", file.diagnostics);
+        assert_eq!(file.diagnostics[0].path, "slots");
+        assert_eq!(file.diagnostics[0].kind, ThemeDiagnosticKind::InvalidValue);
+    }
+    let file = overlay(r#"{ "slots": {} }"#);
+    assert!(file.slots.is_empty() && file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert!(overlay(r#"{ "appearance.accent": "blue" }"#).slots.is_empty());
+}
+
+#[test]
+fn every_shipped_slot_has_its_variants_and_the_theme_schema_names_them() {
+    let known = slots::known();
+    assert!(
+        known.iter().any(|(id, variants)| id == "chat.thinkingIndicator"
+            && variants.iter().any(|v| v == "default"))
+    );
+    assert!(known.iter().all(|(_, variants)| !variants.is_empty()));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["slots"]["properties"]["chat.jumpToBottom"]["enum"];
+    assert!(property.as_array().is_some_and(|v| v.contains(&json!("nudge"))), "{property}");
 }
 
 /// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
