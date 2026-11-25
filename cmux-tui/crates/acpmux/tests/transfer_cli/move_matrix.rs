@@ -476,6 +476,10 @@ async fn codex_store_moves(way: Way) {
     let target = Daemon::with_env(&format!("{tag}-t"), None, env("t"), &[], "ask").await;
     let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), env("s"), &[], "ask").await;
     let mut cells = Cells { harness: "codex-store", red: Vec::new() };
+    // What a Codex chat carries and whether a remote receive starts its agent: the store table
+    // the mover and the guarded receive read (`session_artifacts::STORES`).
+    let row = acpmux::session_artifacts::store("codex").expect("codex row");
+    let rollouts = row.family(acpmux::session_artifacts::CODEX_ROLLOUT).expect("rollout").root;
     let cwd = source.home.join("project");
     std::fs::create_dir(&cwd).unwrap();
     let mut src = Rpc::connect(&source.socket).await;
@@ -485,7 +489,7 @@ async fn codex_store_moves(way: Way) {
     for (prompt_id, text) in [("p-one", "one"), ("p-two", "two")] {
         src.call("session/prompt", prompt(id, prompt_id, text)).await;
     }
-    let on_source = files_under(&home_of(&format!("{tag}-s")).join(".codex/sessions"));
+    let on_source = files_under(&home_of(&format!("{tag}-s")).join(rollouts));
     assert_eq!(on_source.len(), 1, "the agent keeps one rollout: {on_source:?}");
     // The turn's last records are written a moment after it answers.
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -507,7 +511,7 @@ async fn codex_store_moves(way: Way) {
         }
     }
 
-    let on_target = files_under(&home_of(&format!("{tag}-t")).join(".codex/sessions"));
+    let on_target = files_under(&home_of(&format!("{tag}-t")).join(rollouts));
     cells.check(
         "native-store",
         on_target.len() == 1 && std::fs::read(&on_target[0]).ok().as_deref() == Some(&rollout[..]),
@@ -517,7 +521,7 @@ async fn codex_store_moves(way: Way) {
     // a remote launch, which takes a Codex chat only through the `codex app-server` bridge
     // (`web_modes::remote_start`). The fake agent speaks ACP, so it is refused there
     // (`remote.mode_not_asking`); the CLI row checks the resume from the moved store.
-    if matches!(way, Way::Gui) {
+    if matches!(way, Way::Gui) && row.refused_on_web() {
         assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
         return;
     }
@@ -587,7 +591,11 @@ async fn claude_subagent_folds_move(way: Way) {
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
             .collect();
-        PathBuf::from(".claude/projects").join(dir)
+        let row = acpmux::session_artifacts::store("claude").expect("claude row");
+        PathBuf::from(
+            row.family(acpmux::session_artifacts::CLAUDE_PROJECT).expect("transcript").root,
+        )
+        .join(dir)
     };
     let line = |value: Value| format!("{value}\n");
     let transcript = [

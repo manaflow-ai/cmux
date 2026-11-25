@@ -1,6 +1,7 @@
 //! Locate and copy the adapter's own session files so a bundle can resume
 //! at the "exact" level on another machine.
 
+use crate::session_artifacts::{self as artifacts, CLAUDE_PROJECT, CODEX_ROLLOUT, PI_SESSION};
 use crate::store::SessionMeta;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -13,7 +14,8 @@ pub fn locate(meta: &SessionMeta) -> Vec<(String, PathBuf)> {
     }
 }
 
-/// [`locate`] under the home folder `home`.
+/// [`locate`] under the home folder `home`. Each label is one the chat's store declares
+/// ([`artifacts::STORES`]), under the folder that row names.
 pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
     let Some(sid) = meta.agent_session_id.as_deref() else {
         return vec![];
@@ -22,25 +24,25 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
     match store_kind(meta) {
         "codex" => {
             // ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
-            let root = home.join(".codex").join("sessions");
+            let root = home.join(declared_root(CODEX_ROLLOUT));
             for p in walk(&root, 4) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name.ends_with(".jsonl") && name.contains(sid) {
-                    out.push(("codex-rollout".to_owned(), p));
+                    out.push((CODEX_ROLLOUT.to_owned(), p));
                 }
             }
         }
         "claude" => {
             // ~/.claude/projects/<cwd-with-dashes>/<session-id>.jsonl
-            let root = home.join(".claude").join("projects");
+            let root = home.join(declared_root(CLAUDE_PROJECT));
             // The file under the chat's own folder's name is the one its agent reads and
             // writes: when it is there it is the chat's, and no other folder's copy of the
             // id (one the chat left behind in a folder it ran in before) goes with it. It
             // also spares a snapshot the walk of every project.
             let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
             if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
-                return vec![("claude-project".to_owned(), own)];
+                return vec![(CLAUDE_PROJECT.to_owned(), own)];
             }
             for p in walk(&root, 2) {
                 let name =
@@ -49,7 +51,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
                     // Its `Task` children's transcripts: `<session-id>/subagents/*.jsonl`
                     // beside it, which Claude reads back for the subagents it ran.
                     let children = p.with_extension("").join(CLAUDE_SUBAGENTS);
-                    out.push(("claude-project".to_owned(), p));
+                    out.push((CLAUDE_PROJECT.to_owned(), p));
                     for child in walk(&children, 0) {
                         if child.extension().is_some_and(|e| e == "jsonl") {
                             out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
@@ -60,12 +62,12 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         }
         "pi" => {
             // ~/.pi/agent/sessions/--<cwd-with-dashes>--/<ts>_<session-id>.jsonl
-            let root = home.join(PI_SESSIONS);
+            let root = home.join(declared_root(PI_SESSION));
             for p in walk(&root, 1) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name.ends_with(&format!("_{sid}.jsonl")) {
-                    out.push((PI_LABEL.to_owned(), p));
+                    out.push((PI_SESSION.to_owned(), p));
                 }
             }
         }
@@ -77,7 +79,12 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
 /// The folder beside a Claude transcript (`<session-id>/subagents`) that holds its subagents'.
 const CLAUDE_SUBAGENTS: &str = "subagents";
 /// The bundle label of a Claude subagent's transcript (`<session-id>/subagents/*.jsonl`).
-pub const CLAUDE_SUBAGENT_LABEL: &str = "claude-subagent";
+pub const CLAUDE_SUBAGENT_LABEL: &str = artifacts::CLAUDE_SUBAGENT;
+
+/// The folder under the home folder the store table declares for native family `label`.
+fn declared_root(label: &str) -> &'static str {
+    artifacts::native_family(label).map(|f| f.root).unwrap_or_default()
+}
 
 /// Where a bundled Claude subagent transcript goes: `rel` must be
 /// `.claude/projects/<dir>/<sid>/subagents/<name>.jsonl`, and it lands under the target cwd's
@@ -92,7 +99,7 @@ fn claude_subagent_target(meta: &SessionMeta, sid: &str, rel: &Path) -> Option<P
                 && name.ends_with(".jsonl") =>
         {
             Some(
-                PathBuf::from(".claude/projects")
+                PathBuf::from(declared_root(CLAUDE_PROJECT))
                     .join(claude_project_dir(&meta.cwd))
                     .join(sid)
                     .join(CLAUDE_SUBAGENTS)
@@ -103,27 +110,22 @@ fn claude_subagent_target(meta: &SessionMeta, sid: &str, rel: &Path) -> Option<P
     }
 }
 
-/// pi's session folder under the home folder.
-const PI_SESSIONS: &str = ".pi/agent/sessions";
-/// The bundle label of a pi session file.
-const PI_LABEL: &str = "pi-session";
 /// The bundle label of OpenCode's export of a session (`opencode export ID`): OpenCode keeps
 /// its sessions in a SQLite database, so the session travels as its export and is imported on
 /// the target ([`import_opencode`]), never copied as a file of the home folder.
-pub const OPENCODE_EXPORT: &str = "opencode-export";
+pub const OPENCODE_EXPORT: &str = artifacts::OPENCODE_EXPORT;
 
 /// The agent store the chat's agent keeps: its family when it is one this file knows, since a
 /// profile such as `codex-acp`, `claude-sr` or `opencode-v2` runs the same agent with the same
 /// store; else its profile. `cmux-harness` keeps its own state (`hub/transfer.rs`).
-fn store_kind(meta: &SessionMeta) -> &str {
-    const KNOWN: [&str; 4] = ["claude", "codex", "pi", "opencode"];
+pub fn store_kind(meta: &SessionMeta) -> &str {
     if meta.harness == "cmux-harness" {
         return "cmux-harness";
     }
     [meta.family.as_deref(), Some(meta.harness.as_str())]
         .into_iter()
         .flatten()
-        .find(|k| KNOWN.contains(k))
+        .find(|k| *k != "cmux-harness" && artifacts::store(k).is_some())
         .unwrap_or(meta.harness.as_str())
 }
 
@@ -270,27 +272,32 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
     }
     let name = rel.file_name()?.to_string_lossy().into_owned();
     match (store_kind(meta), label) {
-        ("claude", "claude-project")
-            if rel.starts_with(".claude/projects") && name == format!("{sid}.jsonl") =>
+        ("claude", CLAUDE_PROJECT)
+            if rel.starts_with(declared_root(CLAUDE_PROJECT)) && name == format!("{sid}.jsonl") =>
         {
             // Claude finds the session through the cwd's project directory;
             // the destination cwd may differ from the exporting machine's.
-            Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
+            Some(
+                PathBuf::from(declared_root(CLAUDE_PROJECT))
+                    .join(claude_project_dir(&meta.cwd))
+                    .join(name),
+            )
         }
         ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
-        ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
+        ("codex", CODEX_ROLLOUT)
+            if rel.starts_with(declared_root(CODEX_ROLLOUT))
                 && name.ends_with(".jsonl")
                 && name.contains(sid) =>
         {
             Some(rel.to_path_buf())
         }
-        ("pi", PI_LABEL)
-            if rel.starts_with(PI_SESSIONS) && name.ends_with(&format!("_{sid}.jsonl")) =>
+        ("pi", PI_SESSION)
+            if rel.starts_with(declared_root(PI_SESSION))
+                && name.ends_with(&format!("_{sid}.jsonl")) =>
         {
             // pi finds a session by the id in its file's first line, in any folder; the
             // target's own cwd folder keeps `pi --continue` there working too.
-            Some(Path::new(PI_SESSIONS).join(pi_session_dir(&meta.cwd)).join(name))
+            Some(Path::new(declared_root(PI_SESSION)).join(pi_session_dir(&meta.cwd)).join(name))
         }
         _ => None,
     }
@@ -535,27 +542,31 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
     }
     let name = rel.file_name()?.to_str()?;
     match (store_kind(meta), label) {
-        ("claude", "claude-project")
-            if rel.starts_with(".claude/projects")
+        ("claude", CLAUDE_PROJECT)
+            if rel.starts_with(declared_root(CLAUDE_PROJECT))
                 && rel.components().count() == 4
                 && name == format!("{sid}.jsonl") =>
         {
-            Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
+            Some(
+                PathBuf::from(declared_root(CLAUDE_PROJECT))
+                    .join(claude_project_dir(&meta.cwd))
+                    .join(name),
+            )
         }
         ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
-        ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
+        ("codex", CODEX_ROLLOUT)
+            if rel.starts_with(declared_root(CODEX_ROLLOUT))
                 && name.starts_with("rollout-")
                 && name.ends_with(&format!("-{sid}.jsonl")) =>
         {
             Some(rel.to_path_buf())
         }
-        ("pi", PI_LABEL)
-            if rel.starts_with(PI_SESSIONS)
+        ("pi", PI_SESSION)
+            if rel.starts_with(declared_root(PI_SESSION))
                 && rel.components().count() == 5
                 && name.ends_with(&format!("_{sid}.jsonl")) =>
         {
-            Some(Path::new(PI_SESSIONS).join(pi_session_dir(&meta.cwd)).join(name))
+            Some(Path::new(declared_root(PI_SESSION)).join(pi_session_dir(&meta.cwd)).join(name))
         }
         _ => None,
     }
