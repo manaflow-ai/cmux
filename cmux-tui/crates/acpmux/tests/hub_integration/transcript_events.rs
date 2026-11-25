@@ -517,9 +517,7 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
     assert_eq!(r.msg["errorSource"], "codex");
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
-    // The log keeps `failed`; the row reads `capacity` while acpmux holds the turn for its
-    // continuation (#54477, `row_last_turn`).
-    assert_eq!(summary["lastTurn"]["status"], "capacity");
+    assert_eq!(summary["lastTurn"]["status"], "failed");
     assert_eq!(summary["lastTurn"]["turnId"], r.msg["turnId"]);
 
     // A clean turn has no error fields.
