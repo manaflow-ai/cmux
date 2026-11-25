@@ -34,6 +34,10 @@ type Attempt = {
   gone?: Promise<void>;
   /// The one `cloud.releaseReservation` for this key, once sent.
   releasing?: Promise<void>;
+  /// Leased at the composer's open (`opened`), with no intent yet: its reserves say `atOpen`, which the native
+  /// pane takes without a gesture once per shown New Tab page (Swift AgentPaneModel `takeCloudOpenLease`).
+  /// The first intent (`selected`) makes it an ordinary compose.
+  atOpen?: boolean;
 };
 
 /// While the person still means to send (Cloud picked, typing), the same compose key is reserved
@@ -42,8 +46,8 @@ type Attempt = {
 /// (Leo, 2026-11-09: "pre-setting up stuff as a user selected cloud and was starting to type ... at
 /// least frontload the stuff that we can check earlier").
 export const RESERVATION_RENEW_MS = 60_000;
-/// A reserve that failed (a Cloud pick the page made itself, with no gesture, such as a remembered
-/// Cloud target on load; the platform unavailable) is tried again on the next intent, with the
+/// A reserve that failed (a Cloud pick the page made itself with no gesture and no open lease, see
+/// `opened`; the platform unavailable) is tried again on the next intent, with the
 /// same key (a new one once the platform said the key is over, ENDED_CODES), after this gap, doubled
 /// for each failure in a row up to RESERVATION_RENEW_MS.
 export const RESERVATION_RETRY_MS = 2_000;
@@ -78,9 +82,24 @@ export class CloudComposeReservation {
     private readonly newKey: () => string = () => crypto.randomUUID(),
   ) {}
 
+  /// The composer opened with Cloud already its target (a remembered Cloud pick, or New Tab on a Cloud
+  /// pane): lease its machine now, before any key (Leo, 2026-11-25: "we can assist in the startup locally
+  /// too"). The idle release (RESERVATION_IDLE_RELEASE_MS) gives it back if nobody types. A compose that
+  /// already reserved keeps its key; one whose open lease was refused (a hidden spare page) asks again
+  /// when this page opens again.
+  opened(replacesChat?: string): void {
+    const live = this.attempt;
+    if (live && !live.abandoned && !live.released && !live.ended) {
+      if (live.atOpen && live.failures && live.replacesChat === replacesChat) this.reserve(live, live.ready);
+      if (live.replacesChat === replacesChat) return;
+    }
+    this.selected(replacesChat, true);
+  }
+
   /// `replacesChat`: the empty local chat the Send would replace (the host reserves for a pane with a chat only
   /// while it shows that chat); none: a compose with no chat. A compose for another chat gives its machine back.
-  selected(replacesChat?: string): void {
+  /// `atOpen`: called by `opened`, not by an intent.
+  selected(replacesChat?: string, atOpen = false): void {
     this.stopRelease();
     const now = this.clock.now();
     const before = this.attempt;
@@ -93,6 +112,7 @@ export class CloudComposeReservation {
     let failures = 0;
     if (live && !live.abandoned && !live.released) {
       live.intentAt = now;
+      if (!atOpen) live.atOpen = undefined;
       // Renew (or retry) with the same key: idempotent at the platform, never a second machine.
       const gap = live.failures
         ? Math.min(RESERVATION_RENEW_MS, RESERVATION_RETRY_MS * 2 ** (live.failures - 1))
@@ -119,6 +139,7 @@ export class CloudComposeReservation {
       intentAt: now,
       failures,
       ...(replacesChat ? { replacesChat } : {}),
+      ...(atOpen ? { atOpen } : {}),
     };
     this.attempt = attempt;
     this.reserve(attempt, after);
@@ -135,6 +156,7 @@ export class CloudComposeReservation {
         this.call("cloud.reserve", {
           composeKey: attempt.key,
           ...(attempt.replacesChat ? { replacesChat: attempt.replacesChat } : {}),
+          ...(attempt.atOpen ? { atOpen: true } : {}),
         }),
       )
       .then(
