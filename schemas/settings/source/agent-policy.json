@@ -561,6 +561,7 @@
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
+        "experiments.cloudToggle",
         "experiments.foldSummaryCounts",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
