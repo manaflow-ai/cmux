@@ -1498,6 +1498,10 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
         return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
     }
+    if let Some(ask) = msg.get(super::machine_request::REQUEST_KEY) {
+        let ask = super::machine_request::check_ask(ask);
+        return Some(Ask::MachineRequest(Box::new(ask)));
+    }
     if let Some(ask) = msg.get(super::mcp_call::CALL_KEY) {
         return Some(Ask::McpCall(Box::new(super::mcp_call::check_call(ask))));
     }
