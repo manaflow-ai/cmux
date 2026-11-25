@@ -258,8 +258,10 @@ export class FirstTextTiming {
 }
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
+// scrub also runs on serialized JSON, so no shape may cross a `"` or `\`: `Bearer\s+\S+` ate the `\"}` after "bearer
+// token" in a 401 and left all five 300 s wake-echo.json files unparsable (run 45510772491).
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+[^\s"\\]+/g,
   // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
   // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
   /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
@@ -3100,9 +3102,41 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript(), feltTurnScript()],
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
+  // and the reserved home chat's read (journeyReadTurnScript).
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript()],
 };
+
+/**
+ * The reserved home chat's stub turn (`--home-chat reserved`): one Read of the file its prompt names
+ * (journeyReadPrompt), in the chat's own folder, whose text is `<nonce>-tool`; then the reply that repeats it, as the
+ * default turn's shell call does. A Read, not a shell call: the app's start (`agent-session-start`) runs the chat under
+ * policy `ask`, where acpmux's tool gate holds every shell call for the person (acpmux hub/policy_gate.rs) and only the
+ * person's app may answer it (hub/person.rs), so the default turn waited on a permission (prod run 45585084079). A Read
+ * in the chat's own folder asks nobody, so the turn runs as a person's would.
+ */
+export function journeyReadTurnScript(): { match: string; steps: Array<Record<string, unknown>> } {
+  return {
+    match: "\\[journey-read /\\S+\\]",
+    steps: [
+      { tool: { name: "Read", input: { file_path: "{{prompt~\\[journey-read (/\\S+)\\]}}" } } },
+      // Claude Code's Read numbers its lines: only the file's text is repeated.
+      { text: "Stub reply {{nonce}}. The tool printed {{result.0~([0-9a-f]+-tool)}}." },
+    ],
+  };
+}
+
+/** The reserved home chat's prompt: the person's words, then the file the stub's turn reads (journeyReadTurnScript). */
+export const journeyReadPrompt = (prompt: string, file: string) => `${prompt} [journey-read ${file}]`;
+
+/**
+ * The guest command that writes `<cwd>/.journey-<nonce>.txt` holding `<nonce>-tool` in the chat's own folder (`cwd`,
+ * from `acp session info`) and prints `@@file <path>`.
+ */
+export function journeyReadFileCommand(cwd: string, nonce: string): string {
+  const file = `${cwd}/.journey-${nonce}.txt`;
+  return `f=${shq(file)}; printf '%s-tool\\n' ${shq(nonce)} > "$f" && echo "@@file $f"`;
+}
 
 /**
  * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
@@ -4660,6 +4694,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(s.access, s.refresh);
       return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
+    // A run longer than the Stack session (12 wake-echo cycles at a 300 s hold, the resume matrix) signs in again
+    // once the session is RESIGN_AFTER_MS old: run 45510772491's 300 s shards got 401 on cycle 10 of 12, 55 min in.
+    const resignIfOld = async (): Promise<boolean> => {
+      if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return false;
+      const s = await passwordSignIn(STACK[backend.stack], email, password);
+      J.secrets.push(s.access, s.refresh);
+      signedInAt = Date.now();
+      api.bearer = s.access;
+      return true;
+    };
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
@@ -4928,6 +4972,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
           status: async () => String((await row())?.status ?? "unread"),
           pause: async () => {
+            await resignIfOld();
             const t0 = Date.now();
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
@@ -5517,14 +5562,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } else {
         firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
         try {
+          // The stub's turn reads a file in the chat's own folder (journeyReadTurnScript): the chat runs under policy
+          // `ask`, where a shell call waits for the person.
+          let sendText = prompt;
+          if (modelStub || gatewayStub) {
+            sendText = await J.step("stub file in the chat's folder", async () => {
+              const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
+              const cwd = /^cwd\t(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
+              if (!cwd) throw new Error(`no cwd for ${session}: ${info.stdout.trim().slice(-200)}`);
+              const w = await exec(journeyReadFileCommand(cwd, nonce), 45_000);
+              const file = /@@file (\S+)/.exec(w.stdout)?.[1];
+              if (!file) throw new Error(`exit ${w.code} ${w.stdout.slice(-200)} ${w.stderr.slice(-200)}`);
+              return { value: journeyReadPrompt(prompt, file), detail: `${file} (a Read asks nobody under policy ask)` };
+            });
+          }
           await J.step("send chat", async () => {
             J.firstText.mark("send");
-            await reservedChat!.prompt(prompt, undefined, Date.now() + chatBudget);
+            await reservedChat!.prompt(sendText, undefined, Date.now() + chatBudget);
             J.firstText.mark("sent");
             return { value: null, detail: `${prompt.slice(0, 80)} (sent over the app's carrier chat)` };
           });
           await J.step("reply", async () => {
             const last = await awaitReply();
+            if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}`);
+            }
             return { value: last, detail: last.slice(0, 280) };
           });
         } finally {
@@ -5929,12 +5991,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             log: (line) => console.log(scrub(line, J.secrets)),
           },
           refreshAuth: async () => {
-            if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return;
-            const s = await passwordSignIn(STACK[backend.stack], email, password);
-            J.secrets.push(s.access, s.refresh);
-            signedInAt = Date.now();
-            api.bearer = s.access;
-            matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = s.access;
+            if (await resignIfOld()) matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = api.bearer;
           },
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
