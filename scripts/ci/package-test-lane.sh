@@ -308,6 +308,7 @@ select_packages() {
     CmuxScreenKit
     CmuxVNCWebRTC
     GlassHost
+    CmuxLiveCode
   )
 
   changed="$work/changed-files.txt"

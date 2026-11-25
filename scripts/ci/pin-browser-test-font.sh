@@ -3,13 +3,19 @@
 #
 # Makes the browser lane's engines (Playwright's WebKit, Chrome's headless shell) draw the UI font with one known face
 # on Linux: Inter, through a fontconfig alias for every family the UI font stack names (-apple-system,
-# BlinkMacSystemFont, system-ui, sans-serif). Run it after the engines are installed and before the webview tests.
+# BlinkMacSystemFont, system-ui, sans-serif). The code font stack's macOS names (ui-monospace, SF Mono, SFMono-Regular,
+# Menlo, Monaco) go to the face `monospace` draws. Run it after the engines are installed and before the webview tests.
 #
 # Why: the UI font is the macOS system font (--font-ui: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 # ab5bc5a1228, 2026-11-08, Leo's font order). A Linux runner has no SF Pro, so the stack fell to whatever fontconfig
 # picks (DejaVu Sans on the runners), and every browser geometry test measured that face: text centers 0.63 px off
 # their controls (composer-alignment-centers, composer-plus-geometry), on every feat-cmux-next push since. The tests
 # check the layout, so they need a face with stable metrics; the product keeps the system font.
+#
+# The code stack: WebKit asks fontconfig for each named family, and fontconfig answers an unknown one (ui-monospace)
+# with its default face, so WebKit drew every `ui-monospace, ..., monospace` stack in Inter, a proportional face, where
+# Chromium skips to `monospace`. A wrapped diff then broke a row early in WebKit only (edits-group-estimate-browser,
+# a Markdown file at 18px text: 25.7 px). On a Mac ui-monospace is SF Mono, a monospace face.
 #
 # Linux only (the browser lane runs nowhere else). Exits 1 when the alias does not take, so the tests never measure
 # a fallback face again unseen.
@@ -23,6 +29,8 @@ if ! fc-list : family | grep -qx 'Inter'; then
   sudo apt-get install -y --no-install-recommends fonts-inter > /dev/null
 fi
 family=Inter
+mono="$(fc-match --format '%{family[0]}' -- monospace)"
+[ -n "$mono" ] && [ "$mono" != "$family" ] || { echo "::error::pin-browser-test-font: monospace resolves to '$mono', no monospace face" >&2; exit 1; }
 fc-list : family | grep -qx "$family" || { echo "::error::pin-browser-test-font: fonts-inter gave no $family face" >&2; exit 1; }
 conf="${XDG_CONFIG_HOME:-$HOME/.config}/fontconfig/conf.d"
 mkdir -p "$conf"
@@ -36,6 +44,11 @@ cat > "$conf/99-cmux-browser-test-font.conf" <<EOF
   <alias binding="strong"><family>BlinkMacSystemFont</family><prefer><family>$family</family></prefer></alias>
   <alias binding="strong"><family>system-ui</family><prefer><family>$family</family></prefer></alias>
   <alias binding="strong"><family>sans-serif</family><prefer><family>$family</family></prefer></alias>
+  <alias binding="strong"><family>ui-monospace</family><prefer><family>$mono</family></prefer></alias>
+  <alias binding="strong"><family>SF Mono</family><prefer><family>$mono</family></prefer></alias>
+  <alias binding="strong"><family>SFMono-Regular</family><prefer><family>$mono</family></prefer></alias>
+  <alias binding="strong"><family>Menlo</family><prefer><family>$mono</family></prefer></alias>
+  <alias binding="strong"><family>Monaco</family><prefer><family>$mono</family></prefer></alias>
 </fontconfig>
 EOF
 fc-cache -f > /dev/null
@@ -47,4 +60,13 @@ for generic in -apple-system BlinkMacSystemFont system-ui sans-serif; do
     exit 1
   fi
 done
+for named in ui-monospace "SF Mono" SFMono-Regular Menlo Monaco; do
+  # fc-match reads a pattern, where `-` starts a size: ui-monospace is asked as ui\-monospace.
+  got="$(fc-match --format '%{family[0]}' -- "${named//-/\\-}")"
+  if [ "$got" != "$mono" ]; then
+    echo "::error::pin-browser-test-font: $named resolves to $got, not $mono" >&2
+    exit 1
+  fi
+done
+echo "pin-browser-test-font: the code font stack draws $(fc-match --format '%{file}' -- 'ui\-monospace')"
 echo "pin-browser-test-font: the UI font stack draws $(fc-match --format '%{file}' -- system-ui)"
