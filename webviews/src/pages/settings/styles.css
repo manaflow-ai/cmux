@@ -3991,3 +3991,21 @@ button.menu-disclosure {
   stroke: var(--ds-color-accent);
   stroke-linecap: round;
 }
+
+/* A card's slot: no box of its own, so a deep link can find any card without changing the layout. */
+.card-slot {
+  display: contents;
+}
+
+/* The row, card or connection a deep link landed on (settingsLinks.ts): ringed while
+ * LinkLanding.tsx holds the attribute (LINK_HIGHLIGHT_MS). */
+[data-link-target] {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+
+/* A link that named nothing on the page says what it asked for. */
+.link-missing {
+  display: block;
+  margin: 0 0 12px;
+}

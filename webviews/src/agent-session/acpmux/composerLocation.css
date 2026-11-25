@@ -2168,9 +2168,6 @@
   max-height: 100%;
   overflow: auto;
 }
-/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
-   grips on the popup's edges stay put while the rows scroll. */
-.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
 /* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
 .acpmux-folder-popover,
 .acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }
