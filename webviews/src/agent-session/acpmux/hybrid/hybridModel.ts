@@ -54,3 +54,29 @@ export function clicked(view: HybridView): HybridView {
   if (view.used >= view.total) return { ...view, waiting: true };
   return { ...view, lit: true, used: view.used + 1 };
 }
+
+/// A hybrid start's machine side (RFD 0078, "the start"; cmux-cloud-start-core `hybrid::Cloud`, as
+/// its `Effect::Show` sends it). A chat with Cloud chosen starts on this Mac at once while its
+/// machine boots, then moves at a tool boundary or turn end. The button alone shows where it is.
+/// Rust decides every step; the page only draws the one it is told.
+export const HYBRID_START_STATES = ["booting", "ready", "moving", "live", "failed"] as const;
+export type HybridStartState = (typeof HYBRID_START_STATES)[number];
+export type HybridStart = {
+  cloud: HybridStartState;
+  /// Why `failed`, in Rust's word (the chat is still running here).
+  reason?: string;
+};
+
+/// `place.start`, or none when the app sends none or `none` (no hybrid start began).
+export function hybridStartOf(value: unknown): HybridStart | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (!(HYBRID_START_STATES as readonly unknown[]).includes(raw.cloud)) return undefined;
+  const cloud = raw.cloud as HybridStartState;
+  return typeof raw.reason === "string" && raw.reason && cloud === "failed" ? { cloud, reason: raw.reason } : { cloud };
+}
+
+/// Where the chat's one writer is now: here until the move commits.
+export function startRunsHere(start: HybridStart): boolean {
+  return start.cloud !== "live";
+}

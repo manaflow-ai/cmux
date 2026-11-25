@@ -48,6 +48,7 @@ export class MockOnboardingProvider implements PageClient {
       target?: string | null;
       pane?: string;
       value?: string | number;
+      writes?: { path: string; value: string | number | boolean | null }[];
     };
     const state = this.state;
     switch (op) {
@@ -144,6 +145,30 @@ export class MockOnboardingProvider implements PageClient {
                   ? { ...choices, material: input.value as MakeItYoursMaterial }
                   : { ...choices, background: input.id ?? null };
         this.change({ ...state, makeItYours: next });
+        return {} as R;
+      }
+      case OPS.walk: {
+        const choices = state.makeItYours;
+        if (!choices) return {} as R;
+        const walk = { ...choices.walk };
+        const next = { ...choices };
+        for (const { path, value } of (input.writes ?? []) as {
+          path: string;
+          value: string | number | boolean | null;
+        }[]) {
+          if (path === "tabs.newTabTemplate") next.workStyle = value === "terminal" ? "terminal" : "gui";
+          else if (path === "appearance.density") next.density = String(value ?? "cozy");
+          else if (path === "appearance.background")
+            next.background = value == null || value === "none" ? null : String(value);
+          else if (path === "appearance.backgroundOpacity") {
+            next.opacity = value == null ? 1 : Number(value);
+            next.opacitySet = value != null;
+          } else if (path === "appearance.backgroundBlur")
+            next.material = value == null ? null : (value as MakeItYoursMaterial);
+          else if (value == null) delete walk[path];
+          else walk[path] = value;
+        }
+        this.change({ ...state, makeItYours: { ...next, walk } });
         return {} as R;
       }
       case OPS.install:
