@@ -256,7 +256,17 @@ export function FolderPopover({
       if (!open) {
         // The repositories added as projects, as they are now: one added since the last open is listed.
         // Only where a repository can be picked: none in a Sandboxed chat (no GitHub source), or a menu with no sources.
-        setAdded(github ? readAddedRepos() : NO_REPOS);
+        // The chip's own repository is one the person added, picked before this store kept them (or from
+        // another surface): it is listed, never an empty menu under a repository chip.
+        const currentRepo = github && current ? githubFolderRepo(current) : undefined;
+        const known = github ? readAddedRepos() : NO_REPOS;
+        if (currentRepo && !known.some((repo) => repo.fullName.toLowerCase() === currentRepo.toLowerCase())) {
+          rememberAddedRepo({
+            fullName: currentRepo,
+            private: github?.state.repos?.find((repo) => repo.fullName === currentRepo)?.private ?? false,
+          });
+          setAdded(readAddedRepos());
+        } else setAdded(known);
         // The closed menu grouped nothing: find the current folder's repository once, at the open.
         const opening = groupByRepo(
           folders.filter((folder) => !/^\/+$/.test(folder.id)),

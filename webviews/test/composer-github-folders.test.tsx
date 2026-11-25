@@ -1394,3 +1394,18 @@ test("with Cloud picked, this Mac's folders and the added repositories are one r
     await act(async () => root.unmount());
   }
 });
+
+test("Cloud with a GitHub repository on the chip lists that repository and this Mac's folders, even one picked before the menu kept added repositories (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({ summary: { sessionId: "", cwd: "github:acme/web" } }, gh.store);
+  try {
+    await openFolderMenu();
+    // Before: "No recent folders" under a repository chip.
+    const shown = labels(".ui-combobox-scroll [role=option]");
+    expect(shown).toContain("acme/web");
+    expect(shown).toContain("app");
+    expect(shown).toContain("notes");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

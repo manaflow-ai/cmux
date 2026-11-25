@@ -2993,3 +2993,43 @@ test("with Cloud picked the New Tab folder menu lists this Mac's recent folders 
   expect(again).toEqual(expect.arrayContaining(["cmux", "notes", "acme/api"]));
   forgetAddedRepos();
 });
+
+test("with Cloud picked on a New Tab that starts on the last chat's Cloud machine, the folder menu still lists this Mac's folders and a pick moves the chat to this Mac (cmux#53226)", async () => {
+  forgetAddedRepos();
+  const asked: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { peers: ["cloud-box"], peerKinds: { "cloud-box": "cloud" } })}
+        cwd="/Users/you/src/cmux"
+        projects={[
+          { cwd: "/Users/you/src/cmux", label: "cmux" },
+          { cwd: "/Users/you/notes", label: "notes" },
+        ]}
+        startMachine="cloud-box"
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={() => true}
+        onAsk={(...args: unknown[]) => void asked.push(args)}
+      />,
+    );
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await settle();
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const rows = [
+    ...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover .ui-combobox-scroll [role=option]"),
+  ].map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  // Before: "No recent folders", the machine's own (none) listed instead of this Mac's.
+  expect(document.querySelector(".acpmux-location-empty")).toBeNull();
+  expect(rows).toEqual(expect.arrayContaining(["cmux", "notes"]));
+  const notes = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("notes"),
+  );
+  await act(async () => notes!.click());
+  await settle();
+  expect(folder().textContent).toContain("notes");
+});

@@ -110,6 +110,7 @@ export type StripLayout = "where-machine" | "where-machine-always" | "cloud-togg
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
 const NO_SESSIONS: readonly Session[] = [];
+const NO_LOCATIONS: Location[] = [];
 /// What the machine and folder lists read of a chat (`availableComputers`, `availableFolders`).
 const placeFields = (session: Session): readonly unknown[] => [
   session.cwd,
@@ -546,43 +547,35 @@ export function ComposerContext({
   // (each change of any chat at Leo's scale), and the folder menu groups every folder by its
   // repository from it (FolderPopover `groupByRepo`), thousands of folders on each New Tab page and
   // chat (bench/session-scale-typing.bench.ts).
-  const madeFolders = useMemo(() => {
-    const known = availableFolders(summaryPlace, sessions, selectedComputer);
-    if (selectedComputer === "local") {
-      const seen = new Set(known.map((folder) => folder.id));
-      for (const environment of savedFolders) {
-        const id = normalizeCwd(environment.folder);
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        known.push({ id, label: projectLabel(id), detail: id });
-      }
-    }
-    const choices =
-      selectedComputer === "local"
-        ? routeElsewhere
-          ? machineFolders
-          : projectChoices
-        : ownMachine
-          ? machineFolders
-          : undefined;
-    const listed = choices?.map((project): Location => ({
-      id: normalizeCwd(project.cwd)!,
-      label: project.label,
-      detail: project.cwd,
-      ...(project.repo ? { repo: project.repo } : {}),
-    }));
-    return chatFolderChoices({ known, listed, cloudMachine: machineOnCloud });
-  }, [
-    summaryPlace,
-    sessions,
-    selectedComputer,
-    projectChoices,
-    machineFolders,
-    ownMachine,
-    savedFolders,
-    machineOnCloud,
-    routeElsewhere,
-  ]);
+  const madeFolders = useMemo(
+    () =>
+      folderChoicesFor({
+        computer: selectedComputer,
+        summaryPlace,
+        sessions,
+        savedFolders,
+        choices:
+          selectedComputer === "local"
+            ? routeElsewhere
+              ? machineFolders
+              : projectChoices
+            : ownMachine
+              ? machineFolders
+              : undefined,
+        cloudMachine: machineOnCloud,
+      }),
+    [
+      summaryPlace,
+      sessions,
+      selectedComputer,
+      projectChoices,
+      machineFolders,
+      ownMachine,
+      savedFolders,
+      machineOnCloud,
+      routeElsewhere,
+    ],
+  );
   const folders = useSameValue(madeFolders);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
@@ -610,6 +603,25 @@ export function ComposerContext({
   // Cloud picked for a chat from this Mac: this Mac's folders are still its projects (a Cloud start copies the
   // picked one to the machine, cloudRun.ts cloudStartFolder), listed with the GitHub repositories (cmux#53226).
   const localOnCloud = cloudPicked && selectedComputer === "local" && !machineOnCloud && !routeElsewhere;
+  // Cloud picked on a page of this Mac: its menu lists this Mac's folders whatever machine the chip holds now
+  // (a Cloud machine the last chat ran on, which New Tab starts on), never an empty menu (cmux#53226).
+  const cloudListsThisMac = cloudPicked && !routeElsewhere;
+  const madeThisMacFolders = useMemo(
+    () =>
+      cloudListsThisMac && selectedComputer !== "local"
+        ? folderChoicesFor({
+            computer: "local",
+            summaryPlace,
+            sessions,
+            savedFolders,
+            choices: projectChoices,
+            cloudMachine: false,
+          })
+        : undefined,
+    [cloudListsThisMac, selectedComputer, summaryPlace, sessions, savedFolders, projectChoices],
+  );
+  const thisMacFolders = useSameValue(madeThisMacFolders);
+  const menuFolders = cloudListsThisMac ? (thisMacFolders ?? folders) : cloudSide ? NO_LOCATIONS : folders;
   const pickedRepo = sourceRepository?.cwd === pickedFolder ? sourceRepository?.name : undefined;
   const currentFolder =
     noProject && !readOnly && !cloudStartOut
@@ -857,6 +869,8 @@ export function ComposerContext({
     }
     // Anywhere else (another machine) a GitHub repository runs on Cloud: its pick moves the new chat there.
     if (repo && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
+    // One of this Mac's folders, listed with Cloud picked while the chip held a machine: the chat is this Mac's.
+    if (cloudListsThisMac && selectedComputer !== "local" && !repo) setSelectedComputer("local");
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -1134,7 +1148,7 @@ export function ComposerContext({
                   {...(folderDetail ? { detail: folderDetail } : {})}
                 />
               }
-              folders={cloudSide && !localOnCloud ? [] : folders}
+              folders={menuFolders}
               current={currentFolder}
               currentPeer={cloudSide ? selectedComputer : undefined}
               onPick={pickFolder}
@@ -1475,6 +1489,42 @@ function availableComputers(
 
 function formatFreeMemory(gb: number): string {
   return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
+}
+
+/// The folders the chip's menu lists for `computer`: its sessions' folders (with this Mac's saved folder
+/// environments on this Mac), then the host's list for it (`choices`), as `chatFolderChoices` merges them.
+function folderChoicesFor({
+  computer,
+  summaryPlace,
+  sessions,
+  savedFolders,
+  choices,
+  cloudMachine,
+}: {
+  computer: string;
+  summaryPlace: Summary | undefined;
+  sessions: readonly Session[];
+  savedFolders: readonly { folder: string }[];
+  choices: readonly Project[] | undefined;
+  cloudMachine: boolean;
+}): Location[] {
+  const known = availableFolders(summaryPlace, sessions, computer);
+  if (computer === "local") {
+    const seen = new Set(known.map((folder) => folder.id));
+    for (const environment of savedFolders) {
+      const id = normalizeCwd(environment.folder);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      known.push({ id, label: projectLabel(id), detail: id });
+    }
+  }
+  const listed = choices?.map((project): Location => ({
+    id: normalizeCwd(project.cwd)!,
+    label: project.label,
+    detail: project.cwd,
+    ...(project.repo ? { repo: project.repo } : {}),
+  }));
+  return chatFolderChoices({ known, listed, cloudMachine });
 }
 
 function availableFolders(summary: Summary | undefined, sessions: readonly Session[], computer: string): Location[] {
