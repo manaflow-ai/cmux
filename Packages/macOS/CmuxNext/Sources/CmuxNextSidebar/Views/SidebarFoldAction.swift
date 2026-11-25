@@ -10,6 +10,10 @@
             if list.openDoneFolds.remove(id) == nil { list.openDoneFolds.insert(id) }
         case let .showMore(id):
             if list.openShowMore.remove(id) == nil { list.openShowMore.insert(id) }
+        case let .status(section):
+            // Group by Status: the keyboard folds a header as its click does (`SidebarModel.toggleStatusSection`).
+            guard section.collapses else { return false }
+            list.model.toggleStatusSection(section)
         default:
             return false
         }
