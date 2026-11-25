@@ -147,6 +147,10 @@ WEB_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghost
 # Bounds, in seconds.
 GIT_SECONDS = 600
 LAUNCH_SECONDS = 120
+# side-instance.sh launch first waits for room in the Mac's memory budget for agents' apps (mac-budget admit,
+# SIDE_INSTANCE_BUDGET_WAIT_S, default 1800) and only then opens the copy, so its bound is that wait plus
+# LAUNCH_SECONDS. A bound under the wait killed the launcher mid-wait: a bare TimeoutExpired, no copy, and none of
+# the launcher's own "the memory budget stayed full" message naming who holds it (Air Blue, 2026-11-23).
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
@@ -797,6 +801,17 @@ def rpc(path: str, method: str, params: dict | None = None, timeout: float = STE
         return {"error": reply.get("error")}
     result = reply.get("result")
     return result if isinstance(result, dict) else {"value": result}
+
+
+
+def launch_seconds(env=None) -> float:
+    """The bound for `side-instance.sh launch`: the launcher's memory-budget wait, then LAUNCH_SECONDS to open."""
+    raw = (os.environ if env is None else env).get("SIDE_INSTANCE_BUDGET_WAIT_S", "1800")
+    try:
+        wait = max(0.0, float(raw))
+    except ValueError:
+        wait = 1800.0
+    return wait + LAUNCH_SECONDS
 
 
 def until(what: str, seconds: float, probe):
@@ -1790,7 +1805,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
             # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
             # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
-            launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=LAUNCH_SECONDS)
+            launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
@@ -2359,7 +2374,7 @@ def command_run(args) -> int:
                           # A copy of a built app never passes for a clone of the golden one (reusable_copy).
                           try_app=app_info(the_app) if built_app is None else {"built": planned["head"]},
                           try_label=label, try_layers=layers)
-            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            launched = side.run("launch", timeout=launch_seconds())
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
