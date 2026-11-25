@@ -41,8 +41,8 @@ import UserNotifications
         #expect(AgentAlarmTrigger.permission.alarmTitle(agent: "Claude Code") == "Claude Code needs permission")
         #expect(AgentAlarmTrigger.question.alarmTitle(agent: nil) == "Your agent has a question")
         #expect(AgentAlarmTrigger.agentFailed.alarmTitle(agent: "") == "Your agent stopped")
-        #expect(AgentAlarmTrigger.macOffline.alarmTitle(agent: "Mac mini") == "Mac mini went offline")
-        #expect(AgentAlarmTrigger.macOffline.alarmTitle(agent: nil) == "Your Mac went offline")
+        #expect(AgentAlarmTrigger.macOffline.alarmTitle(agent: "Mac mini") == "Mac mini stopped responding")
+        #expect(AgentAlarmTrigger.macOffline.alarmTitle(agent: nil) == "Your Mac stopped responding")
     }
 
     @Test func aPushAndItsFeedRowShareOneKey() {

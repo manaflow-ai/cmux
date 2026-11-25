@@ -48,7 +48,7 @@ struct AgentAlarmsPage: View {
             } header: {
                 Text("Ring for")
             } footer: {
-                Text("“Mac went offline” rings when a Mac this iPhone was connected to stays unreachable for a minute while cmux is open.")
+                Text("“Mac stopped responding” rings when a Mac this iPhone was connected to gives no answer for a minute while cmux is open.")
             }
             .disabled(!preferences.enabled)
             .opacity(preferences.enabled ? 1 : 0.4)
@@ -91,7 +91,7 @@ struct AgentAlarmsPage: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("cmux open or in the background: alarms ring from the live Feed and from each push.")
                     Text("cmux closed or swiped away: each permission, question or error push rings from the notification extension.")
-                    Text("No push, no alarm: with the iPhone off or offline, or notifications from your Macs off, nothing rings.")
+                    Text("No push, no alarm: with the iPhone off or without a network, or notifications from your Macs off, nothing rings.")
                 }
                 .font(.footnote)
                 .foregroundStyle(theme.colors.label2)

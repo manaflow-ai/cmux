@@ -32,7 +32,7 @@ Chief (optional): Home lists Chief, labeled Main · Cloud, a cmux Cloud agent. T
 
 Other screens:
 - Home: swipe a conversation left for "Read" and "Pin"; touch and hold it for "Mark as Read". "New Message" (top right): pick a Chief or teammate under "To:" and send.
-- For other accounts, the Workspaces and Feed tabs show the workspaces and alerts of a Mac signed in to the same account. With no Mac they offer "Connect your Mac".
+- For other accounts, the Workspaces and Feed tabs show a Mac signed in to the same account. With no Mac they offer "Connect your Mac".
 - Account deletion: Settings, the account row at the top opens "Account", then "Delete Account". After "Delete your cmux account?" the account and its data are deleted and the app signs out. Please try it last.
 
 Permissions, each optional and asked only when first used:
@@ -42,7 +42,8 @@ Permissions, each optional and asked only when first used:
 - Camera: a photo for a message, or a Mac's pairing code.
 - Photos: attaching and saving images.
 - Face ID: only when "Require Face ID" is on in Settings.
-- Local Network: a direct link to the user's own Mac on the same network.
+- Local Network: a direct link to the user's Mac on the same network.
+- Alarms: only when "Agent Alarms" is on.
 
 Background audio (UIBackgroundModes audio): an audio message or call with Chief keeps recording while the iPhone is locked. To see it, start an audio message to Chief, lock the iPhone a few seconds, unlock and send: it includes what was said while locked.
 

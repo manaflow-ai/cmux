@@ -29,7 +29,7 @@ public enum AgentAlarmTrigger: String, CaseIterable, Codable, Sendable, Identifi
         case .question: String(localized: "Questions")
         case .needsInput: String(localized: "Terminal agents waiting")
         case .agentFailed: String(localized: "Agent stopped or crashed")
-        case .macOffline: String(localized: "Mac went offline")
+        case .macOffline: String(localized: "Mac stopped responding")
         }
     }
 
@@ -47,7 +47,7 @@ public enum AgentAlarmTrigger: String, CaseIterable, Codable, Sendable, Identifi
     public func alarmTitle(agent name: String?) -> String {
         let given = name.flatMap { $0.isEmpty ? nil : $0 }
         if self == .macOffline {
-            return given.map { String(localized: "\($0) went offline") } ?? String(localized: "Your Mac went offline")
+            return given.map { String(localized: "\($0) stopped responding") } ?? String(localized: "Your Mac stopped responding")
         }
         let agent = given ?? String(localized: "Your agent")
         return switch self {
@@ -55,7 +55,7 @@ public enum AgentAlarmTrigger: String, CaseIterable, Codable, Sendable, Identifi
         case .question: String(localized: "\(agent) has a question")
         case .needsInput: String(localized: "\(agent) is waiting for you")
         case .agentFailed: String(localized: "\(agent) stopped")
-        case .macOffline: String(localized: "Your Mac went offline")
+        case .macOffline: String(localized: "Your Mac stopped responding")
         }
     }
 

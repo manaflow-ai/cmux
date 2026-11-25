@@ -29,6 +29,7 @@ SUPPORT = "https://cmux.com/support"
 LIVE_ENV: dict[str, str] = {}
 # Info.plist usage keys in project.yml, by the name the notes give each permission.
 PERMISSION_NAMES = {
+    "NSAlarmKitUsageDescription": "Alarms",
     "NSCameraUsageDescription": "Camera",
     "NSFaceIDUsageDescription": "Face ID",
     "NSLocalNetworkUsageDescription": "Local Network",
