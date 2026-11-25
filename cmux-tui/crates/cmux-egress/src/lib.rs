@@ -318,6 +318,19 @@ impl Resolve for Gate {
     }
 }
 
+/// Whether the capture server stands in for the wire (feature `capture`, installed):
+/// a client that brings its own TLS trust keeps the gated builder's capture CA then.
+pub fn capturing() -> bool {
+    #[cfg(feature = "capture")]
+    {
+        capture::root().is_some()
+    }
+    #[cfg(not(feature = "capture"))]
+    {
+        false
+    }
+}
+
 /// A builder with the capture CA trusted when capture is on (feature `capture`).
 fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     #[cfg(feature = "capture")]
