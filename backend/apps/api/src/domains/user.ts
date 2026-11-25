@@ -183,16 +183,19 @@ export const MAX_REVOKED_INSTALLS = 100
 
 /**
  * Drops the oldest revoked installs (by revoked_at, then id) past MAX_REVOKED_INSTALLS, each with its
- * grant. An install still named by a pending SSH revoke, a presence key or a push target stays. Every
- * lookup treats a missing install as unknown, so a dropped install's token stays refused.
- * withInstallAuthority drops its incarnation in the same commit.
+ * grant and its (revoked) presence key. An install still named by a live presence key or a push target
+ * stays. A pending SSH revoke does not hold it: the KRL notice carries only the install id, the user and
+ * the teams (as evictStaleInstalls relies on). A revoked presence key used to hold its install for good,
+ * and every revoke leaves one, so a probe account's head filled with 1406 revoked installs and every
+ * install.register answered owner.state_full. Every lookup treats a missing install or presence key as
+ * unknown, so a dropped install's token and key stay refused. withInstallAuthority drops its
+ * incarnation in the same commit.
  */
 export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
   const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
   if (revoked.length <= keep) return state
   const held = new Set([
-    ...Object.keys(state.ssh_revoke_pending ?? {}),
-    ...Object.keys(state.confirm?.presence_keys ?? {}),
+    ...Object.entries(state.confirm?.presence_keys ?? {}).filter(([, k]) => k.revoked_at === null).map(([install]) => install),
     ...Object.values(state.push_targets ?? {}).map((t) => t.install)
   ])
   const drop = revoked
@@ -202,11 +205,13 @@ export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKE
   if (drop.length === 0) return state
   const installs = { ...state.installs }
   const grants = { ...state.grants }
+  const keys = state.confirm ? { ...state.confirm.presence_keys } : undefined
   for (const i of drop) {
     delete installs[i.id]
     if (grants[i.grant]?.grantee === i.id) delete grants[i.grant]
+    if (keys) delete keys[i.id]
   }
-  return { ...state, installs, grants }
+  return { ...state, installs, grants, ...(state.confirm && keys ? { confirm: { ...state.confirm, presence_keys: keys } } : {}) }
 }
 
 /**

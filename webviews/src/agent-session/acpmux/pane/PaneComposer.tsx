@@ -50,6 +50,8 @@ import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
 import { SleepHandoffNotice } from "../SleepHandoffNotice";
 import { findSession } from "../sessionIndex";
+import { MoveDock, PlaceChip } from "../place/PlaceMounts";
+import { HybridChip } from "../hybrid/HybridMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -848,6 +850,16 @@ export function drawPaneComposer({
             </Notice>
             <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {!showNewTab && !quick && (
+              <MoveDock
+                session={snapshot.sessionId}
+                say={notices.transient}
+                claims={() => ({
+                  queued: snapshot.queue.length,
+                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                })}
+              />
+            )}
             {!showNewTab && (
               <SleepHandoffNotice
                 note={snapshot.sleepHandoff}
@@ -1554,6 +1566,31 @@ export function drawPaneComposer({
                 }
               : {})}
             onConnect={connectMachine}
+            // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
+            {...(quick || !snapshot.sessionId
+              ? {}
+              : {
+                  placeControl: (
+                    <>
+                      <PlaceChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                      <HybridChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                    </>
+                  ),
+                })}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
