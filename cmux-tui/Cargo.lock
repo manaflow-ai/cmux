@@ -1474,6 +1474,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bounded"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
 

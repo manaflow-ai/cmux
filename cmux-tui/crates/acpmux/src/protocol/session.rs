@@ -879,8 +879,9 @@ pub struct RetrySummary {
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
 /// capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
 /// limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
-/// the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
-/// context window (`context`: it is compacted, then continued at once).
+/// the connection dropped, the agent process died mid-turn, the chat outgrew its model's
+/// context window (`context`: it is compacted, then continued at once), or the machine's disk
+/// was full (`disk`: it goes on once space is free again).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
@@ -889,6 +890,7 @@ pub enum RetryReason {
     Transport,
     AgentExited,
     Context,
+    Disk,
 }
 
 impl RetryReason {
@@ -900,6 +902,7 @@ impl RetryReason {
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
             "context" => Some(Self::Context),
+            "disk" => Some(Self::Disk),
             _ => None,
         }
     }
@@ -911,6 +914,7 @@ impl RetryReason {
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
             Self::Context => "context",
+            Self::Disk => "disk",
         }
     }
 }
