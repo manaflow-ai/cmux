@@ -619,32 +619,41 @@ impl TurnCarrier {
             }
             None
         };
-        let stream = Self::allocate_streams(streams, options, late, refusal);
+        let stream_attempt = |delay: Duration| {
+            Self::allocate_streams(streams.clone(), options, late, refusal, delay, udp_silent.clone())
+        };
         if !tried_udp {
-            return stream.await;
+            return stream_attempt(Duration::ZERO).await.map(|(carrier, _)| carrier);
         }
         tokio::pin!(udp);
-        if !stream_now {
-            tokio::select! {
-                udp = &mut udp => return match udp {
-                    Some(carrier) => Some(carrier),
-                    None => stream.await,
-                },
-                () = tokio::time::sleep(STREAM_STAGGER) => {}
-                () = until_silent(udp_silent.clone()) => {}
-            }
-        }
-        tokio::pin!(stream);
+        let started = tokio::time::Instant::now();
+        // Relay first (a dial): the stream attempt runs beside UDP from the
+        // start, so a network that drops UDP has TLS ready by the time STUN
+        // has been silent long enough to tell.
+        let staggered = stream_attempt(if stream_now { Duration::ZERO } else { STREAM_STAGGER });
+        tokio::pin!(staggered);
         tokio::select! {
             udp = &mut udp => match udp {
                 Some(carrier) => Some(carrier),
-                None => stream.await,
+                // UDP failed: the stream need not wait out its stagger, and
+                // one already under way (its stagger over, or cut short
+                // because UDP looked blocked) goes on.
+                None if started.elapsed() >= STREAM_STAGGER || silent_now() => {
+                    staggered.await.map(|(carrier, _)| carrier)
+                }
+                None => stream_attempt(Duration::ZERO).await.map(|(carrier, _)| carrier),
             },
-            stream = &mut stream => match stream {
+            stream = &mut staggered => match stream {
                 // UDP looks blocked: its allocation would only run out its wait.
-                Some(carrier) if silent_now() => Some(carrier),
+                Some((carrier, _)) if silent_now() => Some(carrier),
+                // The stream left through the system's proxy: a network whose
+                // TCP must go through a proxy almost never lets UDP out, and
+                // waiting out STUN's silence there held every proxied dial
+                // 250 ms (netlab proxy rows). Taken now; a direct path that
+                // works later still takes the link over (the upgrade probe).
+                Some((carrier, true)) => Some(carrier),
                 // UDP gets its grace, cut short once STUN has been silent.
-                Some(carrier) => tokio::select! {
+                Some((carrier, false)) => tokio::select! {
                     udp = tokio::time::timeout(UDP_GRACE, &mut udp) => match udp {
                         Ok(Some(udp)) => Some(udp),
                         _ => Some(carrier),
@@ -663,24 +672,26 @@ impl TurnCarrier {
         options: &DialOptions,
         late: Option<&LateTurn>,
         refusal: &std::sync::Mutex<Option<crate::egress::EgressError>>,
-    ) -> Option<Self> {
+        delay: Duration,
+        silent: Option<watch::Receiver<bool>>,
+    ) -> Option<(Self, bool)> {
+        let first = streams.first()?.clone();
         // Ask the system's proxy settings (a PAC file may be fetched and run)
-        // before the allocation's bound starts, not inside it; a proxied leg
+        // beside the stagger, not inside the allocation's bound; a proxied leg
         // gets one more round trip (`CONNECT`) and the proxy's own connection.
-        let proxied = match streams.first() {
-            Some(server) => {
-                let (host, port) = split_host_port(&server.address, 443).unwrap_or_default();
-                let hops = crate::egress::proxy::hops(
-                    &host,
-                    port,
-                    server.transport == TurnTransport::Tls,
-                    &options.egress.proxy,
-                )
-                .await;
-                hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct)
-            }
-            None => return None,
+        let hops = async {
+            let (host, port) = split_host_port(&first.address, 443).unwrap_or_default();
+            crate::egress::proxy::hops(&host, port, first.transport == TurnTransport::Tls, &options.egress.proxy)
+                .await
         };
+        let wait = async {
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                () = until_silent(silent) => {}
+            }
+        };
+        let (hops, ()) = tokio::join!(hops, wait);
+        let proxied = hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct);
         let limit = if proxied { PROXIED_STREAM_WAIT } else { STREAM_WAIT };
         let deadline = tokio::time::Instant::now() + limit;
         let mut pending = FuturesUnordered::new();
@@ -695,7 +706,7 @@ impl TurnCarrier {
             pending.push(Self::spawn_on(server, options));
             while let Ok(Some(result)) = tokio::time::timeout_at(next_start, pending.next()).await {
                 match result {
-                    Ok(Ok(carrier)) => return Some(carrier),
+                    Ok(Ok(carrier)) => return Some((carrier, proxied)),
                     Ok(Err(AllocFailure::Proxy(error))) => {
                         tracing::warn!(%error, "the proxy refused TURN over TLS");
                         *refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
@@ -737,16 +748,19 @@ impl TurnCarrier {
     /// The TCP leg to `server`: through the system's proxy for it when the
     /// settings name one (`CONNECT host:443`, the TURN server's name, not an
     /// address: the proxy resolves it).
-    async fn connect_tcp(server: &TurnServer, options: &DialOptions) -> Result<TcpStream, AllocFailure> {
+    async fn connect_tcp(
+        server: &TurnServer,
+        options: &DialOptions,
+    ) -> Result<(TcpStream, crate::egress::Via), AllocFailure> {
         let (host, port) = split_host_port(&server.address, 443)
             .ok_or_else(|| AllocFailure::Other(format!("bad TURN address {}", server.address)))?;
         let secure = server.transport == TurnTransport::Tls;
         match crate::egress::connect_tcp(&host, port, secure, &options.egress).await {
             Ok((tcp, via)) => {
-                if let crate::egress::Via::Proxy(hop) = via {
+                if let crate::egress::Via::Proxy(hop) = &via {
                     tracing::info!(%hop, server = server.address, "TURN over TLS through the proxy");
                 }
-                Ok(tcp)
+                Ok((tcp, via))
             }
             Err(error) if error.is_proxy_refusal() => Err(AllocFailure::Proxy(error)),
             Err(error) => Err(AllocFailure::Other(error.to_string())),
@@ -757,7 +771,7 @@ impl TurnCarrier {
         server: &TurnServer,
         options: &DialOptions,
     ) -> Result<(Arc<dyn Conn + Send + Sync>, watch::Receiver<bool>), AllocFailure> {
-        let tcp = Self::connect_tcp(server, options).await?;
+        let (tcp, via) = Self::connect_tcp(server, options).await?;
         let _ = tcp.set_nodelay(true);
         let keepalive =
             socket2::TcpKeepalive::new().with_time(STREAM_KEEPALIVE).with_interval(STREAM_KEEPALIVE / 2);
@@ -774,6 +788,7 @@ impl TurnCarrier {
             .connect(name, tcp)
             .await
             .map_err(|e| format!("TLS to {}: {e}", server.host))?;
+        crate::egress::note(crate::egress::PathKind::of(&via, &server.host));
         let conn = StreamConn::new(tls, local, peer);
         let dead = conn.dead();
         Ok((Arc::new(conn), dead))
