@@ -355,6 +355,8 @@ pub enum Priority {
     /// Terminal screen state (the link's class-1 datagrams): ahead of every
     /// other datagram and the TCP stack's interactive connections, unpaced.
     /// Each message is a whole state, so a full queue refuses the newest.
+    /// Ultra Mode repairs it only above 1 % measured loss (input is
+    /// repaired at any loss).
     Screen,
     /// Control and terminal bytes: before everything else but screen state.
     Interactive,
@@ -412,6 +414,18 @@ pub(crate) struct Pacer {
 impl Pacer {
     pub(crate) fn has_room(&self) -> bool {
         self.queued < MAX_QUEUED
+    }
+
+    /// The peer was silent and is heard again (a parked phone woke, a
+    /// blackout ended): a segment timed before or during the silence would
+    /// time the silence as a round trip. One such sample after a 60 s sleep
+    /// put the smoothed RTT at about 7.5 s, so a resumed backlog left at a
+    /// hundredth of the path's rate for seconds. Every connection's sample
+    /// in flight is dropped; its next new segment starts another.
+    pub(crate) fn forget_samples(&mut self) {
+        for connection in self.connections.values_mut() {
+            connection.timed = None;
+        }
     }
 
     /// The largest smoothed RTT among the connections, if any measured one.

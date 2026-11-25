@@ -57,6 +57,9 @@ export const PlanList = memo(function PlanList({
       className="cv-plan"
       data-ended={ended ? "" : undefined}
       data-earlier={earlier && !ended ? "" : undefined}
+      // Between turns its step in progress draws a plain ring (conversation.css), never a blank mark
+      // (cmux#51039: a blank mark read as nothing happening).
+      data-still={still && !ended && !earlier ? "" : undefined}
       data-folded={folded ? "" : undefined}
     >
       {earlier && !ended && (

@@ -11,6 +11,9 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "live")
 
@@ -98,6 +101,10 @@ public final class LiveCoordinator {
     public internal(set) var relayAvailable: Bool?
     /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
     @ObservationIgnored let appearance = MacAppearanceFeed()
+    #if canImport(CmuxMobileLinkFFI)
+    /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
+    public let pairRequests = MacPairRequests()
+    #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
     @ObservationIgnored public let tabs = MacTabsFeed()
@@ -125,6 +132,10 @@ public final class LiveCoordinator {
     @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
+    /// UIKit's `willEnterForeground` already resumed the links for this return
+    /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
+    @ObservationIgnored private var foregroundedEarly = false
+    @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -135,14 +146,12 @@ public final class LiveCoordinator {
     /// "Connectivity incidents"); idle for everyone else.
     @ObservationIgnored let incidents: ConnectivityIncidentReporter
     @ObservationIgnored private var teamTask: Task<Void, Never>?
-    @ObservationIgnored var bannerTask: Task<Void, Never>?
     /// The banner's slot: quiet link states wait out their bound before they show (`phaseChanged`).
     @ObservationIgnored lazy var bannerHold = HeldNotice<ConnectionBannerState>(clock: clock) { [weak self] in
         self?.banner = $0
     }
-    @ObservationIgnored var everConnected = false
-    /// Macs a link was connected to: a failed redial to one says
-    /// "Reconnecting", not "Can't reach" (the link keeps retrying).
+    /// Macs a link was connected to (the banner's caller passes it on; a lost link to one
+    /// redials on its own).
     @ObservationIgnored var connectedMacIDs: Set<String> = []
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
     /// `provisional`: built before the Mac's tree listed the tab (a relaunch, a link still
@@ -496,6 +505,9 @@ public final class LiveCoordinator {
     private func restoreSnapshot() {
         guard let snapshot = snapshots.loadFirstScreen(accountID: userID) else { return }
         self.snapshot = snapshot
+        // A chat opened before its workspace is listed (a notification while the list loads, a
+        // row past the first screen) draws from the saved copy, not "Loading chat…".
+        store.savedWorkspace = { [weak self] id in self?.savedWorkspace(id: id) }
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
         var workspaces: [Workspace] = []
@@ -529,6 +541,25 @@ public final class LiveCoordinator {
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
+    }
+
+    /// The rest of the saved rows, read at most once by ``savedWorkspace(id:)`` ahead of `restoreRest`.
+    @ObservationIgnored private var savedRestRead: [String: LiveSnapshot.MacWorkspaces]?
+
+    /// The workspace `id` as the snapshot on disk saved it: the first screen's rows, else the rest
+    /// (read now, once, when `restoreRest` has not landed yet). Nil when it was never saved.
+    func savedWorkspace(id: String) -> Workspace? {
+        guard let snapshot, !stopped, snapshot.teamID == store.activeTeamID else { return nil }
+        for list in snapshot.workspaces.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        guard snapshot.workspaces.values.contains(where: { !$0.isComplete }) else { return nil }
+        let rest = savedRestRead ?? snapshots.restNow(snapshot, accountID: userID)
+        savedRestRead = rest
+        for list in rest.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        return nil
     }
 
     /// The rest of the cached rows, read after the first screen: each Mac still showing exactly
@@ -624,7 +655,37 @@ public final class LiveCoordinator {
         registeredTeamID = nil
         store.teamDataState = .loading
         closeAllSessions()
+        restoreTeamCache(teamID)
         teamTask = Task { [weak self] in await self?.startTeam(teamID) }
+    }
+
+    /// A switch to a team this phone showed before (on this launch or an earlier one) draws its
+    /// last rows at once, as a launch does, and the team's Macs then correct them in place: the
+    /// list draws placeholder rows only for a team it never listed. Leo, 2026-11-24: "holy shit
+    /// this is a huge problem in ios... wer need to chase all these placeholders doen and prevent
+    /// them". A Mac whose rows the store still holds (shown earlier in this launch) keeps them.
+    private func restoreTeamCache(_ teamID: String) {
+        guard snapshot?.teamID != teamID, let cached = snapshots.loadFirstScreen(accountID: userID, teamID: teamID) else { return }
+        snapshot = cached
+        if let team = store.teams.first(where: { $0.id == teamID }), team.macs.isEmpty {
+            store.setMacs(cached.macs, teamID: teamID)
+        }
+        var restored = 0
+        for (macID, saved) in cached.workspaces
+        where (store.macData[macID]?.source ?? .none) == .none && !store.workspaces.contains(where: { $0.macID == macID }) {
+            store.replaceWorkspaces(macID: macID, with: saved.workspaces)
+            store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: macID)
+            restored += saved.workspaces.count
+        }
+        ConnectTimeline.shared.mark("team_snapshot_restored", detail: "\(restored) workspaces")
+        guard cached.workspaces.values.contains(where: { !$0.isComplete }) else { return }
+        let snapshots = snapshots
+        let userID = userID
+        restTask?.cancel()
+        restTask = Task { [weak self] in
+            let rest = await snapshots.loadRest(cached, accountID: userID)
+            self?.restoreRest(rest)
+        }
     }
 
     /// Registers both device ids, then loads the Macs and starts presence.
@@ -753,6 +814,8 @@ public final class LiveCoordinator {
         // Its link closes first, and its phase change must not write data for it back.
         closeSession(id)
         parkedTerminals[id] = nil
+        // Its tab cards go too: a Mac added again under this id starts from a whole manifest.
+        tabs.forget(macID: id)
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
@@ -918,6 +981,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
+        session.quietStatusTask?.cancel()
         session.stallTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
@@ -1155,6 +1219,7 @@ public final class LiveCoordinator {
     /// Keep background work usable, but do not trust these links after suspension.
     public func background() {
         isBackgrounded = true
+        foregroundedEarly = false
         backgroundedAt = ContinuousClock.now
         incidents.appActive(false)
         // A call's link may have been opened since the call started.
@@ -1162,6 +1227,9 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.background) }
         discovery.pause()
         presence?.backgrounded = true
+        #if canImport(CmuxMobileLinkFFI)
+        pairRequests.background()
+        #endif
     }
 
     /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
@@ -1169,6 +1237,30 @@ public final class LiveCoordinator {
     public func followApplicationState() {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
+        followForegroundNotification()
+    }
+
+    /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before
+    /// the first frame is drawn, not at SwiftUI's `scenePhase == .active` after it. Leo,
+    /// 2026-11-24, back from another app: "The like multi-second long reattach where like the
+    /// entire thing is somehow grayed out and I can't interact with anything at all."
+    func followForegroundNotification() {
+        #if canImport(UIKit)
+        guard foregroundObserver == nil else { return }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.willEnterForeground() }
+        }
+        #endif
+    }
+
+    /// Back from the background: the links resume now; the scene's `.active` that follows is
+    /// then a repeat (``foreground()``).
+    func willEnterForeground() {
+        guard isBackgrounded else { return }
+        foreground()
+        foregroundedEarly = true
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.
@@ -1187,6 +1279,11 @@ public final class LiveCoordinator {
 
     /// App foreground: keep the links a short suspend left alive, replace stale ones, refresh presence.
     public func foreground() {
+        // `willEnterForeground` already resumed this return.
+        if foregroundedEarly {
+            foregroundedEarly = false
+            return
+        }
         let away = backgroundedAt.map { ContinuousClock.now - $0 }
         backgroundedAt = nil
         foreground(after: away)
@@ -1203,8 +1300,16 @@ public final class LiveCoordinator {
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
+        // Time away is not outage the person waited through: a link that dropped while the app
+        // was away counts its bounds from now, so its terminals stay reattaching (Send queued in
+        // the session's hold, no "Mac offline") instead of offline at once (LinkOutageClock).
+        let now = instants.now()
+        for session in sessions.values where session.linkDownSince != nil { outageRestarted(session, at: now) }
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
+        #if canImport(CmuxMobileLinkFFI)
+        pairRequests.foreground()
+        #endif
     }
 
 }
@@ -1286,8 +1391,7 @@ final class PendingAgentSource: AgentSessionSource {
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
         held.removeSubrange(index...)
-        let seconds = max(1, Int(holdWindow.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        let reason = "Not sent: \(summary.macName) is offline."
         for (intent, _) in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {

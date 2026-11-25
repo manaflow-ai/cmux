@@ -277,7 +277,9 @@ export function Listbox<T>({
   );
   if (shellClassName === undefined) return list;
   return (
-    <div ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")}>
+    // A listbox shell is the live answer to what is typed in a field beside it (the composer's
+    // slash, mention and emoji lists): its box follows the rows (ui/popupSettle.ts).
+    <div ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")} data-popup-settle="results">
       {list}
     </div>
   );

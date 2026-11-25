@@ -307,7 +307,15 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         }
         const tone = await pillTone(page, stage);
         expect(tone, "the soft pill resolves").not.toBe(TRANSPARENT);
-        const restBox = (await state(page, stage)).ring;
+        // The pointer on the card lays the hover's glass band round it (composerStates.css, HOVER
+        // GLASS RING), so the box rests in two looks: with the pointer off it and on it. A button in
+        // the card is read against the hovered look, one outside it (the Model and Mode chips under
+        // the card) against the look off it.
+        const restBox = { off: (await state(page, stage)).ring, on: "" };
+        await page.locator(stage.field).first().hover();
+        await settled(page);
+        restBox.on = (await state(page, stage)).ring;
+        const boxHovered = () => page.evaluate((box) => document.querySelector(box)!.matches(":hover"), stage.box);
         const buttons = await controls(page, stage);
         expect(buttons.length, "the row shows its buttons").toBeGreaterThan(1);
         const wrong: string[] = [];
@@ -323,9 +331,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           for (const other of buttons)
             if (other.index !== button.index && (await look(page, stage, other.index)).background !== TRANSPARENT)
               wrong.push(`${button.label}: hover also pills ${other.label}`);
-          if ((await state(page, stage)).ring !== restBox) wrong.push(`${button.label}: hover changes the box`);
-          await page.mouse.move(1, 1);
-          await settled(page);
+          if ((await state(page, stage)).ring !== restBox[(await boxHovered()) ? "on" : "off"])
+            wrong.push(`${button.label}: hover changes the box`);
         }
         await page.close();
         expect(wrong).toEqual([]);
@@ -357,6 +364,9 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     for (const stage of COMPOSERS)
       test(`${engine}: ${stage.name}: the caret shows only while the page is key, and focus adds no ring`, async () => {
         const page = await open(engine, stage);
+        // The click's pointer stays on the card, so rest is read with it there (the hover's band).
+        await page.locator(stage.field).first().hover();
+        await settled(page);
         const rest = await state(page, stage);
         expect(rest.focused, "at rest the field has no focus").toBe(false);
 
