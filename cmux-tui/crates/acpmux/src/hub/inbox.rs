@@ -1827,7 +1827,7 @@ impl Hub {
                             // wakes nobody waits for the chat's next real turn. Each flush was a
                             // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
                             // full cache write to carry FYIs and results nobody asked to wake for
-                            // (fs-agent-lane-13, 24 h: 191 `[inbox]` notice turns, 91 of them
+                            // (one lane VM, 24 h: 191 `[inbox]` notice turns, 91 of them
                             // more than 5 minutes after the chat's last reply). Leo, 2026-11-25:
                             // "let's continue while not doing bad cache writes!". A coordinator's
                             // held status (`inbox_page_rule.rs`, judged) keeps its 20-minute
