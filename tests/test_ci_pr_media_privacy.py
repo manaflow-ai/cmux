@@ -833,6 +833,33 @@ class TesseractToolTests(unittest.TestCase):
         self.assertIn("OMP_THREAD_LIMIT=1", done.stdout)
 
 
+@unittest.skipUnless(shutil.which("ffmpeg"), "needs a real ffmpeg (the scan job installs it)")
+class GifFrameCoverageTests(unittest.TestCase):
+    """A GIF frame shown for 100 ms between two others is still read: every distinct GIF frame, not one a second."""
+
+    def test_every_distinct_gif_frame_is_read(self) -> None:
+        tool = load_script("pr_media_ocr_tesseract_frames", TESSERACT_TOOL)
+        with tempfile.TemporaryDirectory(prefix="cmux-pr-media-gif-test-") as scratch:
+            root = Path(scratch)
+            for index, color in enumerate(("black", "red", "black")):
+                subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
+                                f"color=c={color}:s=16x16:d=0.1:r=10", "-frames:v", "1", str(root / f"in{index}.png")],
+                               check=True, timeout=60)
+            gif = root / "flash.gif"
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-framerate", "10", "-i", str(root / "in%d.png"),
+                            str(gif)], check=True, timeout=60)
+            out = root / "frames"
+            out.mkdir()
+            pictures = tool.frames(gif, out)
+            reds = 0
+            for picture in pictures:
+                pixel = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(picture), "-vf", "scale=1:1",
+                                        "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], check=True, capture_output=True,
+                                       timeout=60).stdout
+                reds += pixel[0] > 128 and pixel[1] < 64
+            self.assertEqual(reds, 1, f"the red frame was not read ({len(pictures)} frames)")
+
+
 @unittest.skipUnless(shutil.which("tesseract"), "needs a real tesseract (the publishing action installs it)")
 class SeededTermEndToEndTests(GatedWriterCase):
     """Real tesseract, the real check and pr-media.py's real put_file with a fake gh:
