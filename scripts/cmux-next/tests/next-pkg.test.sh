@@ -14,6 +14,9 @@
 #   the user, the launch marker left in the user's Application Support; exit 0;
 # - a run that hangs is stopped at the run cap and the install still exits 0, well inside the total cap;
 # - a failing run, no console user, another volume, or no app: exit 0, and nothing runs in the last three.
+# scripts/ci/nightly-steps/next-pkg.sh (nightly.yml nightly-next-pkg):
+# - the DMG's app goes to build-pkg.sh with the Installer identity and --notarize, the .pkg beside the DMG in R2;
+# - no Installer identity, a failed build, no certificate or no DMG: exit 0 with a next-pkg: line.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 PKG_DIR="$ROOT/scripts/cmux-next/pkg"
@@ -194,4 +197,57 @@ install p7; rm -rf "$TMP/p7/Applications/cmux NEXT.app"
 env CMUX_PKG_CONSOLE_USER=leo bash "$TMP/p7/scripts/postinstall" x "$TMP/p7/Applications" / >"$TMP/p7.log" 2>&1 \
   && grep -q "no app at" "$TMP/p7.log" || fail "no app: exit 0 and says so"
 pass "no console user, another volume, no app: exit 0, nothing runs"
+
+# --- scripts/ci/nightly-steps/next-pkg.sh (the nightly job) ---
+NP="$ROOT/scripts/ci/nightly-steps/next-pkg.sh"
+nl="$TMP/np"; mkdir -p "$nl/vol"
+make_app "$nl/vol" >/dev/null
+touch "$nl/cmux-nightly-next-macos-arm64-77.dmg"
+printf '#!/usr/bin/env bash\necho "keychain $*" >>"$NP_LOG"\n' >"$stubs/keychain"
+# hdiutil attach DMG ... -mountpoint M: M becomes a copy of the fake volume.
+cat >"$stubs/hdiutil" <<'EOF'
+#!/usr/bin/env bash
+echo "hdiutil $1" >>"$NP_LOG"
+if [ "$1" = attach ]; then while [ "$#" -gt 1 ]; do [ "$1" = -mountpoint ] && cp -R "$NP_VOL/." "$2/"; shift; done; fi
+exit 0
+EOF
+printf '#!/usr/bin/env bash\ncp -R "$1" "$2"\n' >"$stubs/ditto"
+printf '#!/usr/bin/env bash\necho "build-pkg $*" >>"$NP_LOG"; [ -n "${BUILD_FAIL:-}" ] && exit 1; echo pkg >"$2"\n' >"$stubs/buildpkg"
+printf '#!/usr/bin/env bash\necho "upload $*" >>"$NP_LOG"\n' >"$stubs/upload"
+printf '#!/usr/bin/env bash\necho "guard $*" >>"$NP_LOG"\n' >"$stubs/guard"
+cat >"$stubs/security" <<'EOF'
+#!/usr/bin/env bash
+[ -n "${NO_INSTALLER:-}" ] || echo '  2) ABC "Developer ID Installer: Manaflow (TEAM)"'
+echo '  1) DEF "Developer ID Application: Manaflow (TEAM)"'
+EOF
+chmod +x "$stubs"/*
+np() {
+  NP_LOG="$nl/$1.log"; : >"$NP_LOG"; shift
+  env NP_LOG="$NP_LOG" NP_VOL="$nl/vol" HDIUTIL="$stubs/hdiutil" SECURITY="$stubs/security" DITTO="$stubs/ditto" \
+    BUILD_PKG="$stubs/buildpkg" KEYCHAIN_TOOL="$stubs/keychain" UPLOAD="$stubs/upload" GUARD="$stubs/guard" \
+    APPLE_CERTIFICATE_BASE64=x APPLE_CERTIFICATE_PASSWORD=y R2_ENDPOINT=https://r2 NIGHTLY_NEXT_R2_BUCKET=b \
+    NIGHTLY_NEXT_R2_PREFIX=nightly-next/ CHANNEL_DMG_PREFIX=cmux-nightly-next-macos NIGHTLY_VARIANT=arm64 RUNNER_TEMP="$TMP" \
+    GITHUB_STEP_SUMMARY= "$@" bash "$NP" "$nl/cmux-nightly-next-macos-arm64-77.dmg" "$nl/out" >"$NP_LOG.out" 2>&1
+  NP_STATUS=$?
+}
+np n1
+[ "$NP_STATUS" = 0 ] || { cat "$NP_LOG.out"; fail "a package build exits 0"; }
+grep -qF "cmux NEXT.app $nl/out/cmux-nightly-next-macos-arm64-77.pkg --sign Developer ID Installer: Manaflow (TEAM) --keychain build.keychain --notarize" "$NP_LOG" \
+  || { cat "$NP_LOG"; fail "build-pkg.sh gets the app, the DMG's stem as .pkg, the Installer identity and --notarize"; }
+grep -qF -- "--key nightly-next/cmux-nightly-next-macos-arm64-77.pkg" "$NP_LOG" && grep -qF -- "--key nightly-next/cmux-nightly-next-macos-arm64.pkg" "$NP_LOG" \
+  || { cat "$NP_LOG"; fail "the package goes beside the DMG and under the channel's stable name"; }
+grep -qF "guard r2-key b nightly-next/cmux-nightly-next-macos-arm64-77.pkg" "$NP_LOG" || fail "each key passes nightly-next-guard first"
+grep -q "keychain delete" "$NP_LOG" || fail "the signing keychain is deleted"
+grep -q "^next-pkg: built cmux-nightly-next-macos-arm64-77.pkg" "$NP_LOG.out" || { cat "$NP_LOG.out"; fail "one line says it was built"; }
+pass "next-pkg.sh builds, signs, notarizes and uploads"
+
+np n2 NO_INSTALLER=1
+{ [ "$NP_STATUS" = 0 ] && ! grep -q build-pkg "$NP_LOG" && ! grep -q upload "$NP_LOG" && grep -q "keychain delete" "$NP_LOG" \
+  && grep -q "no Developer ID Installer identity" "$NP_LOG.out"; } || { cat "$NP_LOG" "$NP_LOG.out"; fail "no Installer identity: exit 0, nothing built, says so"; }
+np n3 BUILD_FAIL=1
+{ [ "$NP_STATUS" = 0 ] && ! grep -q upload "$NP_LOG" && grep -q "build-pkg.sh failed" "$NP_LOG.out"; } || fail "a failed build: exit 0, nothing uploaded"
+np n4 APPLE_CERTIFICATE_BASE64=
+{ [ "$NP_STATUS" = 0 ] && [ ! -s "$NP_LOG" ] && grep -q "no signing certificate" "$NP_LOG.out"; } || fail "no certificate: exit 0, nothing runs"
+{ bash "$NP" "$nl/missing.dmg" "$nl/out" >"$nl/n5.out" 2>&1 && grep -q "no package" "$nl/n5.out"; } || fail "no DMG: exit 0"
+pass "next-pkg.sh never fails the nightly"
 echo "next-pkg: all passed"

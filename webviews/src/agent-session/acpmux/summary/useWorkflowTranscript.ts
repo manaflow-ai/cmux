@@ -2,7 +2,6 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useAutoRetry } from "../autoRetry";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { SUBAGENT_OF } from "../subagents/subagentRows";
 import type { WorkflowAgent } from "./workflow";
 import { workflowPaneRequest, WorkflowTranscript, type TranscriptRead } from "./workflowTranscript";
 
@@ -12,7 +11,6 @@ export function useWorkflowTranscript(
   sessionId: string | undefined,
   enabled: boolean,
   agent: WorkflowAgent | undefined,
-  chat: string,
   read: TranscriptRead,
   connection: string,
 ) {
@@ -52,23 +50,6 @@ export function useWorkflowTranscript(
   });
   const rows = useMemo((): AcpmuxRow[] | undefined => {
     if (!enabled || !request || request.sessionId !== sessionId || !id) return undefined;
-    const pill: AcpmuxRow = {
-      id: `${id}:of`,
-      version: revision,
-      at: 0,
-      kind: SUBAGENT_OF,
-      text: chat,
-      subagents: [
-        {
-          id,
-          parent: null,
-          name: agent?.name ?? request!.agentId,
-          task: agent?.name,
-          state: agent?.state ?? "unknown",
-          startedAt: agent?.startedAt ?? 0,
-        },
-      ],
-    };
     const notice = stillTrying
       ? t("workflow.stillLoadingTranscript")
       : (!reader || reader.loading || reader.failed) && !reader?.rows.length
@@ -76,8 +57,8 @@ export function useWorkflowTranscript(
         : reader?.truncated
           ? t("workflow.historyLimited")
           : undefined;
+    // The agent's rows as a chat's, with no line naming the chat it came from (Leo, 2026-11-22).
     return [
-      pill,
       ...(reader?.rows ?? []),
       ...(notice
         ? [
@@ -91,7 +72,7 @@ export function useWorkflowTranscript(
           ]
         : []),
     ];
-  }, [reader, id, chat, agent, request, t, revision, enabled, sessionId, stillTrying]);
+  }, [reader, id, request, t, revision, enabled, sessionId, stillTrying]);
   return {
     rows,
     canLoadOlder: reader?.canLoadOlder ?? false,

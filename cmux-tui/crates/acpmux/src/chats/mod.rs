@@ -23,6 +23,7 @@ mod resolve;
 pub mod search;
 mod settings;
 pub(crate) mod sources;
+pub(crate) mod terminal;
 pub mod terms;
 pub mod text;
 mod watch;

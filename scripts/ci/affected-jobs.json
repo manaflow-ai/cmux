@@ -193,9 +193,6 @@
         "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes",
         "conformance": "154 runs on 36 merged pull requests (11-21 14:29-17:00Z, live feed), 148 of them with contract skipped; 5 of 282 merged commits touched its inputs; 0.05% of heads it alone caught (CI 10x, cmux#48480); 2,303 job-minutes"
       },
-      ".github/workflows/swift-linux-packages.yml": {
-        "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
-      },
       ".github/workflows/cmux-next-react-doctor.yml": {
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"
       },

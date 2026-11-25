@@ -9,8 +9,8 @@ import XCTest
 /// each keyboard surface, with the app's keyboard-pin trace on
 /// (`-cmux-mobile-kbd-pin-trace`: the keyboard, the focused field and the
 /// content behind it as drawn, every display frame), it shows and hides the
-/// keyboard 5 times by tap, 5 times by the key row's keyboard key (where the
-/// surface has one), dismisses it 3 times by dragging the content down, and 3
+/// keyboard 5 times by tap, measures 5 more hides with the key row's keyboard
+/// key (where the surface has one), dismisses it 3 times by dragging the content down, and 3
 /// more times does each move with the next input right behind it (a key
 /// right after a show, a scroll right after a hide: time to interactive).
 ///
@@ -38,7 +38,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         var environment: [String: String] = [:]
         /// The element a tap focuses.
         var field: (XCUIApplication) -> XCUIElement
-        /// The key row's keyboard key (shows and hides), if the surface has one.
+        /// The key row's Hide Keyboard key, if the surface has one.
         var key: ((XCUIApplication) -> XCUIElement)?
         /// A tap that hides the keyboard; nil: the key row's key hides it.
         var hideByTap: ((XCUIApplication) -> Void)?
@@ -171,13 +171,14 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         // By the key row's keyboard key.
         if let key = surface.key {
             for round in 0..<5 {
-                surface.ready(app)
-                mark(surface, "key.show.\(round)")
-                key(app).tap()
-                settle()
-                if !keyboardUp(app) { notes.append("key.show.\(round): no keyboard") }
+                showByTap(surface, app, round: round, method: "setup")
+                let hideKey = key(app)
+                guard hideKey.waitForExistence(timeout: 5) else {
+                    XCTFail("\(surface.name): no Hide Keyboard key after focusing the field")
+                    continue
+                }
                 mark(surface, "key.hide.\(round)")
-                key(app).tap()
+                hideKey.tap()
                 settle()
                 if keyboardUp(app) {
                     notes.append("key.hide.\(round): the key left the keyboard up")
