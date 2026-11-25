@@ -2,6 +2,8 @@ import CmuxMobileDesign
 import Foundation
 import SwiftUI
 
+private let theme = CmuxMobileTheme.standard
+
 /// `GET /v1/me/agent-call` (PROTOCOL.md "Agent calls"): the person's phone-call settings, kept
 /// by the service, which places the calls itself, so they arrive with cmux closed or the iPhone
 /// locked.

@@ -3,6 +3,8 @@ import CmuxMobileNotifications
 import SwiftUI
 import UIKit
 
+private let theme = CmuxMobileTheme.standard
+
 /// Settings → Notifications → Agent Alarms: an AlarmKit alarm (it rings through Silent and
 /// Focus, like the Clock app's) when a coding agent is stuck on the person. The rule lives in
 /// `AgentAlarmGate` (one alarm per event, at most one in any 30 seconds); the preferences sit
