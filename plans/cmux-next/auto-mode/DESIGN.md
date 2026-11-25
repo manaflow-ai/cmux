@@ -574,8 +574,30 @@ The manual move carries those files (`hub/transfer.rs`, `native::locate`); the A
   (This Mac = `local`).
 - `_acpmux/auto_session/move` `{sessionId, to: "cloud" | "local"}`: the wish, sent to the store.
 - A chat's row gains `autoSession.mode` and `autoSession.moving` (`"cloud" | "local"`, absent when not moving).
-- `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) read and apply the mode of a started chat
-  through the two requests above; for a chat that has not started they are unchanged.
+- `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) stay what they are: the pick for a chat that
+  has not started. Nothing on the page calls the two requests above yet. As the base ships it (2026-11-24,
+  https://github.com/manaflow-ai/cmux/pull/53938), the Where menu's pick decides where the page starts the
+  chat; a chat it starts on this Mac is made on this laptop's daemon and gets Auto on when `cloud.autoCloud`
+  is on, and a chat it starts on a Cloud machine never reaches this laptop's holder loop. The daemon cannot
+  tell "Machine…, this Mac" from Auto's "this Mac has room", so both get Auto on: a control for "this Mac
+  only" and for "move now" on a started chat is the picker's to add, calling `set {mode}` and `move`.
+
+As built (2026-11-24, `acpmux/src/auto_session/runtime/moves.rs`, `surface.rs`, `record.rs`,
+`server/auto_gate.rs`):
+
+- `move` is answered once the store took the wish, with the row (`moving` set). A laptop that holds the chat
+  starts the give from that answer, without waiting for its next renewal; a chat the machine holds is given
+  at the machine's next renewal. A refusal is the request's error: one plain sentence, the store's code as
+  `data.reason`, `data.retryable`, and nothing changes.
+- `set {mode: "cloud"}` on a chat with Auto off registers it kept in the Cloud, then moves it; on an Auto chat
+  it is the move alone (the store keeps it in the Cloud from the same write). `set {mode: "auto"}` is Auto on,
+  not kept. `set {mode: "local"}` on a chat that is here is Auto off; on a chat the Cloud has, the chat is
+  moved home first and Auto goes off once it is here and this laptop stored a copy of its own (the record's
+  `local_wanted`; the row says `mode: "local"` from the moment it was asked). Asking for Auto or Cloud again
+  ends that.
+- `move` and `set` are the person's only, as `set` was: not an agent's connection, not a remote connection or
+  a peer. A Cloud machine's daemon refuses `move` (a chat is moved from the person's own devices).
+- Neither request is in the pane's policy (`cmux-agent-pane-policy/policy.json`): the page sends neither yet.
 
 ### Surfaces: none of its own (the place picker's work owns them)
 
