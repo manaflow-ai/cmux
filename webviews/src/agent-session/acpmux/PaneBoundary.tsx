@@ -10,6 +10,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useT } from "./i18n";
 import { paneFailureLine } from "./paneFailureLine";
+import { clearSnapshot } from "./snapshotCache";
 
 type Props = { children?: ReactNode; onRetry?: () => void };
 type State = { failed: boolean };
@@ -38,6 +39,10 @@ export class PaneBoundary extends Component<Props, State> {
       ...(info.componentStack ? { componentStack: info.componentStack } : {}),
     };
     console.error(paneFailureLine(error, info.componentStack ?? undefined), error, info.componentStack ?? "");
+    // The reload copy of the snapshot would paint the rows that threw again on Retry's reload and
+    // fail the same way: the reloaded pane starts empty and draws from its live client. Saves stop for
+    // the rest of this page (`saveSnapshot`), so neither a pending one nor `pagehide` puts it back.
+    clearSnapshot();
   }
 
   render() {
