@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45709969095",
+  "recorded_at": "2026-11-25T22:40:19Z",
+  "reason": "image inputs changed in 7da2a10131cb7d357337bf53c14542bfe8aea312..de8fca4de98a0651f046c0daa58f2502b94281a0",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "de8fca4de98a0651f046c0daa58f2502b94281a0",
+      "mergedAt": "2026-11-25T22:02:37+00:00",
+      "subject": "cmux-vm image: first dev-tree clone from the edge bundle lists (RFD 0056 part 3) (#56739)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-25T22:40:19Z",
+    "snapshot_id": "sh-08c409cfdfa54df6b7e841f0d77c89a2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45709969095): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0ef0bbc9a3c375c154cecb43b60d4a40ecef1014",
+    "image": "cloud-native-auto-67d01201-45709969095-1",
+    "revision": "ci-45709969095-1",
+    "at": "2026-11-25T22:40:19Z"
+  },
+  "rolled_back": false
+}
