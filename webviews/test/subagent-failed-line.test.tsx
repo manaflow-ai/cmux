@@ -1,6 +1,6 @@
 // A failed subagent's line is quiet, on one fixed column grid (design/chat-transcript.md, Leo,
 // 2026-11-03: "this ui is pretty awkward looking"): mark | title | short reason | Retry | time, the
-// title in plain text, no chip, red only on the mark.
+// title in plain text, no chip; its reason right after the title in red, and a red dot on the mark (cmux#54927).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -90,7 +90,7 @@ test("a failure's reason on the line is its first sentence", () => {
   expect(shortReason("first line\nsecond line")).toBe("first line");
 });
 
-test("failed lines take the quiet grid: plain title, muted reason, Retry and time in their columns", () => {
+test("failed lines take the quiet grid: plain title, reason in red, Retry and time in their columns", () => {
   const host = render([
     failed("a", "Fix white-on-white reply button in the composer menu"),
     failed("b", "Speed up Cloud folder sync"),
@@ -113,21 +113,27 @@ test("failed lines take the quiet grid: plain title, muted reason, Retry and tim
   }
 });
 
-test("the grid's columns are fixed, and red is on the mark only", () => {
+// cmux#54927: the reason split the line's room evenly with the title and floated alone at its
+// middle, and the mark's red never showed on the agent's own glyph. The reason now follows its
+// title in red, and the mark carries a red dot.
+test("the grid's columns are fixed; the reason follows its title in red, the mark a red dot", () => {
   // The refusal note and the ⋯ menu each have their own track, so a refused Retry's note never draws over ⋯.
   expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done__note \{\s*grid-column: 3;/);
   expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done__actions \{\s*grid-column: 4;/);
   expect(css).toMatch(
     /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(var\(--cv-failed-retry-width, 64px\), max-content\) auto auto\s+minmax\(var\(--cv-failed-time-width, 7ch\), max-content\)/,
   );
+  // No even split: the reason starts right after the title.
+  expect(css).not.toMatch(/\.cv-subagent-failed__text \{[^}]*grid-template-columns/);
+  expect(css).toMatch(/\.cv-subagent-failed__reason \{[^}]*color: var\(--agent-status-failure\)/);
   expect(css).toMatch(
-    /\[data-look="grid"\] \.cv-subagent-failed__text \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/,
+    /> \.cv-subagent-done\[data-state="failed"\] \.cv-tool__icon::after \{[^}]*background: var\(--agent-status-failure\)/,
   );
   expect(css).toMatch(
     /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done\[data-state="failed"\] \{\s*color: var\(--cv-activity-text\)/,
   );
   expect(css).toMatch(
-    /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done \.cv-tool__icon \{\s*color: var\(--agent-status-failure\)/,
+    /:is\(\[data-look="grid"\], \[data-look="quiet"\]\) > \.cv-subagent-done \.cv-tool__icon \{\s*position: relative;\s*color: var\(--agent-status-failure\)/,
   );
 });
 
