@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWindowRules
 public import CryptoKit
 public import Foundation
 import Darwin
@@ -198,8 +199,12 @@ nonisolated public struct KeptVersionStore: Sendable {
         return removed
     }
 
-    /// Numeric build order (CFBundleVersion is monotonic, R78).
+    /// Numeric build order (CFBundleVersion is monotonic, R78): cmux-updater-core's `numeric.rs`
+    /// (`NSString`'s `.numeric` order), asked over the app FFI (`updater_numeric_compare`). A build
+    /// whose FFI lacks the op calls no build newer.
     static func isNewer(_ a: String, than b: String) -> Bool {
-        a.compare(b, options: .numeric) == .orderedDescending
+        struct Request: Encodable { var pairs: [[String]] }
+        struct Reply: Decodable { var orders: [Int] }
+        return WindowRules().call("updater_numeric_compare", Request(pairs: [[a, b]]), as: Reply.self)?.orders.first == 1
     }
 }

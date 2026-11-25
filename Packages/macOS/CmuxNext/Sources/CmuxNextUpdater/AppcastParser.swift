@@ -1,92 +1,65 @@
 public import Foundation
+import CmuxNextWindowRules
 
-/// Reads the items of a Sparkle appcast (RSS 2.0 with the `sparkle:`
-/// namespace). Only the fields ``AppcastItem`` needs; deltas are skipped.
+/// Reads the items of a Sparkle appcast (RSS 2.0 with the `sparkle:` namespace): only the fields
+/// ``AppcastItem`` needs; deltas are skipped. The reader is cmux-updater-core's (`appcast.rs`),
+/// asked over the app FFI (`updater_appcast_parse`), so every platform's updater reads a feed the
+/// same way; this maps its answer onto ``AppcastItem``.
 nonisolated public enum AppcastParser {
     public static func parse(_ data: Data) throws -> [AppcastItem] {
-        let delegate = AppcastParserDelegate()
-        let parser = XMLParser(data: data)
-        parser.shouldProcessNamespaces = false
-        parser.delegate = delegate
-        guard parser.parse() else {
-            throw AppcastParseError(message: parser.parserError.map(String.init(describing:)) ?? "invalid appcast XML")
+        guard let xml = String(data: data, encoding: .utf8) else {
+            throw AppcastParseError(message: "invalid appcast XML: the feed is not UTF-8")
         }
-        guard delegate.sawChannel else { throw AppcastParseError(message: "appcast has no <channel>") }
-        return delegate.items
+        guard let reply = WindowRules().call("updater_appcast_parse", ParseRequest(xml: xml), as: ParseReply.self) else {
+            throw AppcastParseError(message: "the updater core did not answer")
+        }
+        if let error = reply.error { throw AppcastParseError(message: error) }
+        return (reply.items ?? []).map(\.item)
     }
+
+    private struct ParseRequest: Encodable { var xml: String }
+    private struct ParseReply: Decodable { var items: [WireItem]?; var error: String? }
+
+    /// cmux-updater-core's `AppcastItem`.
+    private struct WireItem: Decodable {
+        var version: String
+        var displayVersion: String?
+        var title: String?
+        var minimumSystemVersion: WireSystemVersion?
+        var maximumSystemVersion: WireSystemVersion?
+        var releaseNotesUrl: String?
+        var downloadUrl: String?
+        var itemDescription: String?
+        var date: Double?
+        var sparkleChannel: String?
+        var listsDeltas: Bool?
+        var signature: WireSignature?
+
+        var item: AppcastItem {
+            AppcastItem(
+                version: version, displayVersion: displayVersion, title: title,
+                minimumSystemVersion: minimumSystemVersion?.version, maximumSystemVersion: maximumSystemVersion?.version,
+                releaseNotesURL: releaseNotesUrl.flatMap(URL.init(string:)), downloadURL: downloadUrl.flatMap(URL.init(string:)),
+                itemDescription: itemDescription, date: date.map(Date.init(timeIntervalSince1970:)),
+                sparkleChannel: sparkleChannel, listsDeltas: listsDeltas ?? false,
+                signature: signature.map { ArchiveSignature(edSignature: $0.edSignature, length: $0.length) })
+        }
+    }
+
+    private struct WireSignature: Decodable { var edSignature: String; var length: Int? }
 }
 
-/// XMLParser callbacks. Collects `<item>` children, ignoring the
-/// enclosures inside `<sparkle:deltas>`.
-nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelegate {
-    private(set) var items: [AppcastItem] = []
-    private(set) var sawChannel = false
-    private var fields: [String: String]?
-    private var enclosure: [String: String]?
-    private var deltaDepth = 0
-    private var listsDeltas = false
-    private var text = ""
+/// cmux-updater-core's `SystemVersion` on the wire.
+nonisolated struct WireSystemVersion: Codable {
+    var major: Int
+    var minor: Int
+    var patch: Int
 
-    func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?,
-                attributes: [String: String] = [:]) {
-        text = ""
-        switch name {
-        case "channel": sawChannel = true
-        case "item": fields = [:]; enclosure = nil; listsDeltas = false
-        case "sparkle:deltas":
-            deltaDepth += 1
-            if fields != nil { listsDeltas = true }
-        case "enclosure" where fields != nil && deltaDepth == 0: enclosure = attributes
-        default: break
-        }
+    init(_ version: SystemVersion) {
+        major = version.major
+        minor = version.minor
+        patch = version.patch
     }
 
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        text += string
-    }
-
-    func parser(_ parser: XMLParser, foundCDATA block: Data) {
-        text += String(decoding: block, as: UTF8.self)
-    }
-
-    func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        text = ""
-        switch name {
-        case "sparkle:deltas": deltaDepth -= 1
-        case "item": finishItem()
-        default:
-            guard fields != nil, deltaDepth == 0, !value.isEmpty else { return }
-            fields?[name] = value
-        }
-    }
-
-    /// RSS dates ("Sat, 10 Oct 2026 03:05:21 +0000").
-    private static func rfc822(_ text: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
-        return formatter.date(from: text)
-    }
-
-    private func finishItem() {
-        guard let fields else { return }
-        self.fields = nil
-        let enclosure = enclosure ?? [:]
-        guard let version = fields["sparkle:version"] ?? enclosure["sparkle:version"] else { return }
-        items.append(AppcastItem(
-            version: version,
-            displayVersion: fields["sparkle:shortVersionString"] ?? enclosure["sparkle:shortVersionString"],
-            title: fields["title"],
-            minimumSystemVersion: fields["sparkle:minimumSystemVersion"].flatMap(SystemVersion.init),
-            maximumSystemVersion: fields["sparkle:maximumSystemVersion"].flatMap(SystemVersion.init),
-            releaseNotesURL: (fields["sparkle:fullReleaseNotesLink"] ?? fields["sparkle:releaseNotesLink"]).flatMap(URL.init(string:)),
-            downloadURL: enclosure["url"].flatMap(URL.init(string:)),
-            itemDescription: fields["description"],
-            date: fields["pubDate"].flatMap(Self.rfc822),
-            sparkleChannel: fields["sparkle:channel"],
-            listsDeltas: listsDeltas,
-            signature: enclosure["sparkle:edSignature"].map { ArchiveSignature(edSignature: $0, length: enclosure["length"].flatMap(Int.init)) }
-        ))
-    }
+    var version: SystemVersion { SystemVersion(major: major, minor: minor, patch: patch) }
 }

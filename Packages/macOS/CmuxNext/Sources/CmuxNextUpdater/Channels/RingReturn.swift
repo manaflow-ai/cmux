@@ -1,10 +1,12 @@
 public import Foundation
+import CmuxNextWindowRules
 
 /// What picking a slower ring (Dev to Nightly) does to the build this Mac runs. Sparkle never
 /// offers a lower build, so when the running build is not on the ring and the ring has nothing
 /// newer, the way back is the newest build of that ring this Mac kept (a rollback swap: one
 /// restart, the same settings and sessions); with none kept, the running build stays until the
-/// ring reaches a newer one.
+/// ring reaches a newer one. The rule is cmux-updater-core's (`rollback.rs` `ring_return`), asked
+/// over the app FFI (`updater_ring_return`).
 nonisolated public enum RingReturn: Equatable, Sendable {
     /// The running build is on the ring, or the ring offers a newer one: the normal update path.
     case none
@@ -22,11 +24,16 @@ nonisolated public enum RingReturn: Equatable, Sendable {
     ///   - kept: kept versions, newest first.
     public static func decide(installedBuild: String, offered: [AppcastItem], promoted: Set<String>,
                               pulled: Set<String> = [], kept: [KeptVersion]) -> RingReturn {
-        let onRing = Set(offered.map(\.version)).union(promoted).subtracting(pulled)
-        if onRing.contains(installedBuild) { return .none }
-        if offered.contains(where: { AppcastSelector.isOlder(installedBuild, than: $0.version) }) { return .none }
-        guard let target = kept.first(where: { onRing.contains($0.build) && AppcastSelector.isOlder($0.build, than: installedBuild) })
-        else { return .waits }
-        return .goBack(target)
+        struct Request: Encodable { var installedBuild: String; var offered, promoted, pulled, kept: [String] }
+        struct Reply: Decodable { var kind: String; var kept: Int? }
+        let request = Request(installedBuild: installedBuild, offered: offered.map(\.version), promoted: promoted.sorted(),
+                              pulled: pulled.sorted(), kept: kept.map(\.build))
+        // A build whose FFI lacks the op leaves the running build where it is.
+        guard let reply = WindowRules().call("updater_ring_return", request, as: Reply.self) else { return .none }
+        switch reply.kind {
+        case "goBack": return reply.kept.flatMap { kept.indices.contains($0) ? .goBack(kept[$0]) : nil } ?? .waits
+        case "waits": return .waits
+        default: return .none
+        }
     }
 }

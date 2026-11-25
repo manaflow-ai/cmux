@@ -35,7 +35,7 @@ extension UpdaterService {
     /// unknown and not offered.
     func offersStagedUpdate(version: String?) -> Bool {
         if let build = stagedBuild(), !build.isEmpty {
-            return SUStandardVersionComparator.default.compareVersion(build, toVersion: identity.build) == .orderedDescending
+            return AppcastSelector.compare(build, identity.build) == .orderedDescending
         }
         guard let version, !version.isEmpty else { return false }
         return version != identity.shortVersion

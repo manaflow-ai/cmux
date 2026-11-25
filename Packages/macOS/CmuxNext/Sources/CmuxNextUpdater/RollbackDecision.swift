@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWindowRules
 
 /// A previous version kept for rollback (`updates.keepPreviousVersions`).
 nonisolated public struct KeptVersion: Equatable, Sendable {
@@ -54,7 +55,8 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
     case busy
 }
 
-/// Picks the rollback target or refuses (pure).
+/// Picks the rollback target or refuses. The rules are cmux-updater-core's (`rollback.rs`), asked
+/// over the app FFI (`updater_rollback`); this maps the kept builds onto the wire and the answer back.
 nonisolated public struct RollbackDecision {
     public init() {}
     /// - Parameters:
@@ -65,20 +67,27 @@ nonisolated public struct RollbackDecision {
     ///   - teamID: this app's signing team.
     public static func decide(kept: [KeptVersion], build: String?, running: String? = nil, stored: [String: Int],
                               teamID: String?) -> Result<KeptVersion, RollbackRefusal> {
-        let picked: KeptVersion? = if let build { kept.first { $0.build == build } }
-            else if let running { previous(kept: kept, running: running) } else { kept.first }
-        guard let target = picked else {
-            if build == nil, let running, !kept.isEmpty { return .failure(.nothingOlder(running: running)) }
+        let request = Request(kept: kept.map(Wire.init), build: build, running: running, stored: stored, teamId: teamID,
+                              previousOnly: false)
+        // A build whose FFI lacks the op refuses: a rollback never runs on a guess.
+        guard let reply = WindowRules().call("updater_rollback", request, as: Reply.self) else { return .failure(.nothingKept) }
+        func target(_ index: Int?) -> KeptVersion? { index.flatMap { kept.indices.contains($0) ? kept[$0] : nil } }
+        if let refusal = reply.refusal {
+            let item = target(refusal.kept)
+            switch refusal.kind {
+            case "nothingOlder": return .failure(.nothingOlder(running: refusal.running ?? running ?? ""))
+            case "predatesRollback": if let item { return .failure(.predatesRollback(item)) }
+            case "storeTooNew":
+                if let item, let store = refusal.store, let storedVersion = refusal.stored, let readable = refusal.readable {
+                    return .failure(.storeTooNew(store: store, stored: storedVersion, readable: readable, kept: item))
+                }
+            case "unknownStore": if let item, let store = refusal.store { return .failure(.unknownStore(store: store, kept: item)) }
+            case "signature": if let item { return .failure(.signature(item)) }
+            default: break
+            }
             return .failure(.nothingKept)
         }
-        guard let teamID, target.teamID == teamID else { return .failure(.signature(target)) }
-        guard let readable = target.storeSchemas else { return .failure(.predatesRollback(target)) }
-        // Sorted, so the message names the same store every time.
-        for (store, version) in stored.sorted(by: { $0.key < $1.key }) {
-            guard let reads = readable[store] else { return .failure(.unknownStore(store: store, kept: target)) }
-            if version > reads { return .failure(.storeTooNew(store: store, stored: version, readable: reads, kept: target)) }
-        }
-        return .success(target)
+        return target(reply.target).map { .success($0) } ?? .failure(.nothingKept)
     }
 
     /// The build "go back" means: of the kept builds older than `running` (by number, never one
@@ -86,10 +95,48 @@ nonisolated public struct RollbackDecision {
     /// no keep date after those that have one, the newest number first. Never picked by the order
     /// the folder lists them in.
     public static func previous(kept: [KeptVersion], running: String) -> KeptVersion? {
-        kept.filter { KeptVersionStore.isNewer(running, than: $0.build) }.min { a, b in
-            let (x, y) = (a.keptAt ?? .distantPast, b.keptAt ?? .distantPast)
-            return x != y ? x > y : KeptVersionStore.isNewer(a.build, than: b.build)
+        let request = Request(kept: kept.map(Wire.init), build: nil, running: running, stored: [:], teamId: nil, previousOnly: true)
+        guard let index = WindowRules().call("updater_rollback", request, as: Reply.self)?.target,
+              kept.indices.contains(index) else { return nil }
+        return kept[index]
+    }
+
+    /// cmux-updater-core's `Kept`.
+    private struct Wire: Encodable {
+        var build: String
+        var storeSchemas: [String: Int]?
+        var teamId: String?
+        var keptAt: Double?
+
+        init(_ kept: KeptVersion) {
+            build = kept.build
+            storeSchemas = kept.storeSchemas
+            teamId = kept.teamID
+            keptAt = kept.keptAt?.timeIntervalSince1970
         }
+    }
+
+    private struct Request: Encodable {
+        var kept: [Wire]
+        var build: String?
+        var running: String?
+        var stored: [String: Int]
+        var teamId: String?
+        var previousOnly: Bool
+    }
+
+    private struct Reply: Decodable {
+        struct Refusal: Decodable {
+            var kind: String
+            var running: String?
+            var store: String?
+            var stored: Int?
+            var readable: Int?
+            var kept: Int?
+        }
+
+        var target: Int?
+        var refusal: Refusal?
     }
 }
 

@@ -408,7 +408,7 @@ final class StagedUpdateRefresh {
     func dropStale(updater: UpdaterService) {
         let running = updater.identity.build
         guard case .ready = updater.sourcePhase, let build = updater.stagedBuild(), !build.isEmpty,
-              SUStandardVersionComparator.default.compareVersion(build, toVersion: running) != .orderedDescending,
+              AppcastSelector.compare(build, running) != .orderedDescending,
               updater.cancelStaged() else { return }
         updater.log.append("staged build \(build) is not newer than build \(running): cancelling its installer")
     }
