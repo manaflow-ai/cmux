@@ -13,10 +13,11 @@ import type { StringKey } from "./i18n";
 /// The daemon request (acpmux rpc.rs `MUX_PLACE_CHAT`).
 export const PLACE_CHAT_METHOD = "_acpmux/place_chat";
 
-/// How Auto draws in the chip and the menu (autoWhere.css). `orbit` ships; the rest are the
-/// gallery's variants (AutoWhere.gallery.tsx).
-export type AutoLook = "orbit" | "constellation" | "aurora" | "plain";
-export const AUTO_LOOK: AutoLook = "orbit";
+/// How Auto draws in the chip and the menu (autoWhere.css). `split` ships (Leo 2026-11-24: "the auto
+/// icon i assume necessarily has to be the half and half computer/cloud icon with the angled slash");
+/// the rest are the gallery's variants (AutoWhere.gallery.tsx).
+export type AutoLook = "split" | "orbit" | "constellation" | "aurora" | "plain";
+export const AUTO_LOOK: AutoLook = "split";
 
 /// A place Auto may put the chat, with what is known of its room (place.rs `Headroom`). Data, so the
 /// list is not two places hard-coded: Cloud today, the person's own machines later.
@@ -109,46 +110,38 @@ export function landingMove(landing: AutoLanding): "bringBack" | "move" {
   return landing.went === "cloud" ? "bringBack" : "move";
 }
 
-/// A Cloud landing is said in the Cloud chat, which opens in another tab: the start tab leaves it
-/// here, and the chat whose first prompt it is takes it once (`takeCloudLanding`).
-const LANDING_KEY = "cmux.autoWhere.cloudLanding";
+/// The destination's seed carries the UUID of the Auto start that opened it. Independent starts
+/// can arrive in either order, even when their first prompts are identical.
+const LANDING_PREFIX = "cmux.autoWhere.cloudLanding.";
 const LANDING_TTL_MS = 30 * 60_000;
 
-type KeptLanding = AutoLanding & { prompt: string; at: number };
-
-function store(): Storage | undefined {
+export function keepCloudLanding(landing: AutoLanding, startKey: string, now = Date.now()): void {
   try {
-    return globalThis.localStorage;
+    globalThis.localStorage?.setItem(LANDING_PREFIX + startKey, JSON.stringify({ landing, at: now }));
   } catch {
-    return undefined;
+    // The chat can still start when its page has no storage.
   }
 }
 
-export function keepCloudLanding(landing: AutoLanding, prompt: string, now = Date.now()): void {
+export function takeCloudLanding(startKey: string | undefined, now = Date.now()): AutoLanding | undefined {
+  if (!startKey) return undefined;
   try {
-    store()?.setItem(LANDING_KEY, JSON.stringify({ ...landing, prompt: prompt.trim(), at: now }));
+    const key = LANDING_PREFIX + startKey;
+    const store = globalThis.localStorage;
+    const raw = store?.getItem(key);
+    if (!raw) return undefined;
+    store.removeItem(key);
+    const { landing, at } = JSON.parse(raw);
+    if (
+      typeof at === "number" &&
+      now >= at &&
+      now - at <= LANDING_TTL_MS &&
+      landing?.went === "cloud" &&
+      typeof landing.code === "string"
+    )
+      return { went: "cloud", code: landing.code, ...(typeof landing.why === "string" ? { why: landing.why } : {}) };
   } catch {
-    // A page with no storage says nothing in the Cloud chat; the chat still runs there.
+    // Storage may be unavailable or hold an unreadable entry.
   }
-}
-
-/// The kept Cloud landing whose prompt is `firstPrompt`, taken out; none when it is another chat's
-/// or older than LANDING_TTL_MS.
-export function takeCloudLanding(firstPrompt: string | undefined, now = Date.now()): AutoLanding | undefined {
-  const s = store();
-  if (!s || !firstPrompt) return undefined;
-  let kept: KeptLanding | undefined;
-  try {
-    kept = JSON.parse(s.getItem(LANDING_KEY) ?? "null") as KeptLanding | undefined;
-  } catch {
-    kept = undefined;
-  }
-  if (!kept || typeof kept.prompt !== "string") return undefined;
-  if (now - kept.at > LANDING_TTL_MS) {
-    s.removeItem(LANDING_KEY);
-    return undefined;
-  }
-  if (kept.prompt !== firstPrompt.trim()) return undefined;
-  s.removeItem(LANDING_KEY);
-  return { went: kept.went, code: kept.code, ...(kept.why ? { why: kept.why } : {}) };
+  return undefined;
 }

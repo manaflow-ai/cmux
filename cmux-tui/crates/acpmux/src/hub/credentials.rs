@@ -54,13 +54,10 @@ impl Hub {
         id: &str,
         credential: AgentCredential,
     ) -> Result<Value, RpcError> {
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().ok_or_else(
-                || {
-                    RpcError::not_found("no such session on this machine")
-                        .with_data(json!({"reason": "credentials.no_session"}))
-                },
-            )?;
+        let session = self.session_get(id).ok_or_else(|| {
+            RpcError::not_found("no such session on this machine")
+                .with_data(json!({"reason": "credentials.no_session"}))
+        })?;
         let meta = session.meta();
         let family = {
             let cfg = self.config.read().await;
