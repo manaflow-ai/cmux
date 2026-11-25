@@ -76,6 +76,15 @@ public nonisolated enum AgentPaneGitHubLogin: Equatable, Sendable {
     case none
     case notCarried
 
+    /// What the start's carry did: nil (the setting is off) and a failed carry are not carried; no gh login is none.
+    public init(carry: CloudDaemon.GitHubLoginCarry?) {
+        switch carry {
+        case .carried(let login): self = .carried(login: login)
+        case .noLogin: self = .none
+        case .failed, .forgotten, nil: self = .notCarried
+        }
+    }
+
     /// The reply's `details` fields (`githubLogin`: `carried`, `none` or `not_carried`; `githubUser` when known).
     public var details: [String: String] {
         switch self {

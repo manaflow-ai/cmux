@@ -151,7 +151,7 @@ struct CloudStartChat {
             // The account may have changed while the machine connected: copy nothing then.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             let size = AgentPaneCloudStart.sizeText(machine.machine.size) // Remote approvals run beside the copy, awaited before the chat opens.
-            _ = await CloudGitHubLoginCarry.carry(services, to: machine.machineID) // the person's own gh login, before a seed clones from GitHub
+            _ = await carryGitHubLogin(to: machine.machineID) // the person's own gh login, before a seed clones from GitHub
             let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
                 report(.init(name: "folder", folder: folderName, machine: name, size: size))
                 guard await CloudMoveFolder.isFolder(folder.root) else { throw CloudMoveFolder.Gone() } // removed while the machine came up
@@ -284,6 +284,14 @@ struct CloudStartChat {
         return machine.machine.title
     }
 
+    /// "Use my GitHub login" (Leo, 2026-11-25: "Convienient beats all. Just make good ui for it so people flow."): this Mac's own gh
+    /// login, sealed to the machine's daemon before it clones or copies (``CloudDaemon/carryGitHubLogin(_:deadline:)``), while
+    /// `cloud.useMyGitHubLogin` is on (default). nil when off.
+    private func carryGitHubLogin(to machineID: String) async -> CloudDaemon.GitHubLoginCarry? {
+        guard CloudNewWorkspaceSetting().useMyGitHubLogin(in: services.settings?.snapshot.root ?? .object([:])) else { return nil }
+        return await services.cloud.machineAPI.daemon.carryGitHubLogin(machineID)
+    }
+
     /// A chat with no project: nothing is read or copied; the account is checked again as above.
     private func runHome(_ start: AgentPaneCloudStart, from origin: Origin, report: @MainActor (AgentPaneCloudStart.Step) -> Void) async throws -> String {
         let tab = origin.tab
@@ -296,8 +304,8 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // No harness login: remote approvals alone are prepared before the first prompt.
             try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {}
-            let login = await CloudGitHubLoginCarry.carry(services, to: machine.machineID) // the person's own gh login first, so the clone needs no other step
-            let cwd = try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), gitHubLogin: CloudGitHubLoginCarry.detail(login), report: report)
+            let login = await carryGitHubLogin(to: machine.machineID) // the person's own gh login first, so the clone needs no other step
+            let cwd = try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), gitHubLogin: .init(carry: login), report: report)
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
