@@ -285,29 +285,15 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac and its presence. Else "2 need you", or with several
-    /// Macs how many are online. A refresh adds no words: the rows update in place,
-    /// and a failed one retries on its own; the phone being offline is the
-    /// connection chip's (Leo, 2026-11-16: "this needs to shut up"; the iOS
-    /// release bar read-back's "Workspaces stale: no connection text").
+    /// Filtered: the Mac's name. Else "2 need you", or nothing. No presence or link words and no
+    /// "2 of 3 Macs online": each Mac's red or green dot in the filter menu says it (Leo, 2026-11-24:
+    /// "greyed out workspaces + x of x macs online is... hm. idk if we need to show that on the top per
+    /// se ... red dot green dot when you switch between your computers' stuff"). A refresh adds no
+    /// words either: the rows update in place, and a dropped link reconnects on its own.
     private var subtitle: String {
-        if let mac = scopedMac {
-            let now = MinuteClock.shared.now
-            let reach = store.macReachability(mac)
-            // A dial under way adds no words: the Mac's presence stays (Leo, 2026-11-23: "stop showing
-            // that bullshit fucking connecting messages. they are way too long and unactionable").
-            // While the Mac's panel shows, it carries the last-seen time and what to do: the
-            // header keeps to a few words, so it never truncates (cmux#52200 walk, step 2).
-            let line = reach == .connecting
-                ? RelativeStamp(now: now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
-                : showsRecovery(mac) ? reach.shortStatus : reach.statusText(now: now)
-            return "\(displayName(mac)) · " + line
-        }
-        // A refresh of rows already on screen says nothing: the rows update in place, in the
-        // background (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
+        if let mac = scopedMac { return displayName(mac) }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
         return ""
     }
 
@@ -422,6 +408,7 @@ public struct WorkspacesList: View {
         ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
     /// The inbox as the UIKit list shows it: one collection view with a
@@ -647,7 +634,8 @@ public struct WorkspacesList: View {
             AnyView(SkeletonList(rows: 4, leadingSquare: nil,
                                  delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
                 .allowsHitTesting(false)
-                .accessibilityIdentifier("workspaces.loading"))
+                .accessibilityIdentifier("workspaces.loading")
+                .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
 
@@ -1303,8 +1291,7 @@ struct WorkspacesToolbar: View, Equatable {
     }
 }
 
-/// The Mac filter: All Macs, then each Mac (online first) with its presence
-/// (and the live link line) as the subtitle.
+/// The Mac filter: All Macs, then each Mac (online first) with a green or red dot.
 struct WorkspacesFilterMenu: View, Equatable {
     let model: WorkspacesToolbar.Model
     let host: WorkspacesList
@@ -1344,20 +1331,20 @@ struct WorkspacesFilterMenu: View, Equatable {
     @ViewBuilder private var macToggles: some View {
         Section {
             // Toggles, not an inline Picker: a Picker drops each Mac's
-            // presence subtitle. The chosen row shows the checkmark.
+            // dot. The chosen row shows the checkmark.
             Toggle(isOn: host.chosen(.all)) {
                 Label("All Macs", systemImage: "square.stack.3d.up")
             }
             .accessibilityIdentifier("workspaces.filter.all")
             ForEach(model.entries) { mac in
-                // A title and a subtitle Text directly in the label: a menu
-                // shows the second as the subtitle (not inside a Label).
+                // The Mac's name and a green (online) or red (offline) dot: no presence or link
+                // words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+                // stuff"). The words stay for VoiceOver.
                 Toggle(isOn: host.chosen(.mac(mac.id))) {
                     Text(mac.title)
-                    Text(mac.detail)
-                    // The model has no Mac kind (laptop or desktop) yet.
-                    Image(systemName: "desktopcomputer")
+                    Image(uiImage: MacPresenceDot.image(online: mac.isOnline))
                 }
+                .accessibilityValue(Text(mac.detail))
                 .accessibilityIdentifier("workspaces.filter.\(mac.id)")
             }
         }
