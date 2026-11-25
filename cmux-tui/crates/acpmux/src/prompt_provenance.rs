@@ -817,7 +817,7 @@ pub struct RelaySender {
 impl RelaySender {
     /// The relay record in `value`, each field one name of at most [`MAX_NAME_CHARS`] (a
     /// session at most [`MAX_FIELD_BYTES`]); anything else is no relay record.
-    fn of(value: &Value) -> Option<Self> {
+    pub(crate) fn of(value: &Value) -> Option<Self> {
         let field = |k: &str| value.get(k).and_then(Value::as_str);
         let by = field("by").filter(|b| harness_fits(b))?;
         let machine = field("machine").filter(|m| harness_fits(m))?;
@@ -829,8 +829,17 @@ impl RelaySender {
         Some(Self { by: by.to_owned(), machine: machine.to_owned(), session })
     }
 
-    fn to_value(&self) -> Value {
-        json!({"by": self.by, "machine": self.machine, "session": self.session})
+    /// The record with no `session` key when it names none: the hub's `MeshSenderRelay.session` is
+    /// an optional string, and `session: null` was a 400 for every send from a program outside any
+    /// session (2026-11-24 04:58Z, after #52662; the hub takes null since cmux-platform's fix).
+    pub(crate) fn to_value(&self) -> Value {
+        let mut record = serde_json::Map::new();
+        record.insert("by".into(), json!(self.by));
+        record.insert("machine".into(), json!(self.machine));
+        if let Some(session) = &self.session {
+            record.insert("session".into(), json!(session));
+        }
+        Value::Object(record)
     }
 
     /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,

@@ -31,6 +31,8 @@ class FakeRunner:
     def __call__(self, cmd, cwd=None):
         bench, out = cmd[cmd.index("--only") + 1], cmd[cmd.index("--out") + 1]
         self.ran.append(bench)
+        self.timeouts = getattr(self, "timeouts", {})
+        self.timeouts[bench] = cmd[cmd.index("--timeout-s") + 1]
         if bench in self.fail:
             report = {"rows": [], "failed": [{"bench": bench, "why": "timed out after 105 s"}]}
         else:
@@ -56,6 +58,15 @@ class Tests(unittest.TestCase):
         for key, (bench, _words, _own) in nil.INTERACTIONS.items():
             self.assertIn(f'name: "{bench}"', suite, key)
             self.assertIn(bench, nil.TIMEOUT_S, key)
+
+    def test_each_bench_runs_with_its_own_timeout(self):
+        # The suite's timeouts fit the perf runner; the nightly's slower runner timed out three benches on every
+        # nightly from 2026-11-22, so each bench gets TIMEOUT_S as --timeout-s.
+        fake = FakeRunner()
+        planned = {"run": [{"key": "thread_rail_jump", "bench": "thread-rail-jump"}]}
+        with tempfile.TemporaryDirectory() as d:
+            nil.run(planned, d, d, runner=fake)
+        self.assertEqual(fake.timeouts, {"thread-rail-jump": str(nil.TIMEOUT_S["thread-rail-jump"])})
 
     def test_touched_by_path(self):
         hit = nil.touched(["webviews/src/sidebar/List.tsx", "README.md"])
@@ -96,6 +107,28 @@ class Tests(unittest.TestCase):
             self.assertFalse(s3["interactions"]["chat_open"]["stale"])
             self.assertEqual(s3["interactions"]["chat_open"]["measured_sha"], "h3")
 
+    def test_rows_from_a_failing_bench_are_measured(self):
+        # markdown-viewer-stress exits 1 on a 5 s freeze after printing its rows: the slow rows are the measurement.
+        class OverBound(FakeRunner):
+            def __call__(self, cmd, cwd=None):
+                out = cmd[cmd.index("--out") + 1]
+                super().__call__(cmd, cwd)
+                with open(out) as f:
+                    got = json.load(f)
+                got["failed"] = [{"bench": "x", "why": "exit 1"}]
+                with open(out, "w") as f:
+                    json.dump(got, f)
+                return subprocess.CompletedProcess(cmd, 1)
+
+        with tempfile.TemporaryDirectory() as d:
+            p = nil.plan(empty(), "h1", None, None)
+            state = nil.report(empty(), p, nil.run(p, d, d, runner=OverBound(), clock=Clock()))
+            row = state["interactions"]["markdown_viewer"]
+            self.assertFalse(row["stale"])
+            self.assertEqual(row["measured_sha"], "h1")
+            self.assertEqual(row["note"], "exit 1")
+            self.assertIn("failed its own bound", nil.summary(state))
+
     def test_budget_leaves_the_rest_stale(self):
         with tempfile.TemporaryDirectory() as d:
             p = nil.plan(empty(), "h1", None, None)
@@ -112,6 +145,23 @@ class Tests(unittest.TestCase):
         state = nil.report(empty(), p, {})
         self.assertTrue(all(r["stale"] for r in state["interactions"].values()))
         self.assertIn("STALE", nil.summary(state))
+
+    def test_unread_state_publishes_nothing(self):
+        calls = []
+
+        def flaky(repo, out_dir, token):
+            calls.append(1)
+            if len(calls) < 3:
+                raise OSError("HTTP Error 403: Forbidden")
+            return True
+
+        self.assertTrue(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=flaky))
+
+        def broken(repo, out_dir, token):
+            raise OSError("HTTP Error 403: Forbidden")
+
+        self.assertIsNone(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=broken))
+        self.assertFalse(nil.fetch_state_retrying("r", "d", "t", sleep=lambda s: None, fetch=lambda *a: False))
 
     def test_trusted_artifact(self):
         good = {"workflow_run": {"head_branch": "nightly-next", "head_repository_id": 7}}

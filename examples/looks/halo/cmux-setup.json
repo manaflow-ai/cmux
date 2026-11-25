@@ -1,0 +1,63 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/halo-look",
+  "name": "Halo",
+  "tagline": "A minimal chat assistant: near-monochrome, airy, soft bubbles over a pill message box, and a sidebar of titles only.",
+  "description": "A whole cmux look after a minimal chat assistant desktop app: a near-monochrome white theme (Halo) and a near-black one (Halo Dark), airy spacing and a centered column, prompts in soft bubbles, a pill message box, a quiet header and a sidebar of plain titles with no timestamps, icons or colors. Built only from public surfaces; remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/halo",
+  "screenshots": ["screenshots/halo-light.png", "screenshots/halo-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "halo",
+
+    // The chat's structure (cmux#52221): prompts in bubbles, a pill message box, the header's
+    // tools only while the pointer is over it.
+    "agentPane.display.layout.messages": "bubbles",
+    "agentPane.display.layout.composer": "pill",
+    "agentPane.display.layout.header": "quiet",
+    // With cmux#45843 also set "agentPane.composerLook" and
+    // "agentPane.emptyChatComposerPosition"; neither is a key yet.
+
+    // Airy type: the system face at 15 px with a 1.65 line height in a centered 720 px column, no
+    // minimap, harness marks as small symbols.
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.65,
+    "agentPane.display.code.scale": 0.88,
+    "agentPane.display.width": 720,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.composerRing": "context",
+
+    // A minimal sidebar: comfortable rows of titles only, no timestamps, icons or group colors,
+    // no group headers' counts, row tools only on hover.
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "none",
+    "sidebar.sessionTree": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.controlsOnHover": true,
+    "sidebar.chromeGroups": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupPalette": "grayscale",
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.lastActivity": false,
+    "sidebar.workspaceRow.agentStatus": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.notification": false,
+    "sidebar.workspaceRow.working": true,
+
+    // No tab strip while one chat is open.
+    "tabs.hideLoneChatTab": true,
+
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.layout.width": 80
+  }
+}
