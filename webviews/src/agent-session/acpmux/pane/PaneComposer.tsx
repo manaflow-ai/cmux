@@ -275,6 +275,8 @@ export type PaneComposerDeps = {
   ComposerChips: React.ComponentType<{ snapshot: AcpmuxSnapshot }> | typeof DefaultComposerChips;
   reconnectPeer: (peer: string) => Promise<unknown>;
   sessionInfo: ReturnType<typeof useSessionInfo>;
+  /// The agent's /compact for this chat (App.tsx `compactChat`): the context card's Compact conversation row.
+  compactChat: (() => void) | undefined;
   draft: string | undefined;
   setDraftSettled: React.Dispatch<React.SetStateAction<string | undefined>>;
   onNewChatDraft: (text: string) => Promise<unknown>;
@@ -530,6 +532,7 @@ export function drawPaneComposer({
   ComposerChips,
   reconnectPeer,
   sessionInfo,
+  compactChat,
   draft,
   setDraftSettled,
   onNewChatDraft,
@@ -1013,6 +1016,8 @@ export function drawPaneComposer({
             onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
+            // The card's Compact conversation row sends the agent's /compact, as Session Info's Compact does.
+            onCompact={compactChat}
             draft={draft}
             onDraftSettled={setDraftSettled}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
