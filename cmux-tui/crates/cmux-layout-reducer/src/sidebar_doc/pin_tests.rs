@@ -312,6 +312,15 @@ fn group_items(doc: &mut Doc, id: &str, items: Vec<ItemId>) {
 fn pinned_subgroup_fixture() -> Doc {
     let mut doc = fixture();
     group_items(&mut doc, "h1", ["w1", "w2", "w3"].map(item_id).to_vec());
+    // GroupCreate makes a sibling group; explicitly nest it for this repro.
+    run(
+        &mut doc,
+        vec![Op::Move {
+            items: vec!["h1".into()],
+            to: Target { section: machine(), parent: Some("g1".into()), ..Target::default() },
+        }],
+    );
+    assert_eq!(doc.item("h1").unwrap().parent.as_deref(), Some("g1"));
     run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
     run(&mut doc, vec![Op::Pin { items: vec!["h1".into()] }]);
     doc
