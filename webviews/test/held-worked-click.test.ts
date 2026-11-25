@@ -114,3 +114,17 @@ test("a Worked for held open over the work in view closes on one click, and stay
   view.render(ended, false);
   expect(view.heldWorked.current.closed).toBeUndefined();
 });
+
+test("a turn that runs again after the click holds its Worked for afresh at its end", () => {
+  const view = pane();
+  view.scrolledTo(["t1"]);
+  view.render(ended.slice(0, -1), true);
+  view.render(ended, false);
+  view.click("worked-u");
+  expect(ids(view.render(ended, false))).not.toContain("t1");
+  // A steer continues the turn under the same key: the reader's close of the last end is forgotten.
+  const steer = row("steer", "user", { text: "Also cap the jitter", continues: true });
+  const continued = [...ended.slice(0, -1), steer, tool("t3")];
+  view.render(continued, true);
+  expect(view.heldWorked.current.closed).toBeUndefined();
+});

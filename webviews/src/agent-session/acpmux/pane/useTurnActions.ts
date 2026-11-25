@@ -217,8 +217,10 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
       heldRuns.current = { session: shownSessionId, keys: new Set() };
     if (heldWorked.current.session !== shownSessionId)
       heldWorked.current = { session: shownSessionId, keys: new Set() };
-    else if (!viewNow && heldWorked.current.keys.size === 0 && heldWorked.current.closed)
-      heldWorked.current = { session: shownSessionId, keys: new Set() };
+    else if (heldWorked.current.closed && (snapshot.isWorking || (!viewNow && heldWorked.current.keys.size === 0)))
+      // The reader's closes last while the turn they closed stays ended and they stay scrolled up:
+      // a turn that runs again (a steer continues it under the same key) holds at its end afresh.
+      heldWorked.current = { session: shownSessionId, keys: heldWorked.current.keys };
     else if (!viewNow && heldWorked.current.keys.size > 0) {
       // Back at the latest row: the Worked for held open over what the reader read closes, in
       // the turn's end motion (VirtualTranscript `heldWorkedClosing`), never in one frame.

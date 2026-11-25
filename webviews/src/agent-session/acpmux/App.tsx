@@ -6508,6 +6508,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0 || heldWorked.current.keys.size > 0)
     )
       releaseCalls();
+    // The held Worked for folds the reader closed up there are forgotten (`closeHeldWorked`): they
+    // draw closed already, so no render is needed for it.
+    else if (following && heldWorked.current.closed)
+      heldWorked.current = { session: heldWorked.current.session, keys: heldWorked.current.keys };
   }, []);
   /// The oldest row the followed transcript draws: the client sheds no held record above it (direct.ts `setKeepFrom`).
   const onTranscriptKeepFrom = useCallback(
