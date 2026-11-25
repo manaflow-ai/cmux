@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-25 (lane/sidebar-trailing-cloud-ink, ask-f32d868839 audit): Sidebar-Look: Leo, 2026-11-24: "dont have such a dinky cloud icon. increase ityou need to make sure all our icons look the right size". A Cloud row's trailing cloud mark draws in a box grown past the indicator's (`WorkspaceRowView.cloudMarkSide`) so its ink fits the bell-slash's optical size by the leading glyphs' rule (`SidebarOpticalGlyph.fittedExtent`): about 10 x 7 pt at Compact instead of 8 x 6. The audit measured every pack icon's ink (median 18 of 24, centered); leading glyphs and favicons are ink-fitted already, and the cloud was the trailing cluster's outlier. Regression: `SidebarCloudMachineHeaderTests.theTrailingCloudIsNotDinkierThanTheBell`.
 - 2026-11-19 (lane/look-glyph-settings): Sidebar-Look: Leo, 2026-11-19: "the dots and the way it moves changes a
   lot". A `cmux.sidebar.rows/1` row's `indicator` may be a particles glyph: `{choreography: <cmux.particles/1
   document>, trigger}`, or `"glyph"` / `{choreography: "glyph", trigger}` for the look's

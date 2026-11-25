@@ -113,6 +113,13 @@ pub(super) fn manifest() -> Manifest {
         cmux_mobile_link::classes::SCREEN_LANE.to_owned(),
         [format!("control:liveness/screen-ack={}", cmux_mobile_link::classes::DATAGRAM_SCREEN_ACK)].into(),
     );
+    // The reliable link's frames go only to a peer that listed `reliable` in its first signal.
+    manifest.capabilities.insert(
+        cmux_mobile_link::RELIABLE_LANE.to_owned(),
+        [FrameType::Seq, FrameType::Ack, FrameType::Hello, FrameType::Bye]
+            .map(|frame| frame.wire_name().to_owned())
+            .into(),
+    );
     // Each tunnel feature is keyed by the version that brought it, never the current WG_VERSION: a
     // bump must add a capability, not rename an old one. Reach goes only to a version-2 peer or newer,
     // `metered` only to version 3 or newer. Peers send the endpoint announcements on every version.
