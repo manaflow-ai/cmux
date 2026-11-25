@@ -856,7 +856,7 @@ class PipelineTest(unittest.TestCase):
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
         self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser", "mac", "ios"])
-        self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "the workflows it replaced ran on drafts")
+        self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "a fast-track (full-tier) head still runs it")
 
         def started(files, **pr):
             event = {"action": "synchronize", "pull_request": pr}
@@ -866,8 +866,36 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(start, ["pr-pipeline.yml"])
         self.assertIn("indexnow", why["pr-pipeline.yml"])
         self.assertEqual(started(["docs/x.md"])[0], [])
-        self.assertEqual(started(["web/app/lib/indexnow.ts"], draft=True)[0], ["pr-pipeline.yml"])
+        # A cheap head (a draft) starts none of its jobs, even when the changed files are unknown.
+        start, why = started(["web/app/lib/indexnow.ts"], draft=True)
+        self.assertEqual(start, [])
+        self.assertIn("cheap tier", why["pr-pipeline.yml"])
+        self.assertEqual(started(None, draft=True)[0], [])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
+        # A ready head into feat-cmux-next is cheap until ready-to-land or full-ci is added; either runs it on that head.
+        repo = {"full_name": "manaflow-ai/cmux"}
+        web = ["web/app/lib/indexnow.ts"]
+
+        def ready(action, labels, added=""):
+            event = {"action": action, "pull_request": {
+                "draft": False, "labels": [{"name": n} for n in labels],
+                "base": {"ref": "feat-cmux-next", "repo": repo}, "head": {"repo": repo}}}
+            if added:
+                event["label"] = {"name": added}
+            # The land rule on, as pr-router.yml's CI_LAND_TIER defaults it.
+            return pr_router.route(event, callees, web,
+                                   decided=pr_router.head_tier.tier("pull_request", event, land_switch="1"))
+
+        start, why = ready("synchronize", [])
+        self.assertEqual(start, [])
+        self.assertIn("cheap tier", why["pr-pipeline.yml"])
+        for label in ("ready-to-land", "full-ci"):
+            with self.subTest(label=label):
+                self.assertEqual(ready("labeled", [label], label)[0], ["pr-pipeline.yml"])
+                self.assertEqual(ready("synchronize", [label])[0], ["pr-pipeline.yml"])
+        draft_full_ci = {"action": "labeled", "label": {"name": "full-ci"},
+                         "pull_request": {"draft": True, "labels": [{"name": "full-ci"}]}}
+        self.assertEqual(pr_router.route(draft_full_ci, callees, web)[0], ["pr-pipeline.yml"])
         self.assertEqual(started(["ci/steps.toml"])[0], ["pr-pipeline.yml"])
         # A table the router cannot read starts the pipeline: it routes more, never less.
         self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], ROOT / "no-such.toml"))
@@ -892,12 +920,12 @@ class PipelineTest(unittest.TestCase):
         # Unknown changes or an unreadable table run every job.
         self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac", "ios"])
         self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac", "ios"])
-        # The mac job runs only on a full-tier head: a draft's Swift change routes it nowhere.
+        # Every job runs only on a full-tier head: a cheap head's change routes none of them.
         swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift"]
         self.assertIn("mac", routed(callees, swift))
-        self.assertNotIn("mac", routed(callees, swift, full=False))
-        self.assertEqual(routed(callees, None, full=False), ["linux", "web-browser", "ios"])
-        self.assertEqual(pr_router.FULL_TIER_JOBS, ("mac",))
+        self.assertEqual(routed(callees, swift, full=False), [])
+        self.assertEqual(routed(callees, None, full=False), [])
+        self.assertEqual(pr_router.FULL_TIER_JOBS, ("linux", "web-browser", "mac", "ios"))
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
@@ -1329,8 +1357,7 @@ class MacJobTest(unittest.TestCase):
         swift = [self.ROUTED[0]]
         start, why = pr_router.route(event, callees, swift)
         self.assertNotIn("mac-", why["pr-pipeline.yml"])
-        if start:
-            self.assertNotIn("mac", pr_router.table_jobs_routed(callees, swift, full=False))
+        self.assertEqual(start, [])
         ready = {"action": "synchronize", "pull_request": {"draft": False}}
         self.assertEqual(pr_router.route(ready, callees, swift)[0], ["pr-pipeline.yml"])
 
