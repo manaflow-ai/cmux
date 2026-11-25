@@ -424,7 +424,10 @@ impl Drop for Daemon {
 }
 
 fn start(scratch: &Path, home: &Path) -> (Daemon, PathBuf) {
-    let socket = scratch.join("s.sock");
+    // Linux limits AF_UNIX paths to 108 bytes, while the test worktree's temporary path can be
+    // long enough to exceed that limit. Keep the unique socket outside the scratch tree.
+    let socket = PathBuf::from(format!("/tmp/amx-idle-{}.sock", std::process::id()));
+    let _ = fs::remove_file(&socket);
     let mut child = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
@@ -547,6 +550,7 @@ fn acpmux_daemon_with_finished_chats_has_no_periodic_wakeups() {
     }
     drop(streams);
     drop(daemon);
+    let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&scratch);
     assert!(
         report.is_empty(),
