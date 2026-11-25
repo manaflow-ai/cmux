@@ -561,7 +561,7 @@ fn quantifier_end(characters: &[char], start: usize) -> Option<(usize, bool)> {
     let lower = number(parts[0])?;
     let upper = match parts.get(1) {
         None => Some(lower),
-        Some(text) if text.is_empty() => None,
+        Some("") => None,
         Some(text) => Some(number(text).filter(|upper| *upper >= lower)?),
     };
     Some((close + 1, upper != Some(lower)))
