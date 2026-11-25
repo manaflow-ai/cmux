@@ -76,7 +76,7 @@ pub(super) fn flush(hub: &Hub, conn: &Conn) {
     for row in &held {
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
             let Ok(s) = hub.resolve(&row.session_id) else { continue };
-            built = Some((&row.session_id, hub.session_change_summary(&s)));
+            built = Some((&row.session_id, hub.session_change_summary(&s, row.seq)));
         }
         let Some((_, summary)) = &built else { continue };
         conn.send_row(
