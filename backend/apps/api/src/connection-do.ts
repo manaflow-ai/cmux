@@ -285,7 +285,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = ghTokens.githubStatusConnection(state, principal)
     const installation = c ? githubInstallationOf(c) : undefined
     // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
-    const configureUrl = c?.account && installation !== undefined && github.configured(this.env)
+    // A gone installation's settings page is GitHub's 404: name none, so Connect opens the install page (cmux#55104).
+    const configureUrl = c?.account && installation !== undefined && github.configured(this.env) && !ghTokens.githubInstallationGone(c)
       ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
       : null
     return ghTokens.githubStatus(this.env, state, principal, configureUrl)
@@ -340,7 +341,16 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return (await this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)).installGrant(p.user, p.install, p.grant)).ok
   }
 
-  private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+  private markNeedsReauth = (c: Connection, detail: string) => {
+    this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+    if (detail === ghTokens.GITHUB_GONE_DETAIL) this.forgetConfigurePage(c)
+  }
+
+  /** Drops the cached settings page of `c`'s installation (github-connect.ts installationConfigureUrl). */
+  private forgetConfigurePage(c: Connection) {
+    const installation = githubInstallationOf(c)
+    if (installation !== undefined) this.ctx.storage.sql.exec(`DELETE FROM github_configure_pages WHERE installation = ?`, installation)
+  }
 
   /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
   private async revokeAtProviders(now: number) {
@@ -722,7 +732,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const key = (what: string) => `${what}:${c.id}:${event.delivery_id}`
     switch (event.event) {
       case "installation.deleted":
-        this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
+        this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: ghTokens.GITHUB_UNINSTALLED_DETAIL }, `status:${c.id}:uninstalled:${event.delivery_id}`)
+        this.forgetConfigurePage(c) // its settings page is a 404 now; a new installation gets a new id and its own row
         return
       case "installation.suspend":
         // A connection that already needs a relink for another reason keeps that reason.

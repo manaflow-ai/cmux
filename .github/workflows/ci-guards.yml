@@ -212,6 +212,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_step_table.py
 
+      - name: Validate CDN readers name their client
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cdn_user_agent.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -694,6 +698,12 @@ jobs:
       - name: Validate Claude launch environment policy generation
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Set up Bun for guard tests
         if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
@@ -1719,6 +1729,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_tarball_r2.sh
 
+      - name: Validate the Node, Bun and Rust restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_toolchain_r2.sh
+
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh
@@ -1831,6 +1845,12 @@ jobs:
       - name: Validate when the cmux-next tour runs (merges, dispatches, adding media-tour)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
+
+      # The Mac tour job checks the tours first; a key it refuses (frameInterval, #54149) failed every
+      # nightly tour in minutes after merging green, so the same check runs here on Linux.
+      - name: Validate the cmux-next tour files
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 scripts/cmux-next/media/tour.py --check scripts/cmux-next/media/tours
 
       - name: Validate that a nightly tour starts from the last toured tip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

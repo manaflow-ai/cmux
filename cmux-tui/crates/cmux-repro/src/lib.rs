@@ -396,24 +396,23 @@ fn normalize_word(word: &str) -> String {
     if is_duration(trimmed) {
         return word.replace(trimmed, "<T>");
     }
-    if let Some(id) = trimmed.strip_prefix("ThreadId(") {
-        if id.trim_end_matches(')').chars().all(|c| c.is_ascii_digit()) {
-            return word.replace(trimmed, "ThreadId(<N>");
-        }
+    if let Some(id) = trimmed.strip_prefix("ThreadId(")
+        && id.trim_end_matches(')').chars().all(|c| c.is_ascii_digit())
+    {
+        return word.replace(trimmed, "ThreadId(<N>");
     }
     word.to_owned()
 }
 
 fn is_duration(word: &str) -> bool {
     for unit in ["ms", "µs", "us", "ns", "s", "m"] {
-        if let Some(number) = word.strip_suffix(unit) {
-            if !number.is_empty()
-                && number.chars().all(|c| c.is_ascii_digit() || c == '.')
-                && number.chars().next().is_some_and(|c| c.is_ascii_digit())
-                && (unit != "m" && unit != "s" || number.contains('.'))
-            {
-                return true;
-            }
+        if let Some(number) = word.strip_suffix(unit)
+            && !number.is_empty()
+            && number.chars().all(|c| c.is_ascii_digit() || c == '.')
+            && number.chars().next().is_some_and(|c| c.is_ascii_digit())
+            && (unit != "m" && unit != "s" || number.contains('.'))
+        {
+            return true;
         }
     }
     false
@@ -476,10 +475,10 @@ pub fn derive_signature(output: &str, root: Option<&str>) -> Vec<String> {
             }
         }
     }
-    if lines.is_empty() {
-        if let Some(last) = normalized.lines().rev().find(|l| !l.starts_with("CAPSULE-")) {
-            lines.push(last.chars().take(240).collect());
-        }
+    if lines.is_empty()
+        && let Some(last) = normalized.lines().rev().find(|l| !l.starts_with("CAPSULE-"))
+    {
+        lines.push(last.chars().take(240).collect());
     }
     lines
 }

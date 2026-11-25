@@ -519,10 +519,11 @@ jobs:
       # packs the products, and a pool phone runs them (scripts/ci/ios-sim-linux-test.sh) while the macOS swift test
       # runs here. "shadow": the pool run is advisory and the simulator step below still runs, so both are timed on
       # one head. "on": the pool's verdict is the check, and the simulator step below runs only when the pool gave
-      # none (logged "Mac fallback"). Unset or anything else: as before. Owned Macs of this repository only.
+      # none (logged "Mac fallback"). Unset: "shadow". "off" (or anything else): as before. Owned Macs of this
+      # repository only.
       - name: Build the iOS simulator tests for the pool
         id: sim-pack
-        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX) && github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         timeout-minutes: 20
         working-directory: cmux-next-ios/CmuxMobileKit
@@ -614,7 +615,7 @@ jobs:
         # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
         # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
         # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && vars.CMUX_IOS_SIM_LINUX != 'on' }}
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (vars.CMUX_IOS_SIM_LINUX || 'shadow') != 'on' }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
@@ -625,7 +626,7 @@ jobs:
       # products trouble), with the reason. Never red itself: "Fleet pool verdict" and the simulator step act on it.
       - name: Fleet pool result
         id: sim-linux
-        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX) }}
+        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') }}
         timeout-minutes: 45
         env:
           STARTED: ${{ steps.sim-linux-start.outcome }}
@@ -684,7 +685,7 @@ jobs:
           retention-days: 3
 
       - name: Fleet pool verdict
-        if: ${{ !cancelled() && vars.CMUX_IOS_SIM_LINUX == 'on' && steps.sim-linux.outputs.verdict == 'fail' }}
+        if: ${{ !cancelled() && (vars.CMUX_IOS_SIM_LINUX || 'shadow') == 'on' && steps.sim-linux.outputs.verdict == 'fail' }}
         env:
           REASON: ${{ steps.sim-linux.outputs.reason }}
         run: |
@@ -694,7 +695,7 @@ jobs:
       # With the pool as the check ("on"), this Mac runs the simulator tests only when the pool gave no verdict.
       - name: xcodebuild test (iOS simulator, Mac fallback)
         id: ios-sim-fallback
-        if: ${{ vars.CMUX_IOS_SIM_LINUX == 'on' && steps.sim-linux.outputs.verdict == 'none' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
+        if: ${{ (vars.CMUX_IOS_SIM_LINUX || 'shadow') == 'on' && steps.sim-linux.outputs.verdict == 'none' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         timeout-minutes: 30
         working-directory: cmux-next-ios/CmuxMobileKit
         env:
