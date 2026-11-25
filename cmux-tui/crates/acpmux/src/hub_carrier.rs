@@ -513,7 +513,16 @@ impl DialStages {
         self.ticket + self.relay + self.peer_join + self.noise + self.answer
     }
 
+    /// Log the stages and record them in `gauges.carrier` (`acpmux status`'s `carrier:` line).
+    /// A plain acpmux link asks no service, so its zero answer is no answer sample.
     fn log(&self, daemon: &str, kind: &str) {
+        crate::gauges::carrier::global().circuit(&crate::gauges::carrier::Stages {
+            ticket: self.ticket,
+            relay: self.relay,
+            peer_join: self.peer_join,
+            noise: self.noise,
+            answer: (!self.answer.is_zero()).then_some(self.answer),
+        });
         let ms = |d: Duration| d.as_secs_f64() * 1e3;
         tracing::debug!(
             machine = %daemon.get(..8).unwrap_or(daemon),
@@ -1154,6 +1163,9 @@ impl HubCarrier {
                 via: direct::Via::Hub,
                 early: early.len(),
             };
+            if matches!(opened, Ok(Ok(_))) {
+                crate::gauges::carrier::global().kept_stream(report.stream);
+            }
             match opened {
                 Ok(Ok(stream)) => return KeptOpen::Stream(stream),
                 Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
