@@ -183,9 +183,15 @@ export function Notice({
       data-placement={placement}
       data-state={state}
       data-look={v2 ? look : undefined}
-      // One material per surface (#50119): a host-glass toast is the App's toast glass (above); every
-      // other notice keeps the page's glass.
-      data-page-glass={floats ? undefined : "an inline or banner notice, or a toast the App draws no glass under"}
+      // One material per surface: a notice without the App's toast glass keeps the page's material,
+      // and says which (ui/glass/hostGlass.ts).
+      data-page-glass={
+        floats
+          ? undefined
+          : placement === "stack"
+            ? "a stack toast on the page's floating material (experiments.toastGlass off)"
+            : "an inline or banner notice in its page's flow, not floating"
+      }
       role={role}
       aria-live={role === "group" ? "polite" : undefined}
       aria-labelledby={title ? titleId : message ? messageId : undefined}

@@ -207,13 +207,21 @@ test("unmerged code in the build is its own group, one switch each, worded by th
       repo: "manaflow-ai/cmux",
       title: "Cat icon",
       head: "9c1e2f0",
-      base: "6a265e9",
+      base: "36316c1",
       note: "in your build",
     },
   };
   const branch: LibraryEntry = {
     ...entry("branch-lane-cat", false),
-    code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/cat", pr: 0, title: "", head: "4d7a1b2", base: "" },
+    code: {
+      kind: "branch",
+      repo: "manaflow-ai/cmux",
+      source: "lane/cat",
+      pr: 0,
+      title: "",
+      head: "4b7d0aa",
+      base: "36316c1",
+    },
   };
   const groups = checklistGroups(
     input({
