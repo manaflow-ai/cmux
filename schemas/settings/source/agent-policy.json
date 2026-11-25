@@ -340,6 +340,7 @@
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
         "appearance.fontSmoothing",
+        "appearance.appFont",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.liquidGlass",
@@ -542,6 +543,7 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.appFontChrome",
         "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",
@@ -554,6 +556,7 @@
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
+        "experiments.foldSummaryCounts",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
         "experiments.quietConnect",
@@ -861,6 +864,7 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "agentPane.display.headerBreadcrumb",
         "agentPane.display.pinnedPlan",
         "agentPane.display.environmentCard",
         "agentPane.display.changesPill",
@@ -895,6 +899,8 @@
         "agentPane.display.thinking.shimmerPeriod",
         "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton",
+        "agentPane.display.thinking.glyph",
+        "agentPane.display.thinking.glyphSize",
         "agentPane.display.harnessPlacement",
         "agentPane.display.modelChipIcon",
         "agentPane.display.queueing",
@@ -1001,6 +1007,7 @@
         "agentPane.showDictation",
         "agentPane.dictationSource",
         "agentPane.spellChecking",
+        "agentPane.composerVimKeys",
         "agentPane.attachmentView",
         "agentPane.showMachineLoadWarnings"
       ]
@@ -1759,6 +1766,7 @@
       "keys": [
         "agents.cacheCompact.enabled",
         "agents.cacheCompact.minContextPercent",
+        "agents.cacheCompact.minContextTokens",
         "agents.coldWake.enabled",
         "agents.coldWake.compact",
         "agents.coldWake.compactAboveTokens"
