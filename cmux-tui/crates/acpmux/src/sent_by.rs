@@ -283,7 +283,7 @@ pub(crate) fn stamp_send(hub: &crate::hub::Hub, prompt: &mut Value, caller: &str
     }
     let sender = of_session(hub, caller);
     match sender {
-        Some(sender) if !prompt.pointer("/_meta/acpmux/notice").is_some_and(|n| !n.is_null()) => {
+        Some(sender) if prompt.pointer("/_meta/acpmux/notice").is_none_or(|n| n.is_null()) => {
             stamp_blocks(prompt, &line(&sender));
         }
         _ => quote_blocks(prompt),
