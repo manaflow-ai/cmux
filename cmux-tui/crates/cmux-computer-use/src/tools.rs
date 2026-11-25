@@ -27,8 +27,17 @@ pub fn safe_tag(tag: &str) -> Option<String> {
 }
 
 /// The acting tools whose result carries the window's state after acting.
-pub const OBSERVES: &[&str] =
-    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "batch"];
+pub const OBSERVES: &[&str] = &[
+    "click",
+    "move_pointer",
+    "type_text",
+    "press_key",
+    "scroll",
+    "drag",
+    "set_value",
+    "perform_action",
+    "batch",
+];
 
 /// The acting tools whose pre-action guards `force` skips ([`crate::observe::guards`]).
 pub const GUARDED: &[&str] = &["click", "type_text", "scroll", "set_value", "perform_action"];
@@ -65,7 +74,7 @@ impl Tool {
             if OBSERVES.contains(&self.name) {
                 props.insert(
                     "settle".into(),
-                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. adaptive (default setting): up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key). openai: capture at once."}),
+                    json!({"type": "string", "enum": ["adaptive", "anthropic", "openai"], "description": "How to wait before the state is captured. openai (default): capture at once, no wait; an effect that lands a moment later may not show yet, so ask for adaptive or follow with wait_for or a screenshot when you need to see it. adaptive: up to ~120 ms (less once the app signals a change), then until the window changes, at most 1 s; an app that signals nothing and shows nothing new returns after the first look; only with it is an outcome confirmed or no_effect. anthropic: a fixed 2 s (none after typing; typing goes 12 ms per key)."}),
                 );
                 props.insert(
                     "observe".into(),
@@ -200,6 +209,22 @@ pub static TOOLS: &[Tool] = &[
         },
     },
     Tool {
+        name: "move_pointer",
+        access: Access::Act,
+        description: "Move the pointer onto an element (element_id) or a point (x, y in screenshot pixels) of a window and press nothing: a hover, to show a tooltip, a hover card, a row's hover controls or a menu that opens on hover. Targets exactly as click does (with no window_id, x and y are pixels of your latest display screenshot). The result shows the window after the move. background (default): the move is sent to the app only; nothing takes focus, no window is raised and the person's pointer stays where it is, so hover effects the app draws from its own mouse-moved events show (web pages, most custom views), while some native tooltips and hover highlights that follow the real pointer may not. foreground: raises the window, brings its app to the front and moves the person's real pointer there, where it stays; only when background shows nothing and the person allowed it.",
+        schema: || {
+            obj(
+                json!({
+                    "window_id": window_id(),
+                    "element_id": {"type": "string"},
+                    "x": {"type": "number"}, "y": {"type": "number"},
+                    "delivery": delivery()
+                }),
+                &[],
+            )
+        },
+    },
+    Tool {
         name: "type_text",
         access: Access::Act,
         description: "Type text into element_id (a text field, focused first through accessibility), or into the window's focused field. Refused when element_id is a control that takes no text, or when the focus is on a native checkbox, slider or pop-up that would take the keys as commands. Check the result: the field's new value shows as a change; no change means the text did not land.",
@@ -295,7 +320,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "batch",
         access: Access::Act,
-        description: "Run up to 20 steps on one window in order, in one call, and get one state at the end. A step is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\", ...that tool's arguments without window_id}, {\"action\": \"wait\", \"ms\": N}, or {\"action\": \"wait_for\", ...}. Every acting step is checked and run like its own call (settings, deny list, guards, never the person's focus) and gets its own outcome after its own settle. Steps: \"require\": \"confirmed\" stops the batch unless that step's outcome is confirmed (read back); \"not_no_effect\" stops it when the step did nothing; by default only an error stops it. \"target\": {\"role\", \"label\", \"text\"} instead of element_id names an element by what it is (label: the whole name, any case; text: part of the name or value), found when the step runs, so a step can act on what an earlier step opened; two matches are refused (ambiguous_element), never guessed. wait_for waits until an element (element_id or target) appears (default), disappears (\"until\": \"disappears\"), or its value equals (\"value_equals\") or contains (\"value_contains\") a text, reading the window again on every change the app reports, for at most timeout_ms (default 10000, at most 100000); a timeout stops the batch. The waits of one batch add up to at most 120 s. The reply's results lists every step: done (outcome, outcome_reason, read_back, changes: what changed in the window during that step), failed (code, message), or not_run; stopped_at names the step that stopped the batch and why. Nothing is checked or run when any step is malformed. No loops or conditions: for those, call the tools one at a time. A perform_action step names its accessibility action as \"perform\" (\"action\" is the step's). Example: [{\"action\": \"press_key\", \"keys\": \"cmd+s\"}, {\"action\": \"wait_for\", \"target\": {\"role\": \"sheet\"}}, {\"action\": \"set_value\", \"target\": {\"role\": \"text_field\", \"label\": \"Save As\"}, \"value\": \"notes\", \"require\": \"confirmed\"}, {\"action\": \"click\", \"target\": {\"role\": \"button\", \"label\": \"Save\"}}].",
+        description: "Run up to 20 steps on one window in order, in one call, and get one state at the end. A step is {\"action\": \"click\" | \"type_text\" | \"press_key\" | \"scroll\" | \"drag\" | \"set_value\" | \"perform_action\", ...that tool's arguments without window_id}, {\"action\": \"wait\", \"ms\": N}, or {\"action\": \"wait_for\", ...}. Every acting step is checked and run like its own call (settings, deny list, guards, never the person's focus) and gets its own outcome. A step captures the window at once, with no wait; only a step with \"require\": \"confirmed\" or \"not_no_effect\" (or \"settle\": \"adaptive\") settles first, because confirmed and no_effect need a settle to read back and compare, so put a wait_for step after an action whose effect lands a moment later. Steps: \"require\": \"confirmed\" stops the batch unless that step's outcome is confirmed (read back); \"not_no_effect\" stops it when the step did nothing; by default only an error stops it. \"target\": {\"role\", \"label\", \"text\"} instead of element_id names an element by what it is (label: the whole name, any case; text: part of the name or value), found when the step runs, so a step can act on what an earlier step opened; two matches are refused (ambiguous_element), never guessed. wait_for waits until an element (element_id or target) appears (default), disappears (\"until\": \"disappears\"), or its value equals (\"value_equals\") or contains (\"value_contains\") a text, reading the window again on every change the app reports, for at most timeout_ms (default 10000, at most 100000); a timeout stops the batch. The waits of one batch add up to at most 120 s. The reply's results lists every step: done (outcome, outcome_reason, read_back, changes: what changed in the window during that step), failed (code, message), or not_run; stopped_at names the step that stopped the batch and why. Nothing is checked or run when any step is malformed. No loops or conditions: for those, call the tools one at a time. A perform_action step names its accessibility action as \"perform\" (\"action\" is the step's). Example: [{\"action\": \"press_key\", \"keys\": \"cmd+s\"}, {\"action\": \"wait_for\", \"target\": {\"role\": \"sheet\"}}, {\"action\": \"set_value\", \"target\": {\"role\": \"text_field\", \"label\": \"Save As\"}, \"value\": \"notes\", \"require\": \"confirmed\"}, {\"action\": \"click\", \"target\": {\"role\": \"button\", \"label\": \"Save\"}}].",
         schema: || {
             let target = json!({
                 "type": "object",

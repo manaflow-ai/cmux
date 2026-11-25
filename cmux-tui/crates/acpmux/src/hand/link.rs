@@ -197,7 +197,7 @@ async fn serve(
     );
     cmux_build_space::insert(req.headers_mut()).map_err(|e| Ended::Failed(e.to_string()))?;
     let (ws, _) =
-        match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req))
+        match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req))
             .await
         {
             Err(_) => return Err(Ended::Failed("connect timed out".into())),

@@ -139,6 +139,11 @@
       "class": "read",
       "digest": "26233692f33bc45e"
     },
+    "cloud.machine.chief_resize": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "ad13ba04bdd03341"
+    },
     "cloud.machine.chief_start": {
       "source": "local",
       "class": "mutation",

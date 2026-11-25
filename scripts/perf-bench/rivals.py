@@ -284,12 +284,12 @@ class Run:
                 app.quit()
                 return
             app.quit()
-            time.sleep(3)  # bench: the quit's last writes
+            time.sleep(3)  # sleep-ok: quit() already waited for exit; writes after exit (prefs, caches) have no signal
             if purge:
                 subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, timeout=180)
                 self.launch(app, round_no, "restart", profile)
                 app.quit()
-                time.sleep(3)  # bench: the quit's last writes
+                time.sleep(3)  # sleep-ok: quit() already waited for exit; writes after exit (prefs, caches) have no signal
             else:
                 self.record(app.name, round_no, "restart-window", None, note="no passwordless sudo for purge")
             for index in range(self.args.warm):

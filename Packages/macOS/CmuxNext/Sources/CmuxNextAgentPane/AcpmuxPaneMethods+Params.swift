@@ -212,6 +212,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in": (["family", "sessionId"], []),
+        "_acpmux/account/sign_in.finish": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in.cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
         "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),

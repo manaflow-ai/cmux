@@ -105,9 +105,23 @@ pub(crate) fn tools() -> Value {
         list.extend(goal::tools());
         list.extend(watch::tools());
         list.push(send_status::tool());
+        for tool in list.iter_mut() {
+            let named = tool.get("name").and_then(Value::as_str);
+            if named.is_some_and(|n| ALWAYS_LOADED.contains(&n)) {
+                tool["_meta"] = json!({"anthropic/alwaysLoad": true});
+            }
+        }
     }
     all
 }
+
+/// The tools a chat calls in most turns, marked `_meta["anthropic/alwaysLoad"]` so Claude Code
+/// puts their schemas in the prompt instead of deferring them behind ToolSearch. Measured on
+/// fs-agent-lane-7 in the 24 h to 2026-11-23T11:00Z: 147 ToolSearch calls, each a whole round
+/// trip, and these six were 107 of the names they loaded (wrap_up 35, bg_output 21, who_else 20,
+/// bg_start 16, inbox_read 11, inbox_reply 4). Their schemas cost a few KB of cached prompt.
+pub(crate) const ALWAYS_LOADED: [&str; 6] =
+    [wrap_up::NAME, who_else::NAME, "bg_start", "bg_output", "inbox_read", "inbox_reply"];
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).

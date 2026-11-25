@@ -99,27 +99,126 @@ impl Held {
     pub fn fyi_by_rule(&self) -> bool {
         self.program && !fire_text(&self.text)
     }
+
+    /// Whether this message needs the person, not only this chat's agent ([`needs_person`]).
+    /// A program's notice that is no FIRE never does ([`Self::fyi_by_rule`]).
+    pub fn needs_person(&self, owner: &str) -> bool {
+        !self.fyi_by_rule() && needs_person(&self.class, &self.text, owner)
+    }
 }
 
 /// Whether a held `inbox` record's sender is a program: no agent session sent it. Its sender
-/// record names no session and no relayed session (a lane VM tool through the broker relays
-/// only its machine), and the message names no `fromSession`. Read from the record alone, so
-/// the messages held before this rule are judged the same.
+/// record names no session and no relayed session, the message names no `fromSession`, and
+/// its text is not an agent's report the lane-gh broker relayed ([`broker_relayed_agent`]):
+/// the broker sends every lane VM message from its host with no session, agents' and
+/// programs' alike. Read from the record alone, so messages held before this rule are judged
+/// the same.
 pub fn program_notice(msg: &Value) -> bool {
     let named = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|s| !s.is_empty());
     let sender = msg.get("sender");
-    !(named(msg.get("fromSession"))
+    let session = named(msg.get("fromSession"))
         || named(sender.and_then(|s| s.get("session")))
-        || named(sender.and_then(|s| s.pointer("/relay/session"))))
+        || named(sender.and_then(|s| s.pointer("/relay/session")));
+    let text = msg.get("text").and_then(Value::as_str).unwrap_or_default();
+    !session && !broker_relayed_agent(text)
+}
+
+/// A program's notice that is no FIRE: an inbox fyi whatever its class ([`Held::fyi_by_rule`]),
+/// for a message held before that rule filed it as one (`{fromSession, sender, text}`).
+pub fn program_fyi(msg: &Value) -> bool {
+    program_notice(msg) && !fire_text(msg.get("text").and_then(Value::as_str).unwrap_or_default())
+}
+
+/// The lane-gh broker's header on an agent's message it relays: `[message ID from HOST/NAME
+/// (an agent, not Leo), relayed by the lane-gh broker; ...]` on one of its first lines (a
+/// program's reads `(a program with no session, ...)`). Text alone, so a sender could write
+/// it; that only sends its message through the model, as before this rule.
+pub fn broker_relayed_agent(text: &str) -> bool {
+    text.lines().take(4).any(|l| {
+        let l = l.trim_start();
+        l.starts_with("[message ") && l.contains(" (an agent") && l.contains("lane-gh broker")
+    })
 }
 
 /// A FIRE keeps its waking class (notice-flood.md rule 1): the word `FIRE` in capitals,
-/// `[fire]` or `severity: fire`.
+/// `[fire]` or `severity: fire`, as the notice's own severity: on its head (its first lines,
+/// past the lane-gh broker's relay header), as a tag (`[notice from now on HOST · FIRE]`,
+/// `[fire]`), the first word past its tags (`[asks-router] FIRE ...`) or a `severity:` line.
+/// The word elsewhere is not the notice's severity: a broker digest says it holds "none a
+/// FIRE", and a land stop quotes the alarm log it read (`"text": "FIRE land queue ..."`).
 pub fn fire_text(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    text.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == "FIRE")
-        || lower.contains("[fire]")
-        || lower.contains("severity: fire")
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty()).peekable();
+    if lines
+        .peek()
+        .is_some_and(|l| l.starts_with("[message ") && l.contains("relayed by the lane-gh broker"))
+    {
+        lines.next();
+    }
+    let head: Vec<&str> = lines.take(3).collect();
+    if head.iter().any(|l| l.to_ascii_lowercase().starts_with("severity: fire")) {
+        return true;
+    }
+    let Some(mut rest) = head.first().copied() else {
+        return false;
+    };
+    while let Some(tagged) = rest.strip_prefix('[') {
+        let Some((tag, after)) = tagged.split_once(']') else { break };
+        let tag = tag.trim();
+        if tag.eq_ignore_ascii_case("fire") || tag.ends_with("\u{b7} FIRE") {
+            return true;
+        }
+        rest = after.trim_start();
+    }
+    rest.split(|c: char| !c.is_ascii_alphanumeric()).next() == Some("FIRE")
+}
+
+/// Words that address the person (`owner` is the host user's name too).
+const PERSON_WORDS: &[&str] =
+    &["@person", "the person", "the owner", "the user", "the human", "a human", "@owner"];
+
+/// Asks only the person can answer: a permission, an approval or a secret.
+const PERSON_ASKS: &[&str] = &[
+    "permission",
+    "approve",
+    "approval",
+    "consent",
+    "sign in",
+    "sign-in",
+    "log in",
+    "login",
+    "password",
+    "credential",
+    "api key",
+    "2fa",
+    "one-time code",
+    "your call",
+    "your ok",
+    "your decision",
+    "your go-ahead",
+    "sign off",
+    "sign-off",
+];
+
+/// Whether a held message needs the person ("12 need you" counts only these; Leo, 2026-11-23:
+/// "not only do thees probably not need me"). A message needs the person when both hold:
+/// - its class is `block` or `question`: status, results and FYIs never do;
+/// - it addresses the person (the owner's name as a word, "the person", "the user", "@person",
+///   ...) or asks for what only the person gives: a permission, an approval or sign-off,
+///   consent, a sign-in, a password, credential, API key or 2FA code, "your call".
+///
+/// An agent's question to this chat's agent ("which branch?") is the agent's to answer, so it
+/// stays out of the count.
+pub fn needs_person(class: &str, text: &str, owner: &str) -> bool {
+    if !matches!(class, "block" | "question") {
+        return false;
+    }
+    let text = text.to_lowercase();
+    let owner = owner.trim().to_lowercase();
+    let named = owner.chars().count() >= 2
+        && text
+            .split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+            .any(|w| w.trim_start_matches('@') == owner);
+    named || PERSON_WORDS.iter().chain(PERSON_ASKS).any(|w| text.contains(w))
 }
 
 /// The `inbox` record `msg` the surge holder wrote, if it is a held one with an id and thread.

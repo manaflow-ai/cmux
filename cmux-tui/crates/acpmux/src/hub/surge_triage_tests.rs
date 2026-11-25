@@ -46,7 +46,7 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
     hold(&hub, &s, "m1", "runners", "fyi", "runner queued 12 min");
     hold(&hub, &s, "m2", "review", "result", "review asks you to pick a base");
     hold(&hub, &s, "m3", "landed", "result", "landed #12");
-    hold(&hub, &s, "m4", "ask", "question", "which base?");
+    hold(&hub, &s, "m4", "ask", "question", "which base? the person decides");
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
     assert!(
         hub.surge_triage_journals.lock().unwrap()[&s.id].cursor > 0,
@@ -74,7 +74,8 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
         ],
         "the question first, with no model"
     );
-    assert_eq!(triaged[1]["surge"]["needYou"], 2, "two open threads");
+    // Two open threads, one of them the person's: m2 is the agent's to act on.
+    assert_eq!(triaged[1]["surge"]["needYou"], 1, "only the question to the person");
     assert!(sent(&hub, &s, &digest) >= 1, "the digest went to the chat");
     let text = events
         .iter()
@@ -540,7 +541,8 @@ async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() 
     assert!(item(&events, "m4").get("repeatOf").is_none(), "{}", item(&events, "m4"));
     assert_eq!(digested(&hub, &s.id), [json!(["m1"]), json!(["m4"])]);
     let last = records(&events, triage::RECORD_KIND).filter(|r| r.get("surge").is_some()).last();
-    assert_eq!(last.unwrap()["surge"]["needYou"], 1, "one open thread, not four messages");
+    // Status reports, however many, need the agent, not the person (Leo, 2026-11-23).
+    assert_eq!(last.unwrap()["surge"]["needYou"], 0, "runner reports never need the person");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -554,6 +556,7 @@ async fn a_question_and_an_expired_report_are_never_repeats() {
             from: "lane-b".into(),
             class: "question".into(),
             text: "which base?".into(),
+            program: false,
         }],
     )
     .remove(0);
@@ -726,14 +729,28 @@ fn need_you(hub: &Hub, s: &Session) -> Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn program_notices_never_count_and_a_read_lowers_need_you_at_once() {
-    // The model would call every one of them actionable.
+    // The model would call every one of them actionable, and each asks the person.
     let (hub, s) = chat(Some("1 this\n2 this\n3 this")).await;
-    hold_program(&hub, &s, "g1", "glaeda-land", "result", "merged #51600 at abc123");
-    hold_program(&hub, &s, "h1", "hang-watch", "question", "turn stuck 31 min?");
-    hold_program(&hub, &s, "n1", "now-md", "result", "NOW rendered: 15 red");
-    hold_program(&hub, &s, "f1", "now-fire", "result", "FIRE runner label stalled");
-    hold(&hub, &s, "a1", "review", "result", "review asks you to pick a base");
-    hold(&hub, &s, "a2", "deploy", "result", "deploy needs your go");
+    hold_program(&hub, &s, "g1", "glaeda-land", "block", "land stopped #51600: needs approval");
+    hold_program(
+        &hub,
+        &s,
+        "h1",
+        "hang-watch",
+        "question",
+        "turn stuck 31 min; can the person look?",
+    );
+    hold_program(&hub, &s, "n1", "now-md", "block", "NOW: 15 red; the owner must sign in");
+    hold_program(
+        &hub,
+        &s,
+        "f1",
+        "now-fire",
+        "block",
+        "FIRE runner label stalled; approve a restart",
+    );
+    hold(&hub, &s, "a1", "review", "question", "can the person pick a base?");
+    hold(&hub, &s, "a2", "deploy", "block", "deploy needs the owner's approval");
     assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     for id in ["g1", "h1", "n1"] {

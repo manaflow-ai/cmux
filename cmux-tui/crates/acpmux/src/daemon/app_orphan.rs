@@ -143,6 +143,20 @@ pub(crate) fn install_path(bundle: &Path) -> PathBuf {
     clone.unwrap_or_else(|| bundle.to_path_buf())
 }
 
+/// The app's bundled acpmux, including a renamed app or an update clone.
+#[cfg(unix)]
+pub(crate) fn is_app_acpmux(exe: &Path) -> bool {
+    bundled_acpmux(exe, bundle_id)
+}
+
+#[cfg(unix)]
+fn bundled_acpmux(exe: &Path, read_id: impl FnOnce(&Path) -> Option<String>) -> bool {
+    containing_app_bundle(exe).is_some_and(|bundle| {
+        exe == bundle.join("Contents/Resources/bin/acpmux")
+            && read_id(&bundle).as_deref().is_some_and(is_cmux_bundle)
+    })
+}
+
 /// The bundle's `CFBundleIdentifier`, from its Info.plist.
 fn bundle_id(bundle: &Path) -> Option<String> {
     let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
@@ -643,6 +657,17 @@ mod tests {
         )
         .unwrap();
         assert!(cloned.clone_orphaned(), "the app it cloned is gone");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn doctor_recognizes_the_app_by_its_bundle_id_and_daemon_location() {
+        let exe = Path::new("/Applications/Renamed.app/Contents/Resources/bin/acpmux");
+        assert!(bundled_acpmux(exe, |_| Some("com.cmuxterm.app.nightly".into())));
+        assert!(!bundled_acpmux(exe, |_| Some("other.app".into())));
+        assert!(!bundled_acpmux(Path::new("/home/u/.local/bin/acpmux"), |_| unreachable!()));
+        let outside = Path::new("/Applications/Renamed.app/Contents/Other/acpmux");
+        assert!(!bundled_acpmux(outside, |_| unreachable!()));
     }
 
     #[test]

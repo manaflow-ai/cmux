@@ -29,9 +29,27 @@ export default componentEntry<OnboardingGalleryProps>({
     await import("./styles.css");
   },
   variants: {
-    // Make cmux Yours (cmux#48416), two looks (the variant switch): cards ships.
+    // Make cmux Yours (cmux#48416), five looks (the variant switch): preview ships.
+    "make-it-yours-preview": {
+      note: "Recommended (default): a small cmux window drawn from the three answers on the left (the painting behind, a chat or a terminal, rows as tight as the density), the choices on the right: work styles as one list with radio dots, density as one segmented track, backgrounds as unnamed tiles with the chosen work named under the window.",
+      props: { step: "makeItYours", makeItYours: "fresh", makeLook: "preview" },
+    },
+    "make-it-yours-preview-picked": {
+      props: { step: "makeItYours", makeItYours: "picked", makeLook: "preview" },
+    },
+    "make-it-yours-preview-terminal": {
+      props: { step: "makeItYours", makeItYours: "terminal", makeLook: "preview" },
+    },
+    "make-it-yours-segmented": {
+      note: "The cards' layout, calmer: Recommended as quiet text, density as one segmented track, unnamed tiles with the chosen work's whole name under the row.",
+      props: { step: "makeItYours", makeItYours: "picked", makeLook: "segmented" },
+    },
+    "make-it-yours-form": {
+      note: "A Settings pane: each question on the left, its control on the right.",
+      props: { step: "makeItYours", makeItYours: "picked", makeLook: "form" },
+    },
     "make-it-yours-cards": {
-      note: "Recommended (default): Agents First and Terminal First as two cards with a line each (Agents First marked Recommended), density as three segments, backgrounds as named tiles.",
+      note: "The first look (#48514): Agents First and Terminal First as two cards with a line each, density as three buttons, backgrounds as named tiles.",
       props: { step: "makeItYours", makeItYours: "fresh", makeLook: "cards" },
     },
     "make-it-yours-rows": {

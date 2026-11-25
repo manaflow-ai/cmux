@@ -58,9 +58,9 @@ final class SidebarUpdatedCardHost: NSView {
     /// included, sent no exit when the view shrank under a still pointer, so the page kept hearing
     /// "inside" over the rows and reopened the list (Leo 2026-11-08: "flicker upon hovering over what's new").
     private var pointerHover: PointerHover?
-    /// The frost behind the page: the card and its open preview, at the composer's corner. Only the
+    /// The frost behind the page: the card and its open preview, at the card corner. Only the
     /// material: the page paints the composer's tint over it.
-    let glass = GlassPanelView(cornerRadius: LayoutGrid.composerRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
+    let glass = GlassPanelView(cornerRadius: LayoutGrid.cardRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
     /// The glass's frame for the preview height it was last laid out at.
     private(set) var glassFrame = NSRect.zero
     /// The glass's frame before a close that is still running: the preview still shows there, so the
@@ -460,8 +460,8 @@ final class SidebarUpdatedCardHost: NSView {
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
         glass.isHidden = card == nil || tall <= 0 || !drawn
-        // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
-        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
+        // The card corner (LayoutGrid.cardRadius, the page's --grid-card-radius) at the page's zoom: the page's corner grows with the interface scale.
+        glass.cornerRadius = LayoutGrid.cardRadius * (island?.zoom ?? 1) // concentric-allow: the card's own corner (a third of its box); its x derives from it (Metrics.cornerControl(outerRadius:))
         guard next != glassFrame else { return }
         defer { pointerHover?.refresh() }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty

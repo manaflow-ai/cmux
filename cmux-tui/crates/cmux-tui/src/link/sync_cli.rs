@@ -71,6 +71,7 @@ mod relay;
 pub(super) use relay::relay;
 mod fresh;
 mod remote;
+mod roots;
 mod seed_pull;
 mod small_writes;
 mod timings;
@@ -81,6 +82,7 @@ pub(super) use seed_pull::{
     failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
 pub(crate) mod estimate;
+pub(crate) mod offload;
 pub(crate) mod project;
 pub(crate) mod project_back;
 pub(crate) mod size_cap;
@@ -1374,6 +1376,7 @@ fn push_inner(
     stages.mark("prepare");
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
+    let mut cut = roots::Chunks::new();
     let fetched = if via_store {
         Some(send_through_store(
             &mut remote,
@@ -1381,6 +1384,7 @@ fn push_inner(
             &deferred,
             tally.done,
             &mut tally.progress,
+            &mut cut,
         )?)
     } else {
         None
@@ -1422,6 +1426,7 @@ fn push_inner(
         )?),
         None => None,
     };
+    let used_store = store_part.as_ref().is_some_and(|part| part["used"] == true);
     let Tally { mut summary, mut next, .. } = tally;
     summary.store = store_part;
     // A copy into a folder the machine had nothing of sent every byte it counted: its rate is the
@@ -1505,6 +1510,9 @@ fn push_inner(
     // copy after it, and an undo to it would delete every file it left out.
     if head_links.is_none() {
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
+        // The store's GC keeps what this record and its history name ([`roots`]); a head leaves
+        // that to the whole copy after it. Never fails the push.
+        roots::register_after_push(&local, remote_root, &next, &cut, used_store);
     }
     stages.mark("finish");
     stages.print();
@@ -1522,6 +1530,7 @@ fn send_through_store(
     deferred: &[Job],
     base: Progress,
     progress: &mut Option<&mut dyn FnMut(Progress)>,
+    cut: &mut roots::Chunks,
 ) -> anyhow::Result<(serde_json::Value, Option<BTreeMap<String, String>>)> {
     let total: u64 = deferred.iter().map(|job| job.bytes).sum();
     if total < STORE_MIN_BYTES {
@@ -1554,11 +1563,14 @@ fn send_through_store(
         other => other,
     };
     Ok(match sent {
-        Ok(sent) => (
-            json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
-                   "fetched_files": sent.written.len()}),
-            Some(sent.written),
-        ),
+        Ok(mut sent) => {
+            cut.append(&mut sent.chunks);
+            (
+                json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
+                       "fetched_files": sent.written.len()}),
+                Some(sent.written),
+            )
+        }
         Err(error) => (json!({"used": false, "error": format!("{error:#}")}), None),
     })
 }

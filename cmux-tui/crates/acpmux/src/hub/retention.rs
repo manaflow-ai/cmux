@@ -83,7 +83,8 @@ impl Hub {
 
     /// The daemon's one retention worker (module docs): a pass now, then one per wake once
     /// [`SPACING`] passed since the last. Its rewrite is off when `store.closedLogDays` is 0; its
-    /// cold archive pass when `agents.chats.coldArchive` is (`cold_archive.rs`).
+    /// history delete pass when `agents.chats.deleteHistoryAfterDays` is (`history_delete.rs`);
+    /// its cold archive pass when `agents.chats.coldArchive` is (`cold_archive.rs`).
     pub fn retention_worker(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let hub = Arc::downgrade(self);
         let wake = self.retention_wake.clone();
@@ -102,6 +103,10 @@ impl Hub {
                         {
                             tracing::warn!("log retention: {}", e.message);
                         }
+                        // The delete of old chats' history (`history_delete.rs`), when its
+                        // setting is a number of days: before the cold archive, which would
+                        // compress chats about to go.
+                        hub.history_delete_pass().await;
                         // The cold archive of idle chats (`cold_archive.rs`), when its setting
                         // is on: after the rewrite, which leaves archived chats alone.
                         let cold = hub.clone();

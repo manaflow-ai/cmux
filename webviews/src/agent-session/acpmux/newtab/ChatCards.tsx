@@ -68,7 +68,7 @@ export function ChatCards({
       {...pressToOpen(() => onOpen(card.sessionId))}
     >
       <span className="nt-card-meta">
-        <AgentMark harness={card.harness} />
+        <AgentMark harness={card.harness} icon={card.icon} />
         <span className="nt-card-age">{card.age}</span>
         {card.archived && <span className="nt-card-badge">{nt("card.compressed")}</span>}
       </span>

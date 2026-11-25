@@ -54,6 +54,11 @@ return await cu.screenshot({window_id});
   person's settings, deny list and approval cards apply to each step.
 - In a script an acting call skips its after-action screenshot unless you
   pass `observe: true`; read back with `get_ui_tree` or `screenshot`.
+- An acting call does not wait for the screen: its state is the window at
+  once, so an effect that lands a moment later may not show yet. Pass
+  `settle: "adaptive"` (about 120 ms, then until the window changes, at most
+  1 s) or follow with `cu.wait`, `wait_for` or a `screenshot` when you need to
+  see it.
 - `cu.find(tree, {role, name, value})` finds an element of a `get_ui_tree`
   result (a RegExp matches; `cu.findAll` lists, `cu.elements(tree)` flattens).
   Act on its `id` as `element_id`.
@@ -79,9 +84,13 @@ one state at the end:
 ]}
 ```
 
-- Every acting step settles on its own and gets its own `outcome`
-  (`confirmed`, `no_effect`, `uncertain`), `outcome_reason`, `read_back` and
-  `changes` (what changed in the window during that step) in `results`.
+- Every acting step gets its own `outcome`, `outcome_reason`, `read_back` and
+  `changes` in `results`. A step does not wait for the screen: it captures at
+  once. A step with `require: "confirmed"` or `"not_no_effect"` (or `settle:
+  "adaptive"`) waits for the window to settle, which is what lets its outcome
+  be `confirmed` or `no_effect`; without that it is `delivered` or `uncertain`.
+  To see an effect that lands a moment later, put a `wait_for` step after the
+  action.
 - `require: "confirmed"` stops the batch unless the step read back;
   `"not_no_effect"` stops it when the step did nothing; by default only an
   error stops it. `stopped_at` names the step and why; later steps are

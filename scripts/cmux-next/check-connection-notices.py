@@ -128,8 +128,10 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
-    r"|\bButton\s*\(|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
-    r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\.)"
+    r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
+    r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
+    # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
+    r"|\bvar\s+action\s*:\s*\w*Action\?)"
 )
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(

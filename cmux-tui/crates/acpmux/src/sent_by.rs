@@ -40,6 +40,9 @@ pub struct Sender {
     pub session: String,
     pub harness: Option<String>,
     pub model: Option<String>,
+    /// The handle a person or the agent gave it (`acpmux rename @ Mango --handle`): the name
+    /// people call it, written last (`handle=Mango`) so readers of the first token keep working.
+    pub handle: Option<String>,
 }
 
 /// The trailer line for `sender`, with no line break.
@@ -60,6 +63,10 @@ pub fn line(sender: &Sender) -> String {
     if let Some(model) = field(&sender.model) {
         out.push_str(" model=");
         out.push_str(model);
+    }
+    if let Some(handle) = field(&sender.handle) {
+        out.push_str(" handle=");
+        out.push_str(handle);
     }
     out
 }
@@ -154,16 +161,17 @@ pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
 /// The [`Sender`] the daemon knows for session `id`: None when no session here has that id.
 pub fn of_session(hub: &crate::hub::Hub, id: &str) -> Option<Sender> {
     let session = hub.resolve(id).ok().filter(|s| s.id == id)?;
-    let (name, harness, model) = session.read_meta(|m| {
+    let (name, harness, model, handle) = session.read_meta(|m| {
         let harness = m
             .family
             .clone()
             .filter(|f| !f.trim().is_empty())
             .or_else(|| (!m.harness.trim().is_empty()).then(|| m.harness.clone()));
-        (m.name.clone(), harness, meta_model(m))
+        let handle = m.handle.clone().filter(|h| crate::session_handle::valid(h));
+        (m.name.clone(), harness, meta_model(m), handle)
     });
     let session = if name.trim().is_empty() { id.to_owned() } else { name };
-    Some(Sender { host: this_host(), session, harness, model })
+    Some(Sender { host: this_host(), session, harness, model, handle })
 }
 
 /// Stamps a send that `caller` (the session the connection proved) makes with `prompt` (a
@@ -191,6 +199,7 @@ mod tests {
             session: "lane-x".into(),
             harness: Some("claude".into()),
             model: model.map(str::to_owned),
+            handle: None,
         }
     }
 
@@ -200,6 +209,12 @@ mod tests {
             line(&lane_x(Some("claude-opus-5-5"))),
             "Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5"
         );
+    }
+
+    #[test]
+    fn a_given_handle_rides_last() {
+        let sender = Sender { handle: Some("Mango".into()), ..lane_x(Some("claude-opus-5")) };
+        assert!(line(&sender).ends_with(" handle=Mango"), "{}", line(&sender));
     }
 
     #[test]

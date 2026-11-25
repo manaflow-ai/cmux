@@ -180,10 +180,13 @@ public final class TerminalProjectingSession: TerminalSession {
     // MARK: Events
 
     private func innerEvent(_ event: TerminalSessionEvent) {
+        if case .output = event {} else { flushPaint() }
         switch event {
         case .output(let data):
             if data == TerminalReclaimHold.reset {
-                // The Mac's replay follows: its bytes rebuild the model.
+                // The Mac's replay follows: its bytes rebuild the model, and
+                // the replay's paint (a reset) holds whatever waited to paint.
+                paintScheduled = false
                 _ = projection.feed(bytes: data, paint: false)
                 projection.requestReset()
                 resetPending = true
@@ -191,9 +194,14 @@ public final class TerminalProjectingSession: TerminalSession {
             }
             if resetPending {
                 resetPending = false
+                paintScheduled = false
                 showReplay(projection.feed(bytes: data, paint: true))
             } else {
-                emit(projection.feed(bytes: data, paint: true))
+                // Parsed now, painted once for every chunk that arrived
+                // before the main thread got to it (`flushPaint`). Switches to
+                // and from the alternate screen still come back here, in order.
+                emit(projection.feed(bytes: data, paint: false))
+                schedulePaint()
             }
             let replies = projection.takeReplies()
             if !replies.isEmpty { inner.sendReply(replies) }
@@ -209,6 +217,60 @@ public final class TerminalProjectingSession: TerminalSession {
         default:
             handler?(event)
         }
+    }
+
+    // MARK: One paint for a backlog
+
+    /// A paint waits for the chunks queued behind the one that asked for it.
+    private var paintScheduled = false
+    /// When the last paint ran, and which schedule a pending paint belongs to
+    /// (a paint an event already flushed leaves its timer behind).
+    private var lastPaint: DispatchTime?
+    private var paintGeneration = 0
+    /// One display frame: the most often the phone paints.
+    private static let paintInterval: DispatchTimeInterval = .nanoseconds(16_666_667)
+    /// Paints made, and output chunks they covered (for tests and the
+    /// paint harness): a backlog of N chunks is one paint, not N.
+    public private(set) var paintsMade = 0
+    public private(set) var chunksFed = 0
+
+    /// Each Mac chunk used to be re-wrapped and painted on its own, on the
+    /// main thread: at 70 chunks a second and 13 to 19 ms a paint on a phone
+    /// the backlog grew faster than it drained (Leo, 2026-11-22: "the scroll
+    /// occurs ... on mac / then it delays on my actual iphone display").
+    /// Now the chunks are parsed as they come and painted at most once per
+    /// display frame: on the next turn of the main queue (after every chunk
+    /// already waiting on it), or a frame after the last paint if that is
+    /// later. A backlog costs one paint, and a lone keystroke echo waits no
+    /// frame.
+    private func schedulePaint() {
+        chunksFed += 1
+        guard !paintScheduled else { return }
+        paintScheduled = true
+        paintGeneration &+= 1
+        let generation = paintGeneration
+        let paint: @Sendable () -> Void = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.paintGeneration == generation else { return }
+                self.flushPaint()
+            }
+        }
+        if let lastPaint, lastPaint + Self.paintInterval > .now() {
+            DispatchQueue.main.asyncAfter(deadline: lastPaint + Self.paintInterval, execute: paint)
+        } else {
+            DispatchQueue.main.async(execute: paint)
+        }
+    }
+
+    /// Paints what the chunks since the last paint changed (nothing on the
+    /// alternate screen, whose bytes went through as they came). Runs before
+    /// any other event, so the screen sees every event in the Mac's order.
+    private func flushPaint() {
+        guard paintScheduled else { return }
+        paintScheduled = false
+        lastPaint = .now()
+        paintsMade += 1
+        emit(projection.flush())
     }
 
     /// A reset and its replay: the alternate screen state and grid the replay

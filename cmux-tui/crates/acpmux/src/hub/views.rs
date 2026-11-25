@@ -6,7 +6,9 @@ use cmux_json::JsonSet as _;
 mod host_build;
 mod host_load;
 
-pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
+pub(crate) use host_build::{
+    host_build_differs, live_host_build, other_build_host_line, other_build_hosts_line,
+};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -732,19 +734,22 @@ impl Hub {
             session_id: m.id.clone(),
             name: m.name.clone(),
             handle: Some(m.spoken_handle().into_owned()),
+            display_name: m.handle.clone().filter(|h| crate::session_handle::valid(h)),
+            icon: m.icon.clone(),
             name_given: m.name_given,
             former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
-            status: m.status.to_string(),
+            // A watched chat whose app exited reads disconnected (`app_exit.rs`).
+            status: super::app_exit::row_status(session, m.status),
             // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
             state: if stopping {
                 "stopping".to_owned()
             } else if stuck.is_some() {
                 "stuck".to_owned()
             } else {
-                m.status.to_string()
+                super::app_exit::row_status(session, m.status)
             },
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
@@ -790,6 +795,7 @@ impl Hub {
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
             rolling_summary: m.rolling_summary.clone(),
+            approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
@@ -972,13 +978,20 @@ impl Hub {
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
-        let work = running_work(
-            session,
-            summary.get("turn").is_some_and(Value::is_object),
-            self.running_processes_read(session),
-        );
+        let turn_runs = summary.get("turn").is_some_and(Value::is_object);
+        let work = running_work(session, turn_runs, self.running_processes_read(session));
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
+        // Its latest subagents, live and finished, and how many it started: the sidebar nests them
+        // under the chat's row (`subagents_recent.rs`; Leo 2026-11-19: "the nested sessions").
+        // A chat that never started one carries neither key, so its row costs what it did.
+        {
+            let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            if tree.seen() > 0 {
+                summary.set("recentSubagents", json!(tree.recent(turn_runs)));
+                summary.set("subagentsSeen", json!(tree.seen()));
+            }
+        }
         summary.set("commandsRunning", json!(work.commands));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).

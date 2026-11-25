@@ -2710,7 +2710,7 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
                         context["inputs"].update(runner=requested, platform="macos")
                         context["needs"] = {"resolve-ref": {"outputs": {"trusted_ref": trusted}}}
                         self.assertEqual(evaluate(runs_on_of(job), context),
-                                         SIDE if trusted == "true" else SMALL)
+                                         "cmux-mac" if trusted == "true" else SMALL)
 
     def test_the_incident_rerun_takes_the_owned_label(self):
         """Run 43590543702's attempt 3: a bot re-run with attempt 1's placement carried, CI_PR_POOL_OWNED on."""

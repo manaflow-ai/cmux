@@ -74,6 +74,8 @@ export type TranscriptShellDeps = {
   livePulse: React.ContextType<typeof LiveLinePulseContext>;
   ref: React.RefObject<HTMLDivElement | null>;
   slimFollow: boolean;
+  /** The live line is among the mounted rows: the scroller's `data-live-line` (conversation.css). */
+  liveLineMounted: boolean;
   onAnchor: ((anchor: ScrollAnchor | null) => void) | undefined;
   t: ReturnType<typeof useT>;
   onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
@@ -146,6 +148,7 @@ export function drawTranscriptShell({
   livePulse,
   ref,
   slimFollow,
+  liveLineMounted,
   onAnchor,
   t,
   onScroll,
@@ -219,6 +222,8 @@ export function drawTranscriptShell({
             // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
             // this and it just lags, it's not a good look").
             data-send-entrance={slimFollow ? "fade" : undefined}
+            // The live line is among the mounted rows (`liveLineMounted`).
+            data-live-line={liveLineMounted || undefined}
             // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
             data-read-only-transcript={readOnly ? "" : undefined}
             // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).

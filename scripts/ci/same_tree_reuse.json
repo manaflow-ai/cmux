@@ -23,6 +23,7 @@
    "gate": "reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
   },
   "backend.yml": {
+   "api-workerd": "matrix: a job-level skip cannot see one leg's receipt",
    "test": "needed by deploy-staging, migrations-development, vitess-development: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action), not only the tree",
    "vitess-development": "reads secrets",
    "migrations-development": "needed by preview: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.action, github.head_ref), not only the tree; publish, release, deploy, live or cloud work (by its name)",

@@ -67,6 +67,8 @@ final class AgentPaneWKWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
+        // The chat's rows are cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
         super.willOpenMenu(menu, with: event)
     }
 
@@ -131,9 +133,14 @@ extension AgentPaneView {
             // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
             // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
             // pane's table of posting processes (no system call).
-            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
-            model.transport.gestures.record(click: false)
+            if page?.droppedOnPageWindow == true {
+                // Chromium's own page window took the drop: no event to check, so no gesture, but the
+                // chat still links the files where they are instead of streaming them (``PageWebView/droppedOnPageWindow``).
+            } else {
+                let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+                guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+                model.transport.gestures.record(click: false)
+            }
             model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).

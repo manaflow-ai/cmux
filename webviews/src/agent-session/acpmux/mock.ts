@@ -256,6 +256,9 @@ export type LoadStreamOptions = {
   chunkChars: number;
   chunkMs: number;
   toolEvery: number;
+  /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
+  prefixWords?: number;
+  prefixSettleMs?: number;
   /// Assign each text delta a fixed due time. A delayed timer sends one due delta in the next task;
   /// it never emits a same-task catch-up batch.
   fixedSchedule?: boolean;
@@ -497,7 +500,22 @@ export class MockAcpmuxSocket {
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
     this.emit(target, { mux: "turn_started" });
-    const reply = streamedReply(turn, 400);
+    let reply = streamedReply(turn, 400);
+    let at = 0;
+    let deltas = 0;
+    let tools = 0;
+    // A long reply already on screen (`prefixWords`): its first words arrive in one delta and get
+    // `prefixSettleMs` to reveal, then the timed stream goes on from where they end, so a frame's
+    // cost can be read against the reply's length.
+    const words = Math.max(0, Math.floor(options.prefixWords ?? 0));
+    if (words > 0) {
+      for (let more = 1; reply.split(" ").length < words * 2; more += 1) reply += streamedReply(turn + more, 400);
+      const prefix = reply.split(" ").slice(0, words).join(" ");
+      this.emit(target, { update: text(prefix) });
+      deltas += 1;
+      at = prefix.length;
+      await this.delay(options.prefixSettleMs ?? 1500);
+    }
     const started = performance.now();
     const end = started + options.seconds * 1000;
     const call = `load-stream-tool-${turn}`;
@@ -510,9 +528,6 @@ export class MockAcpmuxSocket {
     let previous = started;
     let maxGapMs = 0;
     let maxScheduleOffsetMs = 0;
-    let at = 0;
-    let deltas = 0;
-    let tools = 0;
     let nextChunkAt = started + options.chunkMs;
     while (performance.now() < end && !this.closed && !options.stopped?.()) {
       if (options.fixedSchedule) {

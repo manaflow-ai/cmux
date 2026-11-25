@@ -256,6 +256,31 @@ def added(merge_output: str, base_output: str, merge_root: str = "", base_root: 
     return compare(merge_output, base_output, merge_root, base_root)[0]
 
 
+def optional_only(new: list[str], env: dict | None = None) -> list[str]:
+    """ci-oops fault isolation (scripts/ci/oops/isolate.py): when every type error a pull request adds is in an
+    optional unit (a page or the gallery that optional-units.json lists), the unit ids, reported as CI_OOPS soft
+    fails (one per unit, for the follow-up); else []. Only a pull request build: a push, the nightly (which runs
+    this without a base) and any ship path keep every error red. A finding with no path is core."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "oops"))
+    import isolate  # noqa: PLC0415  (scripts/ci/oops/isolate.py)
+
+    if not isolate.allowed(env)[0]:
+        return []
+    units: dict[str, str] = {}
+    for line in new:
+        path = line.split(": ", 1)[0] if ": " in line else ""
+        unit = isolate.unit_of_path(isolate.webview_path(path), ("webview-page", "gallery")) if path else None
+        if unit is None:
+            return []
+        units.setdefault(unit["name"], line)
+    pages = {name: line for name, line in units.items() if name != "gallery"}
+    if pages:
+        isolate.report("webview-page", pages, step="webviews typecheck", env=env)
+    if "gallery" in units:
+        isolate.report("gallery", {"gallery": units["gallery"]}, step="webviews typecheck", env=env)
+    return [("gallery" if name == "gallery" else f"webview-page:{name}") for name in units]
+
+
 def shares_deps(repo: Path, base: str, directory: str) -> bool:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import web_lint_prepush  # noqa: PLC0415  (scripts/web_lint_prepush.py)
@@ -365,6 +390,12 @@ def main(argv: list[str] | None = None) -> int:
             if not new:
                 print(f"webviews checks: {check} fails on the base {args.base[:12]} too and this adds nothing to it",
                       flush=True)
+                continue
+            if check == "typecheck" and (dropped := optional_only(new)):
+                print(f"webviews checks: typecheck adds errors only in optional units ({', '.join(dropped)}); "
+                      "they are left out of this pull request's build and need a follow-up", flush=True)
+                for line in new:
+                    print(f"  optional: {line}", flush=True)
                 continue
             failed.append(check)
             shown[check] = new

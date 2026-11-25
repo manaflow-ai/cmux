@@ -965,6 +965,26 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Support/cmux-mobile-host/`, rotated at 1 MB with one previous file) and to its log. At most
   16 pans of 64 KiB per channel; a line that does not parse is dropped. The phone sends
   nothing to a Mac without the capability. Phones only.
+  Each record also carries `path`, the link's route when it came, which hostd reads from the
+  link and the phone never sends: `direct-lan` (a direct path to a private, link-local or
+  unique-local peer address), `direct-wan` (direct, but routed: a public, CGNAT or tailnet
+  address), `direct` (direct, address unknown), `relay` (a TURN server) or `none`.
+  Mac redraw to iPhone paint (added 2026-11-22, same capability): hostd adds `"pseq": N` to
+  each terminal redraw line it splices to the phone (`output`, `agent-cli-frame`,
+  `agent-cli-lean`; an older phone ignores the field) and keeps, for the last 8192 of them,
+  when it read the line and when the link flushed the line's last byte to the socket. The
+  phone notes when each stamped line arrived and when the first frame that showed its bytes
+  was presented, and sends, on the same channel:
+  `{"kind": "clock", "t0"}` probes, each answered at once with `{"kind": "clock", "t0", "t1",
+  "t2"}` (Mac epoch ms; at most 32 per channel), then
+  `{"v": 1, "kind": "paint", "samples": [[seq, received, painted], ...], "clock": [[t0, t1,
+  t2, t3], ...], "program"?, "app"?, "load"?, "rtt_ms"?}` (phone epoch ms, at most 256
+  samples; the phone sends 200). hostd takes the clock offset from the probe with the
+  shortest round trip (NTP midpoint, error at most half that round trip), joins each sample
+  with its stamps and appends `{"kind": "paint", "samples", "joined", "offset_ms",
+  "clock_rtt_ms", "path", "mac", "wire", "phone_paint", "total"}`, each part
+  `{"n", "p50_ms", "p95_ms", "max_ms"}`: (a) `mac` read to socket, (b) `wire` socket to
+  the phone's receive, (c) `phone_paint` receive to present, and `total`.
 - `tabs` (`tab-snapshots-v1`, 2026-11-22): the tab overview's cards for every tab of this
   Mac (title, kind, favicon, thumbnail or terminal screen text), with deltas and
   content-addressed blobs. No open args; machines need the View grant. Both ways the

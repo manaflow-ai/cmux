@@ -632,7 +632,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             it.state = f == filter ? .on : .off
             m.addItem(it)
         }
-        filterButton.menu = m
+        filterButton.menu = NSMenu.systemFree(m)
         filterButton.contentTintColor = on ? (selectionColor ?? .controlAccentColor) : .secondaryLabelColor
         filterButton.isHidden = availableFilters.count < 2
     }
@@ -1908,7 +1908,7 @@ final class SidebarDocumentView: NSView {
     }
     override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
     override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 125: controller?.moveSelection(1)

@@ -327,6 +327,21 @@ impl Chain {
             oids.iter().zip(have).filter(|(_, have)| !have).map(|(oid, _)| oid.clone()).collect();
         (rest, filled)
     }
+
+    /// One counter per source for [`Chain::blob`], kept for as long as the caller asks (a mount),
+    /// so a dead source is skipped after [`DEAD_AFTER`] failures in a row rather than costing a
+    /// deadline on every fault.
+    #[must_use]
+    pub fn counters(&self) -> Vec<AtomicUsize> {
+        self.remotes.iter().map(|_| AtomicUsize::new(0)).collect()
+    }
+
+    /// The verified bytes of one blob from the first source that has it, or `None`: what a
+    /// projected folder's fault asks before the Mac ([`crate::store_fetch`]).
+    pub fn blob(&self, oid: &str, failures: &[AtomicUsize]) -> Option<Vec<u8>> {
+        let rejected = AtomicUsize::new(0);
+        self.one(oid, failures, &rejected).map(|(_, bytes)| bytes)
+    }
 }
 
 /// The peers a peer index names: `index` is a file, or an `http(s)` URL asked once with a short

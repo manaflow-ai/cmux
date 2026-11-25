@@ -93,15 +93,24 @@ pub fn attention(session: &Session) -> Option<&'static str> {
     }
 }
 
-/// The `attention` and `preview` fields of a session's chat.
+/// The `attention` and `preview` fields of a session's chat, and the name and icon it was given
+/// (`displayName`, `icon`; null without one), so a chat list names the chat as the session list
+/// does. An image icon stays off, as on the session row (`list_tee/summary.rs`): clients fetch it.
 pub fn activity_fields(session: &Session) -> Value {
-    let preview = session.read_meta(|meta| {
-        meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
+    let (preview, given, icon) = session.read_meta(|meta| {
+        let preview = meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
             let line = p.split_whitespace().collect::<Vec<_>>().join(" ");
             line.chars().take(PREVIEW_CHARS).collect::<String>()
-        })
+        });
+        let given = meta.handle.clone().filter(|h| crate::session_handle::valid(h));
+        let icon = meta
+            .icon
+            .as_ref()
+            .and_then(|icon| serde_json::to_value(icon).ok())
+            .filter(|icon| icon.get("kind").and_then(Value::as_str) != Some("image"));
+        (preview, given, icon)
     });
-    json!({"attention": attention(session), "preview": preview})
+    json!({"attention": attention(session), "preview": preview, "displayName": given, "icon": icon})
 }
 
 /// The `_acpmux/chat_changed` params of a session's chat activity, when the
@@ -151,15 +160,18 @@ impl ChatActivity {
         self.fields(key).is_some_and(|fields| !fields.get("parent").is_none_or(Value::is_null))
     }
 
-    /// Adds `attention`, `preview` and `parent` to a chat value (`chat_value`); a chat
-    /// no session continues gets nulls, so a client clears what it had.
+    /// Adds `attention`, `preview`, `parent`, `displayName` and `icon` to a chat value
+    /// (`chat_value`); a chat no session continues gets nulls, so a client clears what it had.
     pub fn decorate(&self, chat: &mut Value) {
         let fields = chat
             .get("key")
             .and_then(Value::as_str)
             .and_then(|key| self.fields(key))
             .cloned()
-            .unwrap_or_else(|| json!({"attention": null, "preview": null, "parent": null}));
+            .unwrap_or_else(|| {
+                json!({"attention": null, "preview": null, "parent": null, "displayName": null,
+                       "icon": null})
+            });
         if let (Some(chat), Value::Object(fields)) = (chat.as_object_mut(), fields) {
             chat.extend(fields);
         }

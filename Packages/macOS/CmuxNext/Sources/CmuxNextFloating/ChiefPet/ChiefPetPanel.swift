@@ -322,13 +322,13 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     }
 
     /// A right-click on the pet opens its menu (AppKit asks here on a right mouse down).
-    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(contextMenu?()) }
 
     override func mouseDown(with event: NSEvent) {
         // Control-click is a right-click: the menu, never a drag or the reply box.
         if event.modifierFlags.contains(.control), let menu = menu(for: event) {
             press = nil
-            return NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: self)
         }
         let local = convert(event.locationInWindow, from: nil)
         press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))

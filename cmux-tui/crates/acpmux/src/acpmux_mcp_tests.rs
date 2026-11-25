@@ -1304,3 +1304,17 @@ fn instructions_stay_short() {
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
 }
+
+#[test]
+fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
+    let tools = super::tools();
+    let list = tools.as_array().unwrap();
+    for name in super::ALWAYS_LOADED {
+        let tool =
+            list.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name} is listed"));
+        assert_eq!(tool["_meta"]["anthropic/alwaysLoad"], true, "{name}");
+    }
+    let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
+    assert!(rest.clone().count() > 5);
+    assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
+}

@@ -249,6 +249,20 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// the native drop (WebKit's drop has it in dispatch, as `NSApp.currentEvent`). A host checks
     /// that it is the person's before it treats the drop as their gesture. Nil in WebKit.
     public internal(set) var droppedEvent: NSEvent?
+    /// While ``onFilesDropped`` runs for a Chromium page: its own window took the drop, so there is
+    /// no drop event to check (``droppedEvent`` is nil). The host may record where the files are,
+    /// but must not count it as the person's gesture.
+    public internal(set) var droppedOnPageWindow = false
+    /// Whether the drag of `urls` that entered the Chromium page is over natively: no mouse button
+    /// is down and the drag pasteboard (written by the app the drag came from, never by page
+    /// script) still holds every one of them. Tests replace it.
+    var chromiumDragFinished: @MainActor ([URL]) -> Bool = { urls in
+        guard NSEvent.pressedMouseButtons & 1 == 0 else { return false }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let held = (NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self], options: options) as? [URL]) ?? []
+        let paths = Set(held.map { ($0 as NSURL).filePathURL?.standardizedFileURL.path ?? $0.standardizedFileURL.path })
+        return !urls.isEmpty && urls.allSatisfy { paths.contains($0.standardizedFileURL.path) }
+    }
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.

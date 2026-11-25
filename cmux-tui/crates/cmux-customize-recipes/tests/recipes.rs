@@ -197,6 +197,54 @@ fn a_folder_with_shell_characters_stays_one_argument_in_every_run_command() {
     }
 }
 
+/// ask-b07eb505f0, Leo: "make repos of customiztion themes that go broad strokes blank cheque on
+/// proper redesigns". Plush brings three tints, each as a light and a dark theme file; every one
+/// reads with no key dropped and no color the contrast guard has to raise, and its chat stylesheet
+/// draws soft raised surfaces with no frost.
+#[test]
+fn plush_brings_every_tint_in_light_and_dark_and_no_glass() {
+    use cmux_config::{Domains, Schema, ThemeFile};
+    let recipe = find("plush").expect("no plush recipe");
+    assert_eq!(recipe.group, Group::Look);
+    let profile = recipe.profile().unwrap();
+    assert_eq!(profile.settings.get("appearance.themeFile"), Some(&serde_json::json!("plush")));
+    for tint in ["plush", "plush-dusk", "plush-clay"] {
+        for (name, scheme) in [(tint.to_string(), "Light"), (format!("{tint}-dark"), "Dark")] {
+            let text = profile
+                .files
+                .get(&format!("themes/{name}.json"))
+                .unwrap_or_else(|| panic!("plush carries no {name}"));
+            let file = ThemeFile::read(
+                &name,
+                Some(Ok(text.as_str())),
+                &serde_json::json!({}),
+                None,
+                Schema::embedded(),
+                &Domains::default(),
+            );
+            assert!(file.is_loaded && !file.is_unparsable, "{name} does not read");
+            let problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
+            assert!(problems.is_empty(), "{name}: {problems:?}");
+            assert!(file.corrected.is_empty(), "{name}: the guard raised {:?}", file.corrected);
+            let theme = cmux_config::jsonc::parse(text).unwrap();
+            assert_eq!(theme["appearance.theme"], format!("Builtin {scheme}"), "{name}");
+            assert_eq!(theme["appearance.borders"], "none", "{name}");
+            assert_eq!(theme["appearance.backgroundBlur"], "none", "{name}");
+            assert_eq!(theme["browser.omnibar.glass"], "off", "{name}");
+        }
+    }
+    let chat = profile.files.get("agent-pane/theme.css").expect("plush carries no chat stylesheet");
+    assert!(
+        chat.contains("--plush-raise") && chat.contains("--plush-well"),
+        "no raised or inset shadows"
+    );
+    assert!(chat.contains("--glass-backdrop: none"), "the chat keeps its frost");
+    assert!(
+        profile.files.contains_key("markdown/theme.css"),
+        "plush carries no Markdown stylesheet"
+    );
+}
+
 /// c-07be086806, Leo: "we know you can change colours. im saying the big stuff". The layout and
 /// behaviour looks are recipes too, and none of them sets a color or a theme. The leader keys all
 /// start with Command-J, cmux's own leader, so none takes a key a terminal or a chat types.

@@ -324,10 +324,30 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // A chat a person started asks sr2 for its person reserve (`sr2_priority.rs`), decided
+        // here from who created it, after the session env: never a profile's or request's.
+        crate::sr2_priority::mark(
+            &mut p.env,
+            meta.created_by.as_ref().is_some_and(|c| c.kind == crate::store::CreatorKind::Person),
+        );
         // A remote-origin chat with no answer of its own (a phone or Web client started it; one
         // another Mac's daemon started carries that Mac's, `cmux_tools_answer.rs`) gets none of
         // cmux's servers (`agent_tools::left_out`), and its person's own `cmux` entry gets `off`.
         crate::agent_tools::remote_origin_answer(&mut p.env, meta.remote_origin);
+        // The person's per-agent switch (cmux#49395): a Claude Code or Codex chat switched off in
+        // Settings > Agents gets the answer `off`.
+        let agent = if crate::agent_tools::is_codex(meta, Some(&p)) {
+            Some("codex")
+        } else if crate::agent_tools::is_claude_code(&meta.harness, &p) {
+            Some("claude")
+        } else {
+            None
+        };
+        crate::agent_tools::agent_switch_answer(
+            &mut p.env,
+            crate::user_settings::text().as_deref(),
+            agent,
+        );
         // A Claude Code cut off from cmux's tools passes the answer `off` to its own stdio servers
         // (a person's `cmux` entry), as a Codex one does (`agent_tools::person_entry_env`).
         if crate::agent_tools::is_claude_code(&meta.harness, &p)

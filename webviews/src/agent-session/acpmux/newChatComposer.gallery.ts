@@ -10,7 +10,7 @@
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
 // `centered` and `centered-codex` are Settings' Empty Chat Message Box set to Center
-// (agentPane.emptyChatComposerPosition): the composer in the pane's middle, the hero over it.
+// (agentPane.emptyChatComposerPosition): the composer in the pane's middle, nothing over it.
 // test/new-chat-composer.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
@@ -125,7 +125,7 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       checks: {
         anchorMovePx: { value: 160, reason: "The pasted chip grows the card, then the first send clears it." },
-        layoutShiftMax: { value: 0.2, reason: "The hero leaves and the first turn mounts on the send." },
+        layoutShiftMax: { value: 0.2, reason: "The first turn mounts on the send." },
         longFrameFailMs: { value: 150, reason: "The mock daemon's first session and the first turn share a frame." },
       },
       play: async (ctx) => {
@@ -163,7 +163,7 @@ export default agentPaneEntry({
     },
     centered: {
       composerLook: "claude",
-      note: "Settings: Empty Chat Message Box set to Center. The new chat's composer sits in the pane's middle, the hero over it, as on the New Tab page.",
+      note: "Settings: Empty Chat Message Box set to Center. The new chat's composer sits in the pane's middle with no question over it, as on the New Tab page.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: centerComposer,

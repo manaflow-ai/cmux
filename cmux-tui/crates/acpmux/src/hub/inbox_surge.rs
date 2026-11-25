@@ -19,6 +19,16 @@ impl Counts {
         json!({"held": self.held, "needYou": self.need_you})
     }
 
+    /// Sets `held` to the journal's count of undecided held messages, read through record
+    /// `through`, unless a newer snapshot came since. The running counter (+1 a hold, minus a
+    /// record's ids) drifts: a resent prompt id counts twice, a fork counts its parent's
+    /// (`Hub::surge_held_now`).
+    pub(super) fn settle_held(&mut self, held: u64, through: u64) {
+        if self.seq <= through {
+            self.held = held;
+        }
+    }
+
     pub(super) fn restore(&mut self, event: &EventRecord) {
         if event.seq <= self.seq {
             return;
@@ -208,7 +218,7 @@ impl Hub {
     /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
     /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
     /// applies to the next one. Off, every message takes the path it took before the surge inbox.
-    pub(super) fn surge_inbox_on(&self) -> bool {
+    pub(in crate::hub) fn surge_inbox_on(&self) -> bool {
         if let Some(on) = *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) {
             return on;
         }
@@ -262,7 +272,7 @@ impl Hub {
         // (hq docs/handbook/notice-flood.md rule 1).
         let program = notice.is_some()
             || crate::surge_triage::program_notice(
-                &json!({"fromSession": from_session, "sender": sender}),
+                &json!({"fromSession": from_session, "sender": sender, "text": text}),
             );
         let class = if program && !crate::surge_triage::fire_text(&text) {
             PromptClass::Fyi

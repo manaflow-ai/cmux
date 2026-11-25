@@ -59,6 +59,8 @@ fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
     tests::panic_if_marked(&ev.session_id);
+    #[cfg(test)]
+    tests::count_wake(conn);
     let row = ev.row.clone();
     deliver(hub, conn, ev);
     // Queued what this connection owes for it: the last connection to get here times the
@@ -71,15 +73,14 @@ pub(super) fn start(
     conn: Arc<Conn>,
     mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) -> tokio::task::JoinHandle<()> {
-    let (mut rx, seat) = hub.subscribe_fanout();
+    // Only the events routed to this connection (`interest.rs`), in broadcast order.
+    let rx = conn.interest.inbox.clone();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
-        // Counted in each event's fan-out until this task ends.
-        let _seat = seat;
         loop {
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
@@ -217,5 +218,25 @@ pub(super) mod tests {
         if session.starts_with(PANIC_PREFIX) {
             panic!("fan-out test panic for {session}");
         }
+    }
+
+    /// A connection named with this prefix (its `initialize` `clientInfo.name`) has the hub
+    /// events its fan-out task woke for counted under that name (`fanout_interest_tests.rs`). A
+    /// name is one test's own, so parallel tests never read each other's counts.
+    pub(in crate::server) const WAKE_PREFIX: &str = "fanout-wake-";
+
+    static WAKES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        std::sync::LazyLock::new(Default::default);
+
+    pub(super) fn count_wake(conn: &super::Conn) {
+        let name = conn.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if name.starts_with(WAKE_PREFIX) {
+            *WAKES.lock().unwrap_or_else(|e| e.into_inner()).entry(name).or_default() += 1;
+        }
+    }
+
+    /// Hub events the fan-out of the connection named `name` woke for.
+    pub(in crate::server) fn wakes(name: &str) -> u64 {
+        WAKES.lock().unwrap_or_else(|e| e.into_inner()).get(name).copied().unwrap_or(0)
     }
 }

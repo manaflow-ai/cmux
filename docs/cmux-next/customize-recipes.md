@@ -48,6 +48,20 @@ Or ask: "make the window see-through glass"
 
 To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
+### Plush: soft raised surfaces
+
+One tinted surface everywhere, panes and your prompt raised out of it by soft shadows, no borders,
+no glass, one saturated accent. Light by default; `plush-dark`, `plush-dusk`, `plush-dusk-dark`,
+`plush-clay` and `plush-clay-dark` are the other theme files it brings (`cmux settings set
+appearance.themeFile plush-dark`). The whole look, with its gallery, is
+[examples/looks/plush](../../examples/looks/plush/README.md).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/plush.json
+```
+
+Or ask: "make it soft and plush, raised surfaces with no borders or glass"
+
 ### Hairline: flat and neutral
 
 Opaque gray surfaces on one-pixel lines, one corner radius for panes, tabs, cards and the
@@ -62,6 +76,19 @@ cmux customize use ~/.local/state/cmux/customize/recipes/hairline.json
 ```
 
 Or ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass"
+
+### Tonal: one seed, every color
+
+Every color from one sage-teal seed, in tonal steps: the sidebar and tab strip a few tones off
+the page, opaque surfaces with no glass or blur, the work in one rounded card, and the primary
+color for selection, focus and Send. It brings Tonal Dark too
+(`cmux settings set appearance.themeFile tonal-dark`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/tonal.json
+```
+
+Or ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass"
 
 ### Ukiyo-e: the Great Wave
 
@@ -446,3 +473,5 @@ Or ask: "make cmux look like a violet desktop coding app"
 - Apply and discard are the person's call.
 - A recipe is a profile file, the format `cmux customize save NAME` writes. Save your own setup
   the same way to share it.
+- To share a whole customization as a git repo that others install from its URL, see
+  [setup repos](setup-repos.md); `cmux setup check DIR` checks one before you push it.

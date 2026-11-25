@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileLinkFFI
 import CmuxScreenKitUI
 public import UIKit
 
@@ -10,11 +11,6 @@ public import UIKit
 @MainActor
 public final class ScreenSharingOrientation {
     public static let shared = ScreenSharingOrientation()
-
-    /// A window whose shorter side is at least this is an unfolded foldable's.
-    /// No shipping iPhone's shorter side reaches it (the largest is 440 pt); an
-    /// unfolded foldable's is about 670 pt.
-    nonisolated static let unfoldedShortSide: CGFloat = 600
 
     /// Whether a Mac's screen is on screen.
     public private(set) var isPresenting = false
@@ -38,8 +34,11 @@ public final class ScreenSharingOrientation {
         isUnfolded(windowSize: size) ? .allButUpsideDown : .portrait
     }
 
+    /// Whether a window this size is an unfolded foldable's: Rust's
+    /// `window_layout` (its `UNFOLDED_SHORT_SIDE`, 600 pt), the same rule that
+    /// gives the shell two panes, so orientation and layout never disagree.
     public nonisolated static func isUnfolded(windowSize size: CGSize) -> Bool {
-        min(size.width, size.height) >= unfoldedShortSide
+        windowLayout(width: Double(size.width), height: Double(size.height)).unfolded
     }
 
     /// The window crossed between a phone's size and an unfolded foldable's: a

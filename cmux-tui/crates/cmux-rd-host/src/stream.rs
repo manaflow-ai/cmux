@@ -407,7 +407,9 @@ impl MediaSession {
             drop(opened);
             OpenedDesktop::open(cfg, cursor)?
         };
-        let OpenedDesktop { desktop, frames, open_us, ready_us, .. } = opened;
+        let OpenedDesktop { mut desktop, frames, open_us, ready_us, .. } = opened;
+        // SECURITY: the first frame leaves out the windows the app asked for since the open.
+        desktop.ready_for_start()?;
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
         if let Some(timing) = session.timing.as_mut() {

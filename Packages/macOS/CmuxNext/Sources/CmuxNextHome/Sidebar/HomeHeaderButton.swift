@@ -184,7 +184,7 @@ final class HomeHeaderButton: ClickableButton {
         super.mouseDown(with: event)
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() ?? super.menu(for: event) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(contextMenu?() ?? super.menu(for: event)) }
 
     private func setPressed(_ pressed: Bool) {
         hover.state.pressed = pressed

@@ -330,7 +330,7 @@ def main(argv=None):
     parser.add_argument("--case", default="", choices=["", "update"])
     parser.add_argument("--daemon", default="", choices=["", "warm", "cold"])
     parser.add_argument("--snapshot", default="own", choices=["own", "unknown", "foreign"])
-    parser.add_argument("--front", default="", choices=["", "home", "tab"])
+    parser.add_argument("--front", default="", choices=["", "home", "tab", "chat"])
     parser.add_argument("--keys", default="0", choices=["0", "1"])
     parser.add_argument("--out", default="", help="the step's output folder (the stress3 seed's front file)")
     args = parser.parse_args(argv)

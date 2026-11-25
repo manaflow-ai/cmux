@@ -35,7 +35,7 @@ SECONDS=0
 /bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$TMP_DIR/capture.log" \
   /bin/bash -c '
     echo "command-started"
-    sleep 60 >>"$1" 2>&1 &
+    sleep 60 >>"$1" 2>&1 &  # sleep-ok: a simulated detached long-running child
     echo $! >"$2"
     echo "detached-child=$!"
     exit 7
@@ -96,7 +96,7 @@ SECONDS=0
   /bin/bash -c '
     trap "echo term-forwarded >\"$1/term\"; exit 42" TERM
     echo $$ >"$1/command.pid"
-    sleep 60 &
+    sleep 60 &  # sleep-ok: a simulated long-running grandchild
     echo $! >"$1/grandchild.pid"
     wait
   ' _ "$cancel_dir" \
@@ -184,7 +184,7 @@ PYTHONPATH="$startup_dir" CMUX_CAPTURE_STARTUP_DIR="$startup_dir" \
   /bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$startup_dir/capture.log" \
     /bin/bash -c '
       trap "echo term-forwarded >\"$1/term\"; exit 42" TERM
-      sleep 60 &
+      sleep 60 &  # sleep-ok: a simulated long-running child
       echo ready >"$1/ready"
       wait
     ' _ "$startup_dir" >"$startup_dir/streamed.log" 2>&1 &

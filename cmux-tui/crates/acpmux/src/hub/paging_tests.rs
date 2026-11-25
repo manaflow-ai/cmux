@@ -395,6 +395,9 @@ fn a_page_of_newest_prompts_costs_the_newest_turns_whatever_its_copies() {
     let mut log = codex_chat(20, 200, 85, false);
     log.extend(codex_chat(17, 2, 10, false));
     let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    // The appends copied each segment they filled (`store/segment_writer.rs`): a chat written
+    // before that, or one a cold archive took its copies from, has none.
+    std::fs::remove_dir_all(sessions.join("c").join(crate::store::KIND_INDEX_DIR)).unwrap();
     let all: Vec<_> = log.iter().filter(|r| r.kind == "user_message").cloned().collect();
     let newest = all[all.len() - 16..].to_vec();
     let hub = deferred_hub(&sessions, 64 << 10);

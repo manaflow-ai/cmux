@@ -1,6 +1,6 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
-import { iceServers } from "./ice.ts"
+import { cachedIceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
 import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
 import {
@@ -364,26 +364,6 @@ const cachedUserTeams = (env: Env, caller: Caller): Promise<ReadonlyArray<string
   return teams
 }
 
-let iceCache: { at: number; ttl: number; value: Promise<Awaited<ReturnType<typeof iceServers>>> } | undefined
-const cachedIceServers = (env: Env): Promise<Awaited<ReturnType<typeof iceServers>>> => {
-  const now = Date.now()
-  if (iceCache && now - iceCache.at < (iceCache.ttl * 1000) / 10) return iceCache.value
-  const value = iceServers(env)
-  const entry = { at: now, ttl: 300, value }
-  iceCache = entry
-  value.then(
-    (v) => {
-      // Only a TURN answer is worth keeping; STUN-only means TURN failed, so ask again next time.
-      if (v.turn) entry.ttl = v.ttl
-      else if (iceCache === entry) iceCache = undefined
-    },
-    () => {
-      if (iceCache === entry) iceCache = undefined
-    }
-  )
-  return value
-}
-
 const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
   const url = new URL(req.url)
   const path = url.pathname.replace(/\/+$/, "") || "/"
@@ -408,7 +388,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (path === "/v1/ice" && method === "GET") {
     await limit(env.ICE_LIMIT, me, "ICE requests")
-    const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env))
+    const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env, ctx))
     return json({ iceServers: list, ttl, turn })
   }
 

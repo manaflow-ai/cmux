@@ -352,7 +352,7 @@ struct TerminalPage: View {
                 }
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
-                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open. Still in progress.")
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }

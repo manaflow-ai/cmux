@@ -11,11 +11,12 @@ const root = await Bun.file(sourceCatalog).exists() ? sourceRoot : bundledRoot;
 const catalogPath = root === sourceRoot ? sourceCatalog : bundledCatalog;
 const catalog = await Bun.file(catalogPath).json();
 const sourceCloudCatalogPath = join(sourceRoot, "backend/catalog/cloud-operations.json");
-const bundledCloudCatalogPath = join(bundledRoot, "cloud-operations.json");
+// The app ships the cloud catalogs beside this file (Resources/code-mode/, or its unpacked copy).
+const bundledCloudCatalogPath = join(import.meta.dir, "cloud-operations.json");
 const cloudCatalogPath = await Bun.file(sourceCloudCatalogPath).exists() ? sourceCloudCatalogPath : bundledCloudCatalogPath;
 const cloudCatalog = await Bun.file(cloudCatalogPath).exists() ? await Bun.file(cloudCatalogPath).json() : { operations: {} };
 const sourceRelayCatalogPath = join(sourceRoot, "backend/catalog/cloud-relay-operations.json");
-const bundledRelayCatalogPath = join(bundledRoot, "cloud-relay-operations.json");
+const bundledRelayCatalogPath = join(import.meta.dir, "cloud-relay-operations.json");
 const relayCatalogPath = await Bun.file(sourceRelayCatalogPath).exists() ? sourceRelayCatalogPath : bundledRelayCatalogPath;
 const relayCatalog = await Bun.file(relayCatalogPath).exists() ? await Bun.file(relayCatalogPath).json() : { operations: {} };
 const allCatalogOperations = {

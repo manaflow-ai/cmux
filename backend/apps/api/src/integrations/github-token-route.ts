@@ -12,7 +12,7 @@ import { platformCloud } from "../platform-cloud.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
- * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=,
+ * {team, repo, permissions, label?}, POST /token/revoke {team, install? | machine?}, GET /status?team=,
  * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. /status's
  * connection carries `configure_url`, the installation's GitHub page for adding repositories, or null. Callers:
  * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
@@ -157,6 +157,15 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   if (isFail(body)) return failed(body)
   const who = await caller(request, env, body.team)
   if (isFail(who)) return failed(who)
+  if (body.machine !== undefined) {
+    // A joined machine's tokens (cmux-platform revokes them itself on machine revoke and rotation): a team admin only.
+    if (body.install !== undefined) return failed(no(400, "request.invalid", "name an install or a machine, not both"))
+    const admin = await teamAdmin(env, who.p, who.team)
+    if (admin === null) return failed(unreachable("the team role"))
+    if (!admin) return failed(no(403, "auth.forbidden", "revoking a joined machine's tokens needs a team admin"))
+    const revoked = await connections(env, who.team).githubRevoke(who.team, { principal: `machine:${body.machine}` }).catch(() => null)
+    return revoked === null ? failed(unreachable("the team's GitHub tokens")) : Response.json({ revoked }, { headers: NO_STORE })
+  }
   const own = who.p.kind === "install" ? who.p.install : undefined
   if (body.install !== undefined && body.install !== own) {
     const admin = await teamAdmin(env, who.p, who.team)

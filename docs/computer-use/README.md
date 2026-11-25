@@ -89,8 +89,11 @@ guard; a scripting sandbox was considered and decided against.
   after it (`batch_time_limit`).
 - An acting step runs through `dispatch` like its own call: policy, the
   guards, the desktop's caret and web gates and priming scope, and the focus
-  guard (the batch is guarded once, as a whole). It then settles on its own
-  (adaptive, its own AX watch) and gets its own outcome from its own read-back,
+  guard (the batch is guarded once, as a whole). It captures the window at once,
+  with no wait. Only a step whose outcome is required (`require: "confirmed"`
+  or `"not_no_effect"`) or that asks for `settle: "adaptive"` settles on its
+  own (adaptive, its own AX watch): `confirmed` and `no_effect` need a real
+  settle to read back and compare. It gets its own outcome from its own read-back,
   pixels (against the previous step's capture), elements (against the
   previous step's tree) and what changed outside the window. Its outcome is
   decided before the next step runs, so a later step can never confirm it.

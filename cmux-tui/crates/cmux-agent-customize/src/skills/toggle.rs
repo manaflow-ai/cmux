@@ -161,8 +161,8 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
         }
         None => {
             let mut rule = toml_edit::Table::new();
-            rule["path"] = toml_edit::value(path_text);
-            rule["enabled"] = toml_edit::value(enabled);
+            rule.insert("path", toml_edit::value(path_text));
+            rule.insert("enabled", toml_edit::value(enabled));
             rules.push(rule);
         }
     }

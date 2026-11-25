@@ -11,6 +11,9 @@
 
 use super::*;
 
+#[path = "transfer_precopy.rs"]
+mod transfer_precopy;
+
 /// The `text` of every record of `kind` in a session's log.
 pub(super) async fn texts(c: &mut TestClient, id: &str, kind: &str) -> Vec<String> {
     let page = c

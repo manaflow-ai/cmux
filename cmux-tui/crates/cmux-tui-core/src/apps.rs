@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod activation;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -27,6 +29,8 @@ mod calls;
 mod cancel;
 #[cfg(unix)]
 mod catalog;
+#[cfg(unix)]
+mod chat_actions;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
@@ -78,6 +82,8 @@ mod mirror;
 mod open_tokens;
 #[cfg(unix)]
 mod openers;
+#[cfg(unix)]
+mod overlay;
 #[cfg(unix)]
 // The `render: web` page bridge: `page_calls` runs each page's calls through it
 // (`allowed_ops` and the rate-limited count are read only by tests).
@@ -144,12 +150,16 @@ mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
 #[cfg(unix)]
+mod toolbar;
+#[cfg(unix)]
 mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::panic_free::RecoverPoison;
 
+#[cfg(unix)]
+pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]

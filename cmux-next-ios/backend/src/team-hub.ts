@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
+import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
@@ -316,6 +317,31 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
+
+  // Used only on the reserved TURN cache object. Out-of-order writes from
+  // different Worker isolates must keep the newer mint.
+  async readIce(): Promise<CachedIce | undefined> {
+    const entry = await this.ctx.storage.get<CachedIce>("turn-credentials")
+    return entry && Date.now() < entry.usableUntil ? entry : undefined
+  }
+
+  async writeIce(entry: CachedIce): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const current = await tx.get<CachedIce>("turn-credentials")
+      if (entry.usableUntil <= Date.now() || (current && current.issuedAt > entry.issuedAt)) return
+      await tx.put("turn-credentials", entry)
+      await tx.setAlarm(entry.usableUntil)
+    })
+  }
+
+  async alarm(): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const entry = await tx.get<CachedIce>("turn-credentials")
+      if (!entry) return
+      if (Date.now() < entry.usableUntil) await tx.setAlarm(entry.usableUntil)
+      else await tx.delete("turn-credentials")
+    })
+  }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
   async isMember(teamId: string, caller: Caller, owner: HubOwner): Promise<boolean> {

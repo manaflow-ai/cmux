@@ -45,6 +45,8 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/focusVisibleMark.ts", "focus"): "re-checks whether focus-visible is inside the "
+    "composer or dock as the window regains focus (`data-focused`); it reads the DOM's focus, no data",
     (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "
     "`git.status` as the page shows only when a read came due while it was hidden (its chat started "
     "or ended a turn, or came back to a folder: the one read it held back, `owed`); a switch away "

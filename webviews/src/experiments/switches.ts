@@ -31,10 +31,14 @@ export function experimentSwitchOn(name: string): boolean {
   return current[name] === true;
 }
 
-function subscribe(listener: () => void) {
+/// Calls `listener` after every change of the switches; returns the unsubscribe. For a module that
+/// is not a component (ui/hoverLook.ts sets a root attribute from its switch).
+export function subscribeExperimentSwitches(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 }
+
+const subscribe = subscribeExperimentSwitches;
 
 /// Whether switch `name` is on; re-renders when the person flips it.
 export function useExperimentSwitch(name: string): boolean {

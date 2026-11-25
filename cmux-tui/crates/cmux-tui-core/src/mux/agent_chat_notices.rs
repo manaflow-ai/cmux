@@ -1246,8 +1246,13 @@ impl Chat {
         }
         let session = summary["sessionId"].as_str()?.to_owned();
         let text = |key: &str| summary[key].as_str().filter(|text| !text.trim().is_empty());
-        let name =
-            text("title").or_else(|| text("name")).or_else(|| text("harness")).unwrap_or("Agent");
+        // The name it was given (`displayName`, its handle: "Mango") heads its notices, before
+        // the task title, so the person reads who it is (Leo, 2026-11-22: "I DONT SEE MANGO").
+        let name = text("displayName")
+            .or_else(|| text("title"))
+            .or_else(|| text("name"))
+            .or_else(|| text("harness"))
+            .unwrap_or("Agent");
         let name = short(name, MAX_NAME_CHARS);
         let kind =
             text("family").or_else(|| text("harness")).unwrap_or("agent").to_ascii_lowercase();

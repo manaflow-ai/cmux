@@ -110,8 +110,10 @@ class SupersededGateTest(unittest.TestCase):
 
     def test_no_other_job_starts_before_preflight(self) -> None:
         for name, job in jobs().items():
-            # coalesce (base-coalesce.yml) is the other upfront gate: one 2 vCPU job, as push-gate.
-            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref"):
+            # supersede-feat-runs is a gate of the same kind for feat-cmux-next pushes: it runs beside the
+            # preflight on the one-minute control pool and only cancels older never-started runs
+            # (tests/test_cmux_tui_feat_latest_wins.py). coalesce (base-coalesce.yml) is the other upfront gate.
+            if name in ("push-gate", "coalesce", "tree-preflight", "reject-untrusted-pin-ref", "supersede-feat-runs"):
                 continue
             with self.subTest(job=name):
                 self.assertIn("needs", job, f"{name} would start beside the gate and take a runner")

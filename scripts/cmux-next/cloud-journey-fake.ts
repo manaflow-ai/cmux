@@ -26,6 +26,8 @@ export type JourneyFixture = {
    * Without one the run passes `--skip cold`.
    */
   cold?: string;
+  /** What cloud.machine.get says the machine's size is; without one, the size the create asked. */
+  recordedSize?: { cpu: number; memory_mb: number; disk_mb: number };
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
@@ -68,6 +70,7 @@ const COLD = ${JSON.stringify(FIXTURE_COLD_MACHINE)};
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 const log = (line: string) => console.log("@@fake " + line);
 let createdAt = 0;
+let createdSize = null;
 let deleted = false;
 let lastMarker = "";
 const exec = (command: string) => {
@@ -144,13 +147,14 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   if (op === "cloud.machine.create") {
     log("create");
     log("create size " + JSON.stringify(body.params.size));
+    createdSize = body.params.size ?? null;
     createdAt = Date.now();
     const report = fixture.spare === "report" ? { spare_fallback: "all_skipped", spare_skips: { restarting: 1, image: 1 } } : {};
     return json({ ok: true, value: { machine: { id: MACHINE, status: "creating" }, ...report } });
   }
   if (op === "cloud.machine.get") {
     log("get");
-    return json({ ok: true, value: { id: MACHINE, status: deleted ? "deleted" : "running", host: "host-fixture.internal", ready: true, image: { daemon_version: "0.9.1" } } });
+    return json({ ok: true, value: { id: MACHINE, status: deleted ? "deleted" : "running", host: "host-fixture.internal", ready: true, image: { daemon_version: "0.9.1" }, size: fixture.recordedSize ?? createdSize } });
   }
   if (op === "cloud.machine.connect_info") return json({ ok: true, value: { host: "h", state: "running", epoch: 1 } });
   if (op === "cloud.machine.delete") { log("delete"); deleted = true; return json({ ok: true, value: {} }); }

@@ -14,6 +14,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { dataUrlSha256 } from "./sha256";
+import { withAttachmentRetries } from "../../../pages/shared/attachmentRetry";
 
 export type ImageSize = { width: number; height: number };
 /// A sent image ready to draw: its data URL, its natural size when known, and whether the engine
@@ -164,7 +165,9 @@ export async function decodeImage(src: string): Promise<{ size?: ImageSize; deco
 }
 
 /// The sent image `id`, read with `read` (acpmux's `_acpmux/attachment`) and decoded once; every
-/// caller gets the same entry. Undefined when acpmux has none; a failed read is not kept.
+/// caller gets the same entry. Undefined when acpmux has none. A read that throws (the socket
+/// reconnecting, acpmux busy) is tried again on its own a few times (pages/shared/attachmentRetry.ts);
+/// one that still fails rejects and is not kept, so the bubble's Retry reads it again.
 export function loadSentImage(
   id: string,
   read: (id: string) => Promise<string | undefined>,
@@ -175,7 +178,7 @@ export function loadSentImage(
   if (inFlight) return inFlight;
   const load = (async () => {
     try {
-      const src = await read(id);
+      const src = await withAttachmentRetries(() => read(id));
       if (!src) return undefined;
       const raced = entries.get(id);
       if (raced) return raced;
@@ -318,8 +321,11 @@ export type StableImage = {
   /// frame from it (`width`/`height` attributes or `aspect-ratio`) before it decodes.
   width?: number;
   height?: number;
-  /// "loading" while a sent image is read, "missing" when acpmux has none to read.
-  status: "loading" | "ready" | "missing";
+  /// "loading" while a sent image is read, "missing" when acpmux has none to read, "failed" when
+  /// its read still failed after its tries again (the bubble then shows Retry, `retry`).
+  status: "loading" | "ready" | "missing" | "failed";
+  /// Reads a "failed" image again.
+  retry(): void;
   /// The first time this image draws in the pane: fade it in then only, never on a remount.
   fresh: boolean;
   /// Decoded ahead or drawn before: draw it with `decoding="sync"` so it paints in its first frame.
@@ -340,7 +346,9 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   const reader = useRef(read);
   reader.current = read;
   const canRead = read !== undefined;
-  const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry }>();
+  const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry; failed?: boolean }>();
+  /// Bumped by Retry: the read effect runs again.
+  const [attempt, again] = useReducer((count: number) => count + 1, 0);
   const [, measured] = useReducer((count: number) => count + 1, 0);
   // The entry this image drew from stays with it: the cache may forget the image (other images
   // pushed it out) while the bubble is still on screen, and the effect below reads only on mount
@@ -370,14 +378,15 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     });
     void loadSentImage(id, (key) => reader.current?.(key) ?? Promise.resolve(undefined)).then(
       (found) => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, entry: found })),
-      // A read can fail after a reconnect or a session switch: the slot goes, never a stale image.
-      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id })),
+      // A read that still fails after its tries again (a reconnect that outlasted them): the slot
+      // says so and offers Retry, never a stale image and never nothing.
+      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, failed: true })),
     );
     return () => {
       live = false;
       stop();
     };
-  }, [id, canRead]);
+  }, [id, canRead, attempt]);
   const src = direct ?? entry?.src;
   const fade = useRef<{ src: string; fresh: boolean }>(undefined);
   if (src !== undefined && fade.current?.src !== src) fade.current = { src, fresh: !hasDrawn(src) };
@@ -388,7 +397,14 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     (meta?.width && meta.height ? { width: meta.width, height: meta.height } : undefined) ??
     entry?.size ??
     (src !== undefined ? knownImageSize(src) : undefined);
-  const status = src !== undefined ? "ready" : id !== undefined && canRead && loaded?.id !== id ? "loading" : "missing";
+  const status =
+    src !== undefined
+      ? "ready"
+      : id !== undefined && canRead && loaded?.id !== id
+        ? "loading"
+        : loaded?.id === id && loaded?.failed
+          ? "failed"
+          : "missing";
   const onLoad = (event: { currentTarget: HTMLImageElement }) => {
     const { naturalWidth: width, naturalHeight: height, currentSrc } = event.currentTarget;
     const drawnSrc = src ?? currentSrc;
@@ -405,6 +421,10 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     fresh: fade.current?.fresh ?? true,
     decoded: entry?.decoded === true || (src !== undefined && hasDrawn(src)),
     onLoad,
+    retry: () => {
+      setLoaded(undefined);
+      again();
+    },
   };
 }
 

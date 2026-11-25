@@ -853,3 +853,16 @@ fn cache_ttl_queue_cancels_on_state_change_and_fires_once() {
     queue.observe(working, now + Duration::from_secs(1), 200);
     assert!(queue.take_due(now + Duration::from_secs(120)).is_empty());
 }
+
+#[test]
+fn a_given_handle_names_the_notice_before_the_task_title() {
+    let chat = Chat::of(&json!({
+        "sessionId": "chat-1",
+        "name": "claude-sr2-coord-old",
+        "displayName": "Mango",
+        "title": "Fleet and CI capacity",
+        "lastSeq": 1,
+    }))
+    .expect("a local chat");
+    assert_eq!(chat.name, "Mango");
+}

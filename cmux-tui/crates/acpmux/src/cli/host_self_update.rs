@@ -20,10 +20,11 @@
 
 use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
-use super::super::{Remote, RemoteOut};
+use super::super::{REMOTE_HOME, Remote, RemoteOut};
 use super::{
-    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, UpdateOptions, embedded_build, is_own_unit,
-    local_target, update_peer,
+    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, RESTART_STAMP, RESTART_WINDOW,
+    RESTART_WINDOW_ENV, RESTART_WINDOW_FILE, RESTART_WINDOW_SECS, UpdateOptions, embedded_build,
+    is_own_unit, local_target, update_peer,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -176,10 +177,14 @@ pub(super) struct Paths {
     /// cmux-rd, the screen host's program, kept on the channel's build too
     /// (`host_self_update_rd.rs`); None leaves it alone.
     pub(super) rd: Option<RdPaths>,
+    /// Install the channel's build even when the installed one is built from
+    /// a newer commit (`--allow-downgrade`: pulling a bad channel build back).
+    /// Off, the host keeps a newer build ([`apply`]).
+    pub(super) allow_downgrade: bool,
 }
 
 impl Paths {
-    fn here(now: bool) -> Result<Paths> {
+    fn here(now: bool, allow_downgrade: bool) -> Result<Paths> {
         let target =
             local_target().ok_or_else(|| anyhow!("no acpmux build runs on this platform"))?;
         let user = dirs::home_dir().ok_or_else(|| anyhow!("this user has no home folder"))?;
@@ -188,6 +193,7 @@ impl Paths {
             installed: user.join(".local/bin/acpmux"),
             off: home.join(NO_AUTO_UPDATE),
             rd: RdPaths::here(&user, &home, target, now),
+            allow_downgrade,
             home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
             unit: user.join(OWN_UNIT),
@@ -215,6 +221,8 @@ pub(super) struct Plan {
     pub(super) step: Step,
     /// What happened to cmux-rd ([`rd::refresh`]), before acpmux's step.
     pub(super) rd: RdOutcome,
+    /// [`Paths::allow_downgrade`].
+    allow_downgrade: bool,
     /// `update/<sha256>/`, holding the checked `acpmux-<target>`.
     dir: PathBuf,
     /// The host's update lease, held until the plan is dropped.
@@ -272,7 +280,15 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         }
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
     };
-    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, rd, dir, lease }))
+    Ok(Prepared::Ready(Plan {
+        commit: feed.commit,
+        sha256: sha,
+        step,
+        rd,
+        allow_downgrade: paths.allow_downgrade,
+        dir,
+        lease,
+    }))
 }
 
 /// Whether `unit` is acpmux's own `acpmux.service` ([`is_own_unit`]): a regular
@@ -354,7 +370,8 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// alone (a restart that failed before the build was checked is not
+/// marked); when the mark cannot be written, the row says so. Unless `now`, a
 /// daemon an update restarted within the host's restart window (this timer's
 /// or a `host update` from another machine: one stamp on the host) is left
 /// alone, and nothing is installed: the first run after the window brings
@@ -373,18 +390,35 @@ pub(super) fn apply(
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
-        // The channel names the build this host runs (an older one too, when
-        // it pulls a bad build back); only pushes from elsewhere are refused.
-        allow_downgrade: true,
+        // Newer wins: a host whose installed build is of a newer commit than
+        // the channel's keeps it (`current`, reason `newerInstalled`), as it
+        // keeps it against a push from elsewhere. A lane's branch build or a
+        // hand-pushed one that contains the channel's head is never rolled
+        // back to it by this timer (the lane hosts of 2026-11-23 held
+        // b45cad3d8 while the channel sat at 7d439038 and the timer kept
+        // trying to put that back, each try a restart). `--allow-downgrade`
+        // is how a bad channel build is deliberately pulled back.
+        allow_downgrade: plan.allow_downgrade,
         caller: None,
         now,
     };
-    let mut up = update_peer(&plan.lease.fence(remote), &opts);
+    let fenced = plan.lease.fence(remote);
+    let mut up = update_peer(&fenced, &opts);
+    if !now && up.outcome == Outcome::Busy && up.reason.as_deref() == Some(RESTART_WINDOW) {
+        up = idle_restart(&fenced, &opts, up);
+    }
     up.target.get_or_insert(target);
     if up.outcome == Outcome::Current && up.build.is_none() {
         up.build = installed.map(str::to_owned);
     }
-    if up.outcome == Outcome::RolledBack {
+    // Only a verdict on the build marks it: its daemon did not answer, or
+    // answered on another build. A restart script that failed (`restartFailed`:
+    // the old daemon was still stopping, the unit was mid-restart) never got
+    // to check the build, so the next run tries it again: three fleet hosts
+    // (2026-11-23) marked a good build rolled back for good on such
+    // a failure and then sat on the old build, every run "waiting for a newer
+    // one". The restart window keeps that retry to once an hour.
+    if up.outcome == Outcome::RolledBack && up.reason.as_deref() != Some("restartFailed") {
         let mark = dir.join(ROLLED_BACK);
         if let Err(e) = crate::home_fs::write(&mark, up.error.as_deref().unwrap_or("")) {
             let why = up.error.take().unwrap_or_default();
@@ -395,6 +429,88 @@ pub(super) fn apply(
         }
     }
     up
+}
+
+/// The file in [`REMOTE_HOME`] that turns [`idle_restart`] off when it says
+/// `0` (else `ACPMUX_UPDATE_IDLE_RESTART` in the timer's environment).
+pub(crate) const IDLE_RESTART_FILE: &str = "update.idle-restart";
+
+/// The file in [`REMOTE_HOME`] that holds when (the host's `date +%s`) the
+/// last idle restart was made.
+pub(crate) const IDLE_RESTARTED_FILE: &str = "update.idle-restarted";
+
+/// Starts the line [`idle_state`] reads.
+const IDLE_STATE: &str = "ACPMUX_IDLE_STATE=";
+
+/// The host's idle-restart switch, restart stamp, and whether an idle
+/// restart is due (none yet, or the last one at least the window ago, the
+/// window as the restart window's own file, then the timer's
+/// [`RESTART_WINDOW_ENV`], else [`RESTART_WINDOW_SECS`]; a time from the
+/// future counts as due): `(off, due, stamp)`.
+fn idle_state(remote: &dyn Remote) -> Option<(bool, bool, String)> {
+    let script = format!(
+        r#"v=$(cat {REMOTE_HOME}/{IDLE_RESTART_FILE} 2>/dev/null | tr -cd '0-9a-z')
+[ -n "$v" ] || v=$(printf '%s' "${{ACPMUX_UPDATE_IDLE_RESTART-}}" | tr -cd '0-9a-z')
+[ "$v" = 0 ] && o=off || o=on
+s=$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null | tr -cd '0-9')
+d=$(cat {REMOTE_HOME}/{IDLE_RESTARTED_FILE} 2>/dev/null | tr -cd '0-9')
+w=$(cat {REMOTE_HOME}/{RESTART_WINDOW_FILE} 2>/dev/null | tr -cd '0-9')
+[ -n "$w" ] || w=$(printf '%s' "${{{RESTART_WINDOW_ENV}-}}" | tr -cd '0-9')
+[ -n "$w" ] || w={RESTART_WINDOW_SECS}
+n=$(date +%s); due=due
+if [ -n "$d" ] && [ "$d" -le "$n" ] && [ $((n - d)) -lt "$w" ]; then due=wait; fi
+echo "{IDLE_STATE}$o $due ${{s:-0}}"
+"#
+    );
+    let out = remote.exec(&script, None).ok()?;
+    let line = out.stdout.lines().find_map(|l| l.strip_prefix(IDLE_STATE))?;
+    let mut words = line.split(' ');
+    let off = words.next()? == "off";
+    let due = words.next()? == "due";
+    Some((off, due, words.next()?.to_owned()))
+}
+
+/// The restart window held the daemon (`up`, busy `restartWindow`): the
+/// window bounds a FORCED restart, but a daemon that is idle has nothing to
+/// wake, so the update goes in now, at the first run that finds no session
+/// mid-turn or waiting on a permission (`if_idle`: read before the copy and
+/// again right before the restart, and the binary goes back when a turn
+/// started). A run that finds one busy leaves `up` (busy, `restartWindow`):
+/// the window's forced restart applies as before, and a later run that finds
+/// the daemon idle takes this path again. This path always installs the
+/// channel's newest build, so moves that landed while it waited are one
+/// restart. Idle restarts are at least a window apart: one writes the host's
+/// time to [`IDLE_RESTARTED_FILE`] (the early restart stamps the window too,
+/// so counting from the stamp would let one restart follow another), and
+/// the next waits until a window has passed since. Together with the
+/// window (measured from the last restart of any kind) that is at most one
+/// restart per host per hour amortized, and 2 in any rolling hour. Off with
+/// `0` in [`IDLE_RESTART_FILE`] or `ACPMUX_UPDATE_IDLE_RESTART`.
+fn idle_restart(remote: &dyn Remote, opts: &UpdateOptions, held: PeerUpdate) -> PeerUpdate {
+    let Some((false, true, stamp)) = idle_state(remote) else {
+        return held;
+    };
+    let early = UpdateOptions {
+        binary_dir: opts.binary_dir.clone(),
+        if_idle: true,
+        keep_newer: opts.keep_newer,
+        allow_downgrade: opts.allow_downgrade,
+        caller: None,
+        now: true,
+    };
+    let up = update_peer(remote, &early);
+    if let Some((_, _, after)) = idle_state(remote)
+        && after != stamp
+    {
+        let file = format!("{REMOTE_HOME}/{IDLE_RESTARTED_FILE}");
+        let write = format!("(umask 077 && date +%s > {file}.$$ && mv -f {file}.$$ {file})");
+        let _ = remote.exec(&write, None);
+    }
+    match (up.outcome, up.reason.as_deref()) {
+        // Mid-turn: the window's answer stands, as it reads to the person.
+        (Outcome::Busy, Some("busy" | "unknown")) => held,
+        _ => up,
+    }
 }
 
 /// This machine as a [`Remote`]: a script runs under `sh -c` in the home
@@ -462,16 +578,22 @@ impl Remote for LocalRemote {
 /// automatic updates off, another update of this host running, or the channel's
 /// build rolled back here before, nothing happens: `{"channel", "skipped":
 /// "off" | "locked" | "rolledBack", "message", "updated": []}`, exit 0.
-/// Exits 1 when the row failed. The channel decides: a build pushed by hand
-/// with `host update` is replaced by the channel's at the next run, unless
-/// automatic updates are off.
-pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Result<()> {
+/// Exits 1 when the row failed. The channel decides, newer wins: a build pushed
+/// by hand with `host update` is replaced by the channel's at the next run,
+/// unless automatic updates are off or the installed build is of a newer
+/// commit than the channel's (`--allow-downgrade` replaces that too).
+pub(crate) async fn self_update(
+    channel: &str,
+    now: bool,
+    allow_downgrade: bool,
+    json_out: bool,
+) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
             "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
-    let paths = Paths::here(now)?;
+    let paths = Paths::here(now, allow_downgrade)?;
     let plan = match prepare(&paths, &HttpsFetch, channel).await? {
         Prepared::Off => {
             let why = format!(

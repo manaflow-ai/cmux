@@ -139,7 +139,9 @@ nonisolated final class MacScreenRdHost: Sendable {
             // The process ended without saying why (it crashed, or never started). A cancel is
             // this session ending (serve returned), which the hub host already handles.
             guard !Task.isCancelled else { return }
-            self?.emit(.sourceFailed(process.stderrTail.isEmpty ? "the screen host stopped" : process.stderrTail))
+            // Its own words, never a grant's: the process (the helper in a build with one) just ended.
+            let stopped = "the screen host exited without saying why"
+            self?.emit(.sourceFailed(process.stderrTail.isEmpty ? stopped : "\(stopped): \(process.stderrTail)"))
         }
         self.output.withLock { $0 = output }
         // Nothing to read when no rd host started (a WebRTC viewer, or a viewer that never offered).

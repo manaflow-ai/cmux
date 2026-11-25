@@ -223,15 +223,44 @@ jobs:
       # took 286-350 s on 2026-11-03, past this job's 5-minute timeout, which
       # cancelled the whole run. Routing reads names and trees; the blobs of
       # the paths it opens arrive with the checkout.
+      # Narrower than the other lean jobs: on a cold pool workspace (cmux-runner-pool-*)
+      # this step took 78-80 s for the blobs of the whole sparse tree, 0-2 s on a warm one
+      # (2026-11-23; the job's other steps total ~20 s). Routing opens scripts/, tests/,
+      # .github/, config/, schemas/, webviews/, release-notes/, Resources/, clients/,
+      # the Xcode project, every Package.swift and the web model catalog; the rest of the
+      # tree is read as git objects (ls-tree, diff, show, archive). The one walk of the
+      # worktree outside those, detect_ci_change_areas.ci_helper_areas()'s `git grep`,
+      # widens the sparse set to the table's full patterns first (_tree_is_complete), so
+      # a changed CI helper sees the tree it always saw. Unsure, it fails open.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
           filter: blob:none
-          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json ("own_patterns")
           sparse-checkout: |
             /*
-            !/cmux-next-ios/verify/
+            !/cmux-next-ios/
+            !/cmux-tui/
+            !/Packages/
+            !/web/
+            !/plans/
+            !/docs/
+            !/examples/
+            !/backend/
+            !/art/
+            !/workers/
+            !/Native/
+            !/ios/
+            !/first-party-apps/
+            !/Assets.xcassets/
+            !/design/
+            !/experiments/
+            !/webviews/test/
+            !/webviews/bench/
+            Package.swift
+            /web/data/model-catalog/
+            /examples/gallery/gallery.json
 
       # A draft head runs the cheap tier: the Linux guards and checks, no macOS, web app, Swift package or
       # Release jobs (scripts/ci/head_tier.py; vars.CI_DRAFT_CHEAP_TIER=0 turns it off). The `changes`

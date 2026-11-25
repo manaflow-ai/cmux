@@ -58,6 +58,11 @@ mod lanes;
 mod log_retention;
 #[path = "hub_integration/mcp_connect.rs"]
 mod mcp_connect;
+#[path = "hub_integration/outbox_folder_missing.rs"]
+mod outbox_folder_missing;
+#[cfg(unix)]
+#[path = "hub_integration/paused_fs.rs"]
+mod paused_fs;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
@@ -1791,6 +1796,8 @@ mod session_pull_requests;
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
 mod transfer_guard;
+#[path = "hub_integration/transfer_hub.rs"]
+mod transfer_hub;
 #[path = "hub_integration/watch.rs"]
 #[cfg(unix)]
 mod watch;

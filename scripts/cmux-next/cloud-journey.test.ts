@@ -2834,7 +2834,7 @@ describe("preclaim MET table fields", () => {
       });
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
-      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 4, memory_mb: 16384, disk_mb: 65536 }));
+      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 2, memory_mb: 4096, disk_mb: 20480 }));
       expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
       const [first, second] = written.rows;
       expect(first.lease_hit).toBe(true);
@@ -3254,6 +3254,19 @@ describe("waitForSpareReady", () => {
   });
   test("a failed spare says so instead of waiting the budget", async () => {
     await expect(waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => ({ status: "failed", error: "boom" }), pollMs: 1, sleep: async () => {} })).rejects.toThrow(/failed before ready/);
+  });
+  test("a spare the person's read cannot see (production: not_found under its reservation) is ready once its guest answers exec", async () => {
+    const notFound = async () => { throw new Error('cloud.machine.get: HTTP 400 {"code":"cloud.machine.not_found"}'); };
+    let probes = 0;
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: notFound, answers: async () => ++probes >= 2, pollMs: 1, sleep: async () => {} });
+    expect(got.by).toBe("exec");
+    expect(got.row.status).toBe("running");
+    expect(probes).toBe(2);
+  });
+  test("an exec probe that fails keeps waiting, and another read error never probes", async () => {
+    let probes = 0;
+    await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => { throw new Error("HTTP 503"); }, answers: async () => { probes++; return true; }, pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
+    expect(probes).toBe(0);
   });
   test("neither within the budget names both routes", async () => {
     await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => ({ status: "starting" }), pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
