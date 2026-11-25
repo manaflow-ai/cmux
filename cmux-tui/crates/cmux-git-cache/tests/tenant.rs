@@ -177,6 +177,19 @@ async fn clone_with(
     protocol: &str,
     switch: Option<(&str, &str)>,
 ) -> (bool, String) {
+    clone_args(w, name, auth, protocol, switch, &[]).await
+}
+
+/// `clone_with`, with more `git clone` arguments (`--filter=...`).
+async fn clone_args(
+    w: &World,
+    name: &str,
+    auth: Option<&str>,
+    protocol: &str,
+    switch: Option<(&str, &str)>,
+    extra: &[&str],
+) -> (bool, String) {
+    let extra: Vec<String> = extra.iter().map(|s| (*s).to_owned()).collect();
     let url = format!("http://{}/github.com/o/r.git", w.proxy);
     let dest = w.tmp.join(name);
     let auth = auth.map(str::to_owned);
@@ -215,7 +228,7 @@ async fn clone_with(
                 &format!("credential.http://{upstream}.helper=!f() {{ echo username={u}; echo password=token; }}; f"),
             ]);
         }
-        let out = cmd.args(["clone", "--progress", &url]).arg(&dest).output().unwrap();
+        let out = cmd.args(["clone", "--progress"]).args(&extra).arg(&url).arg(&dest).output().unwrap();
         (out.status.success(), String::from_utf8_lossy(&out.stderr).into_owned())
     })
     .await
@@ -405,4 +418,66 @@ async fn unreachable_upstream_falls_back_to_github() {
     let file: serde_json::Value =
         serde_json::from_slice(&std::fs::read(tmp.path().join("stats.json")).unwrap()).unwrap();
     assert_eq!(file["fallbacks"], 1);
+}
+
+/// A cold clone's pack from upstream is written into the mirror as it streams by: the next
+/// clone is local, and clones that start while it streams wait for it instead of downloading
+/// the same pack again (one upstream fetch for three clones at once).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cold_pack_is_kept_and_concurrent_clones_wait_for_it() {
+    for protocol in ["2", "0"] {
+        let w = world().await;
+        let (a, b, c) = tokio::join!(
+            clone(&w, "a", Some(GOOD), protocol),
+            clone(&w, "b", Some(GOOD), protocol),
+            clone(&w, "c", Some(GOOD), protocol),
+        );
+        assert!(a && b && c, "concurrent cold clones v{protocol}");
+        for name in ["a", "b", "c"] {
+            assert_eq!(git_ok(&w.tmp.join(name), &["rev-parse", "HEAD"]), w.head);
+        }
+        let upstream = w.fake.upload_posts.load(Ordering::SeqCst);
+        assert_eq!(stat(&w, "keptPacks"), 1, "v{protocol}");
+        let (ok, err) = clone_with(&w, "d", Some(GOOD), protocol, None).await;
+        assert!(ok && err.contains("served by cache"), "v{protocol}: {err}");
+        assert_eq!(w.fake.upload_posts.load(Ordering::SeqCst), upstream, "warm clone v{protocol}");
+        assert_eq!(upstream, 1, "v{protocol}: one upstream fetch for three clones");
+        assert_eq!(stat(&w, "fallbacks"), 0);
+    }
+}
+
+/// A partial clone's pack (`--filter=blob:none`) is never kept as if it were whole: a full
+/// clone after it still gets every blob.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn filtered_pack_is_not_kept() {
+    let w = world().await;
+    git_ok(&w.fake.repo, &["config", "uploadpack.allowFilter", "true"]);
+    let (ok, err) =
+        clone_args(&w, "p", Some(GOOD), "2", None, &["--filter=blob:none", "--no-checkout"]).await;
+    assert!(ok, "{err}");
+    assert_eq!(stat(&w, "keptPacks"), 0);
+    let (ok, err) = clone_with(&w, "f", Some(GOOD), "2", None).await;
+    assert!(ok, "{err}");
+    assert_eq!(std::fs::read_to_string(w.tmp.join("f/f2")).unwrap(), "content 2\n".repeat(100));
+}
+
+/// A miss starts one background fill of the whole mirror; once it is done the mirror says so,
+/// and the next clone is local.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn miss_fills_the_mirror_in_the_background() {
+    let w = world().await;
+    git_ok(&w.fake.repo, &["config", "uploadpack.allowFilter", "true"]);
+    let (ok, err) =
+        clone_args(&w, "p", Some(GOOD), "2", None, &["--filter=blob:none", "--no-checkout"]).await;
+    assert!(ok, "{err}");
+    let dir = w.state.mirrors.dir("team-a", "o/r");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !cmux_git_cache::mirror::Mirrors::filled(&dir) {
+        assert!(std::time::Instant::now() < deadline, "the fill never finished");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let posts = w.fake.upload_posts.load(Ordering::SeqCst);
+    let (ok, err) = clone_with(&w, "f", Some(GOOD), "2", None).await;
+    assert!(ok && err.contains("served by cache"), "{err}");
+    assert_eq!(w.fake.upload_posts.load(Ordering::SeqCst), posts);
 }

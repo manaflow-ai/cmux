@@ -3245,6 +3245,47 @@ async fn hub_carrier_a_kept_circuit_cut_under_its_streams_is_opened_again_by_the
     assert_eq!(fixture.plain_dials(), 0);
 }
 
+/// A kept circuit the relay drops (or the far machine's restart ends) is opened again by the
+/// carrier's reopen pass, before any dial asks for it: the next dial is a stream on it (one OPEN,
+/// 0.07 s), not a whole new circuit (0.5 to 0.9 s). Leo, 2026-11-25: "batched over one
+/// always-open connection, never a new connection per call".
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_kept_circuit_dropped_under_it_is_opened_again_before_the_next_dial() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let mut live = fixture.dial_to_banner().await;
+    echo(&mut live, b"before\n").await;
+    let before = fixture.kept_circuits();
+
+    fixture.proxy.cut();
+    let mut buf = [0u8; 16];
+    let ended = within("the cut stream's end", live.read(&mut buf)).await;
+    assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 0, "the cut closed it");
+
+    let reopened = within("the reopen pass", async {
+        loop {
+            if fixture.a.reopen_closed().await == 1 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let () = reopened;
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1, "open again with no dial");
+    assert_eq!(fixture.kept_circuits() - before, 1);
+    assert_eq!(fixture.a.stats().kept_reopens.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+    // The next dial rides it: no new circuit.
+    let mut next = fixture.dial_to_banner().await;
+    echo(&mut next, b"after\n").await;
+    assert_eq!(fixture.kept_circuits() - before, 1);
+    assert_eq!(fixture.plain_dials(), 0);
+    // Nothing left to reopen.
+    assert_eq!(fixture.a.reopen_closed().await, 0);
+}
+
 /// A machine whose acpmux keeps no circuits (it answers the `mux` hello `service.unknown`, as
 /// one that predates them does) gets a plain circuit per dial, as before, with no error.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
