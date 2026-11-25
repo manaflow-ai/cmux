@@ -49,7 +49,7 @@ test("every look is calm: the countdown in the body, the raw error under Details
   for (const look of ["line", "card", "bar"] as const) {
     const html = renderToStaticMarkup(<CapacityWaitCard wait={wait} look={look} now={30_000} />);
     expect(html).toContain("Waiting for capacity, about 40s");
-    expect(html).toContain('role="status"');
+    expect(html).toContain('<output class="cv-capacity-wait__line">');
     expect(html).not.toContain("cv-turn-error__icon");
     expect(html).not.toContain("agent-status-failure");
     // The 529 only inside the closed Details.

@@ -26,19 +26,16 @@ export function CapacityWaitCard({
   const eta = capacityEta(t, wait, now);
   const progress = look === "bar" ? capacityProgress(wait, now) : undefined;
   return (
-    <div
-      className={`cv-turn-note cv-capacity-wait cv-capacity-wait--${look}`}
-      data-capacity-reason={wait.reason}
-      role="status"
-    >
-      <span className="cv-capacity-wait__line">
+    <div className={`cv-turn-note cv-capacity-wait cv-capacity-wait--${look}`} data-capacity-reason={wait.reason}>
+      {/* Only the countdown is a live status; Details sits outside it. */}
+      <output className="cv-capacity-wait__line">
         {look === "card" ? (
           <Clock size={16} className="cv-capacity-wait__icon" />
         ) : (
           <Spinner size={14} look="track" className="cv-capacity-wait__icon" />
         )}
         <span className="text-fg">{eta}</span>
-      </span>
+      </output>
       {progress !== undefined && (
         <span className="cv-capacity-wait__track" aria-hidden="true">
           <span className="cv-capacity-wait__bar">
