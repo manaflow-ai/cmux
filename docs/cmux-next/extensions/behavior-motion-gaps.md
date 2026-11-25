@@ -40,8 +40,15 @@ the profiles lane goes here first, then into a PR.
 
 ## Gaps from the profiles lane
 
-None are recorded here yet. On 2026-11-25 goal-customize-app-profiles-a had been closed for 22 hours and had
-not written its gaps down. When the lane that adopts it finds one, it adds a row above.
+The codex profile (`examples/looks/codex/profile`, built from these docs only) found these:
+
+| Surface | Expressible today? | Missing piece |
+| --- | --- | --- |
+| More than one feature look's customize app in one look | No: a look carries one `customize/` app (`local/customize`), and `implements` names each interface once | A whole profile cannot ship two `cmux.section/1` sections, so the codex sidebar's Chats and the codex threads' Activity cannot both ship. Allow a look to carry several apps (`customize/<name>/`), or let `implements` take a list per interface |
+| A key for "next chat that needs you" | No: there is no public action for it (only `nextSidebarTab`, `focusNextPane` and the diff viewer's next file and hunk) | Add an action such as `agentPane.nextAttention` to the action catalog, so a profile can bind the reference app's key |
+| Model and effort as separate chips | Partly: `cmux.composer.chip/1` can draw one, but only from the look's one app | A setting that splits effort out of the model menu into its own chip |
+| Work location and branch chips under the composer, and moving a chat to a worktree | No | A composer chip row for location (local, worktree, cloud) and branch, and a chat op to move a chat between checkouts |
+| `cmux customize apply NAME` when `CMUX_NEXT_CONFIG_FILE` is set | No: it exits 0 and prints "nothing to apply: what is live is already generation 1", while the toast says the config file is pinned | Exit non-zero and say why on the command line, so a script or capture run does not shoot stock cmux. `cmux setup install` works in that case |
 
 ## Order
 
