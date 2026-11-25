@@ -1,6 +1,7 @@
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
 #endif
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -926,6 +927,52 @@ public final class DaemonTerminalSession: TerminalSession {
             historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         }
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next \(self.historyRequestDescription, privacy: .public))")
+        replacing = client
+        Task { await attach() }
+        return true
+    }
+
+    /// The daemon refused `terminal-find` (an older Mac, or a lane that does not list it): the
+    /// screen searches its mirror for the rest of this session.
+    private var findUnsupported = false
+
+    /// `terminal-find {surface, query, ...}` on the attach channel: one page of matches in the
+    /// terminal's whole history. Nil when the daemon has no such command.
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? {
+        // Settings → Terminal → Find in Whole History, off by default: off, the mirror searches itself.
+        guard !findUnsupported, CmuxMobilePreferences.terminalHistoryFind() else { return nil }
+        guard attached, let client else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+        var params = request.fields
+        params["surface"] = surface
+        let reply = try await client.request("terminal-find", params: params)
+        do {
+            return try TerminalFindPage.decode(reply)
+        } catch let error as TerminalFindError where error.isUnsupported {
+            log.notice("surface \(self.surface, privacy: .public): terminal-find not available: \(String(describing: error), privacy: .public)")
+            findUnsupported = true
+            return nil
+        }
+    }
+
+    public var findMirror: TerminalFindMirror? {
+        return TerminalFindMirror(omitted: historyRowsOmitted, skipped: historyRowsSkipped, windowRows: historyWindowRows)
+    }
+
+    /// Brings the history around `daemonRow` into the mirror: the newest rows down to it
+    /// when it is within reach of a tail, else a window centered on it
+    /// (`attach-replay-history-window-v1`).
+    @discardableResult
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool {
+        guard attached, !attaching, replacing == nil, !awaitingReplay, tailReplay,
+              inputInFlight == 0, let client else { return false }
+        if windowReplay, rowsFromBottom + Self.historyChunkRows > Self.maxTailHistoryRows {
+            historyWindowStart = max(0, daemonRow - Self.historyWindowRows / 2)
+        } else {
+            historyWindowStart = nil
+            let wanted = rowsFromBottom + Self.historyChunkRows / 4
+            historyAllowance = wanted >= historyRowsOmitted + (historyAllowance ?? 0) ? nil : max(historyAllowance ?? 0, wanted)
+        }
+        log.notice("surface \(self.surface, privacy: .public): history for a find match asked (\(self.historyRequestDescription, privacy: .public))")
         replacing = client
         Task { await attach() }
         return true
