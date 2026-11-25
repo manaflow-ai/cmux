@@ -17,7 +17,7 @@ public nonisolated struct ChatUploadFolders: Sendable, Equatable {
         self.root = root
     }
 
-    /// `~/Library/Application Support/cmux/Chat Uploads`, a DEV build's own folder in a DEV build
+    /// `~/Library/Application Support/cmux-next/Chat Uploads`, a DEV build's own folder in a DEV build
     /// (``BuildStatePaths/chatUploads``).
     public static var standard: ChatUploadFolders? { ChatUploadFolders(root: BuildStatePaths.current.chatUploads) }
 
