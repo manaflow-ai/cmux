@@ -20,6 +20,7 @@ mod browser;
 mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
+mod cloud_wake;
 mod composer_outbox;
 mod follow_camera;
 mod lan;
@@ -53,6 +54,10 @@ pub use chat_prompt_outbox::{
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
 };
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use cloud_wake::{
+    CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
+    cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
+};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
