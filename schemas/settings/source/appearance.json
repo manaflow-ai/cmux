@@ -1333,6 +1333,53 @@
           ]
         },
         {
+          "key": "appearance.liveWallpaperFrameRate",
+          "title": {
+            "key": "settings.appearance.liveWallpaperFrameRate",
+            "text": "Live Wallpaper Frame Rate"
+          },
+          "help": {
+            "key": "settings.appearance.liveWallpaperFrameRate.help",
+            "text": "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."
+          },
+          "kind": "choice",
+          "swift_owner": "LiveWallpaperFrameRateSetting",
+          "choices": [
+            {
+              "value": "15",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.15",
+                "text": "15 fps"
+              }
+            },
+            {
+              "value": "30",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.30",
+                "text": "30 fps"
+              }
+            },
+            {
+              "value": "60",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.60",
+                "text": "60 fps"
+              }
+            }
+          ],
+          "default": "30",
+          "keywords": [
+            "live wallpaper",
+            "wallpaper",
+            "frame rate",
+            "fps",
+            "animation",
+            "motion",
+            "background",
+            "battery"
+          ]
+        },
+        {
           "key": "appearance.terminalCellBackgrounds",
           "note": "Ghostty's background-cells-opacity and background-cells-neutral-fade (ghostty-next), loaded with source cmux-next in GhosttyRuntime.finalizeConfig (GhosttyRuntimeSurfacePolicy.cellBackgroundLines). opaque loads nothing.",
           "title": {
@@ -1735,6 +1782,35 @@
             "text",
             "thin",
             "weight"
+          ]
+        },
+        {
+          "key": "appearance.appFont",
+          "note": "The font family of cmux's interface, any installed family (Leo, 2026-11-08: \"there's no whole app font change thing\"). Unset is the system font. Every web page (chat, Settings, palette) takes it as --font-ui live through the web theme (WebTheme.appFontStack, a <style id=cmux-app-font> rule under inline styles, so a chat font set on Chat still wins there). Native chrome text (CheckedFont.system) takes it too while experiments.appFontChrome is on. Terminals keep terminal.fontFamily. Validation domain:ui_font_family: any family name, the owner checks the shape only.",
+          "title": {
+            "key": "settings.appearance.appFont",
+            "text": "App Font"
+          },
+          "help": {
+            "key": "settings.appearance.appFont.help",
+            "text": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+          },
+          "kind": "font_family",
+          "default": null,
+          "default_label": {
+            "key": "settings.appearance.appFont.system",
+            "text": "System"
+          },
+          "swift_owner": "AppFontSetting",
+          "keywords": [
+            "font",
+            "app font",
+            "interface font",
+            "ui font",
+            "typeface",
+            "family",
+            "whole app",
+            "text"
           ]
         },
         {
