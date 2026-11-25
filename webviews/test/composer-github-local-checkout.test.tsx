@@ -2,7 +2,7 @@
 // repository's pick stays on this Mac: the composer hands it to `onGitHubHere` with the folders here whose
 // remote names it, so the host can use that checkout or clone it, then make the chat's worktree. A chat on
 // Cloud still takes the pick as its folder `github:owner/name` for the machine to clone.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 
@@ -39,6 +39,14 @@ const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
 const { createGitHubPicker, useGitHubPicker } = await import("../src/agent-session/acpmux/githubRepos");
 const { newWorktree } = await import("../src/agent-session/acpmux/startFolderModel");
+const { forgetAddedRepos, rememberAddedRepo } = await import("../src/agent-session/acpmux/addedRepos");
+
+// acme/api and acme/web were added as projects (Add project… → GitHub); the folder menu lists only those.
+beforeEach(() => {
+  forgetAddedRepos();
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 2);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 1);
+});
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
@@ -109,20 +117,20 @@ const press = async (element: HTMLElement) => {
   await settle();
 };
 
-test("with This Mac picked, a repository's pick stays on this Mac and names this Mac's checkout of it", async () => {
+test("with This Mac picked, a repository's pick stays on this Mac; one it has a checkout of is that checkout's row", async () => {
   const { picker } = store();
   const { root, picked, here, modes } = await render({}, picker);
   try {
     await openFolderMenu();
-    await press(option("acme/api")!);
-    expect(here).toEqual([["acme/api", [CHECKOUT]]]);
+    // acme/api has a checkout here: its one row is the checkout, with the GitHub glyph (cmux#53226).
+    expect(option("acme/api")).toBeUndefined();
+    expect(option("api")?.querySelector("[data-github]")).not.toBeNull();
+    // A repository this Mac has no checkout of: the host clones it.
+    await press(option("acme/web")!);
+    expect(here).toEqual([["acme/web", []]]);
     // Not a Cloud pick: the chat stays on This Mac, and no `github:` folder goes to the start.
     expect(modes).toEqual([]);
     expect(picked).toEqual([]);
-    // A repository this Mac has no checkout of: the host clones it.
-    await openFolderMenu();
-    await press(option("acme/web")!);
-    expect(here.at(-1)).toEqual(["acme/web", []]);
   } finally {
     await act(async () => root.unmount());
   }
@@ -133,9 +141,10 @@ test("a chat on this Mac that cannot run on Cloud still lists the repositories w
   const { root, here } = await render({ runMode: undefined }, picker);
   try {
     await openFolderMenu();
-    expect(calls).toEqual(["github.status", "github.repos.list"]);
-    await press(option("acme/api")!);
-    expect(here).toEqual([["acme/api", [CHECKOUT]]]);
+    // Nothing is read from GitHub for the folder menu (cmux#53226).
+    expect(calls).toEqual([]);
+    await press(option("acme/web")!);
+    expect(here).toEqual([["acme/web", []]]);
   } finally {
     await act(async () => root.unmount());
   }
@@ -175,4 +184,24 @@ test("the page asks the host for the repository's checkout and worktree in one c
   expect(calls.some(([method]) => method === "git.worktree.create")).toBe(false);
   expect(result.root).toBe("/Users/me/.cmux/worktrees/api/lane");
   expect(used).toEqual(["/Users/me/.cmux/worktrees/api/lane"]);
+});
+
+test("a repository picked with This Mac picked waits on the chip by its name, not cloning yet (cmux#53226)", async () => {
+  const { picker } = store();
+  const { root } = await render({ pendingRepository: "acme/web" }, picker);
+  try {
+    const chip = doc().querySelector<HTMLElement>(".acpmux-location-button [data-pending-repository]");
+    expect(chip?.textContent?.trim()).toBe("acme/web");
+    expect(doc().querySelector(".acpmux-location-button")?.getAttribute("title")).toBe("acme/web");
+  } finally {
+    await act(async () => root.unmount());
+  }
+  // While its checkout runs, the chip says so instead.
+  const cloning = await render({ pendingRepository: "acme/web", cloningRepository: "acme/web" }, picker);
+  try {
+    expect(doc().querySelector("[data-pending-repository]")).toBeNull();
+    expect(doc().querySelector(".acpmux-source-cloning")?.textContent).toContain("acme/web");
+  } finally {
+    await act(async () => cloning.root.unmount());
+  }
 });

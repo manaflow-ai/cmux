@@ -5,8 +5,10 @@
 // draws it), cut to the row without the setup it starts with (`export PATH=…;`, a leading
 // `cd <folder> &&`, which its Shell block names) and the plumbing after it (`2>/dev/null | head`),
 // how long it has run while it runs (RunningTime.tsx), opening to its Shell block, which says how
-// long it took once it ended. A command that went on in the background shows how it stands there
-// too (BackgroundMark.tsx); while it serves a page, the page's chip (PreviewChip.tsx).
+// long it took once it ended. A running command's shimmer and command line carry its state without
+// a "Running" lead (Leo, 2026-11-23: "running" doesn't need text). A command that went on in the
+// background shows how it stands there too (BackgroundMark.tsx); while it serves a page, the
+// page's chip (PreviewChip.tsx).
 import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
 import { memo, useId, useMemo, useState, useContext } from "react";
@@ -85,16 +87,14 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   // What the command did, when the table or its description names it (commandActions.ts); the
   // opened Shell block shows the whole line.
-  const said = commandSaid(t, tool, look);
+  const said = running ? undefined : commandSaid(t, tool, look);
   // A finished read of one file (`sed -n …p a.swift`, `cat a.swift`) draws as every harness's read:
   // the book, "Read <file name>", its full path on hover (ReadLabel.tsx).
   const read = readPath(tool);
   const cwd = useContext(SessionCwdContext);
-  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
-  // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
-  const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
-    command: "\u0000",
-  }).split("\u0000");
+  // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
+  // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
+  const [before = "", after = ""] = running ? [] : t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
   const line = (
     <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
       {short}
@@ -207,6 +207,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             id={detailsId}
             command={tool.command}
             output={output}
+            cut={tool.earlierOutput}
             exitCode={failure?.exitCode ?? tool.exitCode ?? tool.background?.exitCode}
             reveal={reveal}
             live={running}

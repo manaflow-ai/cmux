@@ -1,7 +1,7 @@
 //! `cloud.machine.*` over `cmux.wire/1` (contract 1.3): list (paged),
 //! watch, get, create, rename, start, pause, resize, delete,
 //! idle_policy.set, keep, archive_delete, connect_info. Each op sends the checked params to the
-//! backend op of the same name.
+//! backend op of the same name. The list's last page adds the latest surge ([`super::surge`]).
 
 use crate::api::args;
 use crate::api::models::{Machine, Revision, decode_connect_info};
@@ -221,9 +221,17 @@ fn list<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, Clo
         page.next_cursor.as_deref(),
         Some(page.revision),
     );
-    Ok(json!({
+    let mut answer = json!({
         "machines": page.machines,
         "next_cursor": page.next_cursor,
         "revision": ctx.projection.revision(),
-    }))
+    });
+    // The last page also carries the latest surge (the Machines page's surge
+    // card), from the whole projection; absent when no surge is listed.
+    if page.next_cursor.is_none()
+        && let Some(surge) = super::surge::latest(ctx.projection.machines())
+    {
+        answer["surge"] = json!(surge);
+    }
+    Ok(answer)
 }

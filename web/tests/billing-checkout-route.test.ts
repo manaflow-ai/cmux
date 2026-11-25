@@ -517,6 +517,22 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("gives repeated identical Pro checkouts one Stripe idempotency key, and another interval its own", async () => {
+    stripeConfigured = true;
+    createStripeSession.mockClear();
+    const keyOf = (call: number) =>
+      (createStripeSession.mock.calls[call] as unknown[] | undefined)?.[1] as { idempotencyKey?: string } | undefined;
+    for (const interval of ["month", "month", "year"]) {
+      userResponses = [signedInUser];
+      await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=pro&interval=${interval}`));
+    }
+    expect(createStripeSession).toHaveBeenCalledTimes(3);
+    const first = keyOf(0)?.idempotencyKey;
+    expect(first).toStartWith(`checkout/user/${SIGNED_IN_USER_ID}/pro/month/`);
+    expect(keyOf(1)?.idempotencyKey).toBe(first);
+    expect(keyOf(2)?.idempotencyKey).toStartWith(`checkout/user/${SIGNED_IN_USER_ID}/pro/year/`);
+  });
+
   test("creates Stripe checkout for a signed-in Pro buyer", async () => {
     stripeConfigured = true;
     userResponses = [signedInUser];

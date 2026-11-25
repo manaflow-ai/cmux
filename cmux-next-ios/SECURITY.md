@@ -58,7 +58,7 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 | --- | --- |
 | Executes commands or opens content on local objects? | Yes, by design, and only in these bounded forms. `send` and `send-key` type into a terminal the person already sees in their own workspaces: the phone is a remote keyboard for the owner. `create-terminal`, `new-tab`, `new-pane`, `split`, `new-screen` and `new-workspace` start the person's default shell. Their parameters are limited to size and placement fields (`creation_fields`), so `argv`, `command`, `cwd`, `env` and any other field are refused. The browser commands (`new-browser-tab`, `browser-navigate`, `browser-key`, `browser-insert-text`, `browser-mouse`, ...) drive the Mac's cmux browser tabs. A URL the phone opens must be `http(s)://` or `about:blank` (test `browser_tabs_open_web_pages_only`), so `file:`, `javascript:` and app schemes are refused. This narrowing is in the Rust policy only; the Swift mirror keeps the same command list. There is no `run`, `respawn-*` or `eval` command. |
 | Mutates or destroys objects the session does not own? | The phone's session is the owner's whole daemon, the same set of workspaces the person sees on the Mac, so close, rename, move and select act on the person's own objects. There is no per-object scoping beyond that, and none is needed while admission is same-user only. Frontend projections are the exception: reads and writes are limited to `scope: personal`, `subject_key: ios-device:<phone deviceId>`, so a phone cannot overwrite the Mac's own projection or another phone's. |
-| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
+| Reads local state the remote should not see? | It reads what the owner's Mac shows: terminal screens and scrollback, process info, listening ports, machine usage. All of that is the owner's own data on the owner's own device. `terminal-find` searches the same scrollback `read-scrollback` returns, so it reads nothing more; its regex is linear-time with a 2 MiB compiled-size cap, and it holds the terminal for one 512-row chunk at a time, so a phone's query cannot stall the terminal. Settings, credentials, keychain, the control socket and other users' sessions cannot be reached. When the app supervises hostd, a phone that names a session gets only the app's own one (`forbidden` otherwise), so it never reaches another channel's or tag's daemon in the same socket folder. |
 
 - **Rule 3 (command-bearing parameters):** refused on every creation command
   through the per-command field allowlist (test
@@ -550,10 +550,22 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   sizes, timing, plus the two device ids it already knows from signaling.
 - **Who can join.** Only a device that the caller's own hub (one per user and
   build space) bound to that session at its first admitted signal, with that
-  user's Stack token; a third device of the same user, another user, or a
-  session id no signal opened gets `403`. Each device gets one socket (a
-  newer join replaces it). The object is named by the verified owner key,
+  user's Stack token and that device's own relay ticket: a random value the
+  hub made for each device of the session and stamped only on the signals it
+  forwarded to that device's own signaling socket. Another user, a session id
+  no signal opened, and a third device of the same user that names a party's
+  device id get `403`, since none of them holds that device's ticket. The
+  boundary is as strong as signaling's device identity, not stronger: the
+  service has no per-device key, so a client holding the user's token could
+  take over a device's signaling socket (closing the real one with 4000) and
+  receive its ticket from the next signal. Each device gets one relay socket
+  (a newer join replaces it). The object is named by the verified owner key,
   space and session id, so two users or two dev builds never share one.
+- **Live sockets end with their session.** The hub closes a session's relay
+  sockets when the session ends (`bye`, even to an offline peer, and its 24 h
+  TTL, 4001), when one of its devices or the account is removed (4002), and
+  the kill switch closes every live socket at its next frame (4003), not only
+  new joins.
 - **No impersonation.** The relay overwrites the frame's peer field with the
   sender's authenticated device id; a receiving side drops frames that name
   anyone but its session's peer. Frames go only to the other party's socket.
@@ -561,9 +573,16 @@ Mac. Design and history: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux
   WireGuard, so the relay can never confirm a route (the retired relay's
   marker was authenticated only by the backend, which is why it went).
 - **Bounded.** Frames are 16 KiB at most, `datagrams` only, rate limited per
-  socket; the object keeps no storage. `LINK_RELAY_MODE=off` refuses every
-  join (`503 relay_off`); clients then fall back to their other paths and
-  report the relay as off.
+  socket (1500 frames, 8 MiB a second) and per user: what a socket relays is
+  granted by the user's hub (64 KiB, doubling to 1 MiB per grant) from one
+  budget across all of that user's sessions (480 MiB a minute by default),
+  so opening more sessions buys no more bandwidth. The budget fails closed: a
+  refusal holds for the hub's retry-after and a hub error grants nothing for
+  1 s, so neither an over-budget sender nor an overloaded hub gets frames
+  through or one hub call per frame, and the budget survives a hub wake. The
+  relay object keeps no storage. `LINK_RELAY_MODE=off` refuses every join (`503 relay_off`) and
+  closes live sockets; clients then fall back to their other paths and report
+  the relay as off.
 - **Debug "Relay via cmux (HTTPS) only"** (`force_relay`, simulator
   `CMUX_MOBILE_DEV_FORCE_RELAY`) only narrows the phone's own paths, like
   Block UDP.
@@ -1163,6 +1182,12 @@ person's devices that this Mac already paired can now answer it (`src/pair_reque
   waiting prompt with the same keys, only while the answering device is still on its paired list,
   through the same path as the person's Allow or Don't Allow (`IPhoneHostService.answerFromPairedDevice`).
   The answer is recorded in Activity.
+- **On the phone** (`MacPairRequests`, decisions in cmux-mobile-link-ffi `pair_requests.rs`): a
+  linked Mac whose hostd lists `pair-requests-v1` is listed on link open, on foreground, every 3 s
+  while an "Allow on this phone" card shows and every 10 s for 5 minutes after, then not until
+  the next foreground. The card shows the asking device's name and the 16-hex fingerprint in groups
+  of four; Allow and Don't Allow send `answer` with that fingerprint. The phone's channel args are
+  strings, so hostd takes `allow` as `true`/`false` or `"true"`/`"false"` and nothing else.
 - Not changed: the first device of an account still needs the Mac's Allow (or a pairing code),
   and nothing approves with account credentials alone.
 

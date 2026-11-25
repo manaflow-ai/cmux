@@ -41,9 +41,6 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
     /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
     public var textOnly = false
-    /// A look with a title draws the title alone, no glyph (the sidebar's Chief row, Lucas 2026-11-23); an icon-only
-    /// look and a tile still draw the glyph, since they have no title to show.
-    public var hidesGlyphBesideTitle = false
     /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
     public var iconFromShownTab = false
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
@@ -162,7 +159,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "sparkles" // the Home item is the Chief (2026-11-20)
+        case .home: "house" // the Chief's row keeps Home's house (Lucas 2026-11-23)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -182,7 +179,7 @@ extension SidebarBuiltIn {
     /// The built-in's cmux icon.
     public var icon: IconName {
         switch self {
-        case .home: .agentChief
+        case .home: .home
         case .settings: .settings
         case .account: .account
         case .notifications: .notification

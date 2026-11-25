@@ -19,6 +19,7 @@ import React, {
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
+import { useSendAfterCheckout } from "../sendAfterCheckout";
 import { cloudRepositoryPick } from "../sourcePickerModel";
 import type { CloudMachine } from "../cloudMachines";
 import { CloudChatHint } from "../CloudChatHint";
@@ -520,6 +521,18 @@ export function NewTabScreen(props: Props) {
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
   const [cloudFolderWaiting, setCloudFolderWaiting] = useState(false);
   const [localGitHubPick, setLocalGitHubPick] = useState<{ name: string; cwd?: string }>();
+  // A GitHub repository picked with This Mac picked is only the chip's choice until Return: its checkout here
+  // (cloned first when there is none) starts then, never at the pick (cmux#53226). `deferredGitHub` keeps the
+  // folders here whose remote names it. `heldAsk` is the ask Return held for the checkout of choice `choice`
+  // (`projectChoice`), repeated as it was asked (its harness, model, words) in the folder `heldReady` names once
+  // that checkout lands; a newer choice drops it.
+  const deferredGitHub = useRef<{ repo: string; candidates: string[] }>(undefined);
+  const heldAsk = useRef<{ choice: number; ask: (folder: string) => void }>(undefined);
+  // The latest askChat, so the held ask runs with the page as it is once the checkout landed.
+  const askChatRef = useRef<(agent: string, prompt: string, cwd?: string, model?: string) => boolean | void>(
+    () => undefined,
+  );
+  const [heldReady, setHeldReady] = useState<string>();
   /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
   /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
   const placePicked = useRef(false);
@@ -830,6 +843,8 @@ export function NewTabScreen(props: Props) {
       props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
   );
   const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
+  // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
+  const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
   // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
   // pick, else the folder the chip names. Never the tab's inherited folder by itself: with No folder
   // on the chip, a fresh workspace's `~` made a Codex pick start in the home folder, which the pane
@@ -838,7 +853,9 @@ export function NewTabScreen(props: Props) {
   const chatFolder = environment ? (environment.kind === "local" ? environment.folder : undefined) : askFolder;
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
-  const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
+  const fixFolder = [project, askFolder].find(
+    (folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder) && !githubFolderRepo(folder),
+  );
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
@@ -998,6 +1015,19 @@ export function NewTabScreen(props: Props) {
     }
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (cloudFolderWaiting || (localGitHubPick && !localGitHubPick.cwd)) return false;
+    // A GitHub repository on the chip with This Mac picked: Return checks it out here first, then sends.
+    const checkoutRepo =
+      !cloudMode && props.runMode?.mode !== "sandboxed" && !machine && !environment && !newProject
+        ? githubFolderRepo(localAskFolder)
+        : undefined;
+    if (checkoutRepo && localAskFolder && props.onNewWorktree) {
+      const github =
+        deferredGitHub.current?.repo === checkoutRepo ? deferredGitHub.current : { repo: checkoutRepo, candidates: [] };
+      const choice = newWorktreeHere(localAskFolder, github);
+      if (choice !== undefined)
+        heldAsk.current = { choice, ask: (folder) => void askChatRef.current(agent, prompt, folder, model) };
+      return false;
+    }
     if (cloudMode && !machine && props.onCloud) {
       const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -1805,6 +1835,14 @@ export function NewTabScreen(props: Props) {
     if (command) props.onShell(command);
   };
   const sendRef = useRef(send);
+  // Return checked a GitHub repository out here first (askChat): the held ask goes once its folder is the pick.
+  useSendAfterCheckout(heldReady !== undefined && localGitHubPick?.cwd === heldReady, () => {
+    const folder = heldReady;
+    const held = heldAsk.current;
+    setHeldReady(undefined);
+    heldAsk.current = undefined;
+    if (folder) held?.ask(folder);
+  });
   /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
   const cloudStartingRef = useRef(false);
   const { dictationField } = props;
@@ -2083,7 +2121,7 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
-    if (cwd && !cloudMode) props.onProjectPicked?.(cwd);
+    if (cwd && !cloudMode && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
     if (!cwd) setCloudFolderWaiting(false);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
@@ -2205,9 +2243,10 @@ export function NewTabScreen(props: Props) {
       },
     );
   }
-  const newWorktreeHere = (cwd: string, github?: { repo: string; candidates: string[] }): void => {
+  /// Returns the checkout's choice number (`projectChoice`), which a held ask waits on.
+  const newWorktreeHere = (cwd: string, github?: { repo: string; candidates: string[] }): number | undefined => {
     const onNewWorktree = props.onNewWorktree;
-    if (!onNewWorktree) return;
+    if (!onNewWorktree) return undefined;
     setWorktreeError(undefined);
     const choice = ++projectChoice.current;
     if (github) setLocalGitHubPick({ name: github.repo });
@@ -2215,19 +2254,28 @@ export function NewTabScreen(props: Props) {
     // held behind a checkout nobody wants (a saved environment chosen meanwhile).
     const dropReplaced = () =>
       setLocalGitHubPick((pick) => (pick && !pick.cwd && pick.name === github?.repo ? undefined : pick));
+    // The ask Return held for this checkout, if it is still the one held.
+    const held = () => heldAsk.current?.choice === choice;
     void onNewWorktree(cwd, github).then(
       (folder) => {
         if (choice !== projectChoice.current) return dropReplaced();
-        if (folder) pickProject(folder, github?.repo);
-        else setLocalGitHubPick(undefined);
+        if (folder) {
+          pickProject(folder, github?.repo);
+          if (held()) setHeldReady(folder);
+        } else {
+          if (held()) heldAsk.current = undefined;
+          setLocalGitHubPick(undefined);
+        }
       },
       (error: unknown) => {
         console.warn("agent pane: New Worktree failed", error);
         if (choice !== projectChoice.current) return dropReplaced();
+        if (held()) heldAsk.current = undefined;
         setLocalGitHubPick(undefined);
-        setWorktreeError({ retry: () => newWorktreeHere(cwd, github) });
+        setWorktreeError({ retry: () => void newWorktreeHere(cwd, github) });
       },
     );
+    return choice;
   };
   const browseProject = (request?: BrowseRequest) => {
     if (!browseAlive.current) return Promise.resolve(undefined);
@@ -2322,7 +2370,9 @@ export function NewTabScreen(props: Props) {
             ? { peer: machine.peer, cwd: machine.folder }
             : askFolder && !newProject
               ? { cwd: askFolder }
-              : { cwd: undefined }),
+              : pendingGitHubFolder && !newProject
+                ? { cwd: pendingGitHubFolder }
+                : { cwd: undefined }),
         }}
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
@@ -2345,8 +2395,11 @@ export function NewTabScreen(props: Props) {
         cloningRepository={localGitHubPick?.cwd ? undefined : localGitHubPick?.name}
         {...(props.environments && props.onNewWorktree
           ? {
-              onGitHubHere: (repo: string, candidates: string[]) =>
-                newWorktreeHere(githubFolder(repo), { repo, candidates }),
+              // The pick is the chip's choice only; Return checks it out (askChat), never the pick.
+              onGitHubHere: (repo: string, candidates: string[]) => {
+                deferredGitHub.current = { repo, candidates };
+                pickProject(githubFolder(repo));
+              },
               onNewWorktree: newWorktreeHere,
             }
           : {})}
@@ -2684,6 +2737,32 @@ export function NewTabScreen(props: Props) {
               </ComposerListLayer>
             </ComposerListAnchor>
           )}
+          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it: inside
+            the top of the box (Leo 2026-11-23, ask-525a5e502a: attachments sit within the top part of
+            the composer, no shift). The field gives up the strip's band from its max height
+            (screen.css), so a capped draft keeps the box's height and edges as they come and go. */}
+          <AttachmentStrip
+            attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
+            pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
+            {...(command.error || attachError || heldForHost
+              ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
+              : {})}
+            codex={harness === "codex"}
+            // A strip chip's × takes its node out of the text too (the strip view shows placed ones
+            // here), so the inline view brings back none and the prompt sends none.
+            onRemove={(id) => {
+              inline.remove(id);
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              inline.cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            onExpand={inline.expand}
+            originalFailures={originalFailures}
+            onReorder={inline.reorder}
+          />
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -2808,34 +2887,9 @@ export function NewTabScreen(props: Props) {
               )}
             </div>
           )}
-          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
-            the field: the box's top is where the page anchors it, so the strip grows away from the
-            text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
-          <AttachmentStrip
-            attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
-            pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
-            {...(command.error || attachError || heldForHost
-              ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
-              : {})}
-            codex={harness === "codex"}
-            // A strip chip's × takes its node out of the text too (the strip view shows placed ones
-            // here), so the inline view brings back none and the prompt sends none.
-            onRemove={(id) => {
-              inline.remove(id);
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              inline.cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            onExpand={inline.expand}
-            originalFailures={originalFailures}
-            onReorder={inline.reorder}
-          />
           {command.input}
           {!pill && !split && pickers}
         </div>
@@ -3027,6 +3081,7 @@ export function NewTabScreen(props: Props) {
     onInputReady.current = props.onInputReady;
     textRef.current = text;
     sendRef.current = send;
+    askChatRef.current = askChat;
     cloudStartingRef.current = props.cloudStarting === true;
     inlinePlace.current = (chips, kind) => inline.place(chips, kind);
     // A draft cleared (emptied, sent, replaced by an empty one) has no picks: the next starts fresh.
