@@ -124,7 +124,9 @@ const variants: Record<string, AgentPaneVariant> = {
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-head"));
       await ctx.click({ selector: ".acpmux-edited-head" });
       // The click is the step; the check reads the card once its diff has drawn.
-      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited .acpmux-edited-diff"), { capMs: 5000 });
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited .acpmux-edited-stack .cv-edit-diff"), {
+        capMs: 5000,
+      });
       const problems = cardFitProblems(ctx.document);
       if (problems.length) throw new Error(problems.join("; "));
     },
