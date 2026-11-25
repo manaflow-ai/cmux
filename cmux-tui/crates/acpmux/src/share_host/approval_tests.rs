@@ -249,6 +249,7 @@ fn run_control(
         push,
         NOW,
         seen,
+        true,
         |entry| *line.borrow_mut() = entry.clone(),
         |account| {
             granted.borrow_mut().push(account.to_owned());
@@ -337,9 +338,45 @@ fn an_admitted_control_tap_the_mac_cannot_record_is_refused_and_audited() {
         &carried_control(&phone.sign(control("c1")), PHONE),
         NOW,
         &mut HashSet::new(),
+        true,
         |entry| *line.borrow_mut() = entry.clone(),
         |_| Err("this Mac is joined as another account than the one that allowed it".into()),
     );
     assert_eq!(result.unwrap_err().code, "control.not_granted");
     assert_eq!(line.into_inner()["event"], "remote_host.control_refused");
+}
+
+/// The switch is the person's and starts off: off, the owner's own signed tap grants nothing
+/// and the refusal names the setting; only `true` in their settings turns it on.
+#[test]
+fn control_from_a_device_is_off_until_the_person_turns_it_on() {
+    let phone = DeviceKey::new();
+    let hub = FakeHub::with_phone(&phone);
+    let line = RefCell::new(Value::Null);
+    let granted = Cell::new(0);
+    let result = receive_control(
+        &hub,
+        &carried_control(&phone.sign(control("c1")), PHONE),
+        NOW,
+        &mut HashSet::new(),
+        false,
+        |entry| *line.borrow_mut() = entry.clone(),
+        |_| {
+            granted.set(granted.get() + 1);
+            Ok(())
+        },
+    );
+    let refused = result.unwrap_err();
+    assert_eq!(refused.code, "control.off");
+    assert!(refused.message.contains(CONTROL_SETTING), "{}", refused.message);
+    assert_eq!(granted.get(), 0, "nothing granted while off");
+    let entry = line.into_inner();
+    assert_eq!(entry["event"], "remote_host.control_refused");
+    assert_eq!(entry["code"], "control.off");
+
+    assert!(!control_allowed_by(None));
+    assert!(!control_allowed_by(Some(&json!({}))));
+    assert!(!control_allowed_by(Some(&json!({"devices": {"allowControlFromMyDevices": false}}))));
+    assert!(!control_allowed_by(Some(&json!({"devices": {"allowControlFromMyDevices": "true"}}))));
+    assert!(control_allowed_by(Some(&json!({"devices": {"allowControlFromMyDevices": true}}))));
 }

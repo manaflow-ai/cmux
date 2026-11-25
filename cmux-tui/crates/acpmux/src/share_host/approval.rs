@@ -31,6 +31,9 @@ pub(crate) const PUSH: &str = "share.approval";
 /// owner's tap on their own device, granting this Mac's "control for my other signed-in
 /// machines" with nobody at the Mac ([`receive_control`]).
 pub(crate) const CONTROL_PUSH: &str = "control.approval";
+/// The person's switch for [`receive_control`], in their settings file: off unless they set it
+/// to `true`. Off, this Mac grants control only by its own Allow click.
+pub(crate) const CONTROL_SETTING: &str = "devices.allowControlFromMyDevices";
 /// The audit log under the share host's folder.
 pub(crate) const AUDIT_FILE: &str = "audit.jsonl";
 
@@ -116,19 +119,48 @@ pub(crate) fn receive(
 /// records "control for my other signed-in machines" for the account it names. `grant` is this
 /// Mac's consent writer; it refuses when this Mac is joined as another account. Nothing an
 /// agent can send is read as the yes: an agent's token is not a device and signs nothing.
+///
+/// `allowed` is the person's [`CONTROL_SETTING`], off by default: while it is off an admitted
+/// approval grants nothing and is refused as `control.off`, audited like any other refusal.
+/// The approval is still admitted first, so its nonce is spent and the audit line names the
+/// device that asked; turning the setting on later needs a new tap.
 pub(crate) fn receive_control(
     hub: &impl TargetHub,
     push: &Value,
     now: u64,
     seen: &mut HashSet<String>,
+    allowed: bool,
     record: impl FnOnce(&Value),
     grant: impl FnOnce(&str) -> Result<(), String>,
 ) -> Result<(), Refused> {
     carried(hub, push, CONTROL_VERSION, now, seen, record, |account| {
+        if !allowed {
+            return Err(refused(
+                "control.off",
+                format!(
+                    "this Mac does not take a control grant from another device: its setting \
+                     {CONTROL_SETTING} is off. Set it to true on this Mac, or click Allow there"
+                ),
+            ));
+        }
         grant(account).map_err(|e| {
             refused("control.not_granted", format!("admitted, but control was not turned on: {e}"))
         })
     })
+}
+
+/// Whether the settings document turns [`CONTROL_SETTING`] on. Anything but `true` is off.
+pub(crate) fn control_allowed_by(doc: Option<&Value>) -> bool {
+    doc.and_then(|d| crate::user_settings::value(d, CONTROL_SETTING)) == Some(Value::Bool(true))
+}
+
+/// The person's [`CONTROL_SETTING`] as their settings file has it now. An unreadable or
+/// missing file is off.
+pub(crate) fn control_allowed() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => control_allowed_by(Some(&doc)),
+        _ => false,
+    }
 }
 
 /// The shared path of [`receive`] and [`receive_control`]: read the approval, admit it as

@@ -306,7 +306,8 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
 
 /// A control approval the hub carried here (`approval.rs`): the owner's tap on their own
 /// device grants this Mac's "control for my other signed-in machines", so nobody has to be at
-/// the Mac to answer its one ask. Admitted or refused, audited either way, off the socket
+/// the Mac to answer its one ask. Off unless the person turned on
+/// `devices.allowControlFromMyDevices` on this Mac; off, every one is refused. Admitted or refused, audited either way, off the socket
 /// thread. The grant is written by the same consent writer the Mac's own Allow click uses, for
 /// the account the approval was admitted for, and only while this Mac is joined as that account.
 fn receive_control_approval(shared: &Arc<Shared>, push: Value) {
@@ -321,6 +322,7 @@ fn receive_control_approval(shared: &Arc<Shared>, push: Value) {
                 &push,
                 approval::now_secs(),
                 seen,
+                approval::control_allowed(),
                 |entry| approval::append_audit(&dir, entry),
                 crate::cli::cloud_join::grant_signed_in_machines_for,
             )
