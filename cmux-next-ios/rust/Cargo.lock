@@ -507,8 +507,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-braid-path"
+version = "0.1.0"
+dependencies = [
+ "cmux-transport",
+ "futures-util",
+ "tokio",
+]
 
 [[package]]
 name = "cmux-build-space"
@@ -519,10 +538,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
@@ -557,6 +592,24 @@ name = "cmux-message-preview"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-mobile-auto"
+version = "0.1.0"
+dependencies = [
+ "cmux-auto-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-mobile-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-wire",
+ "cmux-terminal-sizing",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -565,24 +618,30 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
+ "cmux-output-paint",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-tab-snapshots",
+ "cmux-terminal-projection",
  "cmux-transport",
+ "cmux-wg",
  "flate2",
  "futures-util",
  "hkdf",
  "libc",
+ "mdns-sd",
  "p256",
  "reqwest",
  "ring",
  "serde",
  "serde_json",
  "sha2",
+ "socket2 0.6.5",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -592,29 +651,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "base64",
  "bytes",
  "cmux-braid-carrier",
+ "cmux-braid-path",
  "cmux-build-space",
  "cmux-fault",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-remote-protocol",
+ "cmux-terminal-projection",
  "cmux-transport",
  "cmux-wg",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hkdf",
+ "libc",
+ "p256",
  "rcgen",
  "reqwest",
  "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
@@ -634,10 +709,15 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64",
+ "cmux-auto-session",
  "cmux-composer-send",
  "cmux-follow-cam",
+ "cmux-mobile-auto",
+ "cmux-mobile-core",
  "cmux-mobile-host",
+ "cmux-mobile-last-place",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
@@ -651,6 +731,7 @@ dependencies = [
  "cmux-window-rules",
  "libc",
  "ring",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -662,6 +743,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"
@@ -707,6 +792,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -723,6 +809,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -768,6 +864,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
@@ -790,6 +893,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
@@ -1137,6 +1241,17 @@ dependencies = [
  "crc32fast",
  "miniz_oxide",
  "zlib-rs",
+]
+
+[[package]]
+name = "flume"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "spin",
 ]
 
 [[package]]
@@ -1589,6 +1704,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "if-addrs"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1747,6 +1872,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdns-sd"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aaf7ecb589a3bb5e9642c3e5f79e1e54a8ea8c1c48bc9975c39d77fa640764c"
+dependencies = [
+ "fastrand",
+ "flume",
+ "if-addrs",
+ "mio",
+ "socket-pktinfo",
+ "socket2 0.6.5",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1784,6 +1923,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
 dependencies = [
  "libc",
+ "log",
  "wasi",
  "windows-sys 0.61.2",
 ]
@@ -2770,6 +2910,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "socket-pktinfo"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "512f5c35377cf69f350b106df2366c3a1df6bd01b047a7a58c8390b70d28838d"
+dependencies = [
+ "libc",
+ "socket2 0.6.5",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "socket2"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2787,6 +2938,15 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "spin"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]
