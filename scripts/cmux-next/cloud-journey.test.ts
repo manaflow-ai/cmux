@@ -356,6 +356,13 @@ describe("cloud journey", () => {
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
   });
+
+  test("scrub keeps serialized JSON parseable: a 401's \"bearer token\" eats no quote (run 45510772491)", () => {
+    const cycle = { error: `cloud.machine.start: HTTP 401 ${JSON.stringify({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })}`, at: "x" };
+    const out = scrub(JSON.stringify({ cycles: [cycle] }, null, 2));
+    expect(JSON.parse(out).cycles[0].at).toBe("x");
+    expect(scrub(JSON.stringify({ h: "Bearer abc.def-ghi" }))).toBe('{"h":"[secret]"}');
+  });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
     const md = summaryMarkdown(resolveBackend("staging"), [

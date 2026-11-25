@@ -258,8 +258,10 @@ export class FirstTextTiming {
 }
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
+// scrub also runs on serialized JSON, so no shape may cross a `"` or `\`: `Bearer\s+\S+` ate the `\"}` after "bearer
+// token" in a 401 and left all five 300 s wake-echo.json files unparsable (run 45510772491).
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+[^\s"\\]+/g,
   // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
   // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
   /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
@@ -4692,6 +4694,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.secrets.push(s.access, s.refresh);
       return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
+    // A run longer than the Stack session (12 wake-echo cycles at a 300 s hold, the resume matrix) signs in again
+    // once the session is RESIGN_AFTER_MS old: run 45510772491's 300 s shards got 401 on cycle 10 of 12, 55 min in.
+    const resignIfOld = async (): Promise<boolean> => {
+      if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return false;
+      const s = await passwordSignIn(STACK[backend.stack], email, password);
+      J.secrets.push(s.access, s.refresh);
+      signedInAt = Date.now();
+      api.bearer = s.access;
+      return true;
+    };
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
@@ -4960,6 +4972,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           deadlineAt: wakeEchoDeadline === undefined ? undefined : Number(wakeEchoDeadline) * 1000,
           status: async () => String((await row())?.status ?? "unread"),
           pause: async () => {
+            await resignIfOld();
             const t0 = Date.now();
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
@@ -5978,12 +5991,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             log: (line) => console.log(scrub(line, J.secrets)),
           },
           refreshAuth: async () => {
-            if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return;
-            const s = await passwordSignIn(STACK[backend.stack], email, password);
-            J.secrets.push(s.access, s.refresh);
-            signedInAt = Date.now();
-            api.bearer = s.access;
-            matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = s.access;
+            if (await resignIfOld()) matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = api.bearer;
           },
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
@@ -6105,7 +6113,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
     }).catch(() => undefined);
     // The send's Chrome trace (Perfetto): printed and saved, never a step, so tracing can never fail the journey.
-    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+    // CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the settle: no platform spans land there.
+    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
+    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
