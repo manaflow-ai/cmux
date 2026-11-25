@@ -73,6 +73,9 @@ mod fork_running;
 
 #[path = "fork_before.rs"]
 mod fork_before;
+// A subagent forked into a chat of its own, which shares the Claude and Codex setups.
+#[path = "fork_subagent.rs"]
+mod fork_subagent;
 
 const FORK_OP: &str = "acp.session.fork";
 

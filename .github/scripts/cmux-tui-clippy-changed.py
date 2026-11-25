@@ -215,7 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    result = run_clippy(command, repo / ROOT, repo)
+    text: list[str] = []
+    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text)
     report_lints(result.lints, scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
             repo, command, paths, workspace, args.autofixed_ok):
@@ -228,12 +229,47 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::warning title=cmux-tui clippy::cargo exited {result.rc} on lints only for {scope}; "
               f"lints never fail this check, so it passes (fix them forward)")
         return 0
-    if result.rc:
+    rc, red_files = result.rc, result.red_files
+    if rc and (oops := load_isolate(repo)):
+        # ci-oops fault isolation: on a pull request, an optional member (scripts/ci/oops/optional-units.json)
+        # that alone fails is left out, the rest is linted again, and a CI_OOPS line asks for the follow-up.
+        def again(argv: list[str]) -> tuple[int, str]:
+            nonlocal red_files
+            print(" ".join(argv), flush=True)
+            out: list[str] = []
+            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out)
+            report_lints(run.lints, scope)
+            red_files = run.red_files
+            lints_only = run.rc and not run.lock and not run.compile_errors and run.lint_errors
+            return (0 if lints_only else run.rc), "".join(out)
+
+        rc, _ = oops.isolated_run("cargo-member", command, runner=again, first=(rc, "".join(text)))
+    if rc:
         print(f"::error title=cmux-tui clippy::clippy found compile errors in {scope}; "
               f"run `{' '.join(command)}` in cmux-tui and fix each error (lints alone never fail this check)")
-        name_base_reds(repo, base if paths is not None else "", result.red_files)
+        name_base_reds(repo, base if paths is not None else "", red_files)
         return 1
     return 0
+
+
+def load_isolate(repo: Path):
+    """The checkout's scripts/ci/oops/isolate.py (ci-oops fault isolation), or None (an older tree, a replay)."""
+    path = repo / "scripts/ci/oops/isolate.py"
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("ci_oops_isolate", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written. A replayed tree without the policy runs it as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
 
 
 def is_autofix_head(repo: Path, head: str) -> bool:
@@ -294,9 +330,10 @@ class ClippyRun(NamedTuple):
     lint_errors: int  # error diagnostics that are lints (a level --cap-lints did not reach)
 
 
-def run_clippy(command: list[str], cwd: Path, repo: Path) -> ClippyRun:
+def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None) -> ClippyRun:
     """Run clippy (`--message-format=json`) with each diagnostic's rendered text and cargo's own lines
-    passed to stderr as they come, and sort what it said into lints and compile errors."""
+    passed to stderr as they come, and sort what it said into lints and compile errors. TEXT, when given,
+    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it)."""
     files: list[str] = []
     lints: list[dict] = []
     seen: set[tuple] = set()
@@ -306,6 +343,8 @@ def run_clippy(command: list[str], cwd: Path, repo: Path) -> ClippyRun:
                                text=True, errors="replace")
     assert process.stdout is not None
     for line in process.stdout:
+        if text is not None:
+            text.append(line)
         item = None
         if line.startswith("{"):
             try:
@@ -424,7 +463,16 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
     the base run only excuses counts over the baseline, so it cannot change that verdict. Only
     a red HEAD lints the base too, into `<out>.base`, and the ratchet then charges HEAD only for
     counts the base does not reach. On a green PR that skips one lint of the changed packages
-    (80 s of the job's 6 min on #37445, run 42334950081)."""
+    (80 s of the job's 6 min on #37445, run 42334950081).
+    An optional member the clippy step before it left out (ci-oops, CMUX_OOPS_DROPPED_CARGO_MEMBER) is left out here
+    too: it does not compile, and the ratchet keeps its baseline row."""
+    if (oops := load_isolate(repo)) and (gone := oops.dropped_from_env("cargo-member")):
+        print(f"cmux-tui-clippy-changed: leaving out {', '.join(gone)} (ci-oops: it does not compile on this pull "
+              "request; the clippy step filed its follow-up)", flush=True)
+        packages = oops.without("cargo-member", packages, gone)
+        if packages is None:
+            print("cmux-tui-clippy-changed: no package left for the panic ratchet", flush=True)
+            return 0
     ratchet = repo / RATCHET
     flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
                            stdout=subprocess.PIPE, text=True).stdout.split()

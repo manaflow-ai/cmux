@@ -12,7 +12,7 @@ extension AddMachineServices {
     static func app(_ services: AppServices) -> AddMachineServices {
         let ssh = services.ssh, health = services.machineHealth, registry = services.registry, machines = services.machines
         // The app's own cmux-tui, the one SSH machines and the agent daemon run.
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
+        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
         // Connected in the app under the Name field's name (the sidebar's label, saved in its transport).
         let connect = { (host: String, name: String) throws -> SSHMachineSession in
             let session = try ssh.connect(destination: host, session: nil, offerInstall: false)

@@ -1,0 +1,38 @@
+{
+  "id": "dot-field",
+  "name": "Dot Field",
+  "description": "A quiet hex field of fine dots. The pointer leaves a trail through it: the dots along its path swell, light up in the accent and part a little, then fade back into the field.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 2,
+  "params": [
+    { "name": "pitch", "title": "Dot pitch (points)", "default": 11, "min": 5, "max": 24 },
+    { "name": "dot", "title": "Dot size", "default": 0.12, "min": 0.05, "max": 0.25 },
+    { "name": "radius", "title": "Trail radius (dots)", "default": 1.8, "min": 1, "max": 8 },
+    { "name": "decay", "title": "Fade rate", "default": 2.4, "min": 0.5, "max": 8 },
+    { "name": "glow", "title": "Glow", "default": 1.0, "min": 0, "max": 1.5 },
+    { "name": "push", "title": "Parting", "default": 0.7, "min": 0, "max": 1 },
+    { "name": "contrast", "title": "Field contrast", "default": 0.16, "min": 0.04, "max": 0.4 },
+    { "name": "variation", "title": "Size variation", "default": 0.5, "min": 0, "max": 1 }
+  ],
+  "still": { "time": 0.0, "pointer": [0.62, 0.44] },
+  "variants": [
+    {
+      "name": "Signal",
+      "accent": "#3D7BFF",
+      "params": { "pitch": 11, "dot": 0.12, "radius": 1.8, "decay": 2.4, "glow": 1.0, "push": 0.7, "contrast": 0.16, "variation": 0.5 }
+    },
+    {
+      "name": "Fine Coral",
+      "accent": "#FF6B57",
+      "params": { "pitch": 7, "dot": 0.13, "radius": 2.4, "decay": 2.0, "glow": 1.0, "push": 0.8, "contrast": 0.13, "variation": 0.6 }
+    },
+    {
+      "name": "Wide Amber",
+      "accent": "#F2A33A",
+      "params": { "pitch": 17, "dot": 0.1, "radius": 1.5, "decay": 2.8, "glow": 1.1, "push": 0.6, "contrast": 0.2, "variation": 0.35 }
+    }
+  ]
+}
