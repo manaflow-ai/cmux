@@ -12,22 +12,6 @@ use std::time::{Duration, Instant};
 /// How old a live list may be before a read probes its CLI again.
 pub(super) const LIVE_MAX_AGE: Duration = Duration::from_secs(15 * 60);
 
-/// How old an ACP agent's probed list (OpenCode's, codex-acp's) may be before a read probes the
-/// agent again. Those probes start a whole agent (`session/new`), so they ran once per daemon
-/// start before; a restart now serves the kept list and its choices with no probe at all.
-pub(super) const ACP_MAX_AGE: Duration = Duration::from_secs(6 * 60 * 60);
-
-/// The `Instant` of a wall-clock time `at` (a cache file's modification time), against the
-/// pair `now_s`/`now_i` read together. None when it lies before this process's clock can name
-/// (an old file on a machine booted since): the caller treats the list as never probed.
-pub(super) fn instant_of(
-    at: std::time::SystemTime,
-    now_s: std::time::SystemTime,
-    now_i: Instant,
-) -> Option<Instant> {
-    now_i.checked_sub(now_s.duration_since(at).unwrap_or_default())
-}
-
 /// The time each harness's live probe last started, by profile name.
 #[derive(Debug, Default)]
 pub(crate) struct LiveAges {
@@ -40,11 +24,6 @@ impl LiveAges {
         self.started.insert(harness.to_owned(), now);
     }
 
-    /// Whether `harness` has a recorded probe (this run's, or the kept list's time).
-    pub(crate) fn has(&self, harness: &str) -> bool {
-        self.started.contains_key(harness)
-    }
-
     /// The harnesses of `names` whose last probe started `LIVE_MAX_AGE` or
     /// more before `now`, each marked as started now so concurrent reads start
     /// one probe. A harness never probed is left to the start-up probe.
@@ -53,20 +32,10 @@ impl LiveAges {
         names: impl IntoIterator<Item = &'a str>,
         now: Instant,
     ) -> BTreeSet<String> {
-        self.claim_due_after(names, now, LIVE_MAX_AGE)
-    }
-
-    /// [`LiveAges::claim_due`] with its own age bound (`ACP_MAX_AGE` for ACP probes).
-    pub(crate) fn claim_due_after<'a>(
-        &mut self,
-        names: impl IntoIterator<Item = &'a str>,
-        now: Instant,
-        max_age: Duration,
-    ) -> BTreeSet<String> {
         let mut due = BTreeSet::new();
         for name in names {
             let Some(at) = self.started.get_mut(name) else { continue };
-            if now.saturating_duration_since(*at) >= max_age {
+            if now.saturating_duration_since(*at) >= LIVE_MAX_AGE {
                 *at = now;
                 due.insert(name.to_owned());
             }
