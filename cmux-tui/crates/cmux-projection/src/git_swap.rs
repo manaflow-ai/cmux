@@ -49,6 +49,14 @@ pub const CARRY_PACK: &str = "cmux-carry.pack";
 pub const CARRY_BASE: &str = "cmux-carry.base";
 /// How many times a moving Mac state is copied again before the swap gives up for now.
 const ATTEMPTS: usize = 3;
+
+/// Whether projected git carry is enabled. Carry is on by default so projection starts can use
+/// the sender's local objects. Set `CMUX_PROJECTION_GIT_SWAP=off` to disable it for a diagnosis.
+#[must_use]
+pub fn enabled() -> bool {
+    !std::env::var_os("CMUX_PROJECTION_GIT_SWAP")
+        .is_some_and(|value| value.to_string_lossy().eq_ignore_ascii_case("off"))
+}
 /// What in `.git` leaves the repository on projection: git is mid-operation, or the state is one
 /// the copy does not carry.
 const UNSWAPPABLE: [&str; 9] = [
