@@ -211,14 +211,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.stdout.includes(nonce) || r.stderr.includes(nonce)) checks.exec_never_printed_value = "FAIL";
       return { ...r, stdout: scrub(r.stdout, J.secrets), stderr: scrub(r.stderr, J.secrets) };
     };
+    // A machine with no exec in flight pauses on its own (run 45679791255: 503 vm_unavailable at fs/write piece 10,
+    // 286 s into the copy). One long exec keeps it running for the rest of the run; the delete ends it.
+    void exec("sleep 1500", 1_500_000).catch(() => {});
+    await sleep(3000);
     await J.step("run cmux-host from the PR's cmux on the machine", async () => {
-      const data = gzipSync(readFileSync(cmux), { level: 6 });
+      const data = gzipSync(readFileSync(cmux), { level: 9 });
       const n = Math.ceil(data.length / PIECE);
       await run(`rm -rf ${DIR} && mkdir -p ${DIR}/parts && chmod 700 ${DIR}`);
+      let retried = 0;
       for (let i = 0; i < n; i++) {
-        const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: `${DIR}/parts/${String(i).padStart(3, "0")}`, dataBase64: Buffer.from(data.subarray(i * PIECE, (i + 1) * PIECE)).toString("base64"), mode: 0o644 }, 120_000);
-        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write piece ${i}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")}`);
+        for (let tries = 1; ; tries++) {
+          await fresh();
+          const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: `${DIR}/parts/${String(i).padStart(3, "0")}`, dataBase64: Buffer.from(data.subarray(i * PIECE, (i + 1) * PIECE)).toString("base64"), mode: 0o644 }, 120_000);
+          if (w.status >= 200 && w.status < 300 && w.body?.ok !== false) break;
+          if (tries >= 4 || (w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
+          retried++;
+          await sleep(5000 * tries);
+        }
       }
+      say(`copied ${n} piece(s), ${retried} retried`);
       const r = await run(
         `set -e; cat ${DIR}/parts/* | gunzip > ${DIR}/cmux; rm -rf ${DIR}/parts; chmod 755 ${DIR}/cmux; ` +
         `before=$(systemctl show -p ExecStart --value cmux-host.service | sed -n 's/.*path=\\([^ ;]*\\).*/\\1/p'); echo "before=$before"; ` +

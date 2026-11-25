@@ -84,6 +84,8 @@ jobs:
         with:
           workspaces: cmux-tui
           cache-bin: false
+          # The build is most of the run; a failed proof keeps it for the next try.
+          cache-on-failure: true
       - name: Build cmux (cmux-tui) with the vault's device and machine sides
         working-directory: cmux-tui
         env:
