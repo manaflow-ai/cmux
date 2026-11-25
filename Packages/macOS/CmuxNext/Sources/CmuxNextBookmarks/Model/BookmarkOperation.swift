@@ -56,7 +56,7 @@ public nonisolated enum BookmarkOperation: Sendable, Hashable {
     case importDrafts(parent: String, index: Int?, sourceKey: String?, replace: Bool, drafts: [BookmarkDraft])
 }
 
-extension BookmarkFieldChange {
+nonisolated extension BookmarkFieldChange {
     /// The same change with its value transformed (for encoding to the Rust op).
     func map<T: Sendable & Hashable>(_ transform: (Value) -> T) -> BookmarkFieldChange<T> {
         switch self {
