@@ -28,6 +28,10 @@ public struct ConnectionBannerState: Sendable, Hashable {
         chipKind.map { ConnectionChip.Content($0, sentence: sentence) }
     }
 
+    /// Whether the state is drawn (and announced) at all: a link still trying is not
+    /// (``ConnectionChip/Kind/paints``); a banner with a sentence to read always is.
+    public var paints: Bool { chip?.paints ?? true }
+
     /// What VoiceOver reads for the chip: the words plus the Mac, when the state names one.
     var sentence: String {
         guard let macName, !macName.isEmpty else { return chipKind == .cantReach ? String(localized: "Can't reach your Mac") : text }

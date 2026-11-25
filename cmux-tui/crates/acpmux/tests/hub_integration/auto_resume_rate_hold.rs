@@ -714,3 +714,50 @@ async fn a_parent_agents_resume_of_a_stopped_sub_session_honours_the_park() {
     );
     assert_eq!(of_kind(&hub, &child, "turn_started").len(), 3, "{:?}", kinds(&hub, &child));
 }
+
+/// Leo, 2026-11-24: "i wonder what will happen with claudes on vms... do they get stranded!? ...
+/// is our logistics for being able to durably wake them up good?" A chat waiting out a capacity
+/// outage (the pool's 503, its retry-after 2 s) when the daemon restarts: the next daemon
+/// restores the wait from the log and continues it exactly once, at its deadline, under the
+/// same `~resume-1` id; the old daemon's timer sends nothing.
+#[tokio::test]
+async fn a_capacity_wait_cut_by_a_daemon_restart_resumes_once_at_its_deadline() {
+    let dir = temp_dir("capacity");
+    let (hub, mut c) = daemon_on_disk(&dir).await;
+    let id = new_session(&mut c, "paused").await;
+    let pool = "API Error: 503 no non-exhausted claude accounts available; next account frees up in 1m (retry after 2s).";
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id,
+                "prompt": [{"type": "text", "text": format!("recover-once: {pool}")}],
+                "_meta": {"acpmux": {"promptId": "p-pool"}}
+            }),
+        )
+        .await;
+    assert!(r.is_err());
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    let scheduled = of_kind(&hub, &id, "auto_resume_scheduled")[0].msg.clone();
+    assert_eq!(scheduled["reason"], "capacity", "{scheduled}");
+    let next_at = scheduled["nextAt"].as_u64().unwrap();
+    // The pool's retry-after is honoured: no attempt before it.
+    assert!(next_at >= of_kind(&hub, &id, "turn_result")[0].at + 1_900, "{scheduled}");
+
+    let (hub, _c) = restarted(hub, c, &dir, &id).await;
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert_eq!(row["retry"]["reason"], "capacity", "the restored wait shows: {row}");
+    assert_eq!(row["retry"]["nextAt"], next_at, "{row}");
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let messages = user_messages(&hub, &id);
+    let started = of_kind(&hub, &id, "turn_started");
+    let after = hub.session_summary(&hub.resolve(&id).unwrap());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let ids: Vec<&Value> = messages.iter().map(|m| &m["promptId"]).collect();
+    assert_eq!(ids, [&json!("p-pool"), &json!("p-pool~resume-1")], "{k:?}");
+    assert!(started[1].at >= next_at, "fired before its deadline: {k:?}");
+    assert_eq!(after["lastTurn"]["status"], "completed", "{after}");
+    assert_eq!(after["retry"], Value::Null, "{after}");
+}
