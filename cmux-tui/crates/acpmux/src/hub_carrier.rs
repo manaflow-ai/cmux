@@ -316,12 +316,14 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
 }
 
 /// The name a machine advertises for `service` in its Register ticket's `peer_services`: the
-/// hello's `service` word. The cmux-tui remote daemon and its session share one word, so a
-/// machine serving either advertises `cmux-tui`.
+/// hello's `service` word. The cmux-tui remote daemon, its resumable pipe and its session share
+/// one word, so a machine serving any of them advertises `cmux-tui`.
 pub fn service_name(service: CircuitService) -> &'static str {
     match service {
         CircuitService::Acpmux => ACPMUX_SERVICE,
-        CircuitService::CmuxTui { .. } | CircuitService::CmuxTuiSession => CMUX_TUI_SERVICE,
+        CircuitService::CmuxTui { .. }
+        | CircuitService::CmuxTuiResume { .. }
+        | CircuitService::CmuxTuiSession => CMUX_TUI_SERVICE,
         CircuitService::MachineCall => MACHINE_CALL_SERVICE,
         CircuitService::TransferSource => TRANSFER_SERVICE,
         CircuitService::Echo => ECHO_SERVICE,
