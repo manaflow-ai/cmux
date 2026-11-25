@@ -482,8 +482,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The free tier's App Attest provider is composed here (cx-ds09i).
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
-                // The signed approve answer format shared with the iPhone (cx-aocz).
-                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
@@ -3107,7 +3105,6 @@ let package = !targetsLinux ? Package(
         .package(path: "../../Shared/CmuxHomeCore"),
         // The one Chief list rule, shared with the iPhone's Home.
         .package(path: "../../Shared/CmuxChiefList"),
-        .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),

@@ -2075,6 +2075,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-feed-approve"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [

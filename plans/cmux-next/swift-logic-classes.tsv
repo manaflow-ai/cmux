@@ -1734,7 +1734,7 @@ CmuxNextApp	class	AgentDialogDesk	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextApp	extension	JSONValue	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/AgentDialogDesk.swift	from class AgentDialogDesk:21: agent dialog desk: pending list, answer, replies
 CmuxNextAgentPane	extension	AcpmuxPersonLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Approvals/AgentDialogLine.swift	from protocol AgentDialogLine:7: AppKit/SwiftUI view, host or thin daemon call site (moved to CmuxNextAgentPane)
 CmuxNextAgentPane	protocol	AgentDialogLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Approvals/AgentDialogLine.swift	from protocol AgentDialogLine:7: AppKit/SwiftUI view, host or thin daemon call site (moved to CmuxNextAgentPane)
-CmuxNextApp	enum	FeedApproveProofCheck	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedApproveProofCheck.swift	feed approve proof check rule
+CmuxNextApp	enum	FeedApproveProofCheck	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedApproveProofCheck.swift	wire mapping of cmux-feed-approve (feed_approve_* app FFI ops); the rules are Rust
 CmuxNextApp	enum	FeedControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedControl.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	FeedGitHubActions	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedGitHubActions.swift	from enum FeedGitHubActions:9: GitHub feed actions
 CmuxNextApp	class	FeedInstallPrincipal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedInstallPrincipal.swift	from class FeedInstallPrincipal:13: AppKit/SwiftUI view, host or thin daemon call site

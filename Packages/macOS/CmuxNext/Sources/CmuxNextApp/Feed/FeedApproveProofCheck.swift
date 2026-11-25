@@ -1,7 +1,6 @@
-import CmuxFeedPushCore
-import CryptoKit
-import Foundation
 import CmuxNextFeedClient
+import CmuxNextWindowRules
+import Foundation
 
 /// The check of a phone's signed approve answer (cx-aocz, the chief-approved
 /// App-Attested presence key design). The bridge answers an agent's
@@ -11,11 +10,15 @@ import CmuxNextFeedClient
 /// - that install has a presence key from an iPhone, attested by App Attest
 ///   at registration, not revoked, its install active, past its 24 h
 ///   cooldown (`usable_from`);
-/// - the proof is at most `maxAge` old (and not from the future);
+/// - the proof is at most 300 s old (and at most 60 s from the future);
 /// - the key's P-256 signature covers `cmux-feed-approve-v1`, this backend
 ///   environment, this user, the phone's install, THIS Mac's install, the
 ///   item, the sha256 of the text this Mac posted, the decision, the scope and
 ///   the time.
+///
+/// Every rule is cmux-feed-approve's (cmux-tui/crates/cmux-feed-approve, with
+/// its tests), asked over the app FFI (`feed_approve_*`); this maps the
+/// app's values onto the wire. An FFI that does not answer refuses (fail closed).
 ///
 /// A process on this Mac with the user's session can register an install of
 /// kind ios, but it cannot make an App Attest attestation for a key, and the
@@ -27,24 +30,35 @@ import CmuxNextFeedClient
 /// the person's own feed; it grants nothing, as an allow still needs the
 /// phone's signed proof).
 enum FeedApproveProofCheck {
-    /// One entry of `user.presence_key.list`.
-    struct Key: Equatable {
+    /// One entry of `user.presence_key.list`, as cmux-feed-approve read it.
+    struct Key: Codable, Equatable, Sendable {
         var platform: String
-        var publicKey: Data
+        /// The uncompressed P-256 point, base64url.
+        var publicKey: String
         var attested: Bool
-        var usableFrom: Date?
+        var usableFromMs: Double?
         var revoked: Bool
         var installActive: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case platform, attested, revoked
+            case publicKey = "public_key", usableFromMs = "usable_from_ms", installActive = "install_active"
+        }
     }
 
     /// Who this Mac is, from its own install token (`iss`, `sub`, `inst`).
-    struct Context: Equatable {
+    struct Context: Codable, Equatable, Sendable {
         var environment: String
         var user: String
         var macInstall: String
+
+        enum CodingKeys: String, CodingKey {
+            case environment, user
+            case macInstall = "mac_install"
+        }
     }
 
-    enum Failure: Error, Equatable {
+    enum Failure: String, Error, Equatable, Decodable {
         case noProof
         case otherInstall
         case noKey
@@ -55,92 +69,59 @@ enum FeedApproveProofCheck {
         case stale
         case badKey
         case badSignature
+        /// The app FFI did not answer.
+        case unavailable
     }
 
-    /// The oldest proof accepted, and the clock skew allowed ahead.
-    static let maxAge: TimeInterval = 300
-    static let maxSkew: TimeInterval = 60
-
-    /// The keys of a `user.presence_key.list` value, by install.
+    /// The keys of a `user.presence_key.list` value, by install (malformed entries dropped).
     static func keys(from value: [String: Any]) -> [String: Key] {
-        var out: [String: Key] = [:]
-        for entry in value["keys"] as? [[String: Any]] ?? [] {
-            guard let install = entry["install"] as? String,
-                  let jwk = entry["jwk"] as? [String: Any],
-                  let x = (jwk["x"] as? String).flatMap(base64URL), x.count == 32,
-                  let y = (jwk["y"] as? String).flatMap(base64URL), y.count == 32 else { continue }
-            // Fail closed: a missing usable_from drops the key, a missing revoked_at counts as
-            // revoked, and the flags count only as JSON booleans.
-            guard let usableFrom = (entry["usable_from"] as? NSNumber).flatMap({ isBoolean($0) ? nil : $0 }) else { continue }
-            out[install] = Key(
-                platform: entry["platform"] as? String ?? "",
-                publicKey: Data([0x04]) + x + y,
-                attested: jsonTrue(entry["attested"]),
-                usableFrom: Date(timeIntervalSince1970: usableFrom.doubleValue / 1000),
-                revoked: !(entry["revoked_at"] is NSNull),
-                installActive: jsonTrue(entry["install_active"]))
-        }
-        return out
+        struct Reply: Decodable { var keys: [String: Key] }
+        return ask("feed_approve_keys", ["value": value], as: Reply.self)?.keys ?? [:]
     }
 
     /// This Mac's context from its install token's claims.
     static func context(ofToken token: String) -> Context? {
-        let parts = token.split(separator: ".")
-        guard parts.count == 3, let data = base64URL(String(parts[1])),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let issuer = claims["iss"] as? String, issuer.hasPrefix("https://cmux-api/"),
-              let user = claims["sub"] as? String, !user.isEmpty,
-              let install = claims["inst"] as? String, !install.isEmpty else { return nil }
-        let environment = String(issuer.dropFirst("https://cmux-api/".count))
-        guard !environment.isEmpty else { return nil }
-        return Context(environment: environment, user: user, macInstall: install)
+        struct Reply: Decodable { var context: Context? }
+        return ask("feed_approve_context", ["token": token], as: Reply.self)?.context
     }
 
     /// Checks `decision`'s proof for `item`, answered by `by`.
     static func check(_ decision: FeedApproveDecision, by: String, item: String, shownSHA256: String,
                       context: Context, keys: [String: Key], now: Date) -> Result<Void, Failure> {
-        guard let proof = decision.proof else { return .failure(.noProof) }
-        guard proof.install == by else { return .failure(.otherInstall) }
-        // The time first: it needs no key, so a stale proof is named as such.
-        let signed = Date(timeIntervalSince1970: Double(proof.timestampMs) / 1000)
-        guard signed <= now.addingTimeInterval(maxSkew), now.timeIntervalSince(signed) <= maxAge else {
-            return .failure(.stale)
+        struct Proof: Encodable { var install: String; var timestamp_ms: Int64; var signature: String }
+        struct Decision: Encodable { var outcome: String; var scope: String?; var proof: Proof? }
+        struct Request: Encodable {
+            var decision: Decision
+            var by: String
+            var item: String
+            var shown_sha256: String
+            var context: Context
+            var keys: [String: Key]
+            var now_ms: Double
         }
-        guard let key = keys[proof.install] else { return .failure(.noKey) }
-        guard key.platform == "ios" else { return .failure(.notPhone) }
-        guard key.attested else { return .failure(.notAttested) }
-        guard !key.revoked, key.installActive else { return .failure(.revoked) }
-        if let usableFrom = key.usableFrom, usableFrom > now { return .failure(.coolingDown) }
-        guard let publicKey = try? P256.Signing.PublicKey(x963Representation: key.publicKey) else {
-            return .failure(.badKey)
+        struct Reply: Decodable { var failure: Failure? }
+        let proof = decision.proof.map { Proof(install: $0.install, timestamp_ms: $0.timestampMs, signature: $0.signature) }
+        let request = Request(
+            decision: Decision(outcome: decision.outcome.rawValue, scope: decision.scope?.rawValue, proof: proof),
+            by: by, item: item, shown_sha256: shownSHA256, context: context, keys: keys,
+            now_ms: now.timeIntervalSince1970 * 1000)
+        guard let reply = WindowRules().call("feed_approve_check", request, as: Reply.self) else {
+            return .failure(.unavailable)
         }
-        let message = FeedApproveProofMessage(
-            environment: context.environment, user: context.user, phoneInstall: proof.install,
-            macInstall: context.macInstall, item: item, shownSHA256: shownSHA256,
-            decision: decision.outcome.rawValue, scope: decision.scope?.rawValue ?? "once",
-            timestampMs: proof.timestampMs)
-        guard let raw = base64URL(proof.signature),
-              let signature = try? P256.Signing.ECDSASignature(rawRepresentation: raw),
-              publicKey.isValidSignature(signature, for: message.bytes) else { return .failure(.badSignature) }
-        return .success(())
+        return reply.failure.map { .failure($0) } ?? .success(())
     }
 
-    /// The sha256 the phone signs for the action this Mac posted.
+    /// The sha256 the phone signs for the action this Mac posted. Empty when the FFI does not
+    /// answer, which no proof covers.
     static func shownSHA256(action: [String: Any]) -> String {
-        FeedApproveShownText(action: action).sha256
+        struct Reply: Decodable { var sha256: String }
+        return ask("feed_approve_shown_sha256", ["action": action], as: Reply.self)?.sha256 ?? ""
     }
 
-    private static func isBoolean(_ number: NSNumber) -> Bool { CFGetTypeID(number) == CFBooleanGetTypeID() }
-
-    /// True only for the JSON boolean `true` (not 1, not "true").
-    private static func jsonTrue(_ value: Any?) -> Bool {
-        guard let number = value as? NSNumber, isBoolean(number) else { return false }
-        return number.boolValue
-    }
-
-    static func base64URL(_ text: String) -> Data? {
-        var base = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        base += String(repeating: "=", count: (4 - base.count % 4) % 4)
-        return Data(base64Encoded: base)
+    /// A request holding JSON the app received as is (an owner answer, a feed item's action).
+    private static func ask<Reply: Decodable>(_ operation: String, _ request: [String: Any], as: Reply.Type) -> Reply? {
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+        return WindowRules().call(operation, json: data, as: Reply.self)
     }
 }
