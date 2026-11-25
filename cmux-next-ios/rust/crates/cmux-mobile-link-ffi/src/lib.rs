@@ -1620,7 +1620,6 @@ mod redial_tests {
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
-            force_relay: false,
         }
     }
 
