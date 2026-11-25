@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 @testable import CmuxNextApps
 import Testing
 
@@ -203,8 +205,7 @@ import Testing
         let mount = try #require(area.mounted["w1"]?.mount)
         let drawn: AppJSON = [["op": "create", "id": "n1", "type": "Text", "props": ["text": "9:41"]], ["op": "root", "id": "n1"]]
         transport.onEvent?(.scene(mountID: mount.id, ops: AppSceneOp.batch(drawn), reset: false))
-        // No quiet stretch here; `aStaleWidgetSaysNothingInsideTheQuietBound` covers the default.
-        let tile = AppWidgetTileView(instance: "w1", mount: mount, staleQuiet: .zero)
+        let tile = AppWidgetTileView(instance: "w1", mount: mount)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: .borderless, backing: .buffered, defer: true)
         window.contentView?.addSubview(tile)
         #expect(!tile.isStale)
@@ -215,6 +216,7 @@ import Testing
         #expect(mount.model.scene.root == "n1", "the last scene stays: never a blank tile")
         #expect(mount.model.status == .ready)
         #expect(tile.isStale)
+        #expect(!tile.isRetryHintShown, "a failure under the shared bound says nothing in words")
         #expect(abs(tile.scene.alphaValue - AppWidgetTileView.staleOpacity) < 0.01)
 
         transport.onEvent?(.widgetHealth(mountID: mount.id, stale: false, reason: nil, retryMilliseconds: nil))
@@ -224,22 +226,35 @@ import Testing
         tile.removeFromSuperview()
     }
 
-    /// cmux retries a stale widget on its own, so the tile says nothing (no dimming, no "Retrying") until the stretch
-    /// has lasted NoticeTiming.connectionQuiet (Leo, 2026-11-14: connectivity stuff should "shut the fuck up").
-    @Test func aStaleWidgetSaysNothingInsideTheQuietBound() async throws {
+    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". A widget whose render fails
+    /// and retries said "Retrying" at once; now the line waits the shared bound and a quick recovery never draws it.
+    @Test func theRetryingLineWaitsTheSharedBoundAndARecoveryInsideItSaysNothing() async throws {
         let (transport, client, area) = await Self.started(layout: [Self.tile("w1", "small")])
         let mount = try #require(area.mounted["w1"]?.mount)
-        let tile = AppWidgetTileView(instance: "w1", mount: mount)
+        let clock = ManualClock()
+        let tile = AppWidgetTileView(instance: "w1", mount: mount, clock: clock)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: .borderless, backing: .buffered, defer: true)
         window.contentView?.addSubview(tile)
+        defer { tile.removeFromSuperview() }
+
         transport.onEvent?(.widgetHealth(mountID: mount.id, stale: true, reason: "render: TypeError", retryMilliseconds: 1000))
         await Self.settle(client)
-        #expect(mount.model.staleReason == "render: TypeError")
-        #expect(!tile.isStale, "a stale stretch inside the quiet bound shows nothing")
+        #expect(tile.isStale)
+        #expect(!tile.isRetryHintShown)
+        try await clock.waitForSleeper()
+        clock.advance(by: QuietHold.connectionDelay - .milliseconds(1))
+        for _ in 0 ..< 50 { await Task.yield() }
+        #expect(!tile.isRetryHintShown, "under the bound: still quiet")
+        // Recovers inside the bound: no line was ever drawn, and a new failure waits again.
         transport.onEvent?(.widgetHealth(mountID: mount.id, stale: false, reason: nil, retryMilliseconds: nil))
         await Self.settle(client)
-        #expect(!tile.isStale)
-        tile.removeFromSuperview()
+        #expect(!tile.isStale && !tile.isRetryHintShown)
+        transport.onEvent?(.widgetHealth(mountID: mount.id, stale: true, reason: "render: TypeError", retryMilliseconds: 1000))
+        await Self.settle(client)
+        try await clock.waitForSleeper()
+        clock.advance(by: QuietHold.connectionDelay)
+        for _ in 0 ..< 500 where !tile.isRetryHintShown { await Task.yield() }
+        #expect(tile.isRetryHintShown, "past the bound the tile says it is retrying")
     }
 
     @Test func theWidgetEventsDecode() {
