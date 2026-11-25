@@ -56,7 +56,12 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         field.tap()
         let keyboardKey = app.buttons["terminal.key.keyboard"]
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "no keyboard")
-        XCTAssertTrue(keyboardKey.waitForHittable(timeout: 5), "no key row over the keyboard")
+        // Shown, not `isHittable`: XCUITest's hit point check is not what a finger does, and the
+        // positive control below proves a real tap on a key reaches it.
+        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            keyboardKey.exists && keyboardKey.frame.height >= 20
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 5), .completed, "no key row over the keyboard")
         // The row's slot opens over 0.25 s and fades in 0.15 s; the card settles after it.
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in false }, object: nil)
         _ = XCTWaiter().wait(for: [settled], timeout: 1.5)
@@ -70,16 +75,23 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         XCTAssertGreaterThan(cardFrame.height, 0)
         XCTAssertLessThan(rowFrame.maxY, cardFrame.minY, "the key row \(rowFrame) and the card \(cardFrame) overlap")
 
-        // Every key drawn in the row now: its x range is where a stray hit would land.
+        // Every key drawn in the row now (on screen): its x range is where a stray hit would land.
+        let width = app.windows.firstMatch.frame.width
         let keys = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'terminal.key.'"))
-            .allElementsBoundByIndex.filter { $0.exists && $0.isHittable }
+            .allElementsBoundByIndex.filter {
+                let frame = $0.frame
+                return $0.exists && frame.width > 0 && frame.minX >= 0 && frame.maxX <= width
+                    && abs(frame.midY - rowFrame.midY) < 8
+            }
         let joystick = app.descendants(matching: .any)["Cursor joystick"].firstMatch
         var columns: [(String, CGFloat)] = keys.map { ($0.identifier, $0.frame.midX) }
         if joystick.exists { columns.append(("joystick", joystick.frame.midX)) }
         XCTAssertGreaterThan(columns.count, 4, "too few keys found: \(columns)")
-        // The card's own buttons (+, Send) open a menu or send: tap beside them, not on them.
-        let avoid = ["terminal.composer.attach", "terminal.composer.send", "terminal.composer.voice"]
-            .map { app.buttons[$0] }.filter(\.exists).map { $0.frame.insetBy(dx: -6, dy: -6) }
+        // The card's own buttons (+, Send, an attachment's preview and remove badge) open a menu,
+        // send, preview or remove: tap beside them, not on them. They are the composer's, never a key's.
+        let avoid = app.buttons.allElementsBoundByIndex
+            .filter { !$0.identifier.hasPrefix("terminal.key.") && $0.frame.intersects(cardFrame.insetBy(dx: 0, dy: -12)) }
+            .map { $0.frame.insetBy(dx: -6, dy: -6) }
 
         // The card's top edge, just inside it (1 to 8 pt), and the gap between the row and the
         // card: points that are the composer's or nobody's, never a key's.
@@ -112,6 +124,16 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard went down")
         let focused = (field.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
         XCTAssertTrue(focused, "the composer lost the focus")
+
+        // The positive control: a tap in the middle of a key does reach it, so the probe counts.
+        let escape = app.buttons["terminal.key.escape"]
+        if escape.exists, escape.frame.maxX <= width {
+            let before = probe.value as? String ?? ""
+            origin.withOffset(CGVector(dx: escape.frame.midX, dy: escape.frame.midY)).tap()
+            let after = probe.value as? String ?? ""
+            XCTAssertTrue(after != before && after.contains("escape"),
+                          "a tap on Esc \(escape.frame) did not reach it: \(before) -> \(after)")
+        }
     }
 
     @MainActor

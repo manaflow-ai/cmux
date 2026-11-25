@@ -27,7 +27,6 @@ final class TerminalKeyRowOnDemandUITests: XCTestCase {
         field.tap()
         XCTAssertTrue(key.waitForExistence(timeout: 5))
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
-        XCTAssertTrue(key.waitForHittable(timeout: 3), "the key row opens with the keyboard")
         // The row's slot opens with the keyboard (0.25 s): read the key once it has.
         let open = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in key.frame.height >= 28 }, object: nil)
         XCTAssertEqual(XCTWaiter().wait(for: [open], timeout: 3), .completed, "the key is \(key.frame)")
@@ -37,8 +36,9 @@ final class TerminalKeyRowOnDemandUITests: XCTestCase {
         XCTAssertEqual(key.frame.width, 40, accuracy: 0.5)
         XCTAssertEqual(key.label, "Hide Keyboard")
 
-        key.tap()
-        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5))
+        // A finger's tap in the key's middle (not `tap()`, which first asks XCUITest's hit point).
+        key.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "a tap on the keyboard key did not reach it")
         XCTAssertTrue(key.waitForNonExistence(timeout: 5) || !key.isHittable)
         attach("3-keyboard-down-again")
     }
