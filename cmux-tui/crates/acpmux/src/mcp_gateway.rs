@@ -63,8 +63,11 @@ pub const OFF_ENV: &str = "ACPMUX_MCP_GATEWAY";
 /// How often the idle servers are looked for.
 const REAP_EVERY: Duration = Duration::from_secs(30);
 /// A started server's replayed `initialize`.
+/// A `cmux mcp serve` the gateway just spawned that never answers it fails that request.
+/// timeout: the next request starts the server again; a hung server holds no request forever.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// After its stdin closes, a server has this long to end its own children and exit.
+/// timeout: the exit grace of an idle server being stopped; it ends no request.
 const STOP_GRACE: Duration = Duration::from_secs(3);
 /// How long a gateway waits for the kept port before taking a free one ([`bind_kept`]): long
 /// enough for the daemon it hands over from to let the port go.
@@ -88,7 +91,6 @@ const DERIVED_PORT_MASK: u64 = 8_191;
 /// How many ports upward from the derived one are tried before any free port will do.
 const DERIVED_PORT_TRIES: u16 = 16;
 const MAX_HEAD: usize = 64 * 1024;
-const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
 const REPLAY_ID: &str = "acpmux-gateway-initialize";
 
@@ -599,7 +601,7 @@ pub(crate) fn derived_port(home: &Path) -> u16 {
 /// the successor starts while the daemon it replaces still holds the port and only exits a second
 /// or so later (`daemon.stops.json`, `handover: another daemon of this home starts`). Taking a
 /// free port on the first `Address in use` made every restart move the gateway, and each move
-/// stranded every live harness, whose config names the port it was started with (big-red,
+/// stranded every live harness, whose config names the port it was started with (a Linux workstation,
 /// 2026-11-22: eight restarts, eight new ports, `ECONNREFUSED ... dialing
 /// http://127.0.0.1:41227/mcp/...` in a chat for the rest of its life).
 async fn bind_kept(port: u16, wait: Duration) -> std::io::Result<TcpListener> {
@@ -1223,7 +1225,7 @@ impl Request {
 
 /// One request per connection: the answer closes it.
 async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
-    let request = match read_request(&mut stream).await {
+    let (mut request, length) = match read_head(&mut stream).await {
         Ok(r) => r,
         Err(e) => {
             let _ = respond(&mut stream, "400 Bad Request", "text/plain", e.to_string().as_bytes())
@@ -1271,6 +1273,13 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
     }
     if !gateway.authorized(session, request.header("authorization")) {
         let _ = respond(&mut stream, "401 Unauthorized", "text/plain", b"unauthorized").await;
+        return;
+    }
+    // The body is read only once the session's token checked out, so it has no size cap: a tool
+    // call of any size goes through, as it did over the stdio server.
+    if let Err(e) = read_body(&mut stream, &mut request.body, length).await {
+        let _ =
+            respond(&mut stream, "400 Bad Request", "text/plain", e.to_string().as_bytes()).await;
         return;
     }
     let Some(chat) = gateway.chat(session) else {
@@ -1559,7 +1568,9 @@ fn sse_event(message: &Value) -> Vec<u8> {
     format!("event: message\ndata: {message}\n\n").into_bytes()
 }
 
-async fn read_request(stream: &mut TcpStream) -> Result<Request> {
+/// The request's head, with the body bytes that came in with it, and the body's length. The body
+/// itself is read by [`read_body`] after the token is checked.
+async fn read_head(stream: &mut TcpStream) -> Result<(Request, usize)> {
     let mut buf = Vec::with_capacity(4096);
     let head_end = loop {
         if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
@@ -1597,10 +1608,12 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
     {
         return Err(anyhow!("chunked bodies are not taken; send content-length"));
     }
-    if length > MAX_BODY {
-        return Err(anyhow!("body too long"));
-    }
-    let mut body = buf.get(head_end + 4..).unwrap_or_default().to_vec();
+    let body = buf.get(head_end + 4..).unwrap_or_default().to_vec();
+    Ok((Request { method, path, headers, body }, length))
+}
+
+/// Reads the rest of a `length`-byte body into `body`, which holds what came in with the head.
+async fn read_body(stream: &mut TcpStream, body: &mut Vec<u8>, length: usize) -> Result<()> {
     while body.len() < length {
         let mut chunk = vec![0u8; (length - body.len()).min(64 * 1024)];
         let n = stream.read(&mut chunk).await?;
@@ -1610,7 +1623,7 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
         body.extend_from_slice(chunk.get(..n).unwrap_or_default());
     }
     body.truncate(length);
-    Ok(Request { method, path, headers, body })
+    Ok(())
 }
 
 async fn respond(

@@ -235,7 +235,9 @@ fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
 /// clamped to it, and the result says so.
 const TASK_WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(1800);
 /// The first and the longest pause between two reads of the task's state while it runs.
+/// timeout: not a deadline, the first pause between two reads; the call's bound ends the wait.
 const TASK_LOOK_FIRST: std::time::Duration = std::time::Duration::from_millis(100);
+/// timeout: not a deadline, the longest pause between two reads; the call's bound ends the wait.
 const TASK_LOOK_MAX: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// How long a `run_wait` given a background task blocks for it to end: the bound the call gave

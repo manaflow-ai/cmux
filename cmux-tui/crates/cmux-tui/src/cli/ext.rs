@@ -828,6 +828,7 @@ fn reload(global: &GlobalArgs, app: Option<&str>, json_out: bool) -> i32 {
 
 /// How long a `customize` verb waits for the daemon to load the folder it
 /// rewrote. Past it the verb returns anyway: the daemon's watch still loads it.
+/// timeout: past it the verb returns with the folder written; the daemon's watch loads it.
 const CUSTOMIZE_LOAD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// How the daemon took a customization folder a `customize` verb rewrote.

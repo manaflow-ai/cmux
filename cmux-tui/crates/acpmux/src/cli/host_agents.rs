@@ -121,6 +121,8 @@ pub(crate) fn local_probe() -> Option<Found> {
             text
         })
         .ok()?;
+    // The doctor's read-only probe of the login shell: past it the probe reports nothing found.
+    // timeout: the doctor goes on without the probe; it ends no request or chat.
     let status = match child.wait_timeout(Duration::from_secs(20)) {
         Ok(Some(status)) => status,
         Ok(None) | Err(_) => {

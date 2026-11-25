@@ -145,13 +145,13 @@ fn a_ticket_for_a_machine_the_hub_does_not_know_says_join_it() {
 fn a_hub_machine_is_found_by_the_name_machine_ls_shows() {
     let book = vec![
         ("key-air".to_owned(), "air-blue".to_owned()),
-        ("key-big".to_owned(), "Big-Red".to_owned()),
+        ("key-vm".to_owned(), "My-Vm".to_owned()),
     ];
     assert_eq!(
         crate::cmux_tui_service::book_machine(&book, "air-blue").as_deref(),
         Some("key-air")
     );
-    assert_eq!(crate::cmux_tui_service::book_machine(&book, "big-red").as_deref(), Some("key-big"));
+    assert_eq!(crate::cmux_tui_service::book_machine(&book, "my-vm").as_deref(), Some("key-vm"));
     assert_eq!(crate::cmux_tui_service::book_machine(&book, "nope"), None);
     let twins = vec![("k1".to_owned(), "mac".to_owned()), ("k2".to_owned(), "mac".to_owned())];
     assert_eq!(
