@@ -635,16 +635,18 @@ extension ConversationViewController {
     /// Reduce Motion: our own spring lands at once. Inside a keyboard
     /// animation the block still rides it: the system moves the keyboard
     /// either way, and landing early would part the composer from it.
+    /// Interruptible (`.allowUserInteraction`): a tap on the composer or the
+    /// transcript inside the animation reaches them instead of being dropped.
     func animateAlongsideKeyboard(_ animations: @escaping () -> Void, completion: ((Bool) -> Void)? = nil) {
         guard UIView.inheritedAnimationDuration == 0 else {
             UIView.animate(
-                springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
+                springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction],
                 animations: animations, completion: completion
             )
             return
         }
         UIView.animateUnlessReduceMotion(
-            springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
+            springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction],
             animations: animations, completion: completion
         )
     }

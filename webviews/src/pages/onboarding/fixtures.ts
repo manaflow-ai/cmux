@@ -9,6 +9,7 @@ import type {
   ImportRow,
   ImportState,
   MakeItYoursBackground,
+  MakeItYoursDensity,
   MakeItYoursState,
   OnboardingFooter,
   OnboardingState,
@@ -386,20 +387,30 @@ export function importState(kind: ImportFixture = "ready"): OnboardingState {
 
 // MARK: Computer Use
 
-export type ComputerUseFixture = "fresh" | "oneGranted" | "allGranted" | "helperFailed" | "off" | "unavailable";
+/** `finished`: the person's Allow got the last grant on (the done view); `confirmingCapture`: Screen
+ * Recording was just allowed here while Accessibility still waits (the Screenshots row's capture note). */
+export type ComputerUseFixture =
+  | "fresh"
+  | "oneGranted"
+  | "allGranted"
+  | "finished"
+  | "confirmingCapture"
+  | "helperFailed"
+  | "off"
+  | "unavailable";
 
 export function computerUseState(kind: ComputerUseFixture = "fresh"): OnboardingState {
+  const allOn = kind === "allGranted" || kind === "finished";
   const rows: ComputerUseState["rows"] = [
     {
       pane: "accessibility",
-      control:
-        kind === "oneGranted" || kind === "allGranted" ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
+      control: kind === "oneGranted" || allOn ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
       icon: accessibilityIcon,
     },
     {
       pane: "screenRecording",
       control:
-        kind === "allGranted"
+        allOn || kind === "confirmingCapture"
           ? "done"
           : kind === "helperFailed"
             ? "hidden"
@@ -411,13 +422,13 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   ];
   return {
     step: "computerUse",
-    footer: footer({ primary: "done", primaryEnabled: kind === "allGranted" }),
+    footer: footer({ primary: "done", primaryEnabled: allOn }),
     agents: null,
     importer: null,
     computerUse: {
       helperIcon: kind === "unavailable" ? null : helperIcon,
       rows,
-      allGranted: kind === "allGranted",
+      allGranted: allOn,
       note:
         kind === "helperFailed"
           ? "helperFailed"
@@ -427,7 +438,9 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               ? "unavailable"
               : null,
       showsRestart: kind === "helperFailed",
-      comebacks: kind === "oneGranted" ? 1 : 0,
+      comebacks: kind === "oneGranted" || kind === "confirmingCapture" ? 1 : kind === "finished" ? 2 : 0,
+      finished: kind === "finished",
+      confirmsCapture: kind === "confirmingCapture" || kind === "finished",
     },
   };
 }
@@ -447,19 +460,26 @@ function painting(sky: string, hill: string): HostImage {
 }
 
 const BACKGROUNDS: MakeItYoursBackground[] = [
-  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  {
-    id: "friedrich-forest-moonlight",
-    name: "Forest in the Moonlight — Caspar David Friedrich",
-    preview: painting("#1f2b3a", "#0e151d"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  },
-  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  {
-    id: "rembrandt-storm-galilee",
-    name: "The Storm on the Sea of Galilee — Rembrandt",
-    preview: painting("#2c3236", "#151a1c"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  },
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: fixture painting
+  { id: "van-gogh-starry-night", name: "The Starry Night", preview: painting("#1d2b52", "#0e1424") }, // colour-allow: fixture painting
+  { id: "hokusai-great-wave", name: "The Great Wave off Kanagawa", preview: painting("#d9ccb0", "#2a4a6a") }, // colour-allow: fixture painting
+  { id: "friedrich-wanderer", name: "Wanderer above the Sea of Fog", preview: painting("#8a96a0", "#2a2622") }, // colour-allow: fixture painting
+  { id: "dahl-dresden-moonlight", name: "View of Dresden by Moonlight", preview: painting("#1f2b3a", "#0e151d") }, // colour-allow: fixture painting
+  { id: "monet-water-lilies-setting-sun", name: "Water Lilies, Setting Sun", preview: painting("#c07a3a", "#3a4a2a") }, // colour-allow: fixture painting
+  { id: "hiroshige-kanbara-snow", name: "Night Snow at Kanbara", preview: painting("#2c3236", "#e8e8e8") }, // colour-allow: fixture painting
+  { id: "van-gogh-almond-blossom", name: "Almond Blossom", preview: painting("#6aa6b0", "#e8efe8") }, // colour-allow: fixture painting
+  { id: "bruegel-hunters-snow", name: "The Hunters in the Snow", preview: painting("#9aaca8", "#eaeae4") }, // colour-allow: fixture painting
+  { id: "roerich-himalayas", name: "Himalayas", preview: painting("#3a5a8a", "#a06a4a") }, // colour-allow: fixture painting
+  { id: "vermeer-pearl-earring", name: "Girl with a Pearl Earring", preview: painting("#101418", "#3a4a6a") }, // colour-allow: fixture painting
+];
+
+/** Every built-in density, by Settings' names. */
+const DENSITIES: MakeItYoursDensity[] = [
+  { id: "ultraCompact", name: "Ultra-compact" },
+  { id: "compact", name: "Compact" },
+  { id: "cozy", name: "Default" },
+  { id: "comfortable", name: "Comfortable" },
+  { id: "spacious", name: "Spacious" },
 ];
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
@@ -467,10 +487,14 @@ const BACKGROUNDS: MakeItYoursBackground[] = [
 export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
   const choices: MakeItYoursState = {
     workStyle: kind === "terminal" ? "terminal" : "gui",
-    density: kind === "picked" ? "compact" : "standard",
-    background: kind === "picked" ? "friedrich-forest-moonlight" : null,
-    chatsRunIn: kind === "picked" ? "cloud" : "local",
+    density: kind === "picked" ? "compact" : "cozy",
+    densities: DENSITIES,
+    background: kind === "picked" ? "dahl-dresden-moonlight" : null,
     backgrounds: kind === "loading" ? [] : BACKGROUNDS,
+    opacity: kind === "picked" ? 0.6 : 1,
+    opacitySet: kind === "picked",
+    material: kind === "picked" ? "frosted" : null,
+    materials: ["none", "frosted", "glass", "glass-clear"],
     loaded: kind !== "loading",
   };
   return {

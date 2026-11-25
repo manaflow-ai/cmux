@@ -322,3 +322,65 @@ fn the_tail_file_is_its_owner_s_only() {
     let mode = std::fs::metadata(&path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
     assert_eq!(mode, 0o600);
 }
+
+#[test]
+fn the_send_and_chat_switch_budgets_are_a_frame_and_the_first_token_three_seconds() {
+    assert_eq!(budget("chat.send_paint"), 16.0);
+    assert_eq!(budget("chat.switch_paint"), 16.0);
+    assert_eq!(budget("chat.send_first_token"), 3_000.0);
+}
+
+fn send_report(ms: f64, detail: Value) -> Value {
+    json!({"spans": [{"name": "send", "budget": "chat.send_paint", "ms": ms, "parts": [], "detail": detail}]})
+}
+
+#[test]
+fn a_send_span_is_kept_with_its_detail_and_a_quick_clean_send_says_nothing() {
+    let watch = watch_on();
+    watch.report(
+        "chat",
+        &send_report(
+            9.0,
+            json!({"firstTokenMs": 800, "shifts": 0, "transport": "local", "reserved": true, "rows": 4}),
+        ),
+    );
+    let span = events(&watch).into_iter().find(|e| e["kind"] == "span").unwrap_or_default();
+    assert_eq!(span["name"], "send");
+    assert_eq!(span["budgetMs"], 16.0);
+    assert_eq!(span["over"], false);
+    assert_eq!(span["detail"]["detail"]["firstTokenMs"], 800);
+    assert_eq!(span["detail"]["detail"]["reserved"], true);
+    assert!(notes(&watch).is_empty(), "{:?}", notes(&watch));
+}
+
+#[test]
+fn a_send_with_a_late_first_token_or_a_shift_says_a_send_note() {
+    let watch = watch_on();
+    watch.report("chat", &send_report(9.0, json!({"firstTokenMs": 41_000, "shifts": 2, "transport": "cloud", "shiftWhat": ["div.acpmux-row"]})));
+    let note = events(&watch).into_iter().find(|e| e["kind"] == "note").unwrap_or_default();
+    assert_eq!(note["key"], "send");
+    assert_eq!(note["detail"]["subject"], "send");
+    let text = note["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains("cloud") && text.contains("first token") && text.contains("shifted 2"),
+        "{text}"
+    );
+    assert!(text.contains("div.acpmux-row"), "{text}");
+
+    let shifted = watch_on();
+    shifted.report("chat", &send_report(9.0, json!({"firstTokenMs": 500, "shifts": 1})));
+    assert_eq!(notes(&shifted).len(), 1, "{:?}", notes(&shifted));
+
+    let unobserved = watch_on();
+    unobserved.report("chat", &send_report(9.0, json!({"firstTokenMs": null, "shifts": null})));
+    assert!(notes(&unobserved).is_empty(), "{:?}", notes(&unobserved));
+}
+
+#[test]
+fn a_send_paint_over_a_frame_says_its_budget_note() {
+    let watch = watch_on();
+    watch.report("chat", &send_report(40.0, json!({"firstTokenMs": 500, "shifts": 0})));
+    let all = notes(&watch);
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert!(all[0].contains("Enter to the frame that paints"), "{all:?}");
+}

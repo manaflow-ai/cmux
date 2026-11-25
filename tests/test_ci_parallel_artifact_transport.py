@@ -469,11 +469,12 @@ class EntryPointTests(unittest.TestCase):
 
 
 class RegistrationTests(unittest.TestCase):
-    def test_transport_files_run_in_the_artifact_transport_workflow(self):
-        workflow = (ROOT / ".github/workflows/ci-artifact-transport.yml").read_text(encoding="utf-8")
+    def test_transport_files_run_in_the_artifact_transport_step(self):
+        step = (ROOT / "ci/steps.toml").read_text(encoding="utf-8").split("[step.ci-artifact-transport]", 1)[1]
+        step = step.split("\n[step.", 1)[0]
         for path in ("scripts/ci/parallel_artifact_download.py", "tests/test_ci_parallel_artifact_transport.py"):
-            self.assertIn(f"- {path}\n", workflow)
-        self.assertIn("python3 tests/test_ci_parallel_artifact_transport.py", workflow)
+            self.assertIn(f'"{path}"', step)
+        self.assertIn("python3 tests/test_ci_parallel_artifact_transport.py", step)
 
     def test_test_is_registered_in_the_execution_registry(self):
         registry = "".join(path.read_text(encoding="utf-8")

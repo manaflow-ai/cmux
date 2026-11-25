@@ -321,6 +321,7 @@ fn native_data_frames_reach_only_the_owner() {
         crate::git_seed::GIT_SEED_CAPABILITY,
         crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
         crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+        crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
         crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     ] {
         assert!(native_owner::carries(capability), "{capability}");
@@ -483,6 +484,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-session-share-room",
     "agent-session-share-uninvite",
     "apps-agent-inventory-changed",
+    "apps-chat-action",
     "apps-dispatch",
     "apps-link-changed",
     "apps-list",

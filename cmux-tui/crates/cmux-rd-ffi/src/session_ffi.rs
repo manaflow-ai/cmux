@@ -394,6 +394,7 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
                 frames_lost: s.frames_lost,
                 acked_frame: s.acked_frame,
                 need_recovery: s.need_recovery,
+                frames_skipped: s.frames_skipped,
             };
             // SAFETY: checked non-NULL; writable by contract.
             unsafe { out.write(value) };
@@ -401,6 +402,21 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
         }
         Err(e) => session_code(&e),
     };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    // The C type is `*const`, but the pointer came from `_new` as `*mut`.
+    unsafe { with_session(session.cast_mut(), run) }
+}
+
+/// 1 when the host went silent for [`crate::STALL_AFTER_US`] as of the last
+/// tick while it sends heartbeats (the network dropped and the picture is
+/// frozen), 0 otherwise; the next bytes received clear it.
+///
+/// # Safety
+/// `session` is NULL or valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_stalled(session: *const CmuxRdSession) -> i32 {
+    let run = |h: &mut CmuxRdSession| i32::from(h.inner.is_stalled());
     // SAFETY: `session` is NULL or valid by this function's contract, and the
     // header lets one thread at a time call a session, so no other access overlaps.
     // The C type is `*const`, but the pointer came from `_new` as `*mut`.

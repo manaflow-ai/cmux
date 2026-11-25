@@ -153,6 +153,10 @@ public final class LayoutModel {
     /// their ring blinks out, as cmux classic's dismiss flash did. A pane stays in it until it rings
     /// again, so a later pass cannot turn the blink into a fade (``setAttention(_:readByEntry:)``).
     public var attentionReadByEntry: Set<PaneID> = []
+    /// The layout just came on screen (a workspace switch): its rings wait for the frame that shows its content, so no
+    /// ring draws on the overlay before the workspace it belongs to (cmux#46908). The App lets them go after that commit.
+    /// The marks stay meanwhile: a ring read by the switch starts its dismiss blink, which shows once the hold ends.
+    public var holdsAttentionUntilShown = false
     /// Reads the ringing `pane` the person just went into (the focus entered it, or a click with `true`),
     /// when they look at this layout and the policy reads its ring so; true when it did
     /// (``enterAttention(_:click:)``). Set by the App.

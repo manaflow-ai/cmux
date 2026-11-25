@@ -45,7 +45,8 @@ SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-night
            "sign-live-code-variant"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker"}
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf"}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 
 

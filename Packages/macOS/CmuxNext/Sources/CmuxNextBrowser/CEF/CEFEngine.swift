@@ -209,6 +209,19 @@ public final class CEFEngine: BrowserEngine {
     /// The timed steps of Chromium's start in this process (`debug.cef`).
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
+    /// `startReport.launchMarks(now:)` plus the start's points before `CefInitialize` as `cef.step.<name>`
+    /// (`start_called`, `map_waited_first_frame`, `map_done`, `keychain_done`, `launch_prep_read`, `first_frame_waited`),
+    /// each once, to see which step holds `cef.initialize_start` back.
+    ///
+    /// - Parameter now: Seconds since the process started, on the caller's clock.
+    /// - Returns: Each mark's name and its offset from now.
+    public func launchMarks(now: Double) -> [(name: String, offset: Double)] {
+        let uptime = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
+        let steps: Set = ["start_called", "map_waited_first_frame", "map_done", "keychain_done", "launch_prep_read", "first_frame_waited"]
+        let points = CEFStartSteps.shared.marks.filter { $0.milliseconds == 0 && steps.contains($0.name) }
+        return startReport.launchMarks(now: now) + points.map { ("cef.step." + $0.name, Double($0.startUptimeNanos) / 1e9 - uptime) }
+    }
+
 
     /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
     /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time

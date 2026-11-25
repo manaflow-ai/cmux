@@ -166,3 +166,20 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* A row with actions (DisclosureRow.tsx `fit`) follows conversation/cardFit.css: the actions wrap
+   under the line once the toggle would be left under 8em, and shrink to icons in a very narrow card.
+   The line keeps its own gap; the toggle gives way first, its label cut by its ellipsis. */
+.cv-disclosure__line.cv-fit-row {
+  column-gap: var(--grid-gap);
+}
+.cv-disclosure__line.cv-fit-row > .cv-disclosure__toggle:not(.is-chevron, .is-status) {
+  flex: 1 1 0;
+  min-width: min(8em, 100%);
+}
+.cv-disclosure__actions {
+  margin-inline-start: auto;
+}
+.cv-disclosure__actions:empty {
+  display: none;
+}

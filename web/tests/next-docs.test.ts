@@ -113,6 +113,25 @@ describe("cmux-next docs", () => {
     expect(blocks).toEqual([prompt!]);
   });
 
+  // Start here repeats two of cmux setup's prompts, and its one-line agent entry names its own
+  // Markdown URL, which llms.txt sends an agent to first.
+  test("the Start here page's prompts are cmux setup's, and llms.txt points an agent at it", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const promptOf = (heading: string) =>
+      generated.split("\n## ").find((part) => part.startsWith(heading))?.match(/```text\n([^\n]+)\n```/)?.[1];
+    const body = nextDocPage("start")!.body;
+    const blocks = body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    const url = `https://cmux.com${nextDocPublicPath("start")}.md`;
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toContain(url);
+    expect(blocks.slice(1)).toEqual([promptOf("Start a chat on cmux Cloud")!, promptOf("Use cmux from an iPhone")!]);
+    // The heading the entry line and llms.txt both name.
+    expect(body).toContainEqual({ h2: "If you are an agent" });
+    const llms = buildLlmsText("https://cmux.com");
+    expect(llms.indexOf(url)).toBeGreaterThan(-1);
+    expect(llms.indexOf(url)).toBeLessThan(llms.indexOf("## What cmux is"));
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
@@ -126,6 +145,9 @@ describe("cmux-next docs", () => {
       "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault", "cmux setup mcp",
       "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
       "cmux server down", "cmux server logs",
+      // The Rust CLI's sign-in and chat commands, as cmux setup's cloud_chat prompt writes them
+      // (docs/chief-setup-prompts.md), and classic's machine verbs.
+      "cmux login", "cmux whoami", "cmux chat --on", "cmux vm pause",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {

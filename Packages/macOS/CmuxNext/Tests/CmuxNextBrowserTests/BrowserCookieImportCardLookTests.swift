@@ -112,12 +112,22 @@ import Testing
         #expect(card.content == nil)
     }
 
-    @Test func theCardIsTheToastSurfacesGlass() throws {
-        let glass = try #require(Self.card().glass)
-        let toast = Glass.makeSurface(.toast, cornerRadius: SurfaceRole.toast.cornerRadius, interactive: false)
-        #expect(glass.tone == SurfaceRole.toast.tone, "the window toasts' tone")
-        #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
+    /// Leo, 2026-11-24: "oh yeah the import from chrome popup/toast is there too...with yet another kind of
+    /// \"glass\"". The card drew the floating panels' clear Liquid Glass (gallery 1, no rim) while every
+    /// window toast draws the veil-tinted one with the rim (gallery 3, Debug Settings > Toasts); this test
+    /// compared it with `Glass.makeSurface(.toast)`, which is neither, so it never saw the two differ.
+    @Test func theCardIsTheWindowToastsGlass() throws {
+        let transparency = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let center = CmuxToastCenter(host: CmuxToastOverlayHost(reduceTransparency: transparency))
+        let card = BrowserCookieImportCard(offer: Self.offer, toastCenter: center, reduceTransparency: transparency) { FakePage() }
+        let glass = try #require(card.glass)
+        let toast = try #require(CmuxToastView(toast: CmuxToast(id: "saved", message: "Saved"), reduceTransparency: transparency,
+                                               tuning: center.tuning, style: center.style).surface)
+        #expect(glass.tone == toast.tone, "the window toasts' tone")
+        #expect(glass.glassVariant == toast.glassVariant, "the window toasts' glass (Debug Settings > Toasts)")
         #expect(glass.material == toast.material, "the window toasts' material on this Mac")
+        #expect((glass.rimView != nil) == (toast.rimView != nil), "the window toasts' rim")
+        #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
         #expect(glass.samplesBehindWindow, "the blur (macOS 14 and 15) samples the page behind the overlay window")
     }
 
