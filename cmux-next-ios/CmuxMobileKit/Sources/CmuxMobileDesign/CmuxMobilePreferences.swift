@@ -44,6 +44,9 @@ public enum CmuxMobilePreferences {
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
         /// the app's keepalive timers (`KeepaliveBeat.defaultsKey`, the same key).
         public static let alignKeepalives = "cmuxMobile.settings.alignKeepalives"
+        /// Settings → Transport → Direct on Wi-Fi (on by default); read at each dial
+        /// (`FFIMacLinkDialer.applyLanDirectToCore`, the same key).
+        public static let lanDirect = "cmuxMobile.settings.lanDirect"
         /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
@@ -75,7 +78,7 @@ public enum CmuxMobilePreferences {
     /// The sizes Settings offers (and the terminal accepts).
     public static let terminalFontSizes = 9...24
     public static let defaultWrapCode = false
-    public static let defaultKeyClicks = true
+    public static let defaultKeyClicks = false
     public static let defaultPredictiveEcho = true
     public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false

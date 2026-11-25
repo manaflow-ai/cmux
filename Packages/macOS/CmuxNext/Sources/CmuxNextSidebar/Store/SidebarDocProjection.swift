@@ -188,7 +188,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             let shownHost = host.contains(":") ? "[\(host)]" : host // an IPv6 host takes brackets
             iconAddress = "\(scheme)://\(shownHost)\(url.port.map { ":\($0)" } ?? "")/favicon.ico" // the site's own until the item stores one
         }
-        return SidebarListItem(id: item.id, ref: ref, title: title, iconAddress: iconAddress)
+        let room = item.body.belongsToASpace ? item.room : nil
+        return SidebarListItem(id: item.id, ref: ref, title: title, iconAddress: iconAddress, room: room)
     }
 
     static func layoutItem(_ item: SidebarDocItem) -> LayoutItem {
