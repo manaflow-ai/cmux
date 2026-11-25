@@ -163,17 +163,25 @@ export const mockDevicesJoin: DevicesJoinState = {
   known: true,
   revoke_all: null,
   switches: [
-    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    {
+      surface: "screen",
+      title: "Screen sharing",
+      help: "Your team's machines can see this screen",
+      keywords: ["screen sharing", "share screen", "see my screen", "let my team see"],
+      on: false,
+    },
     {
       surface: "control",
       title: "Control",
       help: "Your team's machines can move the pointer and type here",
+      keywords: ["remote control", "let my team control", "take control", "mouse and keyboard"],
       on: false,
     },
     {
       surface: "signedInMachines",
       title: "Your other Macs",
       help: "Your other Macs signed in to this account can open workspaces and terminals here",
+      keywords: ["other macs", "open workspaces", "remote workspaces", "same account"],
       on: false,
     },
   ],
