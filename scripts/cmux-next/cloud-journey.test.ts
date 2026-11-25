@@ -8,13 +8,13 @@ import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./clo
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
@@ -356,6 +356,13 @@ describe("cloud journey", () => {
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
   });
+
+  test("scrub keeps serialized JSON parseable: a 401's \"bearer token\" eats no quote (run 45510772491)", () => {
+    const cycle = { error: `cloud.machine.start: HTTP 401 ${JSON.stringify({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })}`, at: "x" };
+    const out = scrub(JSON.stringify({ cycles: [cycle] }, null, 2));
+    expect(JSON.parse(out).cycles[0].at).toBe("x");
+    expect(scrub(JSON.stringify({ h: "Bearer abc.def-ghi" }))).toBe('{"h":"[secret]"}');
+  });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
     const md = summaryMarkdown(resolveBackend("staging"), [
@@ -424,6 +431,41 @@ describe("cloud journey", () => {
     expect(JOURNEY_STUB_SCRIPT.turns).toEqual(expect.arrayContaining([
       { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] },
     ]));
+  });
+  test("the reserved home chat's stub turn is a Read in the chat's folder, never a shell call (policy ask holds shell)", () => {
+    // Prod run 45585084079: the reserved chat runs under policy `ask`, the default turn's shell call waited on a permission.
+    const dir = mkdtempSync(join(tmpdir(), "journey-read-"));
+    try {
+      const w = spawnSync("bash", ["-c", journeyReadFileCommand(dir, "3bde18dfd6b9")], { encoding: "utf8" });
+      const file = /@@file (\S+)/.exec(w.stdout)?.[1] ?? "";
+      expect(file).toBe(`${dir}/.journey-3bde18dfd6b9.txt`);
+      expect(readFileSync(file, "utf8")).toBe("3bde18dfd6b9-tool\n");
+      const script = join(dir, "script.json");
+      writeFileSync(script, JSON.stringify(JOURNEY_STUB_SCRIPT));
+      // The shared stub itself plays the turn: Claude Code's Read result numbers its lines.
+      const play = `
+import json, sys, urllib.request
+sys.path.insert(0, sys.argv[1])
+import model_stub
+server, _ = model_stub.serve(json.load(open(sys.argv[2])), "3bde18dfd6b9")
+base = f"http://127.0.0.1:{server.server_address[1]}/v1/messages"
+ask = lambda msgs: json.loads(urllib.request.urlopen(urllib.request.Request(base, data=json.dumps({"messages": msgs, "tools": [{"name": "Bash"}, {"name": "Read"}]}).encode(), headers={"content-type": "application/json"})).read())["content"][0]
+turn = [{"role": "user", "content": sys.argv[3]}]
+call = ask(turn)
+reply = ask([*turn, {"role": "assistant", "content": [call]}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": call["id"], "content": "     1\\u21923bde18dfd6b9-tool\\n"}]}])
+print(json.dumps({"call": call, "reply": reply}))
+server.shutdown()
+`;
+      const r = spawnSync("python3", ["-I", "-c", play, dirname(MODEL_STUB_PY), script, journeyReadPrompt("Name the planet.", file)], { encoding: "utf8" });
+      expect(r.stderr).toBe("");
+      const { call, reply } = JSON.parse(r.stdout);
+      expect(call).toMatchObject({ type: "tool_use", name: "Read", input: { file_path: file } });
+      expect(reply.text).toBe("Stub reply 3bde18dfd6b9. The tool printed 3bde18dfd6b9-tool.");
+      // The person's own prompt, with no marker, still gets the default turn (its shell call) elsewhere.
+      expect(JOURNEY_STUB_SCRIPT.steps[0]).toHaveProperty("shell");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
@@ -580,16 +622,38 @@ describe("cloud journey: leaked machine sweep", () => {
   test("the age bound outlasts every workflow job that runs a journey, twice over", () => {
     const dir = join(import.meta.dir, "../../.github/workflows");
     const seen: string[] = [];
+    const long: string[] = [];
     for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/.test(n))) {
       const text = readFileSync(join(dir, f), "utf8");
       if (!/cloud-journey(\.ts|-ci\.sh)/.test(text)) continue;
       seen.push(f);
+      // A file that runs a long journey (its machines named `… long`) is held to the long bound; every other to 3 h.
+      const isLong = /--resume-matrix|--wake-echo/.test(text);
+      if (isLong) long.push(f);
+      const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
       // Every timeout in such a file, a superset of the journey jobs' own.
       for (const m of text.matchAll(/timeout-minutes:\s*(\d+)/g)) {
-        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= STALE_JOURNEY_MS }).toEqual({ f, fits: true });
+        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, fits: true });
       }
     }
     expect(seen).toContain("cmux-vm.yml");
+    expect(long).toContain("cloud-resume-matrix.yml");
+  });
+
+  test("a long run's machines (` long`) get the long bound; a short run's leak is swept after 3 h", () => {
+    const fiveHours = tagAt(now - 5 * 3_600_000);
+    const pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000);
+    expect(autoMachineName(fiveHours, false)).toBe(`cloud journey auto ${fiveHours}`);
+    expect(autoMachineName(fiveHours, true)).toBe(`cloud journey auto ${fiveHours} long`);
+    expect(ids([
+      // 2026-11-25's staging leftovers: 5 h old short runs, which the 11 h bound for every machine kept.
+      { id: "vm_short", name: autoMachineName(fiveHours, false), status: "paused" },
+      { id: "vm_short_cold", name: `${autoMachineName(fiveHours, false)} cold`, status: "paused" },
+      { id: "vm_long", name: autoMachineName(fiveHours, true), status: "paused" },
+      { id: "vm_long_gw", name: `${autoMachineName(fiveHours, true)} gateway`, status: "paused" },
+      { id: "vm_long_old", name: autoMachineName(pastLong, true), status: "paused" },
+      { id: "vm_glued", name: `cloud journey auto ${fiveHours} longer`, status: "paused" },
+    ])).toEqual(["vm_short", "vm_short_cold", "vm_long_old", "vm_glued"]);
   });
 
   test("never a --keep run's plain name, another name or a tag that is not a time", () => {
@@ -628,8 +692,9 @@ describe("cloud journey: leaked machine sweep", () => {
 describe("cloud journey: leaked install sweep", () => {
   const now = Date.UTC(2026, 10, 16, 9, 0, 0);
   const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
-  const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
-  const young = tagAt(now - STALE_JOURNEY_MS + 60_000);
+  // Installs keep the long bound: a long run still uses its install.
+  const old = tagAt(now - LONG_JOURNEY_MS - 60_000);
+  const young = tagAt(now - LONG_JOURNEY_MS + 60_000);
   const inst = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, kind: "cli", revoked_at: null, ...extra });
 
   test("takes only a live cli install a journey run named, older than any journey run", () => {

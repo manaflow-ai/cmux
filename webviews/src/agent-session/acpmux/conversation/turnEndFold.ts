@@ -34,7 +34,7 @@ import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
 import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING, NEXT_STEP } from "./turns";
-import { isLineRow, type AcpmuxRow } from "../model";
+import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
 
@@ -218,6 +218,18 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
     // line regroups under a new id as the turn ends, and its id going is no cut transcript.
     if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
   return prompt === undefined || after.some((row) => row.id === prompt);
+}
+
+/// Whether `snapshot`'s rows are a copy the page drew before acpmux's attach of the chat answered: a
+/// kept tail (a restored tab after Restart to Update, a cache-first open) or the page's saved snapshot.
+/// A copy keeps rows, not whether its turn still runs, so a turn its rows show running may have ended
+/// long before; the attach that says so is no end the reader is watching (Leo, 2026-11-22, after
+/// Restart to Update: "the crazy [very] stupid folding animations somehow replay even though these
+/// messages had already been seen by me"). The transcript draws that end in place, as it does a turn
+/// that ended while the page was away (VirtualTranscript.tsx `turnEnds`).
+export function drawsCopy(snapshot: Pick<AcpmuxSnapshot, "chatAttached" | "drewKeptTail" | "connection">): boolean {
+  if (snapshot.chatAttached === true) return false;
+  return snapshot.drewKeptTail === true || snapshot.connection.startsWith("connecting");
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.

@@ -634,3 +634,27 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     expect(problemsOf(withRd({ firstUse: true })).some((p) => p.includes("cmux-rd is baked"))).toBe(true);
   });
 });
+
+describe("the Antigravity CLI (agy) in the store", () => {
+  // Leo 2026-11-25: "we'll want to set up antigravity/antigravity cli and opencode capable".
+  test("is baked as `agy` (acpmux runs `agy acp`) for both architectures, version-checked", () => {
+    const lock = parseInputsLock(lockText);
+    const agy = bakedPrograms(lock).find((p) => p.name === "agy");
+    expect(agy).toBeDefined();
+    expect(agy!.format).toBe("tar.gz");
+    expect(agy!.bin).toEqual({ agy: "antigravity" });
+    expect(agy!.versionArgs).toEqual(["--version"]);
+    expect(agy!.expect).toBe(agy!.version);
+    expect(agy!.url).toContain(`/antigravity-cli/${agy!.version}-`);
+    expect(agy!.otherArches?.aarch64?.url).toContain(`/antigravity-cli/${agy!.version}-`);
+    expect(programChecksCommand(lock)).toContain("agy --version");
+  });
+
+  test("its own updater is off in login shells and the systemd user manager", async () => {
+    const { agyProfileScript, agyUserEnvironment, AGY_PROFILE_PATH, AGY_USER_ENV_PATH } = await import("../scripts/cmux-vm-image/bake");
+    expect(AGY_PROFILE_PATH).toStartWith("/etc/profile.d/");
+    expect(AGY_USER_ENV_PATH).toStartWith("/etc/environment.d/");
+    expect(agyProfileScript()).toContain("\nexport AGY_CLI_DISABLE_AUTO_UPDATE=1\n");
+    expect(agyUserEnvironment()).toContain("\nAGY_CLI_DISABLE_AUTO_UPDATE=1\n");
+  });
+});
