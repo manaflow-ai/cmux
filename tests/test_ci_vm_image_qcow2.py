@@ -108,5 +108,33 @@ class PresignTest(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
 
+class RollWiringTest(unittest.TestCase):
+    """cloud-vm-image-roll.yml publishes every rolled image as a qcow2 without ever turning the roll red."""
+
+    def setUp(self) -> None:
+        import yaml
+
+        self.roll = yaml.safe_load((ROOT / ".github/workflows/cloud-vm-image-roll.yml").read_text())["jobs"]
+        self.bake = yaml.safe_load((ROOT / ".github/workflows/cloud-vm-image-bake.yml").read_text())["jobs"]
+
+    def test_qcow2_job_runs_beside_promote_and_never_reds_the_roll(self) -> None:
+        job = self.roll["qcow2"]
+        self.assertEqual(job["needs"], ["plan", "bake"])
+        self.assertIs(job["continue-on-error"], True)
+        self.assertIn("needs.bake.outputs.candidate != ''", job["if"])
+        for name, other in self.roll.items():
+            needs = other.get("needs", [])
+            needs = [needs] if isinstance(needs, str) else needs
+            self.assertNotIn("qcow2", needs, f"{name} must not wait on the qcow2 export")
+
+    def test_qcow2_job_uses_the_bakes_environment_and_the_shared_script(self) -> None:
+        job = self.roll["qcow2"]
+        self.assertIn(job["environment"], self.bake["bake"]["environment"])
+        runs = [step.get("run", "") for step in job["steps"]]
+        self.assertTrue(any("scripts/ci/vm-image-qcow2-publish.sh" in r for r in runs))
+        bake_runs = [step.get("run", "") for step in self.bake["bake"]["steps"]]
+        self.assertTrue(any("scripts/ci/vm-image-qcow2-publish.sh" in r for r in bake_runs))
+
+
 if __name__ == "__main__":
     unittest.main()

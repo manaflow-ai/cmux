@@ -76,17 +76,17 @@ test("a known command reads as what it did without the setup, read off the comma
   expect(words(plain)).toContain("Ran echo y");
 });
 
-test("a lone shell call the table does not know reads as its description, else its command, never the bare tool name", () => {
+test("a lone shell call the table does not know reads as its description, else its command", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
   expect(words(described)).toContain("List the build folder");
   expect(words(renderToStaticMarkup(<ToolRow item={shell("x")} />))).toContain("Ran echo x");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
-  expect(words(bare)).not.toMatch(/\bBash\b/);
   const running = renderToStaticMarkup(
     <ToolRow item={shell("z", { command: undefined, status: "in_progress", endedAt: undefined })} />,
   );
-  expect(words(running)).toContain("Running a command");
+  expect(words(running)).toContain("Bash");
+  expect(words(running)).not.toContain("Running");
 });
 
 test("Claude Code's Bash description is read from the call's raw input", () => {

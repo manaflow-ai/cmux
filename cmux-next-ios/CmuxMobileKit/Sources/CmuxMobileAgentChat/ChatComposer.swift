@@ -115,6 +115,10 @@ struct ChatComposer: View {
             }
             .ignoresSafeArea()
         }
+        // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
+        .onChange(of: attachments.map(\.id), initial: true) { _, _ in
+            store.composerAttachmentsChanged(attachments)
+        }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
@@ -128,7 +132,7 @@ struct ChatComposer: View {
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  arguments.indices.contains(index + 1), ["offline-send", "offline-held"].contains(arguments[index + 1]),
                   !ranOfflineSendDemo else { return }
             ranOfflineSendDemo = true
             text = "Run the tests and summarize the results."
@@ -296,6 +300,10 @@ struct ChatComposer: View {
         // card (user report 2026-11-12, the same rule as the terminal composer).
         .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        // The card is one container element that holds its own identifier: on the bare
+        // content the identifier went to every element inside, and the composer field
+        // read `chat.composer.card` instead of `chat.composer.field`.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.composer.card")
         .padding(.horizontal, collapsed ? 20 : 12)
     }
