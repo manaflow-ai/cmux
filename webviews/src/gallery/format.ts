@@ -290,9 +290,6 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
-  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
-   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
-  sessionStatus?: boolean;
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
