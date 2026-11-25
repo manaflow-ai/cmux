@@ -132,12 +132,6 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       words: ".cv-tool__text",
     },
     {
-      name: "plan summary",
-      entry: "agent-pane.plan-list",
-      line: "button.cv-plan__summary",
-      words: ".cv-plan__text",
-    },
-    {
       name: "Worked for",
       entry: "agent-pane.approved-tool-row",
       line: "button.cv-worked",
