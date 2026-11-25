@@ -741,7 +741,7 @@ import {
 import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/quickHost";
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
-import { turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { letGoHeldWorked, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -1608,7 +1608,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
-  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string>; letGo?: ReadonlySet<string> }>({
+    keys: new Set(),
+  });
   /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
   /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
   const heldWorkedClosing = useRef(false);
@@ -9131,13 +9133,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
     // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
-    // their click: it was never their open fold.
-    if (heldWorked.current.keys.has(id)) {
-      const keys = new Set(heldWorked.current.keys);
-      keys.delete(id);
-      heldWorked.current = { ...heldWorked.current, keys };
+    // their click: it was never their open fold (pane/useTurnActions.ts `letGoHeldWorked`). In
+    // Thinking and Verbose the view opens it too, so the click also closes it there, below: else it
+    // stayed open and took a second click.
+    const letGo = letGoHeldWorked(heldWorked.current, id);
+    if (letGo) {
+      heldWorked.current = letGo;
       releaseCalls();
-      return;
+      if (view === "normal") return;
     }
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.

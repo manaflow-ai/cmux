@@ -274,6 +274,7 @@ let package = Package(
         .testTarget(name: "CmuxMobileTerminalTests", dependencies: [
             "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         .testTarget(name: "CmuxMobileBrowserStreamTests", dependencies: ["CmuxMobileBrowserStream", "CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileWorkspacesTests", dependencies: [
