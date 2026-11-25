@@ -549,7 +549,20 @@ async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
 /// move the link to the direct path: relayed -> direct, both sides.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn peers_that_met_on_the_relay_swap_lan_endpoints_and_go_direct() {
-    let fake = FakeOptions { strip_direct_endpoints: true, ..FakeOptions::default() };
+    met_on_the_relay_goes_direct(false, "nearby_disco_over_relay").await;
+}
+
+/// The same with each side taking the other for an older peer (no `version`
+/// in wg-init or wg-resp): the endpoints ride the roam announcement, which
+/// older builds already take, so nothing new is negotiated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_peer_met_on_the_relay_also_goes_direct() {
+    met_on_the_relay_goes_direct(true, "nearby_disco_over_relay_old_peer").await;
+}
+
+async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
+    let fake =
+        FakeOptions { strip_direct_endpoints: true, strip_wg_version: old_peer, ..FakeOptions::default() };
     let rig = rig(fake, options(), true).await;
     let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..options() };
     let started = std::time::Instant::now();
@@ -576,7 +589,7 @@ async fn peers_that_met_on_the_relay_swap_lan_endpoints_and_go_direct() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     println!(
-        "MATRIX {{\"cell\": \"nearby_disco_over_relay\", \"first_path\": \"{first:?}\", \"up_ms\": {up_ms:.1}, \"direct_after_ms\": {:.1}}}",
+        "MATRIX {{\"cell\": \"{cell}\", \"first_path\": \"{first:?}\", \"up_ms\": {up_ms:.1}, \"direct_after_ms\": {:.1}}}",
         up.elapsed().as_secs_f64() * 1000.0
     );
     connected.link.close("done");
