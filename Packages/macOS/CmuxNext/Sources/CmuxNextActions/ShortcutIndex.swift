@@ -17,4 +17,7 @@ nonisolated struct ShortcutIndex {
     /// Each action's keycaps as read since the last binding change (`ActionRegistry.shortcutKeycaps`), nil for one
     /// with no shortcut: a read walks every override and alternate, and the palette reads every action per open.
     var keycaps: [ActionID: [String]?] = [:]
+    /// The localized bundle the kept keycaps were read in: the Space key's word follows the app's language,
+    /// which can change live, so other language drops them.
+    var keycapsBundle: String?
 }

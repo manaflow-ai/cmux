@@ -19,9 +19,16 @@ extension ActionRegistry {
         let id = canonicalID(for: id)
         // Kept in the shortcut index, which every binding change drops (overrides, chords, alternates, layers,
         // disabled features, bind, unbind, seed): a read is a lookup until the next change.
-        if let kept = shortcutIndex?.keycaps[id] { return kept }
+        // The Space key's word is localized live: read in the current language's bundle (this read also keeps an
+        // observation scope following the language, as the uncached read did).
+        let language = Bundle.localizedModule.bundlePath
+        if shortcutIndex?.keycapsBundle == language, let kept = shortcutIndex?.keycaps[id] { return kept }
         let caps = readKeycaps(id)
         if shortcutIndex == nil { _ = currentShortcutIndex() }
+        if shortcutIndex?.keycapsBundle != language {
+            shortcutIndex?.keycaps = [:]
+            shortcutIndex?.keycapsBundle = language
+        }
         shortcutIndex?.keycaps[id] = .some(caps)
         keycapsBuilds &+= 1
         return caps
