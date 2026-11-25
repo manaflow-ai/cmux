@@ -289,6 +289,44 @@ impl Tickets for FixedTickets {
     }
 }
 
+/// The platform's answers for one of several machines on one relay: each registers on a slot of
+/// its own and dials a peer at that peer's slot, as the platform gives each machine its own.
+/// ([`FixedTickets`] has one slot, so a third machine would take it from the others.)
+struct RingTickets {
+    relay: String,
+    own: String,
+    peers: Vec<String>,
+}
+
+#[async_trait::async_trait]
+impl Tickets for RingTickets {
+    async fn register(&self) -> Result<CarrierAnswer, String> {
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": ring_slot(&self.own), "ticket": "open-register",
+            "expires_at": 0, "peers": self.peers,
+        }))
+        .unwrap())
+    }
+
+    async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        if !self.peers.iter().any(|k| k == peer) {
+            return Err("machine.not_found".into());
+        }
+        Ok(serde_json::from_value(json!({
+            "relay": self.relay, "slot": ring_slot(peer), "ticket": "open-connect",
+            "expires_at": 0, "peer_key": peer,
+        }))
+        .unwrap())
+    }
+}
+
+/// A relay slot name for a machine's key (base64 may hold `/` and `+`).
+fn ring_slot(key: &str) -> String {
+    let safe: String =
+        key.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    format!("ring-slot-{safe}")
+}
+
 fn random_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     getrandom::fill(&mut key).unwrap();
@@ -3669,11 +3707,7 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
         let h = Hub::new(cfg, store);
         let others: Vec<String> = (0..3).filter(|j| *j != i).map(|j| ids[j].clone()).collect();
         let carrier = HubCarrier::new(
-            Arc::new(FixedTickets {
-                relay: route.clone(),
-                peers: others,
-                asked: AtomicU64::new(0),
-            }),
+            Arc::new(RingTickets { relay: route.clone(), own: ids[i].clone(), peers: others }),
             *key,
             fast,
         );
