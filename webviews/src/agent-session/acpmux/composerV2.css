@@ -1,0 +1,237 @@
+/* The composer refresh (composerV2.ts, behind its default-off switch). Leo's list: "Composer becomes a
+   glass panel with an edge light on focus; a row of mode/scope chips inside, only the active one
+   raised; inline @mention chips; footer: model picker left, attach/send right; send is round, dimmed
+   until there is text, and the only accent."
+   Every rule is scoped to the box's switch attribute (ComposerBox.tsx: `data-composer-v2` = rim, halo
+   or hairline, `data-has-text` while the draft has text), so with the switch off nothing here applies.
+   The box keeps the shared glass material it already has (glass.css, composerStates.css); this sheet
+   adds the edge light, the chips' raised state, the footer's order, the send disc and the mention
+   chips. Nothing changes a size: the edge light is a shadow or a layer over the rim, the footer only
+   moves cells of the box's grid, and the chips keep their heights. */
+
+/* The one accent is Send's: the composer's other lit glyphs (Plan on, Full access, the context ring's
+   lit state) take the text ink. */
+.acpmux-composer-box[data-composer-v2] {
+  --agent-lit-glyph: var(--agent-text);
+  --acpmux-v2-accent: var(--agent-accent, var(--agent-text));
+  /* The light's own line, brighter than the accent in a dark theme (a lit edge), the accent itself in
+     a light one (a white line on a near-white card shows nothing). */
+  --acpmux-v2-light: light-dark(
+    var(--acpmux-v2-accent),
+    color-mix(in srgb, var(--acpmux-v2-accent) 62%, var(--cmux-tone-light, #fff))
+  );
+  /* The layer the rim's light draws on (below) is placed on the box, as the queue's ring layer is. */
+  position: relative;
+}
+
+/* EDGE LIGHT on focus. The box's ring token (--acpmux-card-ring, composerStates.css) is the first
+   layer of every box-shadow the box and its queue ring layer draw, so the halo and the hairline set
+   only it; no shadow blurs (the elevation scale owns blur, test/subtle-elevation.test.ts) and no
+   border changes the box's size. Increase Contrast keeps the shared focus ring, and a page that is
+   not the key one draws no light (its field can hold focus in the background). */
+@media not (prefers-contrast: more) {
+  /* hairline: one 1 px accent ring inside the edge. */
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="hairline"]:focus-within {
+    --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-v2-accent);
+  }
+  /* halo: the accent edge and a soft band of it all round, two rings stepping out (spread, no blur). */
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="halo"]:focus-within {
+    --acpmux-card-ring:
+      inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-v2-accent) 70%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--acpmux-v2-accent) 22%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--acpmux-v2-accent) 10%, transparent);
+  }
+}
+
+/* rim: a light traced along the top edge and round the top corners that fades out down the sides,
+   drawn on a layer over the edge: a 1 px frame of a top-down gradient, the box's inside masked out. */
+.acpmux-composer-box[data-composer-v2="rim"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-raised, 1);
+  /* The frame's width is the padding the mask cuts the inside from: one ring hairline. */
+  padding: var(--cmux-hairline-ring);
+  border-radius: inherit;
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+  background: linear-gradient(
+    to bottom,
+    var(--acpmux-v2-light) 0,
+    color-mix(in srgb, var(--acpmux-v2-accent) 70%, transparent) 22%,
+    color-mix(in srgb, var(--acpmux-v2-accent) 18%, transparent) 55%,
+    transparent 80%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  opacity: 0;
+  pointer-events: none;
+}
+@media not (prefers-contrast: more) {
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after {
+    opacity: 1;
+  }
+  /* The light's glint over the top edge: the same ring token, a spread-only band above the line. */
+  :root:not([data-page-inactive]) .acpmux-composer-box[data-composer-v2="rim"]:focus-within {
+    --acpmux-card-ring:
+      inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge-focus, transparent),
+      0 -1px 0 0 color-mix(in srgb, var(--acpmux-v2-accent) 24%, transparent);
+  }
+}
+/* Under appearance.borders none the box draws no edge, lit or not. */
+:root[data-borders="none"] .acpmux-composer-box[data-composer-v2="rim"]::after {
+  content: none;
+}
+
+/* MODE AND SCOPE CHIPS: in the row inside the box, flat (no fill, muted ink and icon), only the active
+   one raised on a surface with a hairline and the small elevation. Active is what the controls
+   already say: Plan on (`aria-pressed="true"`), a picker whose menu is open (`aria-expanded="true"`)
+   and a mode that skips approvals (`.acpmux-unrestricted`, Full access), the one non-default mode. */
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort, .acpmux-access, .acpmux-options) .acpmux-picker-button,
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-foot :where(button).acpmux-plan {
+  border-radius: var(--acpmux-permission-pill-radius, 999px); /* radius-allow: the composer's chips are capsules, as the access chip (composerFooterShared.css) */
+  background: none;
+  color: var(--agent-muted);
+}
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-foot .acpmux-picker-button[aria-expanded="true"],
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-foot .acpmux-access.acpmux-unrestricted .acpmux-picker-button,
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-foot :where(button).acpmux-plan[aria-pressed="true"] {
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+  background: light-dark(
+    color-mix(in srgb, var(--cmux-tone-light, #fff) 80%, transparent),
+    color-mix(in srgb, var(--agent-text) 12%, transparent)
+  );
+  /* One hairline and no lift: a chip on the composer's glass is a plain control, not a glass pane of
+     its own with a shadow (no nested glass, check-no-nested-glass.ts; Leo 2026-11-22: "doubled up
+     glass/wack looking glass"). */
+  box-shadow: inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent));
+  color: var(--agent-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-box[data-composer-v2] .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort, .acpmux-access, .acpmux-options) .acpmux-picker-button:not([aria-expanded="true"]):hover,
+  .acpmux-composer-box[data-composer-v2] .acpmux-composer-foot :where(button).acpmux-plan:not([aria-pressed="true"]):hover {
+    background: var(--acpmux-row-hover, var(--acpmux-pill-hover));
+    color: var(--agent-text);
+  }
+}
+
+/* FOOTER, with the row in the box (the Codex look's grid, composerLook.css): the chips start the row
+   at its left, model first, and + with the mic and Send end it at the right. The box's grid gets one
+   more column: the row and the prompt take the first, + the second, the actions the third. Same
+   row, same heights: only cells move. */
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2][data-composer-grid] {
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  --acpmux-v2-chip-gap: calc(2px * var(--acpmux-density, 1));
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2] > .acpmux-chrome-area > .acpmux-composer-foot {
+  grid-column: 1;
+  justify-content: flex-start;
+  margin-inline: var(--acpmux-composer-inset) var(--acpmux-v2-chip-gap);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2] > .acpmux-chrome-area > .acpmux-composer-inner > :not(.acpmux-composer-actions) {
+  grid-column: 2;
+  margin-inline: 0 calc(4px * var(--acpmux-density, 1));
+}
+/* The mode follows the model in the row (it led the row at the left before), and the context ring
+   ends the chips at the row's right, before +. */
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2] > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-access {
+  order: 0;
+  margin-inline: var(--acpmux-v2-chip-gap) 0;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2] > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-context {
+  order: 1;
+  margin-inline-start: auto;
+}
+/* A raised chip needs its own room: neighbours sit a small gap apart, no longer tucked under each
+   other's pill padding (composerLocation.css). */
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-v2] > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-chips > :not(.acpmux-access):not(:first-child) {
+  margin-inline-start: var(--acpmux-v2-chip-gap);
+}
+
+/* SEND: a round disc, the composer's only accent. Without text it is the soft disc with the dimmed
+   glyph; with text (or a draft that can go: attachments, a resume) it takes the accent fill. Stop is
+   the soft disc with the text ink; the first Esc of the double press keeps its accent glyph. A press
+   changes only the fill (design/pressed-state.md). */
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(.acpmux-resume) {
+  border-radius: 50%;
+  background: var(--acpmux-pill-fill, var(--ds-surface-hover));
+  color: var(--acpmux-send-off-fg, color-mix(in srgb, var(--agent-text) 45%, transparent));
+}
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-cancel {
+  color: var(--agent-text);
+}
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-cancel[data-escape-armed] {
+  color: var(--acpmux-v2-accent);
+}
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled),
+.acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, .acpmux-resume, :disabled) {
+  background: var(--acpmux-v2-accent);
+  color: var(--agent-accent-text, Canvas);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled, .acpmux-resume):hover {
+    /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+    background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  }
+  .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled):hover,
+  .acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, .acpmux-resume, :disabled):hover {
+    /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+    background: color-mix(in srgb, var(--acpmux-v2-accent) 88%, var(--agent-text));
+  }
+}
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled, .acpmux-resume):active {
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+  background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
+}
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled):active,
+.acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, .acpmux-resume, :disabled):active {
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+  background: color-mix(in srgb, var(--acpmux-v2-accent) 76%, var(--agent-text));
+}
+
+/* @MENTION CHIPS (composer/mentionChips.ts marks each `@path` in the draft): a tinted rounded
+   background and the accent's ink, inline in the text's own line (no block padding, so a line with a
+   mention is as tall as one without). */
+.acpmux-composer-box[data-composer-v2] .acpmux-md .acpmux-mention-chip {
+  padding-inline: var(--grid-half-step);
+  border-radius: 4px;
+  /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
+  background: color-mix(in srgb, var(--acpmux-v2-accent) 14%, transparent);
+  color: color-mix(in srgb, var(--acpmux-v2-accent) 78%, var(--agent-text));
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* MOTION: the edge light and Send's fill ease in on the micro step and out on the quick one, through
+   the host's motion gate: off or reduced motion (data-cmux-motion, data-agent-motion) and the
+   system's Reduce Motion draw the end state at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .acpmux-composer-box[data-composer-v2] {
+    transition: box-shadow var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .acpmux-composer-box[data-composer-v2]:focus-within {
+    transition-duration: var(--cmux-motion-micro, 120ms);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .acpmux-composer-box[data-composer-v2="rim"]::after {
+    transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .acpmux-composer-box[data-composer-v2="rim"]:focus-within::after {
+    transition-duration: var(--cmux-motion-micro, 120ms);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .acpmux-composer-box[data-composer-v2]
+    .acpmux-composer-actions
+    .acpmux-send {
+    transition:
+      background-color var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out),
+      color var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+  }
+}

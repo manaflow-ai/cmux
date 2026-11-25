@@ -206,10 +206,99 @@ struct CmxIrohRegistryContextProviderStalenessTests {
         #expect(await broker.discoveryRequestCount() == 0)
         #expect(first.dialPlan.publicPaths == [relay])
 
-        // The snapshot is one-shot: a healthy second dial fetches normally.
+        // The snapshot is one-shot: a healthy second dial still refreshes it (behind the dial
+        // when a cached signed grant lets it go at once).
         let second = try await provider.context(for: fixture.request(hints: []))
+        #expect(await waitForDiscoveryCount(broker, atLeast: 1))
         #expect(await broker.discoveryRequestCount() == 1)
         #expect(second.dialPlan.publicPaths == [relay])
+    }
+
+    /// The gate audit of 2026-11-19 (item 5, PR B; Leo: "i wonder if there's more places we can
+    /// apply this principle"): once its 30 s snapshot was spent, the phone fetched the broker
+    /// before every dial, 100 to 400 ms per app open. With a cached signed grant for the Mac
+    /// that still verifies, the dial goes at once and the broker is read behind it.
+    @Test
+    func aCachedSignedGrantDialsWithoutWaitingOnTheBroker() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        _ = try await provider.context(for: fixture.request(hints: []))
+        let hubRoundTrip = Duration.milliseconds(300)
+        await broker.setDiscoverDelay(hubRoundTrip)
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        let cached = try await provider.context(for: fixture.request(hints: []))
+        let cachedDial = clock.now - started
+
+        #expect(cached.dialPlan.publicPaths == [relay])
+        #expect(cachedDial < hubRoundTrip, "the cached-grant dial took \(cachedDial)")
+        #expect(await broker.pairGrantRequestCount() == 1)
+        // The refresh still runs, behind the dial.
+        #expect(await waitForDiscoveryCount(broker, atLeast: 1))
+
+        // The same dial when the peer is marked stale waits on the hub, as before.
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [relay]),
+            failure: .timedOut
+        )
+        let hubStarted = clock.now
+        _ = try await provider.context(for: fixture.request(hints: []))
+        let hubDial = clock.now - hubStarted
+        #expect(hubDial >= hubRoundTrip)
+        print("cached-grant dial: \(cachedDial); hub round-trip dial: \(hubDial)")
+    }
+
+    /// A Mac that refuses a dial made on the cached grant (the phone was revoked, the grant
+    /// rotated) sends the next dial to the hub: a fresh snapshot and a fresh grant.
+    @Test
+    func anAdmissionRefusalOfACachedGrantDialFallsBackToTheHub() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [grant, grant]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        _ = try await provider.context(for: fixture.request(hints: []))
+        _ = try await provider.context(for: fixture.request(hints: []))
+        #expect(await waitForDiscoveryCount(broker, atLeast: 1))
+        #expect(await broker.pairGrantRequestCount() == 1)
+        // Each cached-grant dial reads the broker in the background; let those reads settle so
+        // the hub read below cannot join one that started before the refusal.
+        await waitForDiscoveryCountToSettle(broker)
+
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [relay]),
+            failure: .admissionDenied
+        )
+        let before = await broker.discoveryRequestCount()
+        _ = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await broker.discoveryRequestCount() == before + 1)
+        #expect(await broker.pairGrantRequestCount() == 2)
     }
 
     @Test
@@ -484,6 +573,35 @@ struct CmxIrohRegistryContextProviderStalenessTests {
         return plan
     }
 
+    /// Waits, up to 5 s, for `count` completed broker reads (one may run behind a dial).
+    private func waitForDiscoveryCount(
+        _ broker: ConfigurableRegistryBroker,
+        atLeast count: Int
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await broker.discoveryRequestCount() >= count { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return await broker.discoveryRequestCount() >= count
+    }
+
+    private func waitForDiscoveryCountToSettle(_ broker: ConfigurableRegistryBroker) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        var last = await broker.discoveryRequestCount()
+        var stableSince = ContinuousClock.now
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+            let current = await broker.discoveryRequestCount()
+            if current != last {
+                last = current
+                stableSince = ContinuousClock.now
+            } else if ContinuousClock.now - stableSince >= .milliseconds(100) {
+                return
+            }
+        }
+    }
+
     private func waitForHeldDiscoverCalls(
         _ broker: ConfigurableRegistryBroker,
         atLeast count: Int
@@ -551,6 +669,8 @@ actor ConfigurableRegistryBroker: CmxIrohRegistryServing {
     private var completedDiscoverCalls = 0
     private var holdDiscover = false
     private var heldDiscoverContinuations: [CheckedContinuation<Void, Never>] = []
+    private var discoverDelay: Duration?
+    private var pairGrantRequests = 0
 
     init(
         discovery: CmxIrohDiscoveryResponse,
@@ -566,15 +686,26 @@ actor ConfigurableRegistryBroker: CmxIrohRegistryServing {
                 heldDiscoverContinuations.append(continuation)
             }
         }
+        if let discoverDelay {
+            try await Task.sleep(for: discoverDelay)
+        }
         completedDiscoverCalls += 1
         if let discoverError { throw discoverError }
         return discoveryResponse
     }
 
+    /// Each `discover()` waits this long first: one hub round trip.
+    func setDiscoverDelay(_ delay: Duration?) {
+        discoverDelay = delay
+    }
+
+    func pairGrantRequestCount() -> Int { pairGrantRequests }
+
     func issuePairGrant(
         initiatorBindingID _: String,
         acceptorBindingID _: String
     ) throws -> CmxIrohPairGrantResponse {
+        pairGrantRequests += 1
         guard !pairGrantResponses.isEmpty else {
             throw TestRegistryError.noGrantResponse
         }

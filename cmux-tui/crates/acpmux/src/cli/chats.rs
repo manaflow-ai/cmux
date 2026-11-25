@@ -6,6 +6,9 @@
 //! - `search WORDS…`: `_acpmux/chats_search`, the chats whose prompts or
 //!   answers hold every word, each with the newest such message's snippet.
 //! - `roots`: `_acpmux/chat_roots`, with the refused roots and their reasons.
+//! - `warm [--chat ID]`: `_acpmux/chats_warm`, every log segment Compress Long Chats
+//!   (`agents.chats.coldSegments`) compressed, back to a plain file, checked byte for byte.
+//!   Exit 1 when one stays compressed (each is named with why; nothing is removed).
 //! - `open KEY [--cwd DIR]`: `_acpmux/chat_open`. An `adopt` plan creates the
 //!   daemon session (`session/new` with the plan's params) and attaches to
 //!   it. A `terminal` or `readOnly` plan is printed: `cmux chats open`
@@ -75,6 +78,13 @@ pub enum ChatsCmd {
     },
     /// The folders the index reads, and the folders it refuses with the reason.
     Roots,
+    /// Bring back every part of a chat that Compress Long Chats compressed, as plain files.
+    /// Turn the setting off first.
+    Warm {
+        /// Only this chat (its acpmux session id); every chat when left out.
+        #[arg(long)]
+        chat: Option<String>,
+    },
 }
 
 /// What opening a chat comes to, after the daemon planned it.
@@ -260,11 +270,36 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
+        ChatsCmd::Warm { chat } => {
+            let params = match chat {
+                Some(chat) => json!({ "chat": chat }),
+                None => json!({}),
+            };
+            let warmed = client.request("_acpmux/chats_warm", params).await?;
+            if json_out {
+                print_json(&warmed);
+            } else {
+                print!("{}", warm_text(&warmed));
+            }
+            // A chat skipped (busy, or compressed whole) stays compressed too (#43562 review F3).
+            let stays = |key: &str| {
+                warmed.get(key).and_then(Value::as_array).is_some_and(|l| !l.is_empty())
+            };
+            if stays("left") || stays("skipped") {
+                return Err(AppError::new(
+                    Code::Runtime,
+                    "warm_left_compressed",
+                    "some chat history stays compressed (listed above); nothing was removed",
+                )
+                .into());
+            }
+            Ok(())
+        }
         ChatsCmd::Open { key, cwd, cwd_map } => {
             let outcome = resolve(&client, &key, cwd.as_deref(), &cwd_map).await?;
             match outcome {
                 OpenOutcome::Session { session_id } if !json_out => {
-                    crate::tui::run(client, Some(session_id)).await
+                    crate::tui_entry::run(client, Some(session_id)).await
                 }
                 outcome => {
                     if json_out {
@@ -277,6 +312,41 @@ pub(crate) async fn run(cmd: ChatsCmd, json_out: bool) -> Result<()> {
             }
         }
     }
+}
+
+/// `chats warm`'s reply as lines: what came back, then each part left compressed and each chat
+/// skipped, with why.
+pub fn warm_text(warmed: &Value) -> String {
+    let n = |key: &str| warmed.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let mut out = if n("segments") == 0 {
+        "No compressed chat history to bring back.\n".to_owned()
+    } else {
+        format!(
+            "Brought back {} compressed parts of {} chats ({:.1} MB on disk now, {:.1} MB before).\n",
+            n("segments"),
+            n("chats"),
+            n("rawBytes") as f64 / 1_048_576.0,
+            n("compressedBytes") as f64 / 1_048_576.0,
+        )
+    };
+    let text = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    for left in warmed.get("left").and_then(Value::as_array).into_iter().flatten() {
+        let segment = left.get("segment").and_then(Value::as_u64);
+        let at = segment.map(|s| format!(" part {s:06}")).unwrap_or_default();
+        out.push_str(&format!(
+            "Stays compressed: chat {}{at}: {}\n",
+            text(left, "chat"),
+            text(left, "error")
+        ));
+    }
+    for skipped in warmed.get("skipped").and_then(Value::as_array).into_iter().flatten() {
+        out.push_str(&format!(
+            "Skipped chat {}: {}\n",
+            text(skipped, "chat"),
+            text(skipped, "reason")
+        ));
+    }
+    out
 }
 
 fn now_ms() -> i64 {

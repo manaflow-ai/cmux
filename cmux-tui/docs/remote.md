@@ -117,10 +117,25 @@ An invitation tries its explicit route followed by its ordered route hints. A kn
 
 Iroh defaults to `--iroh-path auto`, which probes direct IP paths and retains relay fallback. `direct-only` disables relay transports and requires `--iroh-address`. `relay-only` disables IP transports and requires `--iroh-relay`. The constrained modes are useful for policy enforcement and path verification; they fail instead of silently using the other path type.
 
-`cmux-tui remote ssh` uses SSH directly, matching the command the user chose. The npm form is `npx cmux remote ssh user@linux-server --session dev`.
+`cmux ssh HOST` (also `cmux-tui remote ssh HOST`) first tries your hub carrier when HOST is the bare name of one of your machines that this machine's acpmux hub lists (what `acpmux machine ls` prints) and no other option is given. acpmux serves one local socket per listed machine (`_acpmux/machine_routes`); each connection to it is one carrier circuit to that machine's own cmux-tui session daemon, so the TUI attaches with no sshd, no keys and nothing installed there. A name the hub does not list, or a machine with no acpmux, goes to SSH as below with nothing printed. A listed machine that refuses (`carrier.off`, `consent_required`, `consent_declined`, `service.off`, ...) prints the refusal's one-line reason and then uses SSH. `--carrier` stops at the refusal instead; `--ssh` skips the carrier.
+
+```sh
+cmux ssh buildbox            # carrier first, then SSH
+cmux ssh buildbox --carrier  # carrier only
+cmux ssh buildbox --ssh      # SSH only
+```
+
+Otherwise `cmux-tui remote ssh` uses SSH directly, matching the command the user chose. The npm form is `npx cmux remote ssh user@linux-server --session dev`.
 
 ```sh
 cmux-tui remote ssh user@linux-server --session dev
+```
+
+`--repo LOCAL[:REMOTE]` puts a local repo on the host over the link `cmux ssh` just opened, with nothing cloned from the forge: the git carry pack (your commit at depth 1 plus uncommitted work, unpacked with `git index-pack` there), else a clone, else a copy, as `cmux link seed push` does. A later `--repo` to the same place sends only what changed. REMOTE defaults to `~/<LOCAL's folder name>`; `~` is the host's `$HOME`. The seed's JSON line goes to stderr (`--headless --json`: a `repo-seed` event on stdout) before the TUI opens.
+
+```sh
+cmux ssh buildbox --repo ~/src/app            # ~/app on buildbox
+cmux ssh buildbox --repo ~/src/app:/srv/app
 ```
 
 The SSH path probes for `~/.local/bin/cmux-tui`, then carries framed data over SSH stdio. It keeps a durable headless mux owner and a replaceable remote sidecar as separate processes. Existing terminal panes therefore survive sidecar replacement. If the named tmux-style session already has a live mux socket, the sidecar attaches without creating a second session. Otherwise cmux starts the user-scoped mux owner on demand.

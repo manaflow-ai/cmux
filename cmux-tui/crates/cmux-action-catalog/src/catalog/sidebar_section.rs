@@ -12,19 +12,19 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "sidebar.home.add",
         group: GROUP,
-        title: t("SidebarSectionActions", "action.sidebar.home.add", "Add Home to Sidebar"),
+        title: t("SidebarSectionActions", "action.sidebar.home.add", "Add Chief to Sidebar"),
         keywords: &["home", "sidebar", "section", "pin", "show"],
         category: "sidebar",
         symbol: "house",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 300).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar add-home",
         ..Action::DEFAULT
     },
     Action {
         id: "sidebar.home.remove",
         group: GROUP,
-        title: t("SidebarSectionActions", "action.sidebar.home.remove", "Remove Home from Sidebar"),
+        title: t("SidebarSectionActions", "action.sidebar.home.remove", "Remove Chief from Sidebar"),
         keywords: &["home", "sidebar", "section", "unpin", "hide"],
         category: "sidebar",
         symbol: "house.slash",
@@ -80,7 +80,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "plus.app",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 310).folder("new"), Placement::at("sidebarSection", "create", 110)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "create", 110)], ..SurfacePlan::DEFAULT },
         arguments: &[args::ITEM_3, args::SECTION_3.optional()],
         cli_name: "sidebar add-item",
         ..Action::DEFAULT
@@ -107,7 +107,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "minus.square",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "close", 110)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("duplicateOfDefault"), ..SurfacePlan::DEFAULT },
         palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "sidebar remove-item",
@@ -121,7 +121,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "xmark.app",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "close", 120).label(t("Localizable", "menu.sidebar.hideApp", "Hide App")), Placement::at("sidebarSection", "close", 110).label(t("Localizable", "menu.sidebar.hideApp", "Hide App"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("duplicateOfDefault"), ..SurfacePlan::DEFAULT },
         palette_target: Some("sidebar-item"),
         palette_target_source: Some("sidebarApps"),
         targets: &["sidebar-item", "sidebar-section"],
@@ -164,7 +164,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "text.badge.plus",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 320).folder("new"), Placement::at("sidebarSection", "create", 100)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarSection", "create", 100)], ..SurfacePlan::DEFAULT },
         arguments: &[args::TITLE_4.optional(), args::REGION.optional()],
         cli_name: "sidebar add-section",
         ..Action::DEFAULT
@@ -438,7 +438,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "eye.slash",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarSection", "view", 100)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarSection", "view", 320).folder("options")], ..SurfacePlan::DEFAULT },
         palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "action sidebar-section-hide",
@@ -452,7 +452,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "eye.slash",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 100)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 101)], ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-projects-hide",
         ..Action::DEFAULT
     },
@@ -464,7 +464,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "eye",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 110)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 102)], ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-sections-show-hidden",
         ..Action::DEFAULT
     },
@@ -526,7 +526,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "arrow.up.and.down",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 135).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-no-fade-on",
         ..Action::DEFAULT
     },
@@ -538,7 +538,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.dashed",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 136).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-no-fade-off",
         ..Action::DEFAULT
     },
@@ -550,7 +550,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "cursorarrow.rays",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 137).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar hide-controls-until-hover",
         ..Action::DEFAULT
     },
@@ -562,7 +562,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 138).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar show-controls-always",
         ..Action::DEFAULT
     },
@@ -574,7 +574,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "sidebar.squares.left",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 139).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-float-on-hover-on",
         ..Action::DEFAULT
     },
@@ -586,7 +586,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "sidebar.left",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 140).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-float-on-hover-off",
         ..Action::DEFAULT
     },
@@ -599,7 +599,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.3.group",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 141).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar toggle-custom",
         ..Action::DEFAULT
     },
@@ -611,7 +611,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "list.bullet",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "organize", 110).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-group-by-none",
         ..Action::DEFAULT
     },
@@ -623,7 +623,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "folder",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "organize", 111).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-group-by-folder",
         ..Action::DEFAULT
     },
@@ -635,7 +635,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "list.dash",
         surfaces: KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 132).folder("options").label(t("Localizable", "menu.sidebar.densityCompact", "Compact Rows"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-density-compact",
         ..Action::DEFAULT
     },
@@ -647,7 +647,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "list.bullet",
         surfaces: KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 133).folder("options").label(t("Localizable", "menu.sidebar.densityComfortable", "Comfortable Rows"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-density-comfortable",
         ..Action::DEFAULT
     },
@@ -659,7 +659,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "list.bullet.below.rectangle",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 134).folder("options").label(t("Localizable", "menu.sidebar.densityExpanded", "Expanded Rows"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-density-expanded",
         ..Action::DEFAULT
     },
@@ -671,7 +671,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.grid.1x2",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 121).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-compact-list-toggle",
         ..Action::DEFAULT
     },
@@ -683,7 +683,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "square.and.pencil",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 119).folder("options"), Placement::at("sidebarItem", "view", 120)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 100)], ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-edit",
         ..Action::DEFAULT
     },
@@ -695,7 +695,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "arrow.counterclockwise",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "reset", 100).folder("options")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
         cli_name: "sidebar reset",
         is_destructive: true,

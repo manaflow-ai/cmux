@@ -219,7 +219,7 @@ struct NewTabKeySessionWalkTests {
 
     /// The walk of each New Tab key's call as it was before the kept rows (`NewTabPage.places`), with the app's own
     /// map of a workspace: it adds nothing to the count.
-    static func walkAtTheDecision(_ services: AppServices)
+    static func walkBeforeTheKeptRows(_ services: AppServices)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let sources = services.machines.allWorkspaces.map { workspace, _ in NewTabPlaces.Source(workspace) }
         let current = services.windows.active?.state.workspaceID
@@ -241,13 +241,13 @@ struct NewTabKeySessionWalkTests {
             var lists = Lists(tabs: [], workspaces: [])
             for _ in 0..<5 {
                 let began = ContinuousClock.now
-                let places = Self.walkAtTheDecision(start.services)
+                let places = Self.walkBeforeTheKeptRows(start.services)
                 walks.append(Self.milliseconds(since: began))
                 lists = Lists(tabs: places.tabs, workspaces: places.workspaces)
             }
             let bytes = try JSONEncoder().encode(lists).count
             let sorted = walks.sorted().map { String(format: "%.2f", $0) }.joined(separator: ", ")
-            print("new tab key, \(start.workspaces) workspaces: the walk at the decision's date took \(sorted) ms (5 runs, sorted); "
+            print("new tab key, \(start.workspaces) workspaces: the walk as it was before the kept rows took \(sorted) ms (5 runs, sorted); "
                 + "its two lists are \(lists.tabs.count) tab rows and \(lists.workspaces.count) workspace rows, \(bytes) bytes of JSON")
 
             _ = SidebarPerfCounters.report(reset: true)
@@ -306,10 +306,14 @@ struct NewTabKeySessionWalkTests {
     /// A print names each workspace that the title change mapped by its id, whose it is (the changed tab's, the keys'
     /// pane's, another), its maps, and whether its kept rows differ from before the change, and the signs of a frame's
     /// work in the same drain (the pane's shown content, the pages with a view). The print is no condition.
+    ///
+    /// The row needs 3 pages with a view each, and a key's tab takes the view of the untouched New Tab tab that its pane
+    /// leaves (`AgentTabStore.idlePage`): each page counts as used before each key (`NewTabOpenFramesTests.useEachNewTabPage`).
     @Test func aChangeWithThreeOpenPagesMapsOneWorkspaceAtMostAfterIt() async throws {
         try await Self.withPane { start in
             let tabs = start.services.agentTabs
             for _ in 0..<3 {
+                NewTabOpenFramesTests.useEachNewTabPage(start.services)
                 let opened = Self.newTab(start)
                 try #require(opened.ran && opened.made == 1,
                              "setup: a New Tab key \(opened.ran ? "ran" : "was refused") and the strip has \(opened.made) new tabs")
@@ -321,6 +325,7 @@ struct NewTabKeySessionWalkTests {
             try #require(withViews.count == 3, "setup: \(withViews.count) of 3 New Tab pages have a view")
 
             // One more New Tab key: what the main actor maps after its call.
+            NewTabOpenFramesTests.useEachNewTabPage(start.services) // the 3 pages keep their views: the key's tab takes none of them
             _ = start.visits.takeByWorkspace()
             let key = Self.newTab(start)
             try #require(key.ran && key.made == 1,
@@ -437,7 +442,7 @@ struct NewTabKeySessionWalkTests {
             let services = start.services
             let cap = AgentPaneOmnibar.maximumEntries
             let kept = try #require(services.newTabPlaces.rows, "setup: the places feed kept no rows")
-            let walk = Self.walkAtTheDecision(services)
+            let walk = Self.walkBeforeTheKeptRows(services)
             let current = services.windows.active?.state.workspaceID
             try #require(walk.tabs.count > cap && walk.workspaces.count > cap,
                          "setup: the walk's lists are \(Self.text(walk.tabs, walk.workspaces)): no list is over the limit of \(cap)")
@@ -501,8 +506,8 @@ struct NewTabKeySessionWalkTests {
     ///
     /// The sign that the feed ran is a condition of the setup: the kept rows have the changed title.
     ///
-    /// This row has no red first: before the change the feed did not run while no New Tab page was open. The print
-    /// has the workspaces that the feed's tasks visit for the change with no map (a pass over its list), with no bound.
+    /// The feed's tasks visit no workspace in a pass over the list for the change: the changed workspace's rows go
+    /// in their place in the kept rows.
     @Test func aTitleChangeWithNoNewTabPageOpenMapsTheTabsOwnWorkspaceOnly() async throws {
         let work = ObservationWork()
         try await Self.withPane(work: work) { start in
@@ -529,6 +534,7 @@ struct NewTabKeySessionWalkTests {
             try #require(kept.contains(where: { rows in rows.tabs.contains(where: { $0.title == "kept row" }) }),
                          "setup: the kept rows do not have the changed title after the drain, so the feed did not run")
             #expect(mapped.count == 1, "a title change of one tab mapped \(mapped.count) workspaces in \(maps) maps, want the tab's own only")
+            #expect(listed == 0, "a title change of one tab visited \(listed) workspaces in passes over the feed's list, want 0")
             #expect(pagesAfter == 0, "\(pagesAfter) New Tab pages have a view after the change: a places event can go to them")
         }
     }

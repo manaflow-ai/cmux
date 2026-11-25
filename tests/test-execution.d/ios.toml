@@ -2,6 +2,10 @@
 # scripts/ci/test_execution_registry.py says how the registry is split and read.
 
 [[test]]
+path = "tests/test_ios_app_package_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_app_review_gate.py"
 lane = "linux-guard"
 
@@ -30,6 +34,11 @@ path = "tests/test_ios_ffi_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_gate_screen_diff.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/ios_gate_screen_diff.py, the App Review gate report's warn-only screen diff against feat-cmux-next (identical, changed justified and unjustified, new, removed, no baseline, every PNG filter); run python3 tests/test_ios_gate_screen_diff.py yourself after changing it (under a second, no build, no Pillow)."
+
+[[test]]
 path = "tests/test_ios_internal_builder.py"
 lane = "linux-guard"
 
@@ -42,8 +51,25 @@ path = "tests/test_ios_internal_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_internal_yolo.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_kit_bench_runs_after_red_step.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_link_ffi_key.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_placeholder_bounds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_screen_sharing_proof.py"
+lane = "manual"
+reason = "Protected capture harness unit tests, no new CI gate. Run python3 tests/test_ios_screen_sharing_proof.py after changing either screen-sharing proof driver or the HQ admission workflow identity."
 
 [[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
@@ -100,3 +126,12 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ios_workflow_dispatch_ref.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_png_opaque.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_snappy.py"
+lane = "manual"
+reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_ios_snappy.py"

@@ -56,14 +56,14 @@ const TUI_CORE_V1_LIST_USES: &[Named<'static>] = &[
     (
         "cmux-tui-core/src/mux/agent_chat_notices.rs",
         "\"_acpmux/sessions\"",
-        4,
-        "7c (c): the notices watch's pages (2), and its tests (2)",
+        1,
+        "7c (c): the notices watch's pages; its tests are in agent_chat_notices_tests.rs",
     ),
     (
         "cmux-tui-core/src/mux/agent_chat_notices.rs",
         "\"_acpmux/watch\"",
-        5,
-        "7c (c): the notices watch (2), and its tests (3); `permission_pending` stays a rider",
+        1,
+        "7c (c): the notices watch; its tests are in agent_chat_notices_tests.rs; `permission_pending` stays a rider",
     ),
     (
         "cmux-tui-core/src/server/mobile_chat.rs",

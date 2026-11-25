@@ -62,7 +62,8 @@ ci_next() {
     echo "push-from-host: if a remaining gate requires macOS, use a cmux-ci exclusive step or lease an authorized fleet Mac with: cmux-ci lease take HOST --for 1h --reason 'macOS push gate' (release after)." >&2
 }
 # The fleet registry: CMUX_FLEET_REGISTRY, else leo-workspace's. With neither named nor present, the reviewed one in
-# this repo (push-hosts.json: fleet builders only, today cmux-lawrence-2). On 2026-11-16 no Mac had leo-workspace's
+# this repo (push-hosts.json: fleet builders only, today cmux-lawrence-2 then the cmux-lawrence mini, so one host
+# down does not stop landing). On 2026-11-16 no Mac had leo-workspace's
 # file, so every push stopped before SSH and agents pushed by hand through cmux-lawrence-2; one printed a gh token
 # doing so. A registry that is named but missing, or present but malformed, still stops the push (fail closed).
 REGISTRY="${CMUX_FLEET_REGISTRY:-$HOME/Projects/leo-workspace/machines/fleet-registry.json}"

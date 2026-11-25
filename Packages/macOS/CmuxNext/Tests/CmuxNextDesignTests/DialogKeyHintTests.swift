@@ -25,7 +25,7 @@ import Testing
         #expect(CmuxDialogKeys.hint(for: spec.buttons[0], in: spec) == .escape)
         #expect(CmuxDialogKeys.hint(for: spec.buttons[1], in: spec) == .return)
         #expect(CmuxDialogKeyHint.escape.glyph == "esc")
-        #expect(CmuxDialogKeyHint.return.glyph == "↩")
+        #expect(CmuxDialogKeyHint.return.glyph == "return")
     }
 
     @Test func aCommandKeyButtonShowsItsChord() {
@@ -77,12 +77,30 @@ import Testing
                                         target: nil, action: NSSelectorFromString("noop:"))
         view.retitle("Copied")
         #expect(view.attributedTitle.string.hasPrefix("Copied"))
-        #expect(view.attributedTitle.string.contains("↩"))
+        #expect(view.attributedTitle.string.contains("return"))
     }
 
     @Test func theSpokenKeysAreWords() {
         #expect(CmuxDialogKeyHint.return.spokenName == "Return")
         #expect(CmuxDialogKeyHint.escape.spokenName == "Escape")
         #expect(CmuxDialogKeyHint.command("d").spokenName == "Command-D")
+    }
+
+    /// Leo 2026-11-22: "this command palette's icons are really bad and not even properly depicting the keys".
+    /// A keycap prints a named key as the Mac keyboard does, keeps modifiers and other keys as they are, and a
+    /// chord splits into its strokes.
+    @Test func keycapsPrintTheKeysAsTheKeyboardDoes() {
+        #expect(["↩", "⏎", "↵", "\r"].map(\.keycapLegend) == ["return", "return", "return", "return"])
+        #expect("⇥".keycapLegend == "tab")
+        #expect("⎋".keycapLegend == "esc")
+        #expect("Esc".keycapLegend == "esc")
+        #expect("⌫".keycapLegend == "delete")
+        #expect(["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"].map(\.keycapLegend) == ["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"])
+        #expect("⌘↩".keycapText == "⌘ return")
+        #expect("⇧⇥".keycapText == "⇧ tab")
+        #expect("⇧⌘P".keycapText == "⇧⌘P")
+        #expect(["⌘", "J", "S"].keycapStrokes == [["⌘", "J"], ["S"]])
+        #expect(["⇧", "⌘", "P"].keycapStrokes == [["⇧", "⌘", "P"]])
+        #expect(["⌃", "B", "⌥", "1…9"].keycapStrokes == [["⌃", "B"], ["⌥", "1…9"]])
     }
 }

@@ -15,6 +15,15 @@ export function bridgedWatch(
   return (family === "claude" || family === "codex") && summary?.tags?.bridge === family;
 }
 
+/// Whether a watched chat is one its own Toggle Terminal and Chat handed to a cmux terminal (acpmux
+/// `hub/release_to_watch.rs` tags it `via: terminal`): the terminal and the chat are two live views of one
+/// session, so a reply goes into the terminal's harness and the chat shows no View Only banner.
+export function terminalWatch(
+  summary: { watching?: string | null; tags?: Record<string, string> } | undefined,
+): boolean {
+  return bridgedWatch(summary) && summary?.tags?.via === "terminal";
+}
+
 /// A bridged reply acpmux refused as read-only: the app no longer runs the session (or the bridge
 /// was turned off since the chat was listed), so the chat is taken over and the reply kept for the next send.
 export function bridgeGone(error: unknown): boolean {

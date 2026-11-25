@@ -1,5 +1,6 @@
-// The New Tab rows' glyph when there is no favicon (POLISH, cx-9br4q): one icon from the cmux pack
-// at 14 px in the rows' dim text, the same in the field's suggestions, Open Tabs and Recently Closed.
+// The New Tab rows' glyph (POLISH, cx-9br4q): one icon from the cmux pack in the rows' dim text, the
+// same in the field's suggestions, Open Tabs and Recently Closed. A tab's or page's favicon takes the
+// icon's place inside the same box, at the icon's size, at every density (Lucas 2026-11-18).
 import { AgentMark } from "../../shared/AgentMark";
 import { CommandGlyph } from "../icons/CommandGlyph";
 import { Icon } from "../icons/Icon";
@@ -21,9 +22,9 @@ const NAMES: Record<GlyphKind, string> = {
   inProfile: "browser.toolbar.profile",
   profile: "browserprofile.badge",
   newProfile: "action.add",
-  chat: "agent.chat",
   launch: "folder",
   run: "terminal",
+  resume: "action.resume",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",
@@ -32,7 +33,21 @@ const NAMES: Record<GlyphKind, string> = {
   workspace: "workspace",
 };
 
-export function RowGlyph({ kind }: { kind: GlyphKind }) {
+/// The cmux pack icon a suggestion row draws (a create row's by its kind), for Send's glyph when
+/// Return takes that row.
+export function rowGlyphName(row: ScreenRow): string {
+  if (row.type === "create") return NAMES[row.kind === "chat" ? "agent" : row.kind];
+  if (row.type === "action") return NAMES.action;
+  return NAMES[row.type];
+}
+
+export function RowGlyph({ kind, icon }: { kind: GlyphKind; icon?: string }) {
+  if (icon)
+    return (
+      <span className="nt-row-glyph" data-kind={kind} aria-hidden="true">
+        <img className="nt-row-favicon" src={icon} alt="" draggable={false} />
+      </span>
+    );
   return (
     <span className="nt-row-glyph nt-row-icon" data-kind={kind}>
       <Icon name={NAMES[kind]} size={14} />
@@ -54,5 +69,6 @@ export function SuggestionGlyph({ row }: { row: ScreenRow }) {
         <CommandGlyph symbol={row.symbol} />
       </span>
     );
-  return <RowGlyph kind={row.type} />;
+  const icon = row.type === "tab" || row.type === "history" ? row.icon : undefined;
+  return <RowGlyph kind={row.type} {...(icon ? { icon } : {})} />;
 }
