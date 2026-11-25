@@ -34,9 +34,13 @@ jobs:
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, the cmux_next_ daemon tests 65 min), with room for
     # the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 170
+    timeout-minutes: 200
     permissions:
       contents: read
+    outputs:
+      # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
+      mac_fallback: ${{ steps.run.outputs.mac_fallback }}
+      canary_targets: ${{ steps.run.outputs.canary_targets }}
     steps:
       - name: Checkout the merge commit and the base tip
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -55,6 +59,7 @@ jobs:
             echo "::notice::No merge commit to diff: every linux step runs."
           fi
       - name: Run the routed linux steps (ci/steps.toml)
+        id: run
         run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
@@ -262,3 +267,46 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
           retention-days: 7
+
+  # The Mac fallback: a linux step that could not get its answer from the build fleet (the Swift canary with a
+  # fail or no verdict) runs here on a Mac, and this run's verdict is the step's. Every run of this job is a
+  # fallback, logged by its name in the timing records and by the linux step's `fleet fallback` warning, so the
+  # fleet side gets fixed. Leo, 2026-11-25: "having our mac fleet be able to like... exist as fallbacks if we
+  # fucked up logic for linux and whatnot is still fine".
+  mac-fallback:
+    name: mac fallback
+    needs: linux
+    if: ${{ !cancelled() && needs.linux.outputs.mac_fallback != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          submodules: false
+          clean: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Swift canary on a Mac (fleet fallback)
+        if: ${{ contains(needs.linux.outputs.mac_fallback, 'swift-canary') }}
+        env:
+          TARGETS: ${{ needs.linux.outputs.canary_targets }}
+        run: |
+          echo "::warning title=fleet fallback::Swift canary compiled on a Mac: the build fleet had no pass for this head"
+          read -r -a targets <<< "$TARGETS"
+          if ((${#targets[@]} == 0)); then
+            echo "the Swift canary fell back with no target" >&2
+            exit 1
+          fi
+          cd Packages/macOS/CmuxNext
+          for target in "${targets[@]}"; do
+            echo "Canary target: $target"
+            swift build --configuration debug --target "$target"
+          done
