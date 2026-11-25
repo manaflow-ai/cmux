@@ -1239,6 +1239,9 @@ impl Hub {
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
+            // This daemon's scale-up: idle, adding or cooling, and the last run's outcome
+            // (`fleet_elastic.rs`, version 1).
+            "scaleUp": super::admission_scale_up::ScaleUp::daemon().status(std::time::Instant::now()),
             "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it
