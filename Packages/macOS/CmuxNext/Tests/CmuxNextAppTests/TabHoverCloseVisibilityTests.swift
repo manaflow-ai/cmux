@@ -77,6 +77,28 @@ import Testing
         #expect(hovered.showsIcon && hovered.showsClose)
     }
 
+    @Test func activeTabShowsCloseWhileInactiveWaitsForHover() {
+        for style in [TabStripStyle.chrome, .compact] {
+            let active = TabChromeVisibility.resolve(
+                width: roomyWidth, isPinned: false, isSelected: true, isHovered: false,
+                style: style, metrics: metrics)
+            let inactive = TabChromeVisibility.resolve(
+                width: roomyWidth, isPinned: false, isSelected: false, isHovered: false,
+                style: style, metrics: metrics)
+            let hovered = TabChromeVisibility.resolve(
+                width: roomyWidth, isPinned: false, isSelected: false, isHovered: true,
+                style: style, metrics: metrics)
+            #expect(active.showsClose, "the active (style) tab hides its close button")
+            #expect(!inactive.showsClose, "the inactive (style) tab shows its close button at rest")
+            #expect(hovered.showsClose, "the hovered (style) tab hides its close button")
+
+            let pill = metrics.pillFrame(slotWidth: roomyWidth, height: metrics.tabHeight)
+            #expect(active.closeButtonOriginX(pillWidth: pill.width, metrics: metrics)
+                    == hovered.closeButtonOriginX(pillWidth: pill.width, metrics: metrics),
+                    "the active and hovered close buttons use different origins")
+        }
+    }
+
     @Test func selectedNarrowTabKeepsItsExistingRestingClose() {
         let width = min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth)
         let selected = TabChromeVisibility.resolve(
