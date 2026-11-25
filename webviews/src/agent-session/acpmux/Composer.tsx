@@ -3,19 +3,20 @@ import { withoutHandedBack } from "./handedBack";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
-import { usePropChurn, useStableHandlers } from "./stableHandlers";
+import { useStableHandlers, usePropChurn } from "./stableHandlers";
+import { useStableProps } from "./stableProps";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -30,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
-  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -126,9 +127,9 @@ import {
   readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
-  onDraftActionsChanged,
   writePersistedDraft,
   restoredPrompt,
+  onDraftActionsChanged,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -734,8 +735,17 @@ const CALL_TIME_PROPS = ["holdsSend"] as const;
 
 export function Composer(props: Props) {
   const stable = useStableHandlers(useRelayProps(props), CALL_TIME_PROPS);
+  // The pane builds the place control inline (pane/PaneComposer.tsx: PlaceChip and HybridChip with their
+  // own `claims`), a new element on every pane render, so each replayed record drew the composer, its box
+  // and its field again with nothing changed. The same element with the same parts is the one given before
+  // (stableProps.ts); its `claims` and `say` call the newest ones, read only at a pick. Kept per chat.
+  const place = useStableProps(
+    { placeControl: stable.placeControl },
+    undefined,
+    stable.snapshot.sessionId,
+  ).placeControl;
   usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
-  return <MemoComposer {...stable} />;
+  return <MemoComposer {...stable} {...(place === undefined ? {} : { placeControl: place })} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
