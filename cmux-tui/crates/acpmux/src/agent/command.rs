@@ -393,6 +393,8 @@ fn build_harness_command(
     crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
+    // And its own chat secrets, never another chat's (`chat_secrets.rs`).
+    crate::chat_secrets::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
     // A Chief turn or compactor (fresh process per turn): one sticky
     // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
