@@ -202,11 +202,14 @@ await requireBrowserLane("agent-pane-edited-copy-overlap.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width, height: 760 } });
       await page.goto(url(CHAT));
       await page.getByText("Retry added to the uploader.").waitFor();
-      await page.locator(".acpmux-edited-file").first().waitFor();
+      await page.locator(".acpmux-edited-head").first().waitFor();
+      // Opened: every file's diff stacks inside the card (Leo, 2026-11-25), its controls the card's too.
+      await page.locator(".acpmux-edited-head").first().click();
+      await page.locator(".acpmux-edited-stack .cv-edit-diff").first().waitFor();
       await installPaintedFrames(page);
       // Hovered, then with focus inside the card (a click or Tab onto one of its controls): the
       // row's floating Copy showed on :focus-within, at the row's top-right, over View changes.
-      for (const target of [".acpmux-edited-head", ".acpmux-edited-file"]) {
+      for (const target of [".acpmux-edited-head", ".acpmux-edited-stack .cv-edit-diff__header"]) {
         await page.locator(target).first().hover();
         await atRest(page);
         expect({ target, hits: await overlaps(page) }).toEqual({ target, hits: [] });

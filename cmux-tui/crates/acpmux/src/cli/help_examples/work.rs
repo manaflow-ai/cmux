@@ -389,6 +389,30 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("inbox read", &[("Read one team message by id", "acpmux inbox read msg-8f2a")]),
     ("inbox ack", &[("Acknowledge a team message you handled", "acpmux inbox ack msg-8f2a")]),
     (
+        "listen",
+        &[
+            ("Listen on a teammate's agent", "acpmux listen open @sam/coordinator"),
+            ("List your open listens", "acpmux listen ls"),
+            ("Read what that agent received", "acpmux listen read @sam/coordinator"),
+        ],
+    ),
+    (
+        "listen open",
+        &[(
+            "Listen on a teammate's agent for an hour",
+            "acpmux listen open @sam/coordinator --ttl 3600",
+        )],
+    ),
+    ("listen ls", &[("List your listens and others' on yours", "acpmux listen ls")]),
+    (
+        "listen close",
+        &[("Close a listen by id", "acpmux listen close lsn_0123456789abcdef0123456789abcdef")],
+    ),
+    (
+        "listen read",
+        &[("Read what a teammate's agent received", "acpmux listen read @sam/coordinator")],
+    ),
+    (
         "bridge",
         &[
             ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
