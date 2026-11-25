@@ -1494,6 +1494,14 @@ impl Peer {
                         Message::Response { .. } => "reply",
                         Message::Request { .. } => "request",
                     }, text.len());
+                    // A large row patch, by the fields it carries (three levels): which part of a
+                    // row a backed-up link spends its bytes on. Small patches are not walked.
+                    if text.len() > 4096
+                        && let Message::Notification { method: m, params: Some(p) } = &msg
+                        && m == method::MUX_SESSION_PATCH
+                    {
+                        self.received.add_patch_fields(&p["patch"]);
+                    }
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();
