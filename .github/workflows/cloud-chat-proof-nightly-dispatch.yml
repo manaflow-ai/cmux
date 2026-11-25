@@ -85,6 +85,8 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           AGENT: ${{ matrix.agent }}
+          # The cmux-bot token expires after one hour; the wait outlives it (scripts/ci/cloud_chat_proof_dispatch.mjs rotating()).
+          FALLBACK_TOKEN: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
         with:
           github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           script: |
@@ -94,7 +96,12 @@ jobs:
             // GITHUB_RUN_ATTEMPT, not context: a rerun must never find the run an earlier attempt started.
             const requestId = `nightly-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}-${agent}`;
             const proof = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/cloud_chat_proof_dispatch.mjs`);
-            const result = await proof.prove({ github, owner, repo, agent, requestId, log: core.info });
+            let fallback;
+            if (process.env.FALLBACK_TOKEN) {
+              fallback = getOctokit(process.env.FALLBACK_TOKEN);
+              if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: fallback, core });
+            }
+            const result = await proof.prove({ github, fallback, owner, repo, agent, requestId, log: core.info });
             core.notice(`Cloud chat proof, ${agent} from a folder on the published app: ${result.verdict} ${result.where}`);
             await proof.report({ github, owner, repo, agent, ...result, log: core.info });
             if (!result.green) core.setFailed(`Cloud chat proof (${agent}) ${result.verdict}`);

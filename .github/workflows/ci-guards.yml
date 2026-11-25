@@ -802,6 +802,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
 
+      - name: Validate red-autofix triage, verify and land
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 -I tests/test_ci_red_autofix.py
+
       - name: Validate Ghostty helper cache failure handling
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
@@ -981,6 +985,10 @@ jobs:
       - name: Validate hosted light-job rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_hosted_light_rescue.py
+
+      - name: Validate the shed sweep cancels runs on a retired route
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_shed_retired_route.py
 
       # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
       # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.
@@ -1741,6 +1749,14 @@ jobs:
       - name: Validate fork runner routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
+
+      - name: Validate no gate main requires can skip into a raw-expression name
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_gate_never_skips_into_main.py
+
+      - name: Validate the shed sweep keeps the runs it must
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_shed_superseded_runs.py
 
       - name: Validate write-token jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}

@@ -64,7 +64,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
         "admission is broker-controlled and must not trust mutable repository variables; "
         "tests/test_ci_fork_runner_routing.py pins its exact expression (FAST_CHECKS_ADMISSION_EXPRESSION)",
         {"admit", "checks"}),
-    "ios-app-review-readiness.yml": (SIGNING, {"app-store-connect"}),
+    "ios-app-review-readiness.yml": (SIGNING, {"app-store-connect", "store-declarations"}),
     "ios-app-store.yml": (SIGNING, {"upload-and-validate"}),
     "ios-appstore-upload.yml": (SIGNING, {"assign-internal", "set-testflight-notes", "upload"}),
     "ios-asc-ops.yml": (SIGNING, {"op"}),
