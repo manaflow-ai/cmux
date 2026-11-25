@@ -73,7 +73,7 @@ public final class SettingsModels {
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
     ///   - setupToken: a test's stand-in for `claude setup-token`; nil runs it (``ClaudeSetupTokenCapture``).
     ///   - setupTokenCapture: whether Sign In runs it at all; false (the kill switch,
-    ///     ``ClaudeSetupTokenCapture/killSwitch``) leaves only the paste field.
+    ///     ``ClaudeSetupTokenCapture/killSwitch``, read when nil) leaves only the paste field.
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
                 keys: any ModelKeyStoring,
@@ -85,7 +85,7 @@ public final class SettingsModels {
                 spreadSetting: (@MainActor () -> Bool)? = nil,
                 writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil,
                 setupToken: (@Sendable () async throws -> String)? = nil,
-                setupTokenCapture: @escaping @MainActor () -> Bool = { ClaudeSetupTokenCapture.enabled() }) {
+                setupTokenCapture: (@MainActor () -> Bool)? = nil) {
         self.environment = environment
         self.call = call
         self.keys = keys
@@ -97,7 +97,7 @@ public final class SettingsModels {
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
         self.setupToken = setupToken
-        self.setupTokenCapture = setupTokenCapture
+        self.setupTokenCapture = setupTokenCapture ?? { ClaudeSetupTokenCapture.enabled() }
     }
 
     // MARK: State
