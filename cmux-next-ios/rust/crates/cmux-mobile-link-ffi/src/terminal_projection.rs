@@ -66,7 +66,7 @@ pub struct TerminalProjection {
 }
 
 impl TerminalProjection {
-    fn inner(&self) -> MutexGuard<'_, Projection> {
+    pub(crate) fn inner(&self) -> MutexGuard<'_, Projection> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
