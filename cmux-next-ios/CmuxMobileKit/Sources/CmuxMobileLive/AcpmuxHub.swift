@@ -998,14 +998,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             sendTasks[promptID] = task
             return
         }
-        if case .cancelSend(let promptID) = intent {
+        // Every message on its way has an exit, at every stage: before the outbox has it, its
+        // upload is cancelled; once it has it, Rust says how to take it back (`stopPrompt`).
+        switch intent {
+        case .cancelSend(let promptID):
             sendTasks[promptID]?.cancel()
+            stopPrompt(promptID, delete: false)
             return
+        case .deleteSend(let promptID):
+            sendTasks[promptID]?.cancel()
+            stopPrompt(promptID, delete: true)
+            return
+        case .retrySend(let promptID):
+            retryPromptNow(promptID)
+            return
+        default:
+            break
         }
         Task {
             do {
                 switch intent {
-                case .prompt, .cancelSend:
+                case .prompt, .cancelSend, .deleteSend, .retrySend:
                     break // handled above
                 case .retryFailedTurn:
                     _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
@@ -1143,6 +1156,73 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             }
         }
         schedulePromptWake(nowMs)
+        publishPendingSends(nowMs)
+    }
+
+    /// The pending rows last told to the chat.
+    private var shownPendingSends: [AgentPendingSend] = []
+
+    /// Tells the chat the rows of the prompts on their way, as the outbox draws them (shown ones
+    /// only, with the actions each has), when they changed.
+    private func publishPendingSends(_ nowMs: UInt64) {
+        let rows = promptOutbox.pendingSends(nowMs: nowMs).filter(\.shown).map {
+            AgentPendingSend(promptID: $0.promptId, text: $0.text, waiting: $0.look == .retrying,
+                             canSendNow: $0.canSendNow, stopping: $0.stopping)
+        }
+        guard rows != shownPendingSends else { return }
+        shownPendingSends = rows
+        emit(.pendingSends(rows))
+    }
+
+    /// Stop (`delete` false: its text comes back to the composer, to edit and send again) or
+    /// Delete a prompt the outbox holds, at any stage. Rust says which: one that never left is
+    /// back at once; one that may be on the Mac is never sent again and is taken off the Mac's
+    /// queue first (too late when its turn already started: it shows as it runs).
+    private func stopPrompt(_ promptID: String, delete: Bool) {
+        let held = promptPayloads[promptID]
+        let step = delete ? promptOutbox.delete(promptId: promptID) : promptOutbox.cancel(promptId: promptID)
+        switch step {
+        case .returned(let done)?:
+            promptPayloads[promptID] = nil
+            promptStopped(promptID, text: held?.text ?? done.text, attachments: held?.attachments ?? [], delete: delete)
+        case .removeOnMac(let id)?:
+            Task { [weak self] in
+                guard let self, let hub = self.hub else { return }
+                var removed = false
+                do {
+                    let reply = try await hub.request("_acpmux/queue_remove", .object([
+                        "sessionId": .string(self.sessionID), "promptId": .string(id),
+                    ]))
+                    removed = reply["removed"] == .bool(true)
+                } catch {
+                    self.emitLocal(.clientError(AcpmuxSessionSource.message(error)))
+                }
+                let done = self.promptOutbox.removeAnswered(promptId: id, removed: removed)
+                self.promptPayloads[id] = nil
+                if removed, done == nil || done?.outcome == .cancelled {
+                    self.promptStopped(id, text: held?.text ?? done?.text ?? "", attachments: held?.attachments ?? [], delete: delete)
+                } else if !delete {
+                    self.emitLocal(.clientError("Too late to stop: \(self.summary.macName) already started it."))
+                }
+                self.pumpPrompts()
+            }
+        case nil:
+            break
+        }
+        pumpPrompts()
+    }
+
+    /// A stopped prompt comes back to the composer; a deleted one is gone (the chat dropped its row).
+    private func promptStopped(_ promptID: String, text: String, attachments: [AgentAttachment], delete: Bool) {
+        emit(.promptNotSent(text: delete ? "" : text, attachments: delete ? [] : attachments, promptID: promptID,
+                            reason: "Not sent: you stopped it."))
+    }
+
+    /// Send now: a prompt waiting on a retry goes at once (Rust decides whether it may).
+    private func retryPromptNow(_ promptID: String) {
+        if promptOutbox.retryNow(promptId: promptID, nowMs: ChatPromptClock.milliseconds(now())) {
+            pumpPrompts()
+        }
     }
 
     private func writePrompt(_ prompt: HeldPrompt, hub: AcpmuxHub) async {
@@ -1166,7 +1246,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func schedulePromptWake(_ nowMs: UInt64) {
         promptWake?.cancel()
-        guard let wait = promptOutbox.nextWakeMs(nowMs: nowMs) else { promptWake = nil; return }
+        // A row's look changing (a prompt starting to wait) wakes it too, to redraw its row.
+        let waits = [promptOutbox.nextWakeMs(nowMs: nowMs), promptOutbox.nextLookChangeMs(nowMs: nowMs)].compactMap { $0 }
+        guard let wait = waits.min() else { promptWake = nil; return }
         promptWake = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int64(clamping: wait)))
             guard !Task.isCancelled else { return }
@@ -1266,6 +1348,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     func flushHeldPrompts() {}
     func receive(promptResend params: JSONValue) {}
     private func promptLinkDown() {}
+    private func stopPrompt(_ promptID: String, delete: Bool) {}
+    private func retryPromptNow(_ promptID: String) {}
     #endif
 
     static func promptParams(_ prompt: HeldPrompt, session: String) -> JSONValue {
@@ -2900,7 +2984,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent, .historyLoading:
+        case .clientError, .promptNotSent, .pendingSends, .historyLoading:
             // Not history: a later reader learns the load state from `events()` itself.
             break
         default:
