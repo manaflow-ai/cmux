@@ -1,5 +1,6 @@
 public import CmuxAuthRuntime
 public import Foundation
+public import CmuxEgress
 import OSLog
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
@@ -129,7 +130,7 @@ public actor PushRegistrationService: PushRegistering {
         pushIdentityProvider: (@Sendable () -> PushRegistrationIdentity?)? = nil,
         suiteName: String? = nil,
         pendingUnregisterStoreURL: URL? = nil,
-        session: sending URLSession = .shared,
+        session: sending URLSession = CmuxEgress.shared(site: "CmuxAuthRuntime.PushRegistrationService"),
         retryDelays: [Duration] = [
             .seconds(1),
             .seconds(4),

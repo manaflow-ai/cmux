@@ -303,6 +303,7 @@ select_packages() {
     CmuxPhonePush
     CmuxConnectivityTelemetry
     CmuxDeviceHub
+    CmuxEgress
     CmuxHomeCore
     CmuxHomeRender
     CmuxMobileBilling
