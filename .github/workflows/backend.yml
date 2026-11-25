@@ -85,8 +85,13 @@ permissions:
 # Independent NEXT pushes must not wait for another run's tests or promotion gates.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
 # Retain pending jobs: a slower older test run must not replace a newer pending deployment.
+# A pull request run gets a group of its own here, and its test jobs (api-workerd, test) take per-pull-request
+# job groups that cancel: a newer push to the pull request stops the older head's tests (about 20k runner-min a
+# day ran on superseded heads, 11-23..11-24, goal ci-min-per-pr-1500). A workflow-level cancel would also stop
+# migrations-development mid-apply on the shared development database, so that job and preview keep
+# non-cancelling per-pull-request groups, and an older run whose tests were cancelled skips them.
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}${{ github.event_name == 'pull_request' && format('-run-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 env:
@@ -106,6 +111,11 @@ jobs:
   api-workerd:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event.action != 'closed') }}
     name: api-workerd (${{ matrix.shard }}/12)
+    # One group per pull request and shard: a newer push's shard cancels this one (see the workflow concurrency).
+    # Pushes and dispatches get a group per run, so they never cancel or wait.
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('backend-pr-{0}-api-workerd-{1}', github.event.pull_request.number, matrix.shard) || format('backend-run-{0}-api-workerd-{1}', github.run_id, matrix.shard) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     strategy:
@@ -152,7 +162,12 @@ jobs:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
     # `test` check that the deploys and prod-promote.ts read still covers the whole suite.
     needs: [api-workerd]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && github.event.action != 'closed') }}
+    # A shard a newer push cancelled (its job group) skips this run's test, and with it migrations-development
+    # and preview: cancelled() reads the whole run, not a cancelled job.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && github.event.action != 'closed') && !(github.event_name == 'pull_request' && needs.api-workerd.result == 'cancelled') }}
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('backend-pr-{0}-test', github.event.pull_request.number) || format('backend-run-{0}-test', github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # A Blacksmith LINUX_RUNNER is taken as the other jobs here take it (the label the probe saw serving). On
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
     # skipped LINUX_RUNNER: staging's test sat queued 25+ min (run 44637914493 attempt 3) with no 8 vCPU job running.
@@ -329,6 +344,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     environment: cmux-next-development
+    # Never cancelled: a cancel could stop a migration mid-apply on the shared development database. One per pull
+    # request at a time, as the workflow's per-pull-request group held it before PR runs got a group each.
+    concurrency:
+      group: backend-migrations-development-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: backend/db
