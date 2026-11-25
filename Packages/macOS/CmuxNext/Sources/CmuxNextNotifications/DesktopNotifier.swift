@@ -117,6 +117,8 @@ package final class DesktopNotifier: NSObject {
     /// Plays the `"default"` sound in the app, for a banner that cannot carry it (denied, not yet asked,
     /// provisional or with its sound off in System Settings): the app's sound player (cmux#55600).
     package var playsDefaultSound: (@MainActor () -> Void)?
+    /// Extra launch reads while none has landed (``followPermission``), `delay` apart.
+    package var launchRereads = (count: 6, delay: Duration.seconds(5))
     /// macOS denies cmux notifications (read at launch, on activation, or the person's answer to the prompt).
     package var onDenied: (@MainActor () -> Void)?
     /// The one-time denied notice's record (tests pass their own defaults).
@@ -310,10 +312,11 @@ package final class DesktopNotifier: NSObject {
         guard Self.asksPermission, configuredCenter() != nil else {
             throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
         }
-        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] _ in
+        // `notifications.status` and `.request` answers are reads too: the app shows what they found.
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] permission, asked in
             Task { @MainActor in
-                self?.askedAuthorization = true
-                await self?.refreshPermission(asking: false)
+                if asked { self?.askedAuthorization = true }
+                self?.applyPermission(permission)
             }
         }
     }
@@ -352,7 +355,7 @@ package final class DesktopNotifier: NSObject {
     /// GUI jobs included (``permission()`` refuses those, since it also asks).
     private func statusCenter() -> (any NotificationPermissionCenter)? {
         guard configuredCenter() != nil else { return nil }
-        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { _ in }
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { _, _ in }
     }
 
     /// Reply banners' category: one text field whose Send types into the terminal.

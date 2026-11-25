@@ -38,6 +38,17 @@ import Testing
         }
     }
 
+    /// A center whose first read never answers (a stalled `notificationSettings()` at launch).
+    actor StallingCenter: NotificationPermissionCenter {
+        private(set) var reads = 0
+        func status() async -> NotificationPermission {
+            reads += 1
+            if reads == 1 { try? await Task.sleep(for: .seconds(3600)) }
+            return NotificationPermission(authorization: "denied", alert: false, alertStyle: "none", sound: true, badge: false, bundleID: nil)
+        }
+        func request() async throws -> NotificationPermission { await status() }
+    }
+
     @MainActor private final class Recorder: NotificationSoundPlaying {
         var played: [(name: String, banner: Bool)] = []
         func play(_ name: String, volume: Double, banner: Bool) { played.append((name, banner)) }
@@ -129,6 +140,18 @@ import Testing
         #expect(desktop.permissionState.pageJSON == ["authorization": .string("denied"), "sound": .bool(true)])
         #expect(denied == 1)
         #expect(await center.requests == 0, "a denial is never asked again: only System Settings undoes it")
+    }
+
+    /// The dev build of cmux#55647 stayed "Checking…" while macOS said denied: the launch read stalled.
+    @Test func aStalledLaunchReadIsReadAgainUntilOneLands() async throws {
+        let (desktop, _) = try notifier()
+        let center = StallingCenter()
+        desktop.permissionCenterOverride = center
+        desktop.launchRereads = (count: 40, delay: .milliseconds(50))
+        let follow = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), volume: { 1 }, asks: true) { nil }
+        await follow.value
+        #expect(desktop.authorization == "denied")
+        #expect(await center.reads < 40, "reads stop once one lands")
     }
 
     @Test func notYetAskedIsAskedOnce() async throws {

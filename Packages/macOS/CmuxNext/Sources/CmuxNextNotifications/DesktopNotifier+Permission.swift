@@ -29,7 +29,16 @@ extension DesktopNotifier {
             guard let self, let window = window(), self.deniedNotice.claim(for: self.authorization) else { return }
             Self.showDeniedNotice(in: window)
         }
-        return Task { [weak self] in await self?.refreshPermission() } // inherits the main actor
+        return Task { [weak self] in // inherits the main actor
+            // The launch read can stall (`notificationSettings()` takes seconds on a busy launch): while
+            // nothing has landed, more reads start alongside it, each on its own, so one stuck read blocks none.
+            Task { [weak self] in await self?.refreshPermission() }
+            for _ in 0..<(self?.launchRereads.count ?? 0) {
+                try? await Task.sleep(for: self?.launchRereads.delay ?? .zero)
+                guard self?.authorization == "unknown" else { return }
+                Task { [weak self] in await self?.refreshPermission(asking: false) }
+            }
+        }
     }
 
     /// Settings > Notifications' button (the person's click): the macOS prompt while not yet asked,
