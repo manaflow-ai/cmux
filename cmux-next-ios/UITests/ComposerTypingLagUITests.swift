@@ -145,9 +145,28 @@ final class ComposerTypingLagUITests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         print("TYPINGMATRIX \(String(decoding: data, as: UTF8.self))")
-        if let file = InputLatencyUITests.traceFile(), let text = try? String(contentsOf: file, encoding: .utf8) {
+        let cell = "\(surface)\(oneParagraph ? "1p" : "")-\(chars)-\(textKit2 ? "tk2" : wholeDraft ? "before" : "after")"
+        // The board's own numbers, kept with the run (stdout is not): the trace below can come
+        // up short when its utility-QoS writer lags under duress.
+        let boardJSON = (try? JSONSerialization.data(withJSONObject: ["report": report, "board": board], options: [.sortedKeys]))
+            .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        let boardLog = XCTAttachment(string: boardJSON)
+        boardLog.name = "typing-board-\(cell).json"
+        boardLog.lifetime = .keepAlways
+        add(boardLog)
+        // Wait, bounded, for the trace to hold every key the board counted before reading it.
+        let marker = #""kind":"\#(identifier)_key_frame""#
+        let wanted = Int(hitches["n"] ?? 0)
+        var text: String?
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if let file = InputLatencyUITests.traceFile() { text = try? String(contentsOf: file, encoding: .utf8) }
+            if let text, text.components(separatedBy: marker).count - 1 >= wanted { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        if let text {
             let log = XCTAttachment(string: text)
-            log.name = "typing-matrix-\(surface)\(oneParagraph ? "1p" : "")-\(chars)-\(textKit2 ? "tk2" : wholeDraft ? "before" : "after").jsonl"
+            log.name = "typing-matrix-\(cell).jsonl"
             log.lifetime = .keepAlways
             add(log)
             for row in text.split(separator: "\n").filter({ $0.contains(#""type":"hitch""#) }).prefix(8) {
