@@ -98,6 +98,9 @@ pub struct NewRequest {
     pub harness: Option<String>,
     pub preset: Option<String>,
     pub name: Option<String>,
+    /// The spoken handle the start asked for (`_meta.acpmux.handle`, `acpmux new --handle`);
+    /// None: the daemon gives a free one (`Hub::assign_handle`).
+    pub handle: Option<String>,
     /// `_meta.acpmux.ifNameTaken: "suffix"`: a `name` another session here has is kept with the
     /// first free `-N` suffix (`NAME-2`, `NAME-3`...) instead of refused. A start placed on or
     /// forwarded to this machine asks for it, so it keeps the name it was given and never falls

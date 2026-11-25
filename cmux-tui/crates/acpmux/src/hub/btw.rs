@@ -385,6 +385,7 @@ impl Hub {
                     harness: Some(target_harness.clone().unwrap_or_else(|| meta.harness.clone())),
                     preset: if target_harness.is_some() { None } else { meta.preset.clone() },
                     name: Some(name.clone()),
+                    handle: None,
                     suffix_taken_name: false,
                     cwd: Some(meta.cwd.clone()),
                     policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),

@@ -768,6 +768,7 @@ impl Hub {
             id: id.clone(),
             name,
             handle: None,
+            handle_assigned: false,
             icon: None,
             name_given,
             former_names: Vec::new(),

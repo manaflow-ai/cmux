@@ -25,6 +25,11 @@ pub struct NewArgs {
     /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
     #[arg(long, short)]
     pub name: Option<String>,
+    /// The spoken handle peers send to (`acpmux send Pickle '...'`): short, cute, unique across
+    /// the fleet; a taken one is refused. Omitted, the daemon gives a free one and the chat's
+    /// first turn asks it to pick its own (`acpmux session rename @ --handle NAME`).
+    #[arg(long, value_name = "NAME")]
+    pub handle: Option<String>,
     #[arg(long)]
     pub cwd: Option<PathBuf>,
     /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, or `review`

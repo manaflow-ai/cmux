@@ -1121,6 +1121,22 @@ impl Hub {
             }
             m.turn_count += 1;
         }
+        // A lane's first turn asks it to pick its own name over the one the daemon gave
+        // (`session_handle::first_turn_note`). Once: the flag clears on its rename, the turn count
+        // on this turn. Never a sub-session's, a throwaway's, or a slash command's.
+        if !trigger
+            && control != Control::Web
+            && !session.person.load(Ordering::SeqCst)
+            && !text.trim_start().starts_with('/')
+            && let Some(current) = session.read_meta(|m| {
+                (m.turn_count == 1 && m.handle_assigned && m.subsession.is_none() && !m.throwaway)
+                    .then(|| m.spoken_handle().into_owned())
+            })
+        {
+            let offers = self.free_handles(&session.id, 3);
+            let note = crate::session_handle::first_turn_note(&current, &offers);
+            blocks.push(json!({"type": "text", "text": note}));
+        }
         // The first turn after a rate-limit reset carries the continuation it folded
         // (`rate_hold.rs`). Appended, as above; never to a slash command, whose words it would
         // become.

@@ -1982,6 +1982,7 @@ async fn dispatch_request_with_identity(
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
                 name: pick("name"),
+                handle: pick("handle"),
                 suffix_taken_name: pick("ifNameTaken").as_deref()
                     == Some(crate::hub::SUFFIX_TAKEN_NAME),
                 cwd,

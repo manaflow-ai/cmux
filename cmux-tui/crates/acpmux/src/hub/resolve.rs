@@ -343,6 +343,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         id: d.id,
         name: String::new(),
         handle: None,
+        handle_assigned: false,
         icon: None,
         name_given: false,
         former_names: Vec::new(),
