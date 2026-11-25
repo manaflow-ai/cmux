@@ -20,7 +20,7 @@ import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
 import { SceneHostContext, SceneRenderer } from "../../../apps/scene/SceneRenderer";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import type { SceneOpenTarget } from "../../../apps/scene/SceneRenderer";
-import { pageHostClient } from "../pageHost";
+import { pageHostClient } from "../pageHostClient";
 import "./appSlot.css";
 
 /// How long the extension has to draw its first scene before the slot gives up for this visit. The

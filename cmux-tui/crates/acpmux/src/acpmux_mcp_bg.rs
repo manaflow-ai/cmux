@@ -42,7 +42,7 @@ pub(super) fn tools() -> Vec<Value> {
         json!({"type": "string", "description": "The task's id, as bg_start or bg_list gave it."});
     let description = json!({"type": "string", "description": "A few words: what this call is for. The transcript titles the call with it."});
     vec![
-        json!({"name": "bg_start", "description": "Start a background command that survives hibernation and restarts. Returns its task id immediately. Use bg_output to read it.",
+        json!({"name": "bg_start", "description": "Start a background command that survives hibernation and restarts. Returns its task id immediately, and not the command or description you just sent (bg_list and bg_output read a stored command back). Use bg_output to read it.",
             "inputSchema": {"type": "object", "properties": {
                 "command": {"type": "string", "description": "Runs in the agent environment with bash -c (fallback /bin/sh)."},
                 "cwd": {"type": "string", "description": "Working directory (default: chat folder)."},
@@ -139,7 +139,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             Ok(r) => {
                 let (line, status) = outcome("bg_start", &r);
                 let mut structured = r;
-                trim_echo(&mut structured);
+                trim_echo("bg_start", &mut structured);
                 structured.set("summary", json!(line));
                 structured.set("status", json!(status));
                 let id = structured.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -191,7 +191,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                 return ok(format!("{line}\n{text}").trim_end().to_owned(), structured);
             }
             let mut structured = r;
-            trim_echo(&mut structured);
+            trim_echo(name, &mut structured);
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
@@ -337,17 +337,30 @@ impl TaskWait {
 /// 839,000 tokens for nothing. A command of up to [`CMD_KEPT`] characters stays byte-identical
 /// (reading it back is how one checks what was stored when a start failed); a longer one is cut
 /// here and `bg_list` with `full: true` still reads the whole stored command.
-fn trim_echo(structured: &mut Value) {
+///
+/// A start's own answer carries neither: the caller wrote the `command` and the `description` in
+/// the very call it is reading the answer to, and `bg_output` and `bg_list` read the stored
+/// command back later, when the task is no longer in hand. Measured over 2,723 real `bg_start`
+/// answers in this host's transcripts (`scripts/measure/bg-echo-bytes.py`): of 756 B an answer,
+/// `command` was 37.6%, `description` 7.0% and `sessionId` 6.7% — half of every start receipt
+/// was the caller's own words read back to it.
+fn trim_echo(name: &str, structured: &mut Value) {
     let Some(o) = structured.as_object_mut() else { return };
+    // The chat's own id, the same on every answer this chat reads.
+    o.remove("sessionId");
+    if name == "bg_start" {
+        o.remove("command");
+        o.remove("description");
+    }
     // `text` is those bytes already; base64 of them costs a third again for nothing.
     if o.contains_key("text") && o.remove("data").is_some() {
         o.insert("dataOmitted".into(), json!("the bytes are in text; no base64 copy"));
     }
-    if let Some(command) = o.get("command").and_then(Value::as_str) {
-        if command.chars().count() > CMD_KEPT {
-            o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
-            o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
-        }
+    if let Some(command) = o.get("command").and_then(Value::as_str)
+        && command.chars().count() > CMD_KEPT
+    {
+        o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
+        o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
     }
 }
 
@@ -450,7 +463,7 @@ mod tests {
         let long = format!("cargo test {}", "x".repeat(4000));
         let mut r = json!({"id": "bg-1", "command": long, "state": "exited",
             "text": "out\n", "data": "b3V0Cg==", "totalBytes": 4});
-        trim_echo(&mut r);
+        trim_echo("bg_output", &mut r);
         assert_eq!(r.get("data"), None, "text already carries those bytes");
         assert!(r["dataOmitted"].is_string());
         let kept = r["command"].as_str().unwrap();
@@ -460,7 +473,7 @@ mod tests {
         // A command short enough to read back is left byte-identical: after a start that failed,
         // reading it is how one checks what was stored.
         let mut short = json!({"id": "bg-2", "command": "ls  -l\n", "text": "", "data": ""});
-        trim_echo(&mut short);
+        trim_echo("bg_output", &mut short);
         assert_eq!(short["command"], json!("ls  -l\n"));
         assert_eq!(short.get("commandCut"), None);
         // The text line cuts it too, so one result never carries the command twice whole.
@@ -468,6 +481,36 @@ mod tests {
             "description": "a long one", "command": long, "tail": "out"}));
         assert!(line.chars().count() < 200, "{line}");
         assert!(line.contains("a long one: cargo test x") && line.contains('\u{2026}'));
+    }
+
+    /// A start's answer carries what the caller cannot know yet — the task's id, its pid, that
+    /// it is running — and none of the words the caller itself just wrote. Reading a task back
+    /// by id still answers with its command, for a caller that no longer has it in hand.
+    #[test]
+    fn a_start_receipt_echoes_none_of_the_callers_own_words() {
+        let as_the_daemon_answers = || {
+            json!({"id": "bg-1", "sessionId": "00000000-0000-4000-8000-000000000001",
+                "command": "cargo test -p acpmux", "cwd": "/tmp/checkout",
+                "description": "run the suite", "state": "running", "pid": 1234,
+                "startedAt": 1_795_506_015_665_i64, "notify": true})
+        };
+        let mut start = as_the_daemon_answers();
+        trim_echo("bg_start", &mut start);
+        let o = start.as_object().unwrap();
+        for key in ["command", "description", "sessionId"] {
+            assert!(!o.contains_key(key), "{key} is read back to its own author: {start}");
+        }
+        for key in ["id", "pid", "state", "startedAt"] {
+            assert!(o.contains_key(key), "{key} was dropped: {start}");
+        }
+        let before = as_the_daemon_answers().to_string().len();
+        assert!(start.to_string().len() * 2 < before, "{start} of {before} bytes");
+        // A read of a task by id is not the turn that started it: the command comes back.
+        let mut read = as_the_daemon_answers();
+        trim_echo("bg_output", &mut read);
+        assert_eq!(read["command"], json!("cargo test -p acpmux"));
+        assert_eq!(read["description"], json!("run the suite"));
+        assert!(read.get("sessionId").is_none(), "still this chat's own id");
     }
 
     /// A list's outcome counts its tasks by status; the list runs while any task runs.
