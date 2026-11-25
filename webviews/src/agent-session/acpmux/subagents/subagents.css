@@ -1936,6 +1936,8 @@ button.cv-subagent > :last-child {
 /* Why it failed, right after its title in the failure's red: the error is the line's news. */
 .cv-subagent-failed__reason {
   flex: 0 1000 auto;
+  /* A long title never cuts the reason away: it keeps at least this much of the line. */
+  min-width: min(16ch, 40%);
   color: var(--agent-status-failure);
 }
 /* A quiet Retry: the tool rows' text, no accent border; its hover plate covers only the button. */

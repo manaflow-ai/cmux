@@ -1715,27 +1715,43 @@ const callsIn = (rows: readonly AcpmuxRow[]) =>
     .flatMap(withoutDrafts)
     .reduce((n, row) => n + (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool).length : 0), 0);
 
-/// How many of `rows`' calls are Agent calls (agentCalls.ts) whose subagent draws its own row in
-/// the turn `body` (its group, started line or done line), so the call says nothing that row does not.
-const agentCallsIn = (rows: readonly AcpmuxRow[], body: readonly AcpmuxRow[]) =>
-  body.some((row) => isSubagentGroup(row) || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE)
-    ? rows
-        .flatMap(withoutDrafts)
-        .reduce(
-          (n, row) =>
-            n +
-            (row.kind === "activity"
-              ? (row.items ?? []).filter((item) => item.tool && agentCall(item.tool)).length
-              : 0),
-          0,
-        )
-    : 0;
+/// The names of the subagents `body` draws a row for (its groups, started lines and done lines).
+const shownAgentNames = (body: readonly AcpmuxRow[]): ReadonlySet<string> =>
+  new Set(
+    body.flatMap((row) =>
+      isSubagentGroup(row) || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE
+        ? (row.subagents ?? []).map((agent) => agent.name.trim())
+        : [],
+    ),
+  );
 
-/// An activity row whose every item is an Agent call whose subagent's row is in sight (`agentCallsIn`).
-const onlySpawnsShownAgents = (row: AcpmuxRow, body: readonly AcpmuxRow[]) =>
+/// An activity row whose every item is an Agent call (agentCalls.ts) for a subagent `shown` draws a
+/// row of its own, matched by the name the call gave it: the call says nothing that row does not. An
+/// Agent call no subagent row answers (it failed before acpmux named one) is never one.
+const onlySpawnsShownAgents = (row: AcpmuxRow, shown: ReadonlySet<string>) =>
   row.kind === "activity" &&
   (row.items?.length ?? 0) > 0 &&
-  agentCallsIn([row], body) === row.items!.length;
+  row.items!.every((item) => {
+    const call = item.tool && agentCall(item.tool);
+    return call !== undefined && shown.has(call.description.trim());
+  });
+
+/// A segment's work that is one or more subagents and nothing else: their rows, and the Agent calls
+/// that spawned them (`onlySpawnsShownAgents`). A subagent's started and failed lines stay in sight
+/// beside the fold (`staysOut`), so its work may hold only the call.
+const subagentsOnly = (work: readonly AcpmuxRow[], shown: ReadonlySet<string>) => {
+  const rows = work.flatMap(withoutDrafts);
+  return (
+    rows.length > 0 &&
+    rows.every(
+      (row) =>
+        isSubagentGroup(row) ||
+        row.kind === SUBAGENT_STARTED ||
+        row.kind === SUBAGENT_DONE ||
+        onlySpawnsShownAgents(row, shown),
+    )
+  );
+};
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
@@ -2165,18 +2181,24 @@ function shapeTurn(
           ? undefined
           : Math.max(0, (segment.until ?? firstFinal?.at ?? summary.at) - segment.anchor.at);
     // A fold with no time and nothing counted would read "0 tool calls" over, say, a subagent's end
-    // alone, and one under a second "Worked for 0s", which is no news (`footerSays`): either draws no
-    // fold, its rows in place (`outside`), as Claude's and Codex's apps draw a lone subagent
-    // (cmux#54927: "Worked for 0s" over a failed subagent, its rule through the subagent's row). Only
-    // where its work holds no call but the Agent calls whose subagents draw in sight, and no message
-    // between agents to count.
+    // alone: it draws no fold, its rows in place (`outside`). Nor does a turn whose only work was
+    // subagents and that took under a second, which read "Worked for 0s" (no news, `footerSays`) with
+    // its rule through the subagent's row (cmux#54927): the subagent's own row says it all, as
+    // Claude's and Codex's apps draw a lone subagent.
+    const shown = shownAgentNames(body);
+    const lone = subagentsOnly(work, shown);
     const unlabeled =
       previous === undefined &&
-      (durationMs === undefined || durationMs < 1000) &&
       messages.sent + messages.received === 0 &&
-      callsIn(work) === agentCallsIn(work, body);
+      ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
+        ((durationMs === undefined || durationMs < 1000) && lone));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
+    } else if (lone) {
+      // Its footer says no count or time under the subagent's row either (`footerSays`).
+      folded = style.conclusion;
+    }
+    if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       const from = segment.anchor.at;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
       // tasks and ran 8 commands"), as every arm of workedLine but `time` does for any turn.
@@ -2272,7 +2294,7 @@ function shapeTurn(
               : // An unfolded segment's rows draw as they ran; its edits draw in the card (`editsCard`),
                 // and an Agent call whose subagent's row is in sight draws as that row alone.
                 unlabeled
-                ? withoutDrafts(row).filter((part) => !isEdit(part) && !onlySpawnsShownAgents(part, body))
+                ? withoutDrafts(row).filter((part) => !isEdit(part) && !onlySpawnsShownAgents(part, shown))
                 : renderRows([row], version),
       );
     // Closed over a turn that said something before its answer, the replies read in order and the
