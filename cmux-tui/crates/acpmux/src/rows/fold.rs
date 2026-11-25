@@ -164,6 +164,10 @@ const NOTICE_KINDS: &[&str] = &[
     // A model name read as its catalog id, or a turn retried under it (`hub/model_alias.rs`).
     "model_rewrite",
     "model_reroute",
+    // A sustained overload moved the chat to a smaller model, or back
+    // (`hub/auto_resume/capacity_failover.rs`).
+    "capacity_failover",
+    "capacity_restored",
     "policy_unenforced",
     "recap",
     "stopping",

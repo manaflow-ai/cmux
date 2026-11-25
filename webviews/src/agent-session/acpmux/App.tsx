@@ -473,6 +473,8 @@ import {
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
+import { AutoSessionBanner } from "./autoSession/AutoSessionBanner";
+import { autoUnderHeader } from "./autoSession/autoSession";
 import type { LocalCommand } from "./localCommands";
 import {
   composerAgentLocal,
@@ -736,7 +738,7 @@ import {
 import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/quickHost";
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
-import { turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { letGoHeldWorked, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -1603,7 +1605,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
-  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string>; letGo?: ReadonlySet<string> }>({
+    keys: new Set(),
+  });
   /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
   /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
   const heldWorkedClosing = useRef(false);
@@ -4978,11 +4982,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The tab's chat is not listed yet and its last-read rows are drawn (direct.ts `drawMissingTail`):
   /// why it is not here is a line under the header, over the transcript, not the centered state.
   const missingRows = !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
+  // An Auto chat's line and its kept-changes notice (autoSession/AutoSessionBanner.tsx): where the
+  // chat runs when that is not this Mac. A chat nobody runs says Resuming only once the person sent.
+  const autoSession = snapshot.summary?.autoSession;
+  const autoSending = snapshot.isWorking === true || snapshot.queue.length > 0;
+  const autoChat = snapshot.sessionId;
+  const autoBanner =
+    autoSession && autoChat && autoUnderHeader(autoSession, autoSending) ? (
+      <AutoSessionBanner
+        key={autoChat}
+        auto={autoSession}
+        sending={autoSending}
+        onSetUpCloud={() => connectMachine("cloud")}
+        onLeftover={(action) =>
+          directClient.current?.autoLeftover(autoChat, action) ?? Promise.reject(new Error(t("error.notOpen")))
+        }
+        onFailed={notices.failed}
+      />
+    ) : null;
   const underHeader: UnderHeaderLines = {
     checkpointReview: checkpoints.review != null,
     unavailable: missingRows && snapshot.unavailable?.reason !== "connecting",
     liveChat: !!snapshot.liveChat,
     peerCopy: !!snapshot.peerCopy?.offline,
+    autoSession: autoBanner !== null,
     watching: !!snapshot.summary?.watching,
     handoffError: !reviewing && !!snapshot.handoff?.error,
   };
@@ -9089,13 +9112,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
     // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
-    // their click: it was never their open fold.
-    if (heldWorked.current.keys.has(id)) {
-      const keys = new Set(heldWorked.current.keys);
-      keys.delete(id);
-      heldWorked.current = { ...heldWorked.current, keys };
+    // their click: it was never their open fold (pane/useTurnActions.ts `letGoHeldWorked`). In
+    // Thinking and Verbose the view opens it too, so the click also closes it there, below: else it
+    // stayed open and took a second click.
+    const letGo = letGoHeldWorked(heldWorked.current, id);
+    if (letGo) {
+      heldWorked.current = letGo;
       releaseCalls();
-      return;
+      if (view === "normal") return;
     }
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
@@ -10583,6 +10607,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     turnWorking,
     summaryPanel,
     underHeader,
+    autoBanner,
     checkpoints,
     cloudUnavailable,
     cloudRecovery,

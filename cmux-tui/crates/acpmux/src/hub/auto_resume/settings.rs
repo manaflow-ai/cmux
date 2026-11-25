@@ -10,6 +10,39 @@ use serde_json::Value;
 pub const SETTING_ENABLED: &str = "agents.autoRetry.enabled";
 pub const SETTING_INTERVAL: &str = "agents.autoRetry.intervalSeconds";
 pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
+/// After how many capacity attempts on one cut prompt its next one runs on a smaller model
+/// (`capacity_failover.rs`); 0 never switches.
+pub const SETTING_CAPACITY_FALLBACK: &str = "agents.autoRetry.capacityFallbackAfter";
+
+/// [`SETTING_CAPACITY_FALLBACK`]'s default: the first capacity failure's continuation already
+/// runs on the smaller model. Measured by the 529-storm chaos test (cmux#54913: 24 chats, a 90 s
+/// storm): at 3 no chat failed over before the storm ended (the third attempt waits
+/// 10 + 60 + 300 s) and 1995 s were lost against base's 1841 s; at 1 every chat that hit it
+/// failed over (14 of 14), all came back to their model, and 1324 s were lost (-28%), none after
+/// the storm.
+pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 1;
+
+/// The capacity failover's attempt in force: `configured` (config.json's
+/// `capacityFallbackAfter`) when set, else the settings file's, else the default. Held to
+/// 0..=[`MAX_CONFIGURED_ATTEMPTS`], a fraction rounded down.
+pub(in crate::hub) fn capacity_fallback_after(configured: Option<u64>) -> usize {
+    if let Some(n) = configured {
+        return usize::try_from(n).unwrap_or(usize::MAX).min(MAX_CONFIGURED_ATTEMPTS);
+    }
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => settings_fallback_after(&doc),
+        _ => DEFAULT_CAPACITY_FALLBACK_AFTER,
+    }
+}
+
+fn settings_fallback_after(doc: &Value) -> usize {
+    crate::user_settings::value(doc, SETTING_CAPACITY_FALLBACK)
+        .and_then(|v| v.as_f64())
+        .filter(|n| n.is_finite())
+        .map_or(DEFAULT_CAPACITY_FALLBACK_AFTER, |n| {
+            n.floor().clamp(0.0, MAX_CONFIGURED_ATTEMPTS as f64) as usize
+        })
+}
 
 /// The waits in force, one per attempt: `configured` (config.json's `autoResumeDelaysMs`) when
 /// set, else the settings file's, else the default. A settings file that cannot be read keeps
