@@ -1,0 +1,18 @@
+[package]
+name = "cmux-feed-approve"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The check of a phone's signed approve answer (cx-aocz): the shown-text digest, the signed bytes, the presence keys and the proof check, one definition for the Mac, the phone and Android"
+
+[dependencies]
+base64 = { workspace = true }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true
