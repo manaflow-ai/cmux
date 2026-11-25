@@ -287,6 +287,10 @@ extension Workspace {
         } else {
             setAgentLifecycle(key: key, panelId: panelId, lifecycle: .idle)
         }
+        // The custom-sidebar agents[].status reads the agent-chat registry, which no Stop will
+        // reach for this turn: settle it with the pill (#39157).
+        TerminalController.shared.agentChatTranscriptService?.noteProgramStatusIdle(
+            surfaceID: panelId.uuidString, source: source, at: edge)
         setStatusEntry(
             SidebarStatusEntry(
                 key: key,
