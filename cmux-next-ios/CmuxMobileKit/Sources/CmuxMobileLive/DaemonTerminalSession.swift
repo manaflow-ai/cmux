@@ -420,6 +420,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
     private var attaching = false
+    /// A ``reconnect()`` came while an attach ran (the link was served meanwhile): the attach
+    /// that is out may have looked for the link before it came, so one that ends waiting for the
+    /// link attaches again at once instead of waiting for a link that is already here.
+    private var reconnectWhileAttaching = false
     /// The daemon said the surface is gone (`detached`): never reattach.
     private var ended = false
     /// Attached to the surface now.
@@ -860,7 +864,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Attaches again after a dropped link. A no-op while attached or
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
-        guard handler != nil, !attached, !attaching, !ended else { return }
+        guard handler != nil, !attached, !ended else { return }
+        // A first attach on a cold launch runs while the link pairs: its open can read "no
+        // link" just before the link is served, and the link's own `reconnect()` of every
+        // terminal landed here while that attach was still out and was dropped. The attach
+        // then waited for a link that had come already: the terminal page drew its skeleton
+        // for good (Aziz's TestFlight build, 2026-11-25). Remember it instead.
+        if attaching {
+            reconnectWhileAttaching = true
+            return
+        }
         if gaveUp {
             // A fresh round of retries, from the shortest delay.
             gaveUp = false
@@ -1211,6 +1224,7 @@ public final class DaemonTerminalSession: TerminalSession {
         autoReattach?.cancel()
         autoReattach = nil
         attaching = true
+        reconnectWhileAttaching = false
         awaitingReplay = false
         defer { attaching = false }
         // A history fetch: the attach it replaces is live on this daemon.
@@ -1573,6 +1587,12 @@ public final class DaemonTerminalSession: TerminalSession {
                 attachRetries = 0
                 if let client = self.client { self.client = nil; Task { await client.close() } }
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
+                // The link came while this attach was out: attach on it now (after this
+                // attach's `defer`), not on a return that already happened.
+                if reconnectWhileAttaching, handler != nil, !ended {
+                    reconnectWhileAttaching = false
+                    Task { [weak self] in self?.reconnect() }
+                }
                 return
             }
             if attachRetries < reattachBackoff.count, handler != nil, !ended {
