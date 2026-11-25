@@ -1193,7 +1193,7 @@ fn ask_landed(record: &Record) -> Option<bool> {
         match ask_landed_once(record) {
             Asked::Settled(landed) => return Some(landed),
             Asked::Finishing | Asked::Restarting if Instant::now() < deadline => {
-                std::thread::sleep(FINISHING_PAUSE)
+                std::thread::sleep(FINISHING_PAUSE);
             }
             Asked::Finishing | Asked::Restarting | Asked::NoAnswer => return None,
         }
