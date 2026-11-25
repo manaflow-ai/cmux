@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSignposts
 
 /// Where each workspace row sits in a window's sections, so a row content
 /// change (agent status, OSC 7501 program status, title, unread, progress,
@@ -117,10 +118,13 @@ extension SidebarListView {
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         SidebarPerfCounters.add(.rowPatches, patched.count)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=patch")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it.
+        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it. The
+        // reload moves the rows below the changed ones (`spliceHeights`), laying out none (cmuxterm-hq#13493).
         if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { spliceBase = nil; showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
@@ -172,6 +176,7 @@ extension SidebarListView {
                 // again when that state moves, not on each step or title it reports.
                 if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws, lists: model.listsHolding(ws.id)) == true {
                     heightChanged = true
+                    pendingHeights = (nil, [:]) // the parent's row changes: no height splice shows it
                 }
                 continue
             }
@@ -183,8 +188,12 @@ extension SidebarListView {
             let m = metrics.resolved(for: o)
             guard m.height(for: content) == row.height else {
                 heightChanged = true
+                // The first height change since the last reload names the full layout it changes; a later one keeps it.
+                if pendingHeights == nil { pendingHeights = (spliceBase, [:]) }
+                pendingHeights?.rows[row.key] = content
                 continue
             }
+            pendingHeights?.rows[row.key] = nil // back to the height it shows: nothing left to move for it
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
         }

@@ -113,6 +113,10 @@ public nonisolated struct StatusIndicatorSettings: Hashable, Sendable {
     /// A loading page draws its spinner in its browser tab's icon slot
     /// (`appearance.statusIndicator.showPageLoading`); off, the tab keeps its favicon.
     public var showsPageLoading = true
+    /// The status icon set (`appearance.statusIndicator.iconSet`), as the raw value of
+    /// CmuxNextDesign's `StatusIconSet`, which this module cannot name; nil takes the set's default.
+    /// A Debug override of `status.iconSet` wins (`StatusIconSet.resolved(setting:in:)`).
+    public var iconSet: String?
 
     public init(style: StatusIndicatorStyle = .arc, scale: CGFloat = 1, thickness: CGFloat = 1.5, color: ThemeRGB? = nil,
                 honoredStyleSources: Set<StatusReport.Source> = Set(StatusReport.Source.allCases)) {
