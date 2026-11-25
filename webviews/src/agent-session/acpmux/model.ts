@@ -7,6 +7,7 @@ import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeig
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { ComposerStatus } from "./composerStatusModel";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -232,6 +233,7 @@ export type AcpmuxBackgroundTurn = {
 /// that ran it when the chat did not (a subagent's or workflow agent's shell).
 export type AcpmuxBackgroundSource = {
   command?: string;
+  description?: string;
   ownerId?: string;
   ownerTitle?: string;
 };
@@ -393,6 +395,11 @@ export type QueuedPrompt = {
   /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
   /// row names the subagent instead of drawing the prompt's text.
   retry?: SubagentRetryNotice;
+  /// acpmux's own prompt to the chat's agent, by its provenance kind (`surge_digest`,
+  /// `subagent_retry`, `auto_resume`, ...; acpmux `QueuedPromptSummary.origin` `acpmux`,
+  /// hub/queue_origin.rs). Not the person's: it draws apart from their steer rows, with none of
+  /// their actions (ComposerQueue.tsx `SystemNotes`; Leo, 2026-11-24).
+  system?: string;
   /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
@@ -1373,8 +1380,8 @@ export type AcpmuxSnapshot = {
   peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
-  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one
-  /// row for it (SurgeHoldRow.tsx).
+  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
+  /// tasks row (session-info/agentSide.ts).
   surge?: SurgeHold;
   summary?: {
     sessionId: string;
@@ -1408,6 +1415,10 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The composer footer's status dot items and quiet facts, as acpmux decided them
+    /// (`composerStatus`, acpmux `protocol/composer_status.rs`); absent from an older acpmux. Read
+    /// through composerStatusModel.ts `readComposerStatus`, which takes a null field as absent.
+    composerStatus?: ComposerStatus;
     /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
     /// acpmux without Auto, and the pane then offers and draws nothing of it.
     autoSession?: AutoSession;
@@ -1871,10 +1882,12 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
-export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+/// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
+/// from one that opens its turn over that line (`headsIncomingTurn`).
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
-  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0) |
+  (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
 /// Whether `row` is the top of a turn another agent's line opened, right under the turn before's last
 /// reply (transcriptGrid.ts MARK_TOPS_TURN): that notice or message (not a steer into the running turn,
@@ -1899,11 +1912,27 @@ const topsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
 /// under the fold's rule, over its "Sent to" (Leo, 2026-11-22 08:29Z, ST-02: "this one seems to have an
 /// unnecessary gap due to being a recieved message. these aren't categorized properly under our tool
 /// call formatting"; sim scenario `received-sent-as-activity`). O(1).
-const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+/// Neither when the line sits under its own turn's "Working for" / "Worked for" (`worked-<its id>`,
+/// conversation/turns.ts): that line already heads the turn, and the received line is one step of
+/// its work, flush under it on the tool rows' pitch, with the live line a step's gap under it. The
+/// head gap there drew it as a prompt, 16 under the turn's line and 16 over "Thinking" (Leo,
+/// 2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not
+/// properly getting treated like the tool call ish thing it should be and instead as if it were a
+/// message?"; sim/scenarios.ts `incoming-message-turn`, rule (d)).
+const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): boolean =>
   prev !== undefined &&
   (prev.kind === "user"
-    ? isLiveLine(row) && isStatusRow(prev)
-    : prev.kind === "worked" && prev.foldOpen !== true && row.kind === "user" && isStatusRow(row));
+    ? isLiveLine(row) && isStatusRow(prev) && !isOwnTurnLine(above, prev)
+    : prev.kind === "worked" &&
+      prev.foldOpen !== true &&
+      row.kind === "user" &&
+      isStatusRow(row) &&
+      !(prev.turnPhase === "running" && isOwnTurnLine(prev, row)));
+/// Under its own turn's ended, closed "Worked for" the line still opens the next turn: the head gap stays
+/// (test/received-sent-activity-gap.test.ts, ST-02); only the running header takes it in as a step.
+/// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
+const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
+  line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -2406,9 +2435,38 @@ export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endRe
 };
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
+/// A setext underline (`===` or `---` alone on its line, up to 3 spaces in) on one of `src`'s lines after
+/// its first and before its first blank line: the only text marked's `lheading` rule can match (its
+/// body never crosses a blank line). False means the rule cannot match `src`; true, that it may.
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+) *$/;
+export function maySetextHeading(src: string): boolean {
+  let start = src.indexOf("\n") + 1;
+  while (start > 0) {
+    const end = src.indexOf("\n", start);
+    const line = end < 0 ? src.slice(start) : src.slice(start, end);
+    if (SETEXT_UNDERLINE.test(line)) return true;
+    if (line.trim() === "") return false;
+    start = end + 1;
+  }
+  return false;
+}
+
+/// marked's tokenizer, its `lheading` rule asked only of text that may hold a setext heading. Under
+/// JavaScriptCore (WKWebView) that rule's regex costs time quadratic in a paragraph's length when it
+/// fails, which is nearly always: the streaming reply's open paragraph, lexed again on every token
+/// (`lexIncrementally`), spent most of its estimate there (bench/markdown-estimate-lex.bench.ts).
+/// The tokens are the same: the rule is skipped only where it cannot match.
+class EstimateTokenizer extends Tokenizer {
+  override lheading(src: string) {
+    return maySetextHeading(src) ? super.lheading(src) : undefined;
+  }
+}
+
 export function markdownBlocks(source: string): Token[] {
   try {
-    return lexer(source, { gfm: true, breaks: true }).filter((token) => token.type !== "space");
+    return lexer(source, { gfm: true, breaks: true, tokenizer: new EstimateTokenizer() }).filter(
+      (token) => token.type !== "space",
+    );
   } catch {
     return [{ type: "text", raw: source, text: source } as Token];
   }
@@ -3450,6 +3508,11 @@ function measuredRowHeight(
     let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       const key = inboxThreadKey(row.id, thread.threadId);
+      // A tool's notice shut is its one compact line (noticeRowLook.ts), no card under it.
+      if (thread.notice && noticeRowLook() !== "off" && !messageOpened(sessionId, key)) {
+        height += line + messagePreviewLine(true);
+        continue;
+      }
       const messages = thread.messages?.length
         ? thread.messages
         : (threadRead(sessionId, key, readForIds(thread.promptIds)) ?? undefined);
@@ -4041,7 +4104,11 @@ export function layoutConversation(
     // height), not the last row that is not bookkeeping: a run that draws 0 px (only a thought, a call
     // the live line names, a run split by a steer) between a steer and "Thinking" marked the line a
     // live step while its gap came from the steer, the turn gap (32) where 24 is due.
-    marks[index] = gridMark(row, previousContent >= 0 ? rows[previousContent] : prevDrawn);
+    marks[index] = gridMark(
+      row,
+      previousContent >= 0 ? rows[previousContent] : prevDrawn,
+      beforeContent >= 0 ? rows[beforeContent] : undefined,
+    );
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -4553,7 +4620,7 @@ import {
   type PreparedText,
   type PreparedTextWithSegments,
 } from "@chenglou/pretext";
-import { lexer, type Token, type Tokens } from "marked";
+import { lexer, Tokenizer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import {
   callDisclosureKey,
@@ -4604,6 +4671,7 @@ import { messageOpened } from "./conversation/incomingOpened";
 import { rowOpenState } from "./conversation/rowOpenState";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { noticeRowLook } from "./conversation/noticeRowLook";
 import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
 import { inboxThreadLook } from "./conversation/inboxThreadLook";
 import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";

@@ -16,6 +16,11 @@
 //!   to its default (only while the key holds that value). `{revision,
 //!   replayed, changed}`. A managed key, an unknown id, or a default that
 //!   already is the "on" value is refused.
+//!
+//! Both sit behind [`GATE`] (`experiments.appStoreFeatures`, off by default,
+//! Leo's UI rule "merge default-off"): while it is off the list says
+//! `enabled: false` with no features and the page draws no Features tab, and
+//! a set is refused.
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -28,6 +33,16 @@ use cmux_config::{Op, Origin, Row, Schema, State, Target, WriteMeta};
 
 /// The routed owner's name in spec/page-router.json.
 pub(super) const OWNER: &str = "apps.features";
+
+/// The experiment that turns the Features tab on (schemas/settings/source/experiments.json).
+pub(crate) const GATE: &str = "experiments.appStoreFeatures";
+
+/// Whether [`GATE`] is on in `state` (a missing key reads as off).
+fn gate_on(state: &State) -> bool {
+    let view = state.get(&Target::Key(GATE.to_owned()));
+    let value = view.row.as_ref().and_then(|row| row.value.clone()).or(view.value);
+    value == Some(Value::Bool(true))
+}
 
 /// One curated feature: a settings key and, for a choice key, the value
 /// that means "on" (a toggle key's "on" is `true`).
@@ -119,7 +134,8 @@ pub(crate) fn features(schema: &'static Schema) -> Vec<Feature> {
     }
     for (prefix, group) in DYNAMIC {
         for row in schema.rows_in(None) {
-            if row.key.starts_with(prefix) && matches!(row.kind, Kind::Toggle) {
+            // The gate is the tab itself, not a feature on it.
+            if row.key.starts_with(prefix) && matches!(row.kind, Kind::Toggle) && row.key != GATE {
                 out.push(Feature { id: row.key.clone(), group, row, on: Value::Bool(true) });
             }
         }
@@ -186,8 +202,8 @@ pub(crate) fn plan(
     }
 }
 
+/// Unknown fields are ignored, so an older or newer page still talks to this daemon.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetParams {
     id: String,
     on: bool,
@@ -195,7 +211,6 @@ struct SetParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ListParams {}
 
 fn decode<T: for<'de> Deserialize<'de>>(params: Map<String, Value>) -> Result<T, ResourceError> {
@@ -213,9 +228,13 @@ pub(super) fn routed(
         "apps.features.list" => {
             let ListParams {} = decode(params)?;
             Ok(mux.with_settings(|state| {
+                if !gate_on(state) {
+                    return json!({"revision": state.revision(), "enabled": false, "features": []});
+                }
                 let list = features(state.schema());
                 json!({
                     "revision": state.revision(),
+                    "enabled": true,
                     "features": list.iter().map(|f| feature_json(state, f)).collect::<Vec<_>>(),
                 })
             }))
@@ -223,6 +242,13 @@ pub(super) fn routed(
         "apps.features.set" => {
             let SetParams { id, on, idempotency_key } = decode(params)?;
             let (key, write, managed) = mux.with_settings(|state| {
+                if !gate_on(state) {
+                    return Err(ResourceError::operation_failed(
+                        operation,
+                        "the Features tab is off (Settings > Advanced > Experiments)",
+                        json!({"key": GATE}),
+                    ));
+                }
                 let list = features(state.schema());
                 let feature = list.into_iter().find(|f| f.id == id).ok_or_else(|| {
                     ResourceError::validation_invalid(Some("id"), format!("no feature {id:?}"))
@@ -316,6 +342,18 @@ mod tests {
         assert_eq!(ids.len(), total);
         assert!(list.iter().any(|f| f.group == "Experiments"));
         assert!(list.iter().any(|f| f.group == "Labs"));
+    }
+
+    #[test]
+    fn the_gate_is_an_experiment_that_is_off_by_default() {
+        let row =
+            Schema::embedded().row(GATE).expect("experiments.appStoreFeatures is a schema row");
+        assert!(matches!(row.kind, Kind::Toggle));
+        assert_eq!(row.default, Some(Value::Bool(false)));
+        assert!(
+            features(Schema::embedded()).iter().all(|f| f.row.key != GATE),
+            "the gate is not a switch on its own tab"
+        );
     }
 
     #[test]
