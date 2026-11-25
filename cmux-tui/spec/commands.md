@@ -1600,6 +1600,28 @@ workspaces it may see, and once a workspace of the daemon was incognito, its
 `tree_revision` is a digest of the rows it is answered, so a change to an
 incognito workspace never moves it.
 
+With `workspace-list-delta-v1`, a client that holds a tree sends `since:
+{epoch, seq}`, the cursor of the last reply it applied (`{epoch: "", seq: 0}`
+when it holds none). The daemon keeps a digest of each workspace entry of the
+last tree it read for `since`, and a bounded ring (256 ids) of the ids whose
+entry changed or went away, keyed by a `seq` that moves once per read that
+found a change. When the cursor's `epoch` is this daemon run's and its `seq` is
+one the ring still covers, the result is `{delta: true, epoch, seq, changed,
+removed, workspaces: [], registry_id, generation, workspace_revision,
+pane_revision, terminal_revision}`: `changed` holds every workspace entry
+(keyed by its `id`) that changed past the cursor, exactly as the whole tree
+renders it, `removed` the ids no longer in the tree, `order` every id in the
+tree's order when the order changed, and `groups` the whole groups list when
+it changed; the client replaces or adds each changed entry by `id`, drops the
+removed ones, and keeps the new `epoch` and `seq`. Anything the tree shows
+(a title, an unread marker, a branch) moves exactly the entry that shows it,
+since the digests are of the rendered entries. Otherwise (another daemon run,
+a cursor older than the ring, or one never given out) the result is the whole
+tree with `epoch` and `seq` added. `since` takes precedence over `known`,
+`limit` and `after`. A remote device that must not see some workspaces gets
+its whole pruned tree with no `epoch` or `seq`. A request without `since` (or
+with `since: null`) gets the result above, byte for byte.
+
 Params:
 
 | Name | Type | Required | Notes |
@@ -1607,6 +1629,7 @@ Params:
 | `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
 | `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 | `after` | integer | no | `list-workspaces-page-v1`: with `limit`, the position in sidebar order the page starts at (a page's `next`) |
+| `since` | object | no | `workspace-list-delta-v1`: `{epoch, seq}` of the last reply applied; only the changed entries keyed by id |
 
 Result:
 
