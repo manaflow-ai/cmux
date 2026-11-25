@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 @testable import CmuxNextDaemon
+import CmuxNextMobileHost
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -162,5 +164,53 @@ import Testing
         let page = try #require(cache.browser(for: tab)?.tab as? WebKitTab)
         #expect(page.standIn != nil, "its last picture covers the page until it paints")
         #expect(!frames.hasPicture(tab.id))
+    }
+
+    /// Leo 2026-11-24: "there are too many empty previews in the safari grid thing we ought to be able to simply
+    /// capture them before they get hibernated maybe". After a relaunch a browser tab not shown since has no page
+    /// (Chromium makes it on the first show), and the phones' pictures were only of tabs with a page: its card stayed
+    /// blank though its last picture was on disk. That picture now goes to the phones, once the read of the disk ends
+    /// and the tab's surface is known.
+    @Test func aTabNotShownSinceTheRelaunchSendsItsLastPictureToThePhones() async throws {
+        let cache = cache()
+        let tab = restoredTab(42)
+        let (frames, folder) = try await frames(with: tab.id)
+        let phoneFolder = FileManager.default.temporaryDirectory.appending(path: "restored-phone-pictures-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder); try? FileManager.default.removeItem(at: phoneFolder) }
+        cache.pageFrames = frames
+        var known = false // the tab list loads after the pictures are held
+        cache.findTab = { known && $0 == tab.id ? tab : nil }
+        let iphone = IPhoneHostService(loginKeychain: LoginKeychain())
+        cache.phonePictures = PhoneTabPictures(iphone: iphone, folder: phoneFolder, surface: { [weak cache] in cache?.phoneSurface($0) },
+                                               encode: { _, _, _ in (Data([0xFF, 0xD8, 0xFF, 3]), 8, 5) }, wanted: { true })
+        let sent = { ((try? FileManager.default.contentsOfDirectory(atPath: phoneFolder.path)) ?? []).contains { $0.hasPrefix("42-thumb-") } }
+        #expect(cache.existingBrowser(tab.id) == nil, "the tab has no page")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!sent(), "no surface known yet")
+        known = true
+        cache.phonePictures?.heldChanged()
+        try await until { sent() }
+        #expect(frames.hasPicture(tab.id), "the restored tab's first show still gets its picture")
+        withExtendedLifetime(iphone) {}
+    }
+
+    /// A picture saved this run (a hibernated page's) is held in memory as written, not as bytes: the phones' card
+    /// reads it from disk.
+    @Test func aPictureSavedThisRunIsReadBackFromDisk() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "saved-page-frames-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let frames = BrowserPageFrames(directory: folder)
+        await frames.prefetch(on: BackgroundWork()).value
+        frames.save(try Self.picture(), for: "a")
+        #expect(frames.keys.contains("a"))
+        let deadline = ContinuousClock.now + .seconds(10)
+        var picture: CGImage?
+        while picture == nil, ContinuousClock.now < deadline {
+            picture = await frames.lastPicture("a")
+            if picture == nil { try await Task.sleep(for: .milliseconds(10)) }
+        }
+        #expect(picture?.width == 120)
+        frames.remove("a")
+        #expect(!frames.keys.contains("a"))
     }
 }
