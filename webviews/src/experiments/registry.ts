@@ -25,6 +25,7 @@ import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.exper
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
+import { chatgptSignedInLook } from "../pages/shared/signIn/chatgptSignedIn.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
@@ -207,6 +208,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartQuietLook,
   cloudProgressLook,
   cloudStartAskLook,
+  chatgptSignedInLook,
   startRecoveryLook,
   agentStartLook,
   composerUnpop,
