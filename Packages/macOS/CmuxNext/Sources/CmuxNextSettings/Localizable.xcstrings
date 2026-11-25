@@ -203511,6 +203511,270 @@
         }
       }
     },
+    "settings.agents.autoRetry.capacityFallbackAfter": {
+      "comment": "Settings > Agents > Retry After Errors: number of capacity errors before a model switch",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد أخطاء السعة قبل التبديل إلى Sonnet"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broj grešaka kapaciteta prije prelaska na Sonnet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapacitetsfejl før skift til Sonnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapazitätsfehler vor dem Wechsel zu Sonnet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capacity Failures Before Switching to Sonnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errores de capacidad antes de cambiar a Sonnet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreurs de capacité avant le passage à Sonnet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errori di capacità prima del passaggio a Sonnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet に切り替えるまでの容量エラー回数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនកំហុសសមត្ថភាពមុនពេលប្ដូរទៅ Sonnet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet으로 전환하기 전 용량 오류 횟수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapasitetsfeil før bytte til Sonnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczba błędów przeciążenia przed zmianą na Sonnet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erros de capacidade antes de mudar para o Sonnet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Число ошибок перегрузки до перехода на Sonnet"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนข้อผิดพลาดจากการรองรับโหลดก่อนเปลี่ยนไปใช้ Sonnet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet’e geçmeden önceki kapasite hatası sayısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кількість помилок перевантаження до переходу на Sonnet"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số lỗi quá tải trước khi chuyển sang Sonnet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到 Sonnet 前的容量错误次数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換至 Sonnet 前的容量錯誤次數"
+          }
+        }
+      }
+    },
+    "settings.agents.autoRetry.capacityFallbackAfter.help": {
+      "comment": "Settings > Agents > Retry After Errors: when the chat switches models and how to turn switching off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد هذا العدد من أخطاء السعة المتتالية، تنتقل المحادثة من Opus أو Fable إلى Sonnet حتى ينجح أحد الأدوار. اضبط القيمة على 0 للبقاء على النموذج الأصلي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon ovoliko uzastopnih grešaka kapaciteta, razgovor prelazi s modela Opus ili Fable na Sonnet dok se jedan potez uspješno ne završi. Postavite na 0 da zadržite izvorni model."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter så mange kapacitetsfejl i træk skifter chatten fra Opus eller Fable til Sonnet, indtil en tur lykkes. Vælg 0 for at beholde den oprindelige model."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach so vielen Kapazitätsfehlern in Folge wechselt der Chat von Opus oder Fable zu Sonnet, bis eine Antwort gelingt. Bei 0 bleibt das ursprüngliche Modell aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras este número de errores de capacidad consecutivos, el chat pasa de Opus o Fable a Sonnet hasta que se completa un turno con éxito. Elige 0 para conservar el modelo original."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après ce nombre d’erreurs de capacité consécutives, la conversation passe d’Opus ou de Fable à Sonnet jusqu’à ce qu’un tour aboutisse. Choisissez 0 pour garder le modèle d’origine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo questo numero di errori di capacità consecutivi, la chat passa da Opus o Fable a Sonnet finché un turno non va a buon fine. Imposta 0 per mantenere il modello originale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量エラーが指定回数連続すると、Opus または Fable から Sonnet に切り替わります。ターンが成功すると元のモデルに戻ります。0 にすると切り替えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលមានកំហុសដោយសារខ្វះសមត្ថភាពជាប់គ្នាដល់ចំនួននេះ ការជជែកនឹងប្ដូរពី Opus ឬ Fable ទៅ Sonnet រហូតដល់ការឆ្លើយតបមួយបានជោគជ័យ។ កំណត់ជា 0 ដើម្បីបន្តប្រើម៉ូដែលដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "용량 오류가 이 횟수만큼 연속으로 발생하면 Opus 또는 Fable에서 Sonnet으로 전환하고, 한 턴이 성공하면 원래 모델로 돌아갑니다. 0으로 설정하면 원래 모델을 계속 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter så mange kapasitetsfeil på rad bytter samtalen fra Opus eller Fable til Sonnet til en runde lykkes. Velg 0 for å beholde den opprinnelige modellen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po tylu kolejnych błędach przeciążenia czat przechodzi z modelu Opus lub Fable na Sonnet, aż jedna tura zakończy się pomyślnie. Ustaw 0, aby zachować pierwotny model."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após esse número de erros de capacidade consecutivos, a conversa passa do Opus ou do Fable para o Sonnet até que um turno seja concluído com sucesso. Defina como 0 para manter o modelo original."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После указанного числа ошибок перегрузки подряд чат переходит с Opus или Fable на Sonnet до первого успешного ответа. Укажите 0, чтобы сохранить исходную модель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเกิดข้อผิดพลาดจากการรองรับโหลดติดต่อกันครบจำนวนนี้ แชตจะเปลี่ยนจาก Opus หรือ Fable ไปใช้ Sonnet จนกว่าจะตอบสำเร็จหนึ่งรอบ ตั้งค่าเป็น 0 เพื่อใช้โมเดลเดิมต่อไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art arda bu sayıda kapasite hatası oluşursa sohbet, bir tur başarıyla tamamlanana kadar Opus veya Fable yerine Sonnet kullanır. İlk modeli kullanmaya devam etmek için 0 seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після вказаної кількості помилок перевантаження поспіль чат переходить з Opus або Fable на Sonnet до першої успішної відповіді. Укажіть 0, щоб зберегти початкову модель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau số lần lỗi quá tải liên tiếp này, cuộc trò chuyện chuyển từ Opus hoặc Fable sang Sonnet cho đến khi một lượt thành công. Đặt thành 0 để giữ nguyên mô hình ban đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连续发生指定次数的容量错误后，对话会从 Opus 或 Fable 切换到 Sonnet，直到一轮对话成功完成。设为 0 可继续使用原模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連續發生指定次數的容量錯誤後，對話會從 Opus 或 Fable 切換至 Sonnet，直到一輪對話成功完成。設為 0 可繼續使用原本的模型。"
+          }
+        }
+      }
+    },
     "settings.agents.autoRetry.enabled": {
       "comment": "Settings > Agents > Retry After Errors: toggle title",
       "extractionState": "manual",
@@ -246887,6 +247151,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.quietConnect": {
+      "comment": "Settings > Experimental row title: connection notices (Resuming…, Connecting…) stay quiet while a connection comes up quickly.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "اتصالات هادئة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tihe veze"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Stille forbindelser"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Leise Verbindungen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Quiet Connections"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Conexiones silenciosas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connexions discrètes"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Connessioni silenziose"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "静かな接続表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការតភ្ជាប់ស្ងាត់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "조용한 연결"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Stille tilkoblinger"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ciche połączenia"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Conexões silenciosas"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Тихие подключения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การเชื่อมต่อแบบเงียบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sessiz bağlantılar"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Тихі підключення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kết nối yên lặng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "安静连接"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "安靜連線"}}
+      }
+    },
+    "settings.experiments.quietConnect.help": {
+      "comment": "Settings > Experimental > Quiet Connections help: short connection waits show no status words.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "إخفاء \"جارٍ الاستئناف…\" وانتظار الاتصال الذي ينتهي خلال 10 ثوانٍ."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sakrij \"Nastavljanje…\" i čekanja na vezu koja završe za 10 sekundi."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skjul \"Genoptager…\" og ventetid på forbindelse, der slutter inden for 10 sekunder."}},
+        "de": {"stringUnit": {"state": "translated", "value": "„Wird fortgesetzt…“ und Verbindungswartezeiten ausblenden, die innerhalb von 10 Sekunden enden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Hide Resuming… and connection waits that end within 10 seconds."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ocultar \"Reanudando…\" y las esperas de conexión que terminan en 10 segundos."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Masquer « Reprise… » et les attentes de connexion qui se terminent en moins de 10 secondes."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nascondi \"Ripresa…\" e le attese di connessione che finiscono entro 10 secondi."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "10 秒以内に終わる「再開中…」と接続待ちを表示しません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "លាក់ \"កំពុងបន្ត…\" និងការរង់ចាំការតភ្ជាប់ដែលបញ្ចប់ក្នុងរយៈពេល 10 វិនាទី។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "10초 안에 끝나는 \"재개 중…\"과 연결 대기를 숨깁니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skjul «Gjenopptar…» og tilkoblingsventing som slutter innen 10 sekunder."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ukryj „Wznawianie…” i oczekiwanie na połączenie, które kończy się w ciągu 10 sekund."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ocultar \"Retomando…\" e esperas de conexão que terminam em até 10 segundos."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Скрывать «Возобновление…» и ожидание подключения, которое заканчивается за 10 секунд."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ซ่อน \"กำลังดำเนินการต่อ…\" และการรอเชื่อมต่อที่จบภายใน 10 วินาที"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "\"Sürdürülüyor…\" ve 10 saniye içinde biten bağlantı beklemelerini gizle."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Приховувати «Відновлення…» та очікування підключення, що завершується за 10 секунд."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Ẩn \"Đang tiếp tục…\" và các lần chờ kết nối kết thúc trong vòng 10 giây."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "隐藏 10 秒内结束的“正在恢复…”和连接等待。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "隱藏 10 秒內結束的「正在繼續…」和連線等待。"}}
+      }
+    },
     "settings.experiments.terminalHistory": {
       "comment": "Settings > Experimental row title: a button on Claude Code and Codex terminal panes that opens the agent's earlier history as a read-only chat.",
       "extractionState": "manual",
@@ -246939,6 +247257,60 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Terminal Claude Code và Codex có một nút mở lịch sử trước đó dưới dạng cuộc trò chuyện chỉ đọc."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude Code 和 Codex 终端会多出一个按钮，可将其早前的历史记录作为只读聊天打开。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
+      }
+    },
+    "settings.experiments.threadMinimapRestReveal": {
+      "comment": "Settings > Experimental row title: the agent chat prompt rail opens only for a resting pointer and never under a text selection drag.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط المطالبات ينتظر مؤشرًا ثابتًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Traka upita čeka miran pokazivač"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Promptlisten venter på en stillestående markør"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Prompt-Leiste wartet auf ruhenden Zeiger"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prompt Rail Waits for a Resting Pointer"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La barra de prompts espera a un puntero quieto"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le rail des invites attend un pointeur immobile"}},
+        "it": {"stringUnit": {"state": "translated", "value": "La barra dei prompt attende un puntatore fermo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロンプトレールはポインタの静止を待つ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របារសំណើរង់ចាំព្រួញនៅស្ងៀម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프롬프트 레일은 포인터가 멈출 때까지 대기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Promptlisten venter på en markør i ro"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pasek promptów czeka na nieruchomy wskaźnik"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A barra de prompts espera o ponteiro parar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Лента запросов ждёт остановки указателя"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แถบพรอมต์รอให้ตัวชี้หยุดนิ่ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "İstem Çubuğu Duran İmleci Bekler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Стрічка запитів чекає зупинки вказівника"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh lời nhắc chờ con trỏ dừng lại"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "提示栏等待指针停留"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "提示列等待指標停留"}}
+      }
+    },
+    "settings.experiments.threadMinimapRestReveal.help": {
+      "comment": "Settings > Experimental > Prompt Rail Waits for a Resting Pointer help: what the switch changes in narrow agent chats.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "في المحادثات الضيقة يفتح شريط المطالبات فقط عندما يستقر المؤشر على الحافة، وليس أثناء تحديد النص أبدًا."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "U uskim chatovima traka upita se otvara samo kada pokazivač miruje na rubu, nikad dok birate tekst."}},
+        "da": {"stringUnit": {"state": "translated", "value": "I smalle chats åbner promptlisten kun, når markøren hviler på kanten, aldrig mens du markerer tekst."}},
+        "de": {"stringUnit": {"state": "translated", "value": "In schmalen Chats öffnet sich die Prompt-Leiste nur, wenn der Zeiger am Rand ruht, nie beim Markieren von Text."}},
+        "en": {"stringUnit": {"state": "translated", "value": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text."}},
+        "es": {"stringUnit": {"state": "translated", "value": "En chats estrechos, la barra de prompts solo se abre cuando el puntero se detiene en el borde, nunca mientras seleccionas texto."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dans les discussions étroites, le rail des invites ne s’ouvre que lorsque le pointeur reste sur le bord, jamais pendant une sélection de texte."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Nelle chat strette la barra dei prompt si apre solo quando il puntatore resta fermo sul bordo, mai mentre selezioni il testo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "幅の狭いチャットでは、ポインタが端で止まったときだけプロンプトレールが開き、テキスト選択中は開きません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្នុងការជជែកតូចចង្អៀត របារសំណើបើកតែពេលព្រួញនៅស្ងៀមលើគែម មិនដែលបើកពេលអ្នកកំពុងជ្រើសអត្ថបទទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "좁은 채팅에서는 포인터가 가장자리에 머물 때만 프롬프트 레일이 열리며, 텍스트를 선택하는 동안에는 열리지 않습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "I smale chatter åpnes promptlisten bare når markøren hviler på kanten, aldri mens du merker tekst."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "W wąskich czatach pasek promptów otwiera się tylko, gdy wskaźnik zatrzyma się przy krawędzi, nigdy podczas zaznaczania tekstu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Em chats estreitos, a barra de prompts só abre quando o ponteiro para na borda, nunca enquanto você seleciona texto."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В узких чатах лента запросов открывается, только когда указатель остановится у края, и никогда во время выделения текста."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ในแชตที่แคบ แถบพรอมต์จะเปิดเมื่อตัวชี้หยุดนิ่งที่ขอบเท่านั้น และจะไม่เปิดขณะคุณเลือกข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Dar sohbetlerde istem çubuğu yalnızca imleç kenarda durduğunda açılır, metin seçerken asla açılmaz."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "У вузьких чатах стрічка запитів відкривається, лише коли вказівник зупиниться біля краю, і ніколи під час виділення тексту."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trong cuộc trò chuyện hẹp, thanh lời nhắc chỉ mở khi con trỏ dừng ở mép, không bao giờ khi bạn đang chọn văn bản."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在窄聊天中，只有指针停在边缘时提示栏才会打开，选择文本时绝不会打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在窄聊天中，只有指標停在邊緣時提示列才會打開，選取文字時絕不會打開。"}}
       }
     },
     "settings.experiments.terminalHistoryFind": {

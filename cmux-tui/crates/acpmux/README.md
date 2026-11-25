@@ -407,6 +407,7 @@ cmux agent session tail NAME --since <sessionId>:<seq> --follow   # raw events a
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 # Race CLI commands run inside an authenticated acpmux agent session:
 acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race new -n 3 -m claude/haiku --hint "" --hint "write the failing test first" --hint "read the code path first" --reviewer claude/sonnet "task"  # attempts that diverge on purpose: one plan hint per candidate, in order ("" = the task alone)
 acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
 acpmux race stats                                              # each model's wins / completed races
 acpmux race stop RACE                                          # cancel this race's work, retain its record
@@ -458,7 +459,12 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 `{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport`,
 `agent_exited` or `disk`), null otherwise. A turn a full disk cut ("No space left on device")
 waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
-re-checked every 15 s), then goes on the same way. Sign-in failures never retry this way. An account's usage or
+re-checked every 15 s), then goes on the same way. From the `capacityFallbackAfter`th capacity attempt of one prompt
+on (default 1, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
+none), a chat on Opus or Fable continues on the catalog's newest Sonnet, with one
+`capacity_failover {from, to, attempt, promptId, text}` notice row and log line; the first turn
+that ends well there puts its own model back (`capacity_restored`), and the chat's meta keeps
+that model across a daemon restart (`hub/auto_resume/capacity_failover.rs`). Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
 words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,

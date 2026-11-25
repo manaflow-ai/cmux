@@ -130,8 +130,9 @@ pub fn secondary_interface(
         .cloned()
 }
 
-/// Datagrams from the second socket (beside `UDP_PATH` and `TURN_PATH`).
-pub(super) const SECONDARY_PATH: PathId = PathId(3);
+/// Datagrams from the second socket (beside `UDP_PATH`, `TURN_PATH` and
+/// `RELAY_PATH`, which is 3).
+pub(super) const SECONDARY_PATH: PathId = PathId(4);
 
 /// A peer address heard within this long is where copies go.
 const HEARD_RECENT: Duration = Duration::from_secs(14);
