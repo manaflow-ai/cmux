@@ -69,6 +69,14 @@
     var(--grid-composer-lead-center) / var(--cmux-interface-scale, 1) * var(--cv-composer-density) -
       var(--grid-transcript-icon-box) / 2
   );
+  /* A row's outset (.acpmux-row below): 0 px at 298 px of content and wider, 8 px under it. Declared
+     here, once, and read by each row: a custom property's 100% resolves where it is used, so a row
+     gets the same value as if it declared it. */
+  --cv-lead-outset: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
+    8px
+  );
   --cv-font: var(--instrument-type-chat-family, var(--font-ui));
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -1705,10 +1713,11 @@
   width: fit-content;
   max-width: 100%;
   margin: var(--cv-table-before, 6.5px) 0 14px;
+  margin-inline: auto;
 }
 /* Beside: the pair sits just past the table's right edge, so the block leaves room for it. */
 .cv-table-block[data-actions="beside"] {
-  max-width: calc(100% - var(--cv-table-tools-width) - var(--cv-action-gap, 4px));
+  max-width: calc(100% - 2 * (var(--cv-table-tools-width) + var(--cv-action-gap, 4px)));
 }
 .cv-table-tools {
   position: absolute;
@@ -2411,6 +2420,9 @@ pre.cv-math-source {
      Motion (0 with animations off). */
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+  /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
+     so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
+  --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
    nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
@@ -2482,13 +2494,15 @@ pre.cv-math-source {
 /* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
    (computerUse/computerUsePreview.css). */
 /* --cv-lead tucks the rows to the composer's +; under 298 px of content the composer card reaches
-   8 px past the column (composerLocation.css --acpmux-composer-narrow-outset), and its + with it. */
+   8 px past the column (composerLocation.css --acpmux-composer-narrow-outset), and its + with it
+   (--cv-lead-outset, declared on the transcript above).
+   No custom property is declared on a row: one declared there (this outset was) gives each row a
+   custom property set of its own instead of the one it inherits, and WebKit styled every row and
+   the elements in it about twice as slowly. A fling mounts a viewport of rows a frame and the
+   transcript measures them in the same commit, so that one declaration was about half of a fling
+   frame's React time (82 cloned rows, 1,203 elements, WebKit: 36-42 ms to insert, style and lay
+   out with it, 18-26 ms without; bench/transcript-scroll-frame.bench.ts). */
 .acpmux-row {
-  --cv-lead-outset: clamp(
-    0px,
-    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
-    8px
-  );
   left: calc(var(--cv-inset) + var(--cv-lead) - var(--cv-lead-outset));
   right: var(--cv-inset-end, var(--cv-inset));
 }
@@ -6778,7 +6792,7 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
- * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
+ * tool call, a status line), fade in on the shared standard token. `translate` and
  * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
  * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
 /* A row that comes in only fades, at its place (Leo, 2026-11-09: "these animations all slosh around
@@ -8760,7 +8774,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-needs-input-glyph.is-answered {
   align-self: center;
   margin-inline-end: var(--ds-space-2);
-  animation: cv-needs-input-answered var(--cmux-motion-standard, 180ms) var(--cmux-ease-out) both;
+  animation: cv-needs-input-answered var(--agent-motion-arrive, 80ms) var(--cmux-ease-out) both;
 }
 @keyframes cv-needs-input-answered {
   from {

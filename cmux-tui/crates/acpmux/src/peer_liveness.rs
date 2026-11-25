@@ -119,7 +119,6 @@ pub fn timers() -> Vec<Timer> {
 pub fn worst_cases() -> Vec<WorstCase> {
     let t = LinkTimings::default();
     let budget = t.silence_budget();
-    let ping = t.ping_every;
     let connect = Duration::from_secs(SSH_CONNECT_SECS);
     let slow = Duration::from_secs(SSH_CONNECT_SLOW_SECS);
     let wait = Backoff::BASE;
@@ -129,40 +128,40 @@ pub fn worst_cases() -> Vec<WorstCase> {
     vec![
         WorstCase {
             case: "dead link noticed",
-            bound: budget + ping,
-            sum: format!("silence budget {} + one ping interval {}", s(budget), s(ping)),
+            bound: budget,
+            sum: format!("silence budget {}, checked when it runs out", s(budget)),
         },
         WorstCase {
             case: "dead link noticed, budget grown",
-            bound: cap + ping,
-            sum: format!("silence cap {} + one ping interval {}", s(cap), s(ping)),
+            bound: cap,
+            sum: format!("silence cap {}", s(cap)),
         },
         WorstCase {
             case: "first redial attempt gives up",
-            bound: budget + ping + wait + connect,
+            bound: budget + wait + connect,
             sum: format!(
                 "noticed {} + first wait {} + ssh connect {}",
-                s(budget + ping),
+                s(budget),
                 s(wait),
                 s(connect)
             ),
         },
         WorstCase {
             case: "first redial gives up, slow banner",
-            bound: budget + ping + wait + slow,
+            bound: budget + wait + slow,
             sum: format!(
                 "noticed {} + first wait {} + slow ssh connect {}",
-                s(budget + ping),
+                s(budget),
                 s(wait),
                 s(slow)
             ),
         },
         WorstCase {
             case: "second redial begins, client waiting",
-            bound: budget + ping + wait + connect + wanted,
+            bound: budget + wait + connect + wanted,
             sum: format!(
                 "first attempt gave up {} + wanted cap {}",
-                s(budget + ping + wait + connect),
+                s(budget + wait + connect),
                 s(wanted)
             ),
         },
@@ -234,7 +233,7 @@ mod tests {
     fn a_dead_link_is_noticed_in_seconds_and_redial_starts_under_ten() {
         let cases = worst_cases();
         let bound = |name: &str| cases.iter().find(|c| c.case == name).expect(name).bound;
-        assert_eq!(bound("dead link noticed"), Duration::from_secs(8));
+        assert_eq!(bound("dead link noticed"), Duration::from_secs(6));
         assert!(bound("first redial attempt gives up") < Duration::from_secs(12));
         assert!(
             bound("first redial gives up, slow banner") > Duration::from_secs(20),
