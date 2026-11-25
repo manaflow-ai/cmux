@@ -109,7 +109,7 @@ nonisolated extension SidebarLayout {
                          filtering: Bool) -> [TreeRow] {
         let state: (Int) -> SidebarAgentState = { i in
             guard let ws = workspace(i) else { return .idle }
-            return SidebarAgentState.of(ws, lane: live?.states[ws.id])
+            return SidebarAgentState.of(ws, lane: live?.laneStates[ws.id] ?? live?.states[ws.id])
         }
         // Agent-started sessions hide (`hidesStarted`) but for the ones that need the person or are selected; a filter
         // finds them all. The rows that stay draw under their parents, open: no fold, no roll-up of hidden rows.

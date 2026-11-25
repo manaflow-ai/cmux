@@ -120,8 +120,15 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     /// What each workspace's agents are doing, as acpmux decided it (the lanes); a workspace
     /// without a lane is read from its own row (`SidebarAgentState.of`).
     public var states: [WorkspaceID: SidebarAgentState] {
-        didSet { needsPerson = Set(states.compactMap { Self.needsPerson($0.value) ? $0.key : nil }) }
+        didSet {
+            laneStates = states
+            needsPerson = Set(states.compactMap { Self.needsPerson($0.value) ? $0.key : nil })
+        }
     }
+    /// The complete lane state map used for hidden-row visibility. `shape` keeps only the blocked projection in
+    /// `states` so ordinary lane ticks do not invalidate the layout options, while this map preserves lane precedence
+    /// over a stale hook state on the workspace row. It is intentionally excluded from value identity below.
+    var laneStates: [WorkspaceID: SidebarAgentState]
     /// Agent-started sessions whose current state needs the person. This small projection lets the live tree
     /// distinguish a visibility-changing blocked transition from ordinary state ticks without comparing every lane.
     public private(set) var needsPerson: Set<WorkspaceID>
@@ -146,15 +153,44 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
                 states: [WorkspaceID: SidebarAgentState] = [:], collapsed: Set<WorkspaceID> = [],
                 opened: Set<WorkspaceID> = [], foldsDeep: Bool = false, hidesStarted: Bool = false,
                 keeps: Set<WorkspaceID> = []) {
+        self.init(parents: parents, pullRequests: pullRequests, states: states, laneStates: states,
+                  collapsed: collapsed, opened: opened, foldsDeep: foldsDeep, hidesStarted: hidesStarted, keeps: keeps)
+    }
+
+    private init(parents: [WorkspaceID: WorkspaceID], pullRequests: [WorkspaceID: SidebarPullRequestBadge],
+                 states: [WorkspaceID: SidebarAgentState], laneStates: [WorkspaceID: SidebarAgentState],
+                 collapsed: Set<WorkspaceID>, opened: Set<WorkspaceID>, foldsDeep: Bool, hidesStarted: Bool,
+                 keeps: Set<WorkspaceID>) {
         self.parents = parents
         self.pullRequests = pullRequests
         self.states = states
+        self.laneStates = laneStates
         self.needsPerson = Set(states.compactMap { Self.needsPerson($0.value) ? $0.key : nil })
         self.collapsed = collapsed
         self.opened = opened
         self.foldsDeep = foldsDeep
         self.hidesStarted = hidesStarted
         self.keeps = keeps
+    }
+
+    /// `laneStates` is a visibility source carried through `shape`, not part of the layout shape's identity. The
+    /// synthesized identity would make every running/idle tick invalidate the sidebar's order cache.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.parents == rhs.parents && lhs.pullRequests == rhs.pullRequests && lhs.states == rhs.states
+            && lhs.needsPerson == rhs.needsPerson && lhs.collapsed == rhs.collapsed && lhs.opened == rhs.opened
+            && lhs.foldsDeep == rhs.foldsDeep && lhs.hidesStarted == rhs.hidesStarted && lhs.keeps == rhs.keeps
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(parents)
+        hasher.combine(pullRequests)
+        hasher.combine(states)
+        hasher.combine(needsPerson)
+        hasher.combine(collapsed)
+        hasher.combine(opened)
+        hasher.combine(foldsDeep)
+        hasher.combine(hidesStarted)
+        hasher.combine(keeps)
     }
 
     /// Whether `state` keeps an agent-started session drawn while `hidesStarted` hides the rest: a question or a
@@ -239,8 +275,9 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     /// a second.
     public var shape: SidebarSessionTreeState {
         let waiting = hidesStarted ? states.filter { Self.needsPerson($0.value) && parents[$0.key] != nil } : [:]
-        return SidebarSessionTreeState(parents: parents, states: waiting, collapsed: collapsed, opened: opened,
-                                       foldsDeep: foldsDeep, hidesStarted: hidesStarted, keeps: keeps)
+        return SidebarSessionTreeState(parents: parents, pullRequests: pullRequests, states: waiting, laneStates: states,
+                                       collapsed: collapsed, opened: opened, foldsDeep: foldsDeep,
+                                       hidesStarted: hidesStarted, keeps: keeps)
     }
 
     /// The state fields that can move a tree row, excluding lane states and pull-request answers. The live tree uses

@@ -477,6 +477,12 @@ import Testing
         var waiting = order
         waiting[0].nodes[1] = .workspace({ var ws = SidebarWorkspace(id: Self.lane, title: "lane"); ws.activity = .waiting; return ws }())
         #expect(Self.rows(waiting, tree: tree).map(\.id) == [Self.coordinator, Self.lane, Self.mine])
+        // A known idle lane wins over a stale hook-level waiting state after the layout shape filters ordinary lane
+        // states. The helper stays hidden instead of reappearing because its hook has not cleared yet.
+        var staleHook = Self.sections([Self.coordinator, Self.lane])
+        staleHook[0].nodes[1] = .workspace({ var ws = SidebarWorkspace(id: Self.lane, title: "lane"); ws.activity = .waiting; return ws }())
+        let idleLane = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator], states: [Self.lane: .idle], hidesStarted: true)
+        #expect(Self.rows(staleHook, tree: idleLane.shape).map(\.id) == [Self.coordinator])
         // The row index lays the list out again when a hidden row starts or stops waiting, not on its other changes.
         let idle = SidebarWorkspace(id: Self.lane, title: "lane")
         var asks = idle
