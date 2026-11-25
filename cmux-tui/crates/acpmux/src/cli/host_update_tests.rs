@@ -586,6 +586,24 @@ fn an_identical_push_leaves_the_installed_binary_and_previous_build_untouched() 
 
 #[test]
 #[cfg(unix)]
+fn an_identical_push_repairs_a_nonexecutable_install() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let peer = FakePeer::new("identical-push-mode");
+    let installed = peer.home.join(".local/bin/acpmux");
+    std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let rel = format!("binaries/acpmux-{TARGET}");
+    peer.exe(&rel, &fake_acpmux(OLD, Some(OLD)));
+
+    push_update(&peer, &peer.home.join(rel), Some(OLD), false, false).unwrap();
+
+    let out = peer.exec(".local/bin/acpmux --version", None).unwrap();
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(out.stdout.trim(), format!("acpmux 1.0.0 ({OLD})"));
+}
+
+#[test]
+#[cfg(unix)]
 fn an_update_pushes_the_targets_binary_and_restarts_the_unit() {
     let peer = FakePeer::new("update");
     peer.offer(NEW, Some(NEW));
