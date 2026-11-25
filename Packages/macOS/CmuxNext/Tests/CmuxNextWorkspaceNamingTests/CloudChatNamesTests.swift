@@ -203,5 +203,7 @@ struct CloudChatNamesTests {
         #expect(AgentTurnStateStore.plainName("\u{202E}evil\u{202C}\r\n\tname  ") == "evil name")
     }
 
-    private final class Changed: @unchecked Sendable { var fired = false }
+    // Nonisolated: the observation's onChange closure is Sendable and sets `fired` off the suite's main actor;
+    // the test reads it only after the synchronous noteRemote that fires it.
+    private nonisolated final class Changed: @unchecked Sendable { var fired = false }
 }
