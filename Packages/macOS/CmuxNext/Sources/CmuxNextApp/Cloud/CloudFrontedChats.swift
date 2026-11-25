@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import enum CmuxNextHomeEngine.AgentPaneHostKind
 import CmuxNextTabs
 import Foundation
 import Observation
@@ -196,10 +197,10 @@ extension CloudFrontedChats {
     static func filesPlace(_ chat: AgentTabKey, services: AppServices) -> (link: AgentPaneGitLink, machine: DaemonService?, beside: String)? {
         guard let link = services.agentTabs.gitLinkScoped?(chat),
               let (tab, _) = chat.machine.isEmpty ? services.locateTab(chat.key) : services.locateTab(chat.key, onMachine: chat.machine) else { return nil }
-        // This Mac's tree only for a chat this Mac's acpmux runs, listed here: a peer's or another host's chat named by
-        // this Mac's tree reads the local link too, and its folder is that host's path.
+        // This Mac's tree only for a chat this Mac's acpmux runs (any of its install hosts), listed here: never a chat whose
+        // folder is another host's path.
         if link === services.agentGit.local {
-            guard services.machines.daemon(forTab: tab).isLocal, let host = tab.agentSession?.host, host == services.agentTabs.localHost else { return nil }
+            guard services.machines.daemon(forTab: tab).isLocal, let record = tab.agentSession, services.agentTabs.hostKind(record, listedHere: true) == .local else { return nil }
             return (link, nil, chat.key)
         }
         guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
