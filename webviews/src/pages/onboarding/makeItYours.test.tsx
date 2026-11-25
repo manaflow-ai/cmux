@@ -41,7 +41,7 @@ async function checked(state: OnboardingState): Promise<Record<string, string>> 
 }
 
 describe("make cmux yours", () => {
-  test("a fresh person sees the three choices on the recommended answers, and Skip / Continue", async () => {
+  test("a fresh person sees the four choices on the recommended answers, and Skip / Continue", async () => {
     const html = render(makeItYoursState("fresh"));
     const words = text(html);
     for (const key of [
@@ -49,6 +49,10 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.work.gui",
       "onboarding.makeItYours.work.terminal",
       "onboarding.makeItYours.recommended",
+      "onboarding.makeItYours.runIn.label",
+      "onboarding.makeItYours.runIn.local",
+      "onboarding.makeItYours.runIn.cloud",
+      "onboarding.makeItYours.runIn.local.detail",
       "onboarding.makeItYours.background.none",
     ])
       expect(words).toContain(strings.t(key));
@@ -69,9 +73,10 @@ describe("make cmux yours", () => {
     expect(html).toContain(`aria-label="${strings.t("onboarding.makeItYours.background.shuffle")}"`);
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
-    // One checked radio per group: GUI-first, Default, no background; no material set.
+    // One checked radio per group: GUI-first, chats on this Mac, Default, no background; no material set.
     expect(await checked(makeItYoursState("fresh"))).toEqual({
       workStyle: "gui",
+      chatsRunIn: "local",
       density: "cozy",
       background: "",
     });
@@ -80,6 +85,7 @@ describe("make cmux yours", () => {
   test("the settings a person already has are what is checked", async () => {
     expect(await checked(makeItYoursState("picked"))).toEqual({
       workStyle: "gui",
+      chatsRunIn: "cloud",
       density: "compact",
       background: "dahl-dresden-moonlight",
       material: "frosted",
@@ -88,9 +94,9 @@ describe("make cmux yours", () => {
   });
 
   test("every look draws every choice; the default draws the window from the answers", () => {
-    // Two ways to work, five densities, None and eleven backgrounds, four materials.
+    // Two ways to work, two places chats run, five densities, None and eleven backgrounds, four materials.
     for (const look of ["preview", "segmented", "form", "cards", "rows"] as const)
-      expect(render(makeItYoursState("picked"), look).match(/type="radio"/g)?.length).toBe(2 + 5 + 12 + 4);
+      expect(render(makeItYoursState("picked"), look).match(/type="radio"/g)?.length).toBe(2 + 2 + 5 + 12 + 4);
     expect(render(makeItYoursState("picked"), "cards")).toContain("onb-make-tile-name");
     expect(render(makeItYoursState("picked"), "rows")).not.toContain("onb-make-tile-name");
     const preview = render(makeItYoursState("picked"));
@@ -103,6 +109,21 @@ describe("make cmux yours", () => {
     const terminal = render(makeItYoursState("terminal"));
     expect(terminal).toContain("onb-make-pane-term");
     expect(terminal).not.toContain("onb-make-pane-chat");
+  });
+
+  test("Cloud is offered to a person with nothing installed, and its caption says so", () => {
+    const fresh = text(render(makeItYoursState("fresh")));
+    expect(fresh).toContain(strings.t("onboarding.makeItYours.runIn.label"));
+    expect(fresh).not.toContain(strings.t("onboarding.makeItYours.runIn.cloud.detail"));
+    const cloud = text(render(makeItYoursState("picked")));
+    expect(cloud).toContain(strings.t("onboarding.makeItYours.runIn.cloud.detail"));
+  });
+
+  test("an older host that sends no chatsRunIn gets the screen without that row", () => {
+    const state = makeItYoursState("fresh");
+    const html = render({ ...state, makeItYours: { ...state.makeItYours!, chatsRunIn: undefined } });
+    expect(html).not.toContain('name="chatsRunIn"');
+    expect(html.match(/type="radio"/g)?.length).toBe(2 + 5 + 12 + 4);
   });
 
   test("while the previews load only None is offered", () => {
@@ -127,6 +148,7 @@ describe("make cmux yours", () => {
     const radio = (name: string, value: string) =>
       root.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
     await act(async () => radio("workStyle", "terminal").click());
+    await act(async () => radio("chatsRunIn", "local").click());
     await act(async () => radio("density", "comfortable").click());
     await act(async () => radio("density", "ultraCompact").click());
     await act(async () => radio("density", "spacious").click());
@@ -135,6 +157,7 @@ describe("make cmux yours", () => {
     await act(async () => radio("material", "glass-clear").click());
     expect(calls).toEqual([
       { op: OPS.workStyle, params: { value: "terminal" } },
+      { op: OPS.chatsRunIn, params: { value: "local" } },
       { op: OPS.density, params: { value: "comfortable" } },
       { op: OPS.density, params: { value: "ultraCompact" } },
       { op: OPS.density, params: { value: "spacious" } },
