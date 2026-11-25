@@ -225,7 +225,18 @@ struct TeamPage: View {
     let auth: CmuxMobileAuthModel
     let edit: () -> Void
     let invite: () -> Void
-    @State private var members: SettingsLoad<[TeamMember]> = .loading
+    private let cache: LastKnownList?
+    @State private var members: SettingsLoad<[TeamMember]>
+    @State private var memberRequest = 0
+
+    init(team: Team, auth: CmuxMobileAuthModel, cache: LastKnownList?, edit: @escaping () -> Void, invite: @escaping () -> Void) {
+        self.team = team
+        self.auth = auth
+        self.cache = cache
+        self.edit = edit
+        self.invite = invite
+        _members = State(initialValue: cache?.read([TeamMember].self).map(SettingsLoad.loaded) ?? .loading)
+    }
 
     var body: some View {
         List {
@@ -250,8 +261,10 @@ struct TeamPage: View {
                 switch members {
                 case .loading:
                     CmuxMobileGutterRow {
+                        // placeholder-ok: No member list has ever been received for this account and team.
                         CmuxSpinner()
                     } content: {
+                        // placeholder-ok: First load of this team's member list.
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
@@ -290,11 +303,19 @@ struct TeamPage: View {
     }
 
     private func loadMembers() async {
+        memberRequest += 1
+        let request = memberRequest
         if case .loaded = members {} else { members = .loading }
+        let userID = auth.user?.id
         do {
-            members = .loaded(try await auth.teamMembers(teamID: team.id))
+            let list = try await auth.teamMembers(teamID: team.id)
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
+            members = .loaded(list)
+            cache?.save(list)
         } catch is CancellationError {
         } catch {
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
+            if case .loaded = members { return }
             members = .failed("Couldn't load the team's members.")
         }
     }
@@ -386,6 +407,14 @@ struct TerminalPage: View {
                 .accessibilityIdentifier("settings.terminalZoomFullScreenApps")
             } footer: {
                 Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalHistoryFind) {
+                    SettingsLabel("Find in Whole History", symbol: "doc.text.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalHistoryFind")
+            } footer: {
+                Text("Find searches the terminal's whole history on the Mac, not only the lines on this phone.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -639,6 +668,14 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.alignKeepalives")
             } footer: {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.lanDirect) {
+                    Text("Direct on Wi-Fi")
+                }
+                .accessibilityIdentifier("settings.transport.lanDirect")
+            } footer: {
+                Text("Talk to your Mac directly when you share a network. Off: always use the relay.")
             }
             Section {
                 Toggle(isOn: $settings.quietCloudConnect) {

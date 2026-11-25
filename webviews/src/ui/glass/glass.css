@@ -413,13 +413,13 @@
    - --wl-tint, --wl-tint-share: the picture's mean color and how far the glass surface leans to it.
    The material rim (above) keeps its white top-left specular and gains a colored line and a soft wash
    on the edge that faces the light; the glass surface leans toward the picture's color (mixed in
-   linear light). The colors are theme colors, so a new picture crossfades them with the theme's own
+   Oklab, which keeps the hue between the two). The colors are theme colors, so a new picture crossfades them with the theme's own
    transition (appearance.colorTransition, off with motion off); the numbers move at once. Reduce
    Transparency, Liquid Glass off and the lens keep their own looks. */
 @media not (prefers-reduced-transparency: reduce) {
   :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]) {
     --glass-surface: color-mix(
-      in srgb-linear,
+      in oklab,
       var(--cmux-surface-solid, Canvas),
       var(--wl-tint) calc(100% * var(--wl-tint-share))
     );
@@ -709,6 +709,19 @@
   --glass-tint: var(--glass-opaque) !important;
   --glass-backdrop: none !important;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
+}
+
+/* GLASS ENGINE (ui/glass/engine/, opt-in: the Debug choice Liquid Glass > Glass Engine, or the
+   glass-engine experiment). While it draws (data-glass-engine-draws, set with data-glass-lens), the
+   canvas adds the theme surface under each glass only where the wallpaper under it would fight the
+   text (its adaptive veil), so the fixed tint every glass lays on top comes down: clear glass over a
+   calm wallpaper, a denser one over a busy or text-colored one. Its rim light comes from the canvas,
+   brighter, and the middle zooms the wallpaper a little. Reduce Transparency never reaches here (no
+   lens), and with the engine off nothing below applies. */
+:root[data-glass-engine-draws][data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --ds-glass-lens-tint: 26%;
+  --glass-gloss: 0.85;
+  --glass-magnify: 0.025;
 }
 
 /* surface-roles:begin. Follows schemas/surface-roles/surface-roles.json (scripts/cmux-next/check-surface-roles.py checks it). */

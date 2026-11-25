@@ -1,19 +1,20 @@
 import CmuxMobileDesign
 import Foundation
+import CmuxMobileModel
 import Observation
 
 /// One of the account's Cloud machines as the phone's Cloud Machines page shows it (the Mac's
 /// Machines section, Cloud rows): a `cloud.machine.list` item (backend/packages/protocol
 /// `CloudMachine`).
-public struct CloudMachine: Identifiable, Hashable, Sendable {
-    public enum Status: String, Hashable, Sendable {
+public struct CloudMachine: Codable, Identifiable, Hashable, Sendable {
+    public enum Status: String, Codable, Hashable, Sendable {
         case provisioning, starting, running, pausing, paused, deleting, failed
 
         /// A change is under way; the next list settles it.
         public var isTransition: Bool { [.provisioning, .starting, .pausing, .deleting].contains(self) }
     }
 
-    public struct Size: Hashable, Sendable {
+    public struct Size: Codable, Hashable, Sendable {
         public var cpu: Int?
         public var memoryMB: Int?
         public var diskMB: Int?
@@ -150,7 +151,7 @@ public struct CloudMachine: Identifiable, Hashable, Sendable {
 }
 
 /// A snapshot of a Cloud machine (`cloud.snapshot.list`), or an archive of a deleted one.
-public struct CloudMachineSnapshot: Identifiable, Hashable, Sendable {
+public struct CloudMachineSnapshot: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var machine: String
     public var name: String?
@@ -167,7 +168,11 @@ public struct CloudMachineSnapshot: Identifiable, Hashable, Sendable {
     public static func list(_ value: Data) -> [CloudMachineSnapshot] {
         guard let root = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
               let items = root["snapshots"] as? [[String: Any]] else { return [] }
-        return items.compactMap { item in
+        return parse(items)
+    }
+
+    static func parse(_ items: [[String: Any]]) -> [CloudMachineSnapshot] {
+        items.compactMap { item in
             guard let id = item["id"] as? String, let machine = item["machine"] as? String else { return nil }
             let archive = item["archive_of"] as? [String: Any]
             return CloudMachineSnapshot(id: id, machine: machine, name: item["name"] as? String,
@@ -181,7 +186,7 @@ public struct CloudMachineSnapshot: Identifiable, Hashable, Sendable {
 }
 
 /// The team's Cloud plan (`cloud.plan.get`): its limits, the sizes it allows and this period's use.
-public struct CloudMachinePlan: Hashable, Sendable {
+public struct CloudMachinePlan: Codable, Hashable, Sendable {
     public var planID: String
     public var maxActive: Int
     public var maxSaved: Int
@@ -290,16 +295,35 @@ public final class CloudMachinesModel {
     }
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
+    @ObservationIgnored private let cache: LastKnownList?
+    @ObservationIgnored private var refreshID = 0
     @ObservationIgnored var newKey: () -> String = { UUID().uuidString.lowercased() }
     /// The DEBUG gallery's fixed page: it never reads the service.
     @ObservationIgnored var skipsLoad = false
 
-    public init(account: @escaping @MainActor () -> AccountCloud?) {
+    public init(cache: LastKnownList? = nil, account: @escaping @MainActor () -> AccountCloud?) {
         self.account = account
+        self.cache = cache
+        restoreCache()
     }
 
     public static func live(_ sources: ChiefSources = .shared) -> CloudMachinesModel {
-        CloudMachinesModel { [weak sources] in sources?.account }
+        let source = sources.personalListSource("cloud-machines")
+        return CloudMachinesModel(cache: source.cache, account: source.account)
+    }
+
+    private struct Cached: Codable, Sendable {
+        var machines: [CloudMachine]
+        var snapshots: [CloudMachineSnapshot]
+        var plan: CloudMachinePlan?
+    }
+
+    private func restoreCache() {
+        guard let saved = cache?.read(Cached.self) else { return }
+        machines = saved.machines
+        snapshots = saved.snapshots
+        plan = saved.plan
+        phase = .loaded
     }
 
     public var canAct: Bool { busyID == nil && account() != nil }
@@ -315,8 +339,10 @@ public final class CloudMachinesModel {
         return machines.sorted { (rank($0.status), -($0.createdAt?.timeIntervalSince1970 ?? 0)) < (rank($1.status), -($1.createdAt?.timeIntervalSince1970 ?? 0)) }
     }
 
-    public func load() async {
+    public func load(reportFailure: Bool = false) async {
         if skipsLoad { return }
+        refreshID += 1
+        let current = refreshID
         guard let account = account() else {
             phase = .failed(String(localized: "Sign in to cmux to see your Cloud machines."))
             return
@@ -332,27 +358,34 @@ public final class CloudMachinesModel {
                 var params: [String: any Sendable] = ["limit": 100]
                 if let cursor { params["cursor"] = cursor }
                 let page = try await account.read("cloud.machine.list", params: params)
-                rows += CloudMachine.list(page)
+                rows += try AccountCloud.listItems("machines", in: page).compactMap(CloudMachine.parse)
                 cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
             } while cursor != nil && rows.count < 1000
+            let nextPlan = (try? await planned).flatMap(CloudMachinePlan.parse)
+            let nextSnapshots = (try? await saved).flatMap { value in
+                (try? AccountCloud.listItems("snapshots", in: value)).map { CloudMachineSnapshot.parse($0) }
+            }
+            guard current == refreshID, self.account() != nil, !Task.isCancelled else { return }
             machines = rows
-            // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
-            plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
-            if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
+            if let nextPlan { plan = nextPlan }
+            if let nextSnapshots { snapshots = nextSnapshots }
             settleHeldActions()
             phase = .loaded
+            cache?.save(Cached(machines: machines, snapshots: snapshots, plan: plan))
             unreached = nil
             unreachedQuiet.update(down: false)
         } catch is CancellationError {
+            guard current == refreshID, self.account() != nil else { return }
             phase = before
         } catch {
+            guard current == refreshID, self.account() != nil else { return }
             let message = Self.message(error)
-            if machines.isEmpty {
+            if phase != .loaded {
                 phase = .failed(message)
             } else if AccountCloud.isUnreachable(error), CmuxMobilePreferences.quietCloudConnect() {
                 unreached = message
                 unreachedQuiet.update(down: true)
-            } else {
+            } else if reportFailure {
                 failure = message
             }
         }
