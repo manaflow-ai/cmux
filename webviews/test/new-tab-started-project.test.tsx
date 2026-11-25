@@ -77,7 +77,11 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-beforeEach(() => stored.clear());
+beforeEach(async () => {
+  stored.clear();
+  // A new launch: the app's copy of Cloud's last pick the module holds is gone with the page's storage.
+  (await import("../src/agent-session/acpmux/newtab/startedProject")).forgetAppCloudPickForTests();
+});
 
 afterAll(async () => {
   act(() => root?.unmount());
@@ -512,7 +516,7 @@ test("cmd-N: with nothing known the chip still holds its place (no layout shift)
 /// A New Tab with Cloud picked; its Return starts Cloud (`onCloud`), and its folder grants (`onProjectPicked`).
 async function cloudTab(
   sessions: ReturnType<typeof session>[],
-  fields: { startedProject?: string; knownProjects?: string[] } = {},
+  fields: { startedProject?: string; cloudStartedProject?: string; knownProjects?: string[] } = {},
   { offeredLate = false } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -599,4 +603,55 @@ test("a Cloud offered after the New Tab mounts still grants the default folder, 
   const page = await cloudTab([theirs], {}, { offeredLate: true });
   expect(page.granted).toContain(PICKED);
   expect(page.folder).toBe(PICKED);
+});
+
+// Chief relaying the person (2026-11-25): with Where = Cloud the folder chip must name the folder of the last Cloud
+// chat, kept per mode across launches; This Mac keeps its own. Before, Cloud's memory was the page's storage, which
+// ends with the launch: after a relaunch Cloud fell back to This Mac's folder.
+test("after a relaunch, Cloud's New Tab starts where the last Cloud chat did, not in This Mac's last folder (cmux#53226)", async () => {
+  const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  const posted: unknown[] = [];
+  (window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> }).cmuxAcpmuxActions = {
+    "newTab.remember": async (params) => void posted.push(params),
+  };
+  try {
+    // This run: the person starts a Cloud chat in a repository; the app is told, to keep it across launches.
+    const first = await cloudTab([theirs], { cloudStartedProject: "github:acme/api" });
+    expect(first.folder).toBe("github:acme/api");
+    expect(posted).toContainEqual({ cloudStarted: "github:acme/api" });
+    // Relaunch: the page's storage and this run's copy are gone; the app's copy names Cloud's last pick, and This
+    // Mac's last folder (`startedProject`) stays This Mac's.
+    stored.clear();
+    forgetAppCloudPickForTests();
+    const page = await cloudTab([theirs], { startedProject: PICKED, cloudStartedProject: "github:acme/api" });
+    expect(page.chip).toContain("acme/api");
+    expect(page.folder).toBe("github:acme/api");
+    expect(stored.get(STARTED_KEY)).toBeUndefined();
+  } finally {
+    delete (window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    forgetAppCloudPickForTests();
+  }
+});
+
+test("after a relaunch, a remembered Cloud folder of this Mac is the default and is granted again (cmux#53226)", async () => {
+  const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  forgetAppCloudPickForTests();
+  const BILLING = "/Users/you/src/billing";
+  const page = await cloudTab([theirs], {
+    startedProject: PICKED,
+    cloudStartedProject: BILLING,
+    knownProjects: [PICKED, BILLING],
+  });
+  expect(page.chip).toContain("billing");
+  expect(page.folder).toBe(BILLING);
+  expect(page.granted).toContain(BILLING);
+  forgetAppCloudPickForTests();
+});
+
+test("the New Tab context's Cloud pick reaches the page: a folder or a GitHub repository, a relative path never", async () => {
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
+  expect(newTabHost({ newTab: { cloudStartedProject: "github:acme/api" } })?.cloudStartedProject).toBe("github:acme/api");
+  expect(newTabHost({ newTab: { cloudStartedProject: PICKED } })?.cloudStartedProject).toBe(PICKED);
+  expect(newTabHost({ newTab: { cloudStartedProject: "acme/api" } })?.cloudStartedProject).toBeUndefined();
+  expect(newTabHost({ newTab: { cloudStartedProject: HOME } })?.cloudStartedProject).toBeUndefined();
 });

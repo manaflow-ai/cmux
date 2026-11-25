@@ -413,6 +413,11 @@ extension AgentPaneRequest {
                 var pick = AgentPaneRememberedPick(agent: "")
                 pick.started = started
                 self = .rememberNewTab(pick)
+            } else if let cloud = params?["cloudStarted"] as? String, AgentPaneRememberedPick.isCloudPick(cloud) {
+                // The folder or repository of a Cloud chat the person started (Cloud's own default, cmux#53226).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.cloudStarted = cloud
+                self = .rememberNewTab(pick)
             } else if params?["harnessHint"] as? String == "dismissed" {
                 // Integrate a harness dismissed for good (a page choice like the agent pick).
                 var pick = AgentPaneRememberedPick(agent: "")

@@ -17,6 +17,7 @@ public final class NewTabChoiceMemory {
     private static let picksKey = "newTab.lastPicks"
     private static let harnessHintKey = "newTab.harnessHintDismissed"
     private static let startedProjectKey = "newTab.startedProject"
+    private static let cloudStartedProjectKey = "newTab.cloudStartedProject"
     @ObservationIgnored private let defaults: UserDefaults
     /// Bumped by each remembered pick, so an observer (the iPhone host's sync of the last
     /// picks to acpmux) reads ``agent`` and ``picks`` again.
@@ -47,12 +48,23 @@ public final class NewTabChoiceMemory {
         return defaults.string(forKey: Self.startedProjectKey).flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 
+    /// The folder or GitHub repository (`github:owner/name`) the person last started a Cloud chat in (`newTab.remember`
+    /// `cloudStarted`): a page with Cloud picked starts there, apart from This Mac's ``startedProject`` (cmux#53226).
+    public var cloudStartedProject: String? {
+        _ = revision
+        return defaults.string(forKey: Self.cloudStartedProjectKey).flatMap { AgentPaneRememberedPick.isCloudPick($0) ? $0 : nil }
+    }
+
     /// A value the page should never send (empty, too long) is ignored. Every agent pick, also on its
     /// own default, is the next New Tab's; one naming no model keeps the last pick's model on that agent.
     public func remember(_ pick: AgentPaneRememberedPick) {
         if pick.dismissesHarnessHint { defaults.set(true, forKey: Self.harnessHintKey) }
         if let started = pick.started, started.hasPrefix("/"), started.count <= 4096 {
             defaults.set(started, forKey: Self.startedProjectKey)
+            revision += 1
+        }
+        if let cloud = pick.cloudStarted, AgentPaneRememberedPick.isCloudPick(cloud) {
+            defaults.set(cloud, forKey: Self.cloudStartedProjectKey)
             revision += 1
         }
         guard !pick.agent.isEmpty, pick.agent.count <= 128 else { return }

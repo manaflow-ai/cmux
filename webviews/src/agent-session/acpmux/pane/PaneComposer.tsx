@@ -21,7 +21,7 @@ import { knownRefusalText } from "../transportErrors";
 import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject } from "../newtab/startedProject";
+import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -1129,6 +1129,9 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
+                // The folder this Cloud chat started in is Cloud's next default, kept apart from This Mac's
+                // (newtab/startedProject.ts, cmux#53226).
+                if (started && "cwd" in folder) rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {

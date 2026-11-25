@@ -94,7 +94,8 @@ import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { rememberCloudPick, rememberedCloudPick, startedProjectChoices } from "./startedProject";
+import { cloudPickChoices, rememberCloudPick, startedProjectChoices } from "./startedProject";
+import { callNative } from "../callNative";
 import {
   canonicalAddress,
   defaultSelection,
@@ -361,6 +362,9 @@ type Props = NewTabScreenActions & {
   /// (newtab/startedProject.ts; this run's own copy wins): where a tab with no folder of its own
   /// starts, before the newest chat's folder (which agents move).
   startedProject?: string;
+  /// The app's copy of the folder the person last started a Cloud chat in (newtab/startedProject.ts; this run's own
+  /// copy wins): where a page with Cloud picked starts, kept across launches.
+  cloudStartedProject?: string;
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
@@ -854,13 +858,13 @@ export function NewTabScreen(props: Props) {
   // folder they last started a chat in (`started`), a folder of this Mac as itself, never its GitHub origin's
   // repository and never No folder (cmux#53226). A folder no pick named (the tab's inherited one) still goes as
   // none: it once went as a 23 GB copy (#53186).
-  const [cloudRemembered] = useState(rememberedCloudPick);
+  // This run's copy, then the app's, kept across launches (`cloudStartedProject`).
+  const [cloudRemembered] = useState(() => cloudPickChoices(props.cloudStartedProject));
   // A remembered folder of this Mac counts only while the host's project list still has it (removed or deleted
-  // gives way to `started`, as cmux#51272); a GitHub repository stays as it is.
-  const cloudKnown =
-    cloudRemembered !== undefined && !githubFolderRepo(cloudRemembered)
-      ? firstProject([cloudRemembered], undefined, props.knownProjects)
-      : cloudRemembered;
+  // gives way to the next pick, then `started`, as cmux#51272); a GitHub repository stays as it is.
+  const cloudKnown = cloudRemembered.find(
+    (folder) => githubFolderRepo(folder) || firstProject([folder], undefined, props.knownProjects) !== undefined,
+  );
   const cloudDefault = !picked && !none ? (cloudKnown ?? started) : undefined;
   // The default is the person's pick from before: the host grants it here too, so the Cloud start can copy it.
   const grantDefault = useRef(props.onProjectPicked);
@@ -1103,7 +1107,7 @@ export function NewTabScreen(props: Props) {
     if (cloudMode && !machine && props.onCloud) {
       const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
-      if (started === true) rememberCloudPick(askFolder);
+      if (started === true) rememberCloudPick(askFolder, callNative);
       return started === true;
     }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {

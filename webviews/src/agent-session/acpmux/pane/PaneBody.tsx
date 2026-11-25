@@ -1071,6 +1071,7 @@ export function drawPaneBody({
                   lastAgent={newTab.lastAgent}
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+                  {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
