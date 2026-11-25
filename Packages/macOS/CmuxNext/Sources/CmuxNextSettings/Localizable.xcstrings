@@ -205925,7 +205925,7 @@
       }
     },
     "settings.cloud.autoCloud": {
-      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto start a chat on a Cloud machine when this Mac has no room (AutoCloud preview, off by default).",
+      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto place a chat on a Cloud machine when this Mac has no room.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -205937,7 +205937,7 @@
       }
     },
     "settings.cloud.autoCloud.help": {
-      "comment": "Help for the AutoCloud toggle: where Auto runs a new chat.",
+      "comment": "Help for the Auto Places Chats in Cloud toggle.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -206000,6 +206000,30 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "CLAUDE.md, AGENTS.md, tác tử, lệnh, kỹ năng và ghi chú bộ nhớ của Claude theo bạn sang máy Cloud. Không bao giờ gửi thông tin đăng nhập hay tệp cài đặt. Thay đổi của tác tử chờ bạn trong Session Info; chỉ bạn mới có thể thay đổi mục này. Tắt sẽ xóa bản sao của bạn trên đám mây và dừng mọi lần gửi."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "你的 CLAUDE.md、AGENTS.md、智能体、命令、技能和 Claude 的记忆笔记会随你来到云端机器。绝不包括凭据或设置文件。智能体的更改会在 Session Info 中等你确认；只有你能更改此项。关闭会删除你在云端的副本并停止所有推送。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "你的 CLAUDE.md、AGENTS.md、代理程式、指令、技能和 Claude 的記憶筆記會隨你來到雲端機器。絕不包括憑證或設定檔。代理程式的變更會在 Session Info 中等你確認；只有你能變更此項。關閉會刪除你在雲端的副本並停止所有推送。"}}
+      }
+    },
+    "settings.cloud.autoCloud": {
+      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto start a chat on a Cloud machine when this Mac has no room (AutoCloud preview, off by default).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Places Chats in Cloud"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoCloud.help": {
+      "comment": "Help for the AutoCloud toggle: where Auto runs a new chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          }
+        }
       }
     },
     "settings.cloud.agentsStartWithoutAsking": {
