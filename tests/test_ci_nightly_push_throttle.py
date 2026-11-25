@@ -676,10 +676,15 @@ def test_a_cmux_next_rc_publishes_only_when_the_variable_says_so() -> None:
     assert on["should_publish"] == "true"
     assert on["app_name"] == "cmux RC"
     assert on["icon_name"] == "AppIcon-RC"
+    # Apple silicon only, like nightly-next: one arm64 DMG and its feed (Intel is retired for cmux-next).
+    assert json.loads(on["variants"]) == ["arm64"]
+    assert on["feeds"] == "appcast-arm64.xml"
+    assert on["compile_archs"] == "arm64"
     # The gate is RC only: main's nightly and the nightly-next track are not held by it.
     main_outputs = run_decide(event="push", tag_age_hours=2.5, extra_env=NEXT_ENV)["outputs"]
     assert main_outputs["rc_held"] == "false"
     assert main_outputs["should_publish"] == "true"
+    assert json.loads(main_outputs["variants"]) == ["arm64", "x86_64", "universal"]
 
 
 def test_the_rc_variable_reaches_decide() -> None:

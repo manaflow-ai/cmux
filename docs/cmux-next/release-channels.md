@@ -25,7 +25,7 @@ Companion pages: [the go-live runbook](../../plans/cmux-next/classic-handoff-go-
 | `sparkle:channel` | none (Classic allows none) | none |
 | Version | `MARKETING_VERSION` (1.0.0) | `<marketing>-rc.<build>` |
 | Build number | `CURRENT_PROJECT_VERSION`, now **117** (Classic Stable is 113; the handoff RCs used 114–116) | the run-based number nightly.yml writes (Classic RC is at 3849553622001), larger every run |
-| Architectures offered | Apple silicon: the item carries `<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>` | the same, on every RC item (this change) |
+| Architectures | Apple silicon only: the item carries `<sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>` | Apple silicon only: one arm64 build, published to `appcast-arm64.xml` only, each item marked arm64 (this change) |
 | Phased rollout | `vars.CMUX_STABLE_PHASED_ROLLOUT_INTERVAL` seconds per group (this change); unset: everyone at once | none (RC users opted in to early builds) |
 | Publish switch | pushing the tag | `vars.CMUX_NEXT_RC_PUBLISH=1` (this change); unset: the run builds and signs, and publishes nothing |
 | Signing, notarization | Developer ID `7WLXT3NR37`, notarized and stapled (`release` environment) | the same (`release` environment) |
@@ -52,8 +52,9 @@ preferences, Classic's packet-tunnel extension (runbook B3, B4, B5).
    `latest`, so `releases/latest/download/appcast-<arch>.xml` (what every Classic Stable install
    reads) serves the cmux-next item; then `files.cmux.com/stable/` is written. RC: a published
    `rc/**` run writes `files.cmux.com/rc/appcast*.xml`.
-2. **Who is offered it.** Apple silicon Macs on macOS 14 or later. Intel installs skip the item
-   (`hardwareRequirements arm64`, Sparkle 2.9+; Classic ships 2.9.5) and stay on Classic.
+2. **Who is offered it.** Apple silicon Macs on macOS 14 or later. Intel is retired for cmux-next
+   (Aziz, 2026-11-24): Intel installs skip the item (`hardwareRequirements arm64`, Sparkle 2.9+;
+   Classic ships 2.9.5) and stay on Classic. The RC never writes `appcast-x86_64.xml`.
 3. **First launch.** cmux-next imports Classic's windows, workspaces, groups, colors and pins once
    (the migration ledger under `Application Support/cmux-next/<bundle id>/classic-migration/`),
    asks first, and never duplicates on later launches or after a downgrade and re-upgrade.
@@ -75,15 +76,17 @@ git tag v1.0.0 <feat-cmux-next sha> && git push origin v1.0.0
 ```
 
 An `rc/**` push without the variable is still useful: it builds, signs and notarizes `cmux RC.app`
-from cmux-next and uploads it as a run artifact, the RC equivalent of a dry run.
+from cmux-next and uploads it as a run artifact, the RC equivalent of a dry run. The first one:
+`rc/cmux-next-dry-1`.
 
 ## Decisions only a person makes
 
 - **When to switch.** The moment `v1.0.0` is tagged, every Apple silicon Classic Stable install
   starts updating; `CMUX_NEXT_RC_PUBLISH=1` plus an `rc/**` push does the same for RC.
-- **RC first, or Stable directly.** Default here: RC first, for at least one release cycle.
+- **RC first; Stable later** (Aziz, 2026-11-24): cmux-next is not offered on Stable yet, so no `v*` tag
+  from feat-cmux-next until Stable is chosen.
 - **Rollout speed.** `CMUX_STABLE_PHASED_ROLLOUT_INTERVAL` (86400 recommended) or all at once.
-- **Intel.** Intel Classic users stay on Classic until Intel CEF and cmux-tui ship (runbook B6, B6b).
+- **Intel: retired** for cmux-next (Aziz, 2026-11-24). Intel Classic users stay on Classic.
 - **The build-number commit.** `cmux.xcodeproj/project.pbxproj` sits under the coordinator's
   freeze (runbook "Go live" step 1); this PR carries the 108 → 117 bump as its own commit so it can
   land in a granted slot or be dropped.

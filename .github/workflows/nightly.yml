@@ -462,12 +462,15 @@ jobs:
             // build instead of three, after Apple's queue held all three past the wait in
             // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
             // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // cmux-next RC (rc/** of this tree) is Apple silicon only too: Intel is retired for cmux-next, and
+            // its CLI and Chromium engine ship for arm64. Intel classic RC installs keep their x86_64 feed.
+            const arm64Only = fastBuild || track === 'nightly-next' || track === 'rc';
+            const variants = arm64Only ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
             // Compile only the slices these variants consume. nightly-next
             // ships arm64 only; compiling Intel here still paid for a second
             // whole-module Swift compile and both slices of the Rust helpers.
             const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
-            const feeds = track === 'nightly-next'
+            const feeds = track === 'nightly-next' || track === 'rc'
               ? ['appcast-arm64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
