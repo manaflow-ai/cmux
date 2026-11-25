@@ -428,15 +428,24 @@ impl EarlyTurn {
     /// dial will use, ICE servers included): only a WireGuard dial takes one.
     /// Call it inside a Tokio runtime.
     pub fn for_dial(kind: super::TransportKind, options: &DialOptions) -> Option<Self> {
-        (kind == super::TransportKind::WireGuard).then(|| Self::start(options))
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options, None))
+    }
+
+    /// [`Self::for_dial`] to the Mac `mac`: the allocation takes the relay
+    /// that pair ranks first (`relay_rank`).
+    pub fn for_dial_to(kind: super::TransportKind, options: &DialOptions, mac: &str) -> Option<Self> {
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options, Some(mac)))
     }
 
     /// Start the allocation `options` ask for (`turn_early_allocated` once
-    /// it is in hand).
-    pub(crate) fn start(options: &DialOptions, mac: &str) -> Self {
+    /// it is in hand), ranked for `mac` when the dial names it.
+    pub(crate) fn start(options: &DialOptions, mac: Option<&str>) -> Self {
         let (stun, turn_side) = stun_turn_link();
         // Debug "relay via cmux only" takes no TURN allocation, early or not.
-        let options = effective_options(options, mac).into_owned();
+        let options = match mac {
+            Some(mac) => effective_options(options, mac).into_owned(),
+            None => options.clone(),
+        };
         let task = tokio::spawn(async move {
             let turn = turn_beside(&options, true, turn_side).await;
             if turn.carrier.is_some() {
