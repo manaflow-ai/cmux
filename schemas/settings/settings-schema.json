@@ -2345,6 +2345,29 @@
         "groups" : [
 
         ],
+        "id" : "developer",
+        "lead" : [
+          "developerTokens"
+        ],
+        "symbol" : "chevron.left.forwardslash.chevron.right",
+        "title" : {
+          "key" : "settings.category.developer",
+          "text" : "Developer"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
         "id" : "import",
         "lead" : [
           "importSuggestions"
@@ -2710,6 +2733,7 @@
           "cloud",
           "keys",
           "integrations",
+          "developer",
           "import",
           "privacy",
           "advanced",

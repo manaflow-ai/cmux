@@ -48,6 +48,7 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
+  DeveloperTokensState,
   AutocloudState,
   DoctorReport,
   ConnectionsState,
@@ -85,6 +86,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Developer fixture state; default the mock's (two personal tokens). */
+  tokens?: DeveloperTokensState;
   /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
   autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
