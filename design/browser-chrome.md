@@ -51,6 +51,13 @@ Left to right in the toolbar row:
    Zoom, Bookmarks, Downloads, Design Mode, Theme, DevTools, Profile, then More (always). Profile
    is pinned by default and draws the tab's profile as its avatar (its letter or icon on its
    color); a press opens the profile menu. The profile is never inside the address bar.
+   The profile menu is a flat list (`BrowserProfileMenuStyle.list`). Behind the default-off
+   experiment Browser Profile Card it opens as Helium's and Chrome's (`.card`): a card with
+   the profile's large avatar, its name and why the tab has it; one quiet "Signed in as …" row
+   (Accounts) while signed in to cmux; the other profiles, each with its avatar; New Browser
+   Profile, New Incognito Window, Manage Browser Profiles; Customize Profile (the profile's own
+   rows); Import from Browser and the Web Store. The cmux account itself stays in the sidebar's
+   profile control.
 5. **Progress line**, 2 pt, at the row's bottom edge, the focus ring gray at 80%.
 
 The suggestion card hangs from the bar. Page Info is a popup anchored at the chip.
