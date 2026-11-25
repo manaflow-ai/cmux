@@ -133,9 +133,10 @@ async fn an_open_card_names_the_reason() {
     };
     until(|| hub.secrets.waiting_in(&session.id)).await;
     assert_eq!(waiting_on(&hub, &session), "secret");
-    let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(hub.open_ask(&session, &state), Some(WaitReason::Secret));
-    drop(state);
+    {
+        let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(hub.open_ask(&session, &state), Some(WaitReason::Secret));
+    }
     hub.cancel_pending_secrets(&session);
     ask.await.unwrap();
 }

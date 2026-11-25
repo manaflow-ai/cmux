@@ -117,6 +117,13 @@ pub(crate) fn is_dev_bundle(bundle_id: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
 }
 
+/// Whether `exe` sits in a DEV build's app bundle.
+pub(crate) fn in_dev_bundle(exe: &Path) -> bool {
+    containing_app_bundle(exe)
+        .and_then(|bundle| bundle_id(&bundle))
+        .is_some_and(|id| is_dev_bundle(&id))
+}
+
 /// Whether `bundle_id` is any cmux app's (`com.cmuxterm.app[.<channel>]`).
 pub(crate) fn is_cmux_bundle(bundle_id: &str) -> bool {
     bundle_id

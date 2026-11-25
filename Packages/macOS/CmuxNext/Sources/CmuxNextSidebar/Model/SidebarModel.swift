@@ -260,6 +260,9 @@ public final class SidebarModel {
     public var rowBadgeStyle: SidebarRowBadgeStyle?
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
+    /// Draws archived rows dimmed in their place instead of leaving them out (cmux#51635: the sidebar lists none, and
+    /// Settings > Sidebar > Archived Workspaces lists them). Only the states playground sets it, to show the look.
+    public var listsArchived = false
     /// `sidebar.style`: the standard sidebar or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public var style: SidebarLayoutStyle = .standard
     /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
@@ -830,6 +833,7 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        if listsArchived { (o.archiveSection, o.foldsArchived) = (false, false) }
         return o
     }
 
