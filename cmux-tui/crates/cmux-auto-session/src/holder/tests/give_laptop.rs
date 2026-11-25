@@ -19,7 +19,7 @@ fn give_failed(why: GiveFailure) -> Event {
 }
 
 /// The store's "holder" at epoch 1 to the renewal among `effects`, with the person's wish.
-fn held(effects: &[Effect], wish: Option<MoveTo>) -> Event {
+pub(super) fn held(effects: &[Effect], wish: Option<MoveTo>) -> Event {
     let answer = answer(Verdict::Holder, 1, 1).wishing(wish);
     Event::Answered { request: request(effects), answer }
 }
@@ -36,7 +36,7 @@ fn renewal(request: u64) -> [Effect; 1] {
 }
 
 /// The chat's next tick: (the chat, its effects, when).
-fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
+pub(super) fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
     let now = chat.wake_at().expect("a next tick");
     let (chat, effects) = step(chat, Event::Tick, now);
     (chat, effects, now)
@@ -44,7 +44,7 @@ fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
 
 /// A laptop that holds the chat at epoch 1 and whose renewal was answered with the wish to
 /// move it to the Cloud: its give as far as `until`. Answers the chat and the time.
-fn give_until(until: GiveStep) -> (Chat, u64) {
+pub(super) fn give_until(until: GiveStep) -> (Chat, u64) {
     let (chat, effects, now) = tick(holding(0));
     let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now);
     assert_eq!(effects, [Effect::StopTurn]);

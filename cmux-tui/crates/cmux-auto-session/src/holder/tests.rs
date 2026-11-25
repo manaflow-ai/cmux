@@ -1,8 +1,9 @@
 //! The table, and what holds for every state against every event. The journeys are in
-//! `tests/laptop.rs` and `tests/machine.rs`, and a move by hand in `tests/give_laptop.rs` and
-//! `tests/give_machine.rs`.
+//! `tests/laptop.rs` and `tests/machine.rs`, and a move by hand in `tests/give_laptop.rs`,
+//! `tests/give_machine.rs` and `tests/give_late.rs`.
 
 mod give_laptop;
+mod give_late;
 mod give_machine;
 mod laptop;
 mod machine;
@@ -167,16 +168,19 @@ fn a_chat_that_may_no_longer_run_was_stopped_or_killed() {
 }
 
 /// A machine that loses a chat keeps what it wrote since its last stored copy, unless it had
-/// nothing left to run and the store has that copy: then the laptop has everything. The store
-/// that took a give has everything too.
+/// nothing left to run and the store has that copy: then the next holder has everything,
+/// whether a renewal says the chat is lost or the late answer to a give does. The store that
+/// took the give a machine asked with its newest copy has everything too; a give answered in
+/// an earlier step of a new one was asked before what ran here since.
 #[test]
 fn a_machine_kill_keeps_a_leftover_patch_unless_everything_is_copied() {
     for (from, event, before, _, effects) in every_pair() {
         if before.side() == Side::Machine && has(&effects, "kill_tree") {
             let copied = !before.needs_run && before.copy == CopyState::Stored;
-            let handed_back =
-                copied && event == "answered_lost" && matches!(before.state, State::Serving { .. });
-            let given = event == "gave" && matches!(before.state, State::Returning { .. });
+            let lost = matches!(event, "answered_lost" | "gave");
+            let handed_back = copied && lost && matches!(before.state, State::Serving { .. });
+            let asked = before.state.giving().map(|(step, _)| step) == Some(GiveStep::Asking);
+            let given = event == "gave" && asked;
             assert_eq!(
                 has(&effects, "write_leftover_patch"),
                 !(handed_back || given),
@@ -326,7 +330,8 @@ fn the_schedule_follows_the_chat() {
 }
 
 /// A laptop that holds the chat is always stopped before the Cloud's lease can run out,
-/// whatever events arrive, as long as no renewal is answered.
+/// whatever events arrive, as long as the store answers nothing: no renewal, and no give it
+/// took (after that one the laptop holds nothing).
 #[test]
 fn a_holding_laptop_stops_before_the_lease_runs_out() {
     let (_, holding) = sample_chats()
@@ -334,7 +339,8 @@ fn a_holding_laptop_stops_before_the_lease_runs_out() {
         .find(|(name, _)| *name == "holding")
         .expect("the holding sample");
     for (name, event, _) in sample_events() {
-        if matches!(event, Event::Answered { .. } | Event::Closed { .. } | Event::Wake) {
+        let answer = matches!(event, Event::Answered { .. } | Event::Closed { .. });
+        if answer || matches!(event, Event::Gave { .. } | Event::Wake) {
             continue;
         }
         // The event arrives at the moment the self-stop is due.
@@ -360,7 +366,7 @@ fn a_giving_laptop_stops_before_the_lease_runs_out() {
             }
             let (after, effects) = step(giving, event, SAMPLE_AT + SELF_STOP_MS);
             if matches!(after.state, State::Standby { .. }) {
-                assert_eq!((from, name), ("giving_asking", "gave"));
+                assert_eq!(name, "gave", "{from}");
                 continue;
             }
             assert!(matches!(after.state, State::Stopped { .. }), "{from} {name}");

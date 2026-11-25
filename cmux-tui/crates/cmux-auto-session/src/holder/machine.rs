@@ -239,12 +239,20 @@ pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
                 give::begin(out, epoch, to);
             }
         }
+        // A give this machine asked before the move was taken back, answered only now. The
+        // store's answer is true whenever it arrives: past this machine's epoch the chat is
+        // another holder's, as a renewal answered "lost" says. At that epoch or below, the
+        // answer is to a give from before this machine got the chat.
+        Event::Gave { epoch: at } => {
+            if at > epoch {
+                lost(out);
+            }
+        }
         Event::AutoOn
         | Event::AutoOff
         | Event::ImportDone { .. }
         | Event::ImportFailed { .. }
         | Event::TurnStopped
-        | Event::Gave { .. }
         | Event::GiveFailed { .. } => {}
     }
 }
@@ -300,13 +308,23 @@ pub(super) fn returning(
         Event::SnapshotFailed { copy, too_large } => {
             give::copy_failed(out, epoch, to, copy, too_large);
         }
-        Event::Gave { .. } => match step {
-            GiveStep::Asking => {
-                out.push(Effect::KillTree);
-                leave(out);
+        // Past this machine's epoch the chat is another holder's, at any step. The store took
+        // a give only with a copy that covered the chat's last event, so a machine that asked
+        // with its newest copy keeps nothing. Before that step the answer is to an earlier
+        // give of this chat, asked before the move was taken back: what ran here since is
+        // kept. At this machine's epoch or below, the answer is to a give from before this
+        // machine got the chat.
+        Event::Gave { epoch: at } => {
+            if at > epoch {
+                match step {
+                    GiveStep::Asking => {
+                        out.push(Effect::KillTree);
+                        leave(out);
+                    }
+                    GiveStep::Stopping | GiveStep::Copying => gone(out),
+                }
             }
-            GiveStep::Stopping | GiveStep::Copying => {}
-        },
+        }
         Event::GiveFailed { why } => give::failed(out, epoch, step, to, why, now),
         Event::Closed { .. } => gone(out),
         Event::AutoOn
