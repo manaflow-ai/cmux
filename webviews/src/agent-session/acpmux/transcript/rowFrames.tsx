@@ -31,7 +31,7 @@ import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { rowDomId, RowFrame, RowContent } from "./RowFrame";
-import { mountsOffscreen, skipsOffscreenRows } from "../conversation/offscreenRows";
+import { entersUnseen, mountsOffscreen, skipsOffscreenRows } from "../conversation/offscreenRows";
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line
@@ -278,6 +278,10 @@ export function drawRowFrames(
             mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight, windowHeight)
           }
           placedHeight={geometry.heightAt(absoluteIndex)}
+          // An arrival out of view draws in place (read on the first mount only, like `offscreen`).
+          enterUnseen={
+            inputs.enter && entersUnseen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight)
+          }
         >
           <RowContent
             Component={Component}
