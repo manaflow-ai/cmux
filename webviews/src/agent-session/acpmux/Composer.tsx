@@ -17,7 +17,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
@@ -2374,12 +2374,21 @@ function ComposerFrame({
     setShellText(typed);
     shellCaret.current = typed.length;
   };
+  /// Shows the prompt again (shell mode's end) and puts the caret in it in the same task: the prompt is
+  /// `display: none` until the render that ends shell mode commits, and a focus before that does
+  /// nothing, so the shell field unmounted and the keyboard went to the page, with no caret until a
+  /// click (Leo, 2026-11-22: "we can't have that"). Only from an event handler, never a render.
+  const showPrompt = () => {
+    flushSync(() => {
+      setShell(false);
+      setShellText("");
+    });
+    field.current?.focus();
+  };
   /// Leaves shell mode; what was typed moves to the prompt, never lost.
   const exitShell = () => {
     const typed = shellText;
-    setShell(false);
-    setShellText("");
-    field.current?.focus();
+    showPrompt();
     if (typed) field.current?.writeText(typed, typed.length, typed.length);
   };
   const runShell = () => {
@@ -2388,9 +2397,7 @@ function ComposerFrame({
     const run = onShell(command);
     if (!run) return;
     setAttachments((current) => cappedShellChips([...current, shellAttachment(run)]));
-    setShell(false);
-    setShellText("");
-    field.current?.focus();
+    showPrompt();
   };
   const interrupt = (event: KeyboardEvent | React.KeyboardEvent) => {
     if (event.key !== "c" || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
