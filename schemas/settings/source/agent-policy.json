@@ -533,7 +533,9 @@
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.terminalHistoryFind",
-        "experiments.terminalHistory"
+        "experiments.terminalHistory",
+        "experiments.quietConnect",
+        "experiments.threadMinimapRestReveal"
       ]
     },
     {
@@ -1717,7 +1719,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
