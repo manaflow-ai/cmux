@@ -141,8 +141,27 @@ read_ios_artifact() {{ echo "READ_STEP=$SIM_STEP ARTIFACT=$(cat "$STATE/artifact
 cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}""",
                       'mkdir -p "$STATE"; echo not-a-step > "$STATE/sim-passed"'):
             with self.subTest(setup=setup):
-                r = self.run_review([(PHONE, 'iPhone')], setup + "\nfleet_start_sim() { echo SIM_STARTED; }")
+                r = self.run_review([(PHONE, 'iPhone')], setup + '\nfleet_start_sim() { echo "SIM_STARTED KEY=$(sim_key)"; }')
                 self.assertIn('SIM_STARTED', r.stdout, r.stderr)
+        # The passed step given up after a second failed download: the new step goes out under a new key, which the
+        # controller accepts (the old key names the old step: "409: step_key already names a different step").
+        r = self.run_review([(PHONE, 'iPhone')], f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}
+fleet_start_sim() {{ echo "SIM_STARTED KEY=$(sim_key)"; }}""")
+        self.assertIn(f'SIM_STARTED KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout, r.stderr)
+
+    def test_a_failed_simulator_check_is_never_fetched_again(self):
+        # A step that ran to its end but whose check failed (or whose artifact was rejected) is forgotten: the
+        # retry the report names sends a new step under a new key instead of downloading the same failure.
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            (state / 'sim-passed').write_text('0123456789abcdef01234567\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" SIM_STEP=0123456789abcdef01234567
+echo not-a-zip > "$STATE/ios.zip"
+rc=0; read_ios_artifact || rc=$?; echo "RC=$rc"; echo "KEY=$(sim_key)"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertFalse((state / 'sim-passed').exists())
+            self.assertIn(f'KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout)
 
     def test_a_passed_step_is_saved_before_its_artifact_downloads(self):
         with tempfile.TemporaryDirectory() as temp:

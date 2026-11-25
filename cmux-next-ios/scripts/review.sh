@@ -548,12 +548,12 @@ read_ios_artifact() {
   # check must never leave an older mark that a rerun would reuse.
   rm -f "$STATE/ios-passed"
   why="$(safe_unzip "$STATE/ios.zip" "$STATE/ios" 2>&1)" ||
-    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; return 1; }
+    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; sim_forget; return 1; }
   local check
   # One field per line (a tab split loses empty fields); the reason for a mismatch goes in the report.
   check="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" read-manifest "$STATE/ios/handoff.json" \
     --tag "$SLUG" --sha "$SHA" --bundle-id "dev.cmux.mobile.$SLUG" 2>&1)" ||
-    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; return 1; }
+    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; sim_forget; return 1; }
   local status host device reason dir
   { IFS= read -r status; IFS= read -r host; IFS= read -r device; IFS= read -r reason; } <<<"$check"
   dir="$STATE/ios"
@@ -562,6 +562,7 @@ read_ios_artifact() {
   else
     REPORT_SIM="BLOCKED: fleet simulator check on $host failed: ${reason:-unknown}; evidence $dir; retry: $(retry_command)"
     REVIEW_FAILED=1
+    sim_forget
   fi
   why="$(safe_unzip "$STATE/ios/CmuxMobileApp-Demo-device-unsigned.app.zip" "$STATE/device" 2>&1)" ||
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the device app is not a safe zip (${why##*$'\n'})"; REVIEW_FAILED=1; return 1; }
@@ -586,7 +587,14 @@ sim_reusable() {
   SIM_STEP="$(head -n 1 "$STATE/sim-passed")"
   [[ "$SIM_STEP" =~ ^[0-9a-f]{24}$ ]] || return 1
   echo "==> iPhone app: step $SIM_STEP passed before; downloading its artifact again"
-  sim_download || { echo "==> iPhone app: $REPORT_SIM" >&2; REPORT_SIM=""; rm -f "$STATE/sim-passed"; return 1; }
+  sim_download || { echo "==> iPhone app: its artifact did not download again; sending a new step" >&2; REPORT_SIM=""; sim_forget; return 1; }
+}
+
+# Give up the passed step: a rerun sends a new one, under a new key (sim_key's -rN), since the controller answers the
+# old key only with the old step ("409: step_key already names a different step").
+sim_forget() {
+  rm -f "$STATE/sim-passed"
+  sim_next_attempt
 }
 
 # --- the tagged Mac -----------------------------------------------------------
