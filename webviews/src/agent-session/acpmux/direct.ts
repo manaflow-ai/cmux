@@ -1202,6 +1202,9 @@ export class AcpmuxDirectClient {
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
+  /// This hidden page turned its list watch off (`pauseListWhileHidden`): acpmux sends it no other
+  /// chat's change until it shows, and showing it catches up from the cursor the pause froze.
+  private listPausedWhileHidden = false;
   /// The newest snapshot reason that arrived while this page was hidden. Hidden pages keep
   /// reducing only the state they need for an eventual wake, and publish one snapshot on return.
   private hiddenEmit?: string;
@@ -4435,6 +4438,8 @@ export class AcpmuxDirectClient {
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
     if (missing && generation === this.selectionGeneration) this.selectFallbackSession("session changed");
     else if (!this.reopenMissing()) this.emit("session changed");
+    // A list read while hidden (a lag's resync, a reconnect) turned the watch on again.
+    if (!pageShown()) this.pauseListWhileHidden();
     return true;
   }
 
@@ -4772,6 +4777,23 @@ export class AcpmuxDirectClient {
     }, SESSION_REREAD_MS);
   }
 
+  /// A hidden page turns its list watch off (`_acpmux/watch {enabled:false}`, SessionPager.pause):
+  /// every page of the app hears every chat's change, so with many chats open each busy chat cost
+  /// every hidden page a frame decoded, logged and dropped, many times a second, for a list it does
+  /// not draw. acpmux still sends the attached chat's own changes and records. Only once the list
+  /// is read and the selected chat attached; a page waiting to reopen a chat, or drawing the chats
+  /// its offers started, keeps listening, since a list read on show cannot replay their lifecycle.
+  /// `refreshSessions` on show turns the watch back on and follows from the frozen cursor.
+  private pauseListWhileHidden(): void {
+    if (pageShown() || this.closed || this.opening) return;
+    if (this.socket?.readyState !== WebSocket.OPEN || !this.listedSessions) return;
+    if (this.selectedSessionId === undefined || this.attachedGeneration !== this.selectionGeneration) return;
+    if (this.missingSession !== undefined || this.offerChildIds().length > 0) return;
+    if (!this.sessionPages.pause()) return;
+    this.listPausedWhileHidden = true;
+    this.listChangedWhileHidden = true;
+  }
+
   private addSessions = (more: Session[]): void => {
     this.sessions = [...this.sessions, ...more];
     this.recheckSenders(more);
@@ -4789,6 +4811,14 @@ export class AcpmuxDirectClient {
         clearTimeout(this.hiddenDraw);
         this.hiddenDraw = undefined;
       }
+      this.pauseListWhileHidden();
+    }
+    if (this.listPausedWhileHidden && pageShown() && !this.closed) {
+      this.listPausedWhileHidden = false;
+      // What the paused watch also carried: peers' states, harness and start-mode changes.
+      if (this.peerEvents.supported) void this.refreshPeerStatesAndEmit();
+      this.onHarnessesChanged?.();
+      startModeChanged();
     }
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
@@ -7004,7 +7034,10 @@ export class AcpmuxDirectClient {
       !this.offerChildIds().includes(session.sessionId)
     ) {
       this.listChangedWhileHidden = true;
-      this.sessionPages.invalidate();
+      // Paused, the cursor stays where the pause froze it (no notice moves it), so the show follows
+      // from there, this notice and any still in flight included; unpaused, the cursor moves past it.
+      this.pauseListWhileHidden();
+      if (!this.sessionPages.paused) this.sessionPages.invalidate();
       return;
     }
     // A change older than the list the row came with is in that row already (acpmux hub/row_log.rs).
