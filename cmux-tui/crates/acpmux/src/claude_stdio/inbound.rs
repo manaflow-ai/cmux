@@ -298,30 +298,48 @@ impl Translator {
                         if (name == "Bash" || monitor)
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
-                            let command =
-                                input.get("command").and_then(Value::as_str).unwrap_or("");
-                            let shell = BackgroundShell {
-                                sid: sid.clone(),
-                                command: command.to_owned(),
-                                description: input
-                                    .get("description")
-                                    .and_then(Value::as_str)
-                                    .map(str::trim)
-                                    .filter(|d| !d.is_empty())
-                                    .map(str::to_owned),
-                                task: None,
-                                background: monitor
-                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
-                                launched: monitor
-                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
-                                asked: false,
-                                announced: false,
-                                output: None,
-                                workflow_owned: false,
-                                workflow_agent: None,
-                                owner_tries: 0,
-                            };
-                            self.background_shells.lock().await.insert(id.to_owned(), shell);
+                            let background = monitor
+                                || input.get("run_in_background") == Some(&Value::Bool(true));
+                            let mut shells = self.background_shells.lock().await;
+                            let shell =
+                                shells.entry(id.to_owned()).or_insert_with(|| BackgroundShell {
+                                    sid: sid.clone(),
+                                    command: String::new(),
+                                    description: None,
+                                    task: None,
+                                    background,
+                                    launched: background,
+                                    asked: false,
+                                    announced: false,
+                                    output: None,
+                                    workflow_owned: false,
+                                    workflow_agent: None,
+                                    owner_tries: 0,
+                                });
+                            // A task event may already have supplied the task id and description.
+                            let late_command = shell.announced && shell.command.is_empty();
+                            if let Some(command) = input.get("command").and_then(Value::as_str) {
+                                shell.command = command.to_owned();
+                                // task_started sometimes uses the command itself as its description.
+                                if shell.description.as_deref() == Some(command.trim()) {
+                                    shell.description = None;
+                                }
+                            }
+                            if let Some(description) = input
+                                .get("description")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|d| !d.is_empty())
+                            {
+                                shell.description = Some(description.to_owned());
+                            }
+                            shell.background |= background;
+                            shell.launched |= background;
+                            if late_command && !shell.command.is_empty() {
+                                let mut update = background_task_update(id, shell, "running");
+                                update.set("origin", json!(origin(shell)));
+                                out.push(shell_update(shell, update));
+                            }
                         }
                         // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
                         if parent.is_none()
