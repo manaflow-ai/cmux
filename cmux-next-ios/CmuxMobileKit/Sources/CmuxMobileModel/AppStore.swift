@@ -197,12 +197,18 @@ public final class AppStore {
     public func updateWorkspaces(macID: String, rows: [Workspace]) {
         var rows = rows
         groupEdits.apply(to: &rows, now: now())
+        // One write for the whole push: each `workspaces[index] = row` was a copy, a
+        // whole-list compare and a notification of every reader, per row, on main.
+        var next = workspaceStorage
+        var changed = false
         for row in rows {
             guard !pendingWorkspaceIDs.contains(row.id),
-                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
-                  workspaces[index] != row else { continue }
-            workspaces[index] = row
+                  let index = next.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
+                  next[index] != row else { continue }
+            next[index] = row
+            changed = true
         }
+        if changed { workspaces = next }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's

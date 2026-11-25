@@ -451,13 +451,6 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                // Where the chat stands and its next action (the Mac's acpmux rolling summary).
-                if let line = chat.summaryLine {
-                    Text(line)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label.color.opacity(0.8))
-                        .lineLimit(2)
-                }
                 // No blank line under the title when there is nothing to say (no status, no folder).
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {
