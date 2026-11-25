@@ -19,6 +19,7 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
+use super::inference_gateway::TokenSource;
 use super::{OutputMode, UsageError};
 
 /// The API token a script exports (`export CMUX_TOKEN=cmux_pat_…`).
@@ -44,12 +45,14 @@ pub(crate) fn env_credential(env: impl Fn(&str) -> Option<String>) -> Option<Str
 }
 
 pub(super) const USAGE: &str = "\
-usage: cmux token create NAME [--scope machines,chats,usage] [--expires 30d|90d|1y|never]
-                         [--spend-cap USD] [--team TEAM] [--team-token]
+usage: cmux token create NAME|--name=NAME [--scope=machines --scope=chats ...]
+                         [--expires 30d|90d|1y|never | --expires-days=90|never]
+                         [--spend-cap=USD] [--owner=me|team (or --team-token)] [--team TEAM]
        cmux token list [--team TEAM]
        cmux token revoke ID|NAME [--team TEAM]
        cmux token uses ID|NAME [--team TEAM]
-       cmux token github allow OWNER/REPO [--ref REF] [--environment ENV] [--scope ...] [--spend-cap USD]
+       cmux token github allow OWNER/REPO|--repository=OWNER/REPO [--ref REF] [--environment ENV]
+                               [--scope ...] [--spend-cap USD]
        cmux token github list
        cmux token github remove ID
 
@@ -72,8 +75,10 @@ sign-in, it does with a token in CMUX_TOKEN.
   github list     The repositories allowed.   github remove ID   Stop one.
 
   --team TEAM     A team other than your personal one (team_...).
-  --platform URL  The cmux platform (default: CMUX_PLATFORM_ORIGIN, else production).
-  --json          The platform's answer as JSON.   --quiet  create prints only the token.
+  --platform URL  The cmux platform (default: CMUX_PLATFORM_URL, else your sign-in's platform).
+  --token-file PATH | --token-command CMD   Your own cmux access token (default: the app's sign-in).
+  --json          One JSON object: {ok: true, ...} or {ok: false, error: {code, message}}.
+  --quiet         create prints only the token.
 
 Managing tokens takes your own sign-in (the cmux app, or CMUX_CLOUD_ACCESS_TOKEN from
 `cmux auth token`), never a cmux_pat_ token.";
@@ -119,6 +124,8 @@ pub(super) struct Command {
     pub verb: Verb,
     pub team: Option<String>,
     pub platform: Option<String>,
+    /// `--token-file PATH` or `--token-command CMD`, as `cmux hub` takes them.
+    pub token: Option<TokenSource>,
 }
 
 /// `Some(exit code)` when `args` is `token …` (or `tokens …`).
@@ -132,28 +139,33 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let command = match parse(rest) {
         Ok(command) => command,
         Err(error) => {
-            return Some(super::app::failure(
-                "usage.invalid",
-                &format!("cmux: {}", error.0),
-                output,
-                2,
-            ));
+            let failure = Failure { exit: 2, ..Failure::new("cli.invalid_args", error.0) };
+            return Some(print_failure(&failure, output));
         }
     };
     if command.verb == Verb::Help {
         println!("{USAGE}");
         return Some(0);
     }
-    let env = |key: &str| std::env::var(key).ok();
+    let env = |key: &str| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
     Some(match execute(&command, &env) {
-        Ok(answer) => print_answer(&command.verb, &answer, output),
-        Err(error) => super::wire::print_local_error(&error.json(), output, error.exit),
+        Ok(answer) => print_answer(&command, &answer, output),
+        Err(failure) => print_failure(&failure, output),
     })
+}
+
+/// A failure: `--json` prints its one object on stdout (the Settings UI reads it); people read stderr.
+fn print_failure(failure: &Failure, output: OutputMode) -> i32 {
+    match output {
+        OutputMode::Json | OutputMode::JsonLines => println!("{}", failure.json()),
+        OutputMode::Human | OutputMode::Quiet => eprintln!("cmux: {}", failure.message),
+    }
+    failure.exit
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     let usage = || UsageError::new(USAGE);
-    let mut command = Command { verb: Verb::Help, team: None, platform: None };
+    let mut command = Command { verb: Verb::Help, team: None, platform: None, token: None };
     if args.iter().any(|w| w == "--help" || w == "-h") {
         return Ok(command);
     }
@@ -178,6 +190,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     };
     let mut positional: Vec<String> = Vec::new();
     let mut scopes: Option<Vec<String>> = None;
+    let (mut named, mut repository) = (None, None);
     let mut expires = Expiry::Days(DEFAULT_EXPIRY_DAYS);
     let (mut spend_cap, mut team_token, mut git_ref, mut environment) = (None, false, None, None);
     let mut words = rest.iter();
@@ -204,12 +217,24 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         match name {
             "--team" => command.team = Some(team_id(&value)?),
             "--platform" => command.platform = Some(value),
+            "--token-file" => command.token = Some(TokenSource::File(value.into())),
+            "--token-command" => command.token = Some(TokenSource::Command(value)),
+            // Repeatable (`--scope=machines --scope=chats`) and comma lists alike.
             "--scope" | "--scopes" if takes(&["create", "github allow"]) => {
-                scopes = Some(parse_scopes(&value).map_err(UsageError::new)?);
+                let mut all = scopes.take().unwrap_or_default();
+                all.extend(parse_scopes(&value).map_err(UsageError::new)?);
+                scopes = Some(parse_scopes(&all.join(",")).map_err(UsageError::new)?);
             }
-            "--expires" | "--expiry" if verb == "create" => {
+            "--expires" | "--expiry" | "--expires-days" if verb == "create" => {
                 expires = parse_expiry(&value).map_err(UsageError::new)?;
             }
+            "--owner" if verb == "create" => match value.as_str() {
+                "me" | "user" => team_token = false,
+                "team" => team_token = true,
+                _ => return Err(UsageError::new("--owner is me or team")),
+            },
+            "--name" if verb == "create" => named = Some(value),
+            "--repository" | "--repo" if verb == "github allow" => repository = Some(value),
             "--spend-cap" if takes(&["create", "github allow"]) => {
                 spend_cap = Some(parse_spend_cap(&value).map_err(UsageError::new)?);
             }
@@ -233,6 +258,10 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         }
     };
     let scopes = scopes.unwrap_or_else(|| SCOPES.map(str::to_owned).to_vec());
+    // `--name=N` and `--repository=R` are the named forms of the positional word.
+    for value in [named, repository].into_iter().flatten() {
+        positional.push(value);
+    }
     command.verb = match verb {
         "create" => {
             let name = one("a NAME")?;
@@ -451,7 +480,7 @@ pub(super) fn resolve_target(list: &Value, target: &str) -> Result<String, Strin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Signer {
     /// `CMUX_CLOUD_ACCESS_TOKEN` holding the person's access token.
-    Env(String),
+    Env,
     /// A fresh token from the signed-in app (`cmux auth token`).
     App,
 }
@@ -460,7 +489,7 @@ pub(super) enum Signer {
 /// token, else the app. `CMUX_TOKEN` is never read here.
 pub(super) fn signer(env: &dyn Fn(&str) -> Option<String>) -> Signer {
     match env(ACCESS_TOKEN_ENV).map(|v| v.trim().to_owned()) {
-        Some(token) if !token.is_empty() && !token.starts_with(TOKEN_PREFIX) => Signer::Env(token),
+        Some(token) if !token.is_empty() && !token.starts_with(TOKEN_PREFIX) => Signer::Env,
         _ => Signer::App,
     }
 }
@@ -478,8 +507,9 @@ impl Failure {
     fn new(code: &str, message: impl Into<String>) -> Self {
         Self { code: code.into(), message: message.into(), retryable: false, exit: 1 }
     }
-    fn json(&self) -> Value {
-        json!({"code": self.code, "message": format!("cmux: {}", self.message), "details": {}, "retryable": self.retryable})
+    /// `{ok: false, error: {code, message}}`, as `cmux hub` answers.
+    pub(super) fn json(&self) -> Value {
+        json!({"ok": false, "error": {"code": self.code, "message": self.message, "retryable": self.retryable}})
     }
 }
 
@@ -511,28 +541,65 @@ pub(super) fn refusal(status: u16, body: &Value) -> Failure {
     failure
 }
 
+/// The platform's answer to a verb, and the platform that gave it.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Answer {
+    pub body: Value,
+    pub platform: String,
+}
+
+/// The credential a management call signs in with, resolved as `cmux hub` does: `--token-file` or
+/// `--token-command`, else `CMUX_CLOUD_ACCESS_TOKEN` when it holds the person's own token, else
+/// the app (`cmux auth token --json`). Never `CMUX_TOKEN`.
+pub(super) fn token_source(command: &Command, env: &dyn Fn(&str) -> Option<String>) -> TokenSource {
+    command.token.clone().unwrap_or_else(|| match signer(env) {
+        Signer::Env => TokenSource::Env,
+        Signer::App => TokenSource::App,
+    })
+}
+
 /// Runs a verb against the platform: the answer, or why not.
 pub(super) fn execute(
     command: &Command,
     env: &dyn Fn(&str) -> Option<String>,
-) -> Result<Value, Failure> {
-    let origin = super::machine_join::platform_origin(command.platform.as_deref(), env)
-        .map_err(|m| Failure { exit: 2, ..Failure::new("usage.invalid", m) })?;
-    let credential: Zeroizing<String> = match signer(env) {
-        Signer::Env(token) => Zeroizing::new(token),
-        Signer::App => {
-            let minted = super::auth_token::app_token_in(command.team.as_deref()).map_err(|why| {
-                Failure::new(
-                    "auth.required",
-                    format!(
-                        "managing tokens takes your cmux sign-in ({why}): sign in in the cmux app (`cmux login`), or set {ACCESS_TOKEN_ENV}=$(cmux auth token) on a computer that has it"
-                    ),
-                )
-            })?;
-            minted.token
-        }
-    };
-    let client = Client::new(origin, credential, command.team.clone())?;
+) -> Result<Answer, Failure> {
+    let internal = |e: &dyn std::fmt::Display| Failure::new("internal", e.to_string());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| internal(&e))?;
+    let source = token_source(command, env);
+    let (token, issued_by) = runtime
+        .block_on(super::inference_gateway::backend_credential(&source, command.team.as_deref()))
+        .map_err(|why| {
+            Failure::new(
+                "auth.no_token",
+                format!(
+                    "managing tokens takes your cmux sign-in ({why}): sign in in the cmux app (`cmux login`), or pass --token-file with a token from `cmux auth token`"
+                ),
+            )
+        })?;
+    let credential = Zeroizing::new(token);
+    if credential.starts_with(TOKEN_PREFIX) {
+        return Err(Failure::new(
+            "auth.no_token",
+            "a cmux_pat_ token cannot manage tokens: sign in in the cmux app, or pass --token-file with a token from `cmux auth token`",
+        ));
+    }
+    let named = command
+        .platform
+        .clone()
+        .or_else(|| env("CMUX_PLATFORM_URL").or_else(|| env("CMUX_PLATFORM_ORIGIN")))
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| {
+            super::cloud_client_session::secure_origin(p.trim())
+                .map_err(|m| m.replace("the cmux API", "the cmux platform"))
+        })
+        .transpose()
+        .map_err(|m| Failure { exit: 2, ..Failure::new("cli.invalid_args", m) })?;
+    let platform = super::hub::platform_for(named.as_deref(), issued_by.as_deref())
+        .map_err(|m| Failure { exit: 2, ..Failure::new("cli.invalid_args", m) })?;
+    let client = Client::new(platform.clone(), credential, command.team.clone(), runtime)?;
     let id = match &command.verb {
         Verb::Revoke { target } | Verb::Uses { target } => Some(
             resolve_target(&client.send(&Call::get("/v1/tokens"))?, target)
@@ -541,13 +608,43 @@ pub(super) fn execute(
         _ => None,
     };
     let Some(call) = call_for(&command.verb, id.as_deref()) else {
-        return Err(Failure::new("usage.invalid", "help never reaches the platform"));
+        return Err(Failure::new("cli.invalid_args", "help never reaches the platform"));
     };
-    let mut answer = client.send(&call)?;
-    if let (Some(id), Some(fields)) = (id, answer.as_object_mut()) {
+    let mut body = client.send(&call)?;
+    if let (Some(id), Some(fields)) = (id, body.as_object_mut()) {
         fields.entry("id").or_insert(json!(id));
     }
-    Ok(answer)
+    Ok(Answer { body, platform })
+}
+
+/// The one JSON object `--json` prints for a verb's answer (the Settings UI's contract, as `cmux hub`).
+pub(super) fn json_answer(verb: &Verb, answer: &Answer, team: Option<&str>) -> Value {
+    let body = &answer.body;
+    let field = |key: &str, default: Value| body.get(key).cloned().unwrap_or(default);
+    match verb {
+        Verb::List => {
+            let mut out = json!({
+                "ok": true,
+                "platform": answer.platform,
+                "tokens": field("tokens", json!([])),
+                "canManageTeamTokens": field("canManageTeamTokens", json!(false)),
+            });
+            if let (Some(team), Some(map)) = (team, out.as_object_mut()) {
+                map.insert("team".into(), json!(team));
+            }
+            out
+        }
+        Verb::Create { .. } => json!({
+            "ok": true,
+            "token": field("token", Value::Null),
+            "tokenInfo": field("tokenInfo", Value::Null),
+        }),
+        Verb::Uses { .. } => json!({"ok": true, "uses": field("uses", json!([]))}),
+        Verb::GithubList => json!({"ok": true, "rules": field("rules", json!([]))}),
+        Verb::GithubAllow { .. } => json!({"ok": true, "rule": body.get("rule").unwrap_or(body)}),
+        Verb::Revoke { .. } => json!({"ok": true, "id": field("id", Value::Null)}),
+        Verb::GithubRemove { .. } | Verb::Help => json!({"ok": true}),
+    }
 }
 
 struct Client {
@@ -563,12 +660,9 @@ impl Client {
         origin: String,
         credential: Zeroizing<String>,
         team: Option<String>,
+        runtime: tokio::runtime::Runtime,
     ) -> Result<Self, Failure> {
         let internal = |e: &dyn std::fmt::Display| Failure::new("internal", e.to_string());
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| internal(&e))?;
         let space = cmux_build_space::headers().map_err(|e| internal(&e))?;
         let http = cmux_egress::client_builder("cmux_tui::cli::api_tokens")
             .default_headers(space)
@@ -601,7 +695,7 @@ impl Client {
             let response = request.send().await.map_err(|e| Failure {
                 retryable: true,
                 ..Failure::new(
-                    "cloud.unreachable",
+                    "api.unreachable",
                     format!("the cmux platform did not answer: {}", e.without_url()),
                 )
             })?;
@@ -740,21 +834,22 @@ pub(super) fn human(verb: &Verb, answer: &Value) -> (String, String) {
     }
 }
 
-fn print_answer(verb: &Verb, answer: &Value, output: OutputMode) -> i32 {
+fn print_answer(command: &Command, answer: &Answer, output: OutputMode) -> i32 {
+    let verb = &command.verb;
     match output {
         OutputMode::Json | OutputMode::JsonLines => {
-            println!("{}", serde_json::to_string(answer).unwrap_or_default());
+            println!("{}", json_answer(verb, answer, command.team.as_deref()));
         }
         // `--quiet` keeps the one thing a script needs: a new token.
         OutputMode::Quiet => {
             if let Some(token) =
-                matches!(verb, Verb::Create { .. }).then(|| text(answer, "token")).flatten()
+                matches!(verb, Verb::Create { .. }).then(|| text(&answer.body, "token")).flatten()
             {
                 println!("{token}");
             }
         }
         OutputMode::Human => {
-            let (out, note) = human(verb, answer);
+            let (out, note) = human(verb, &answer.body);
             print!("{out}");
             eprint!("{note}");
         }
