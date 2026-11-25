@@ -15,6 +15,7 @@
 ;;   CWD          the chat folder
 ;;   ACPMUX_HOME  acpmux's state folder (its socket, the cmux CLI's state)
 ;;   SESSION_TMP  the sessions' temporary folders (acpmux makes one per chat)
+;;   HOME_RE, AGENT_HOME_RE  the two homes, regex-escaped
 ;; acpmux adds a `(subpath (param "DIRn"))` line per extra folder (the chat's
 ;; added folders, a worktree's git folder) at @FOLDERS@, and Claude Code's own
 ;; API port at @API_PORT@.
@@ -35,12 +36,14 @@
   (subpath "/dev")
   ;; Claude Code and Codex state
   (subpath (string-append (param "AGENT_HOME") "/.claude"))
-  (regex (string-append "^" (regex-quote (param "AGENT_HOME")) "/\.claude\.json"))
+  (regex (string-append "^" (param "AGENT_HOME_RE") "/\\.claude\\.json"))
   (subpath (string-append (param "AGENT_HOME") "/.codex"))
   (subpath (string-append (param "AGENT_HOME") "/.local"))
   (subpath (string-append (param "AGENT_HOME") "/.cache"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Caches"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Logs"))
+  ;; Claude Code saves a refreshed login in the Keychain
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
   ;; cmux's own settings and state (the customization flow edits them)
   (subpath (string-append (param "AGENT_HOME") "/.config/cmux"))
   (subpath (string-append (param "AGENT_HOME") "/.config/cmux-next"))
@@ -65,9 +68,10 @@
 
 ;; Credentials a local agent never reads, though their tools keep working:
 ;; private keys (ssh still finds known_hosts, its config and the agent's
-;; keys through SSH_AUTH_SOCK), cloud and registry tokens, the Keychain files
-;; (the Keychain itself answers through securityd, with its own prompts),
-;; browser cookies and profiles.
+;; keys through SSH_AUTH_SOCK), cloud and registry tokens, browser cookies
+;; and profiles. The Keychain stays: Claude Code keeps its login there and
+;; the Security framework reads and writes the keychain files in-process;
+;; their items are encrypted and each has its own access prompt.
 (deny file-read* file-write*
   (subpath (string-append (param "HOME") "/.ssh"))
   (subpath (string-append (param "AGENT_HOME") "/.ssh"))
@@ -86,8 +90,6 @@
   (literal (string-append (param "HOME") "/.pypirc"))
   (literal (string-append (param "HOME") "/.docker/config.json"))
   (literal (string-append (param "HOME") "/.codex/auth.json"))
-  (subpath (string-append (param "HOME") "/Library/Keychains"))
-  (subpath "/Library/Keychains")
   (subpath (string-append (param "HOME") "/Library/Cookies"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Google/Chrome"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
@@ -100,7 +102,7 @@
   (literal (string-append (param "HOME") "/.ssh"))
   (literal (string-append (param "HOME") "/.ssh/config"))
   (literal (string-append (param "HOME") "/.ssh/known_hosts"))
-  (regex (string-append "^" (regex-quote (param "HOME")) "/\.ssh/[^/]+\.pub$"))
+  (regex (string-append "^" (param "HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
   (literal (string-append (param "HOME") "/.aws/config")))
 
 ;; No process outside the sandbox: no launchd jobs, no app launches.

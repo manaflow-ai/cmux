@@ -215,8 +215,24 @@ fn build_harness_command(
     // So is the CLI an agent runs (`cli_caller.rs`): never a profile's.
     env.remove(crate::cli_caller::BIN_ENV);
     let (program, args) = (&owned.0, &owned.1);
-    let mut cmd =
-        crate::session_scope::command(program, session.map(|(id, _)| id), &env, remote_environment);
+    // A local chat's Claude Code runs in the Seatbelt sandbox (`local_sandbox.rs`): the wrap
+    // is made here, as the command is created (`CwdPin` below adds a pre_exec).
+    let sandbox = (claude_session && !remote_environment)
+        .then(|| crate::local_sandbox::prefix(args, cwd, &env))
+        .flatten();
+    let mut cmd = match sandbox {
+        Some(prefix) => {
+            let mut cmd = Command::new(&prefix[0]);
+            cmd.args(&prefix[1..]).arg(program);
+            cmd
+        }
+        None => crate::session_scope::command(
+            program,
+            session.map(|(id, _)| id),
+            &env,
+            remote_environment,
+        ),
+    };
     if remote_environment {
         apply_remote_base(&mut cmd);
     }

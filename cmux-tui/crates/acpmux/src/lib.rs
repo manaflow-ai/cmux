@@ -191,6 +191,7 @@ pub mod left_on_mac;
 pub mod link_v2;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub(crate) mod local_sandbox;
 pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;

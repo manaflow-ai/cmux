@@ -67,9 +67,10 @@
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
 //!   permissionMode?, permissionModeManaged?, allowFullAccess?,
-//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?}`:
+//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?, sandbox?,
+//!   sandboxManaged?}`:
 //!   the app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`)
-//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`
+//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`, `sessions.sandbox`
 //!   and `agents.promptSuggestions`, each with whether MDM or the team policy
 //!   forces it (`hub/start_mode_state.rs`; a forced full-access off is an upper
 //!   bound, a forced prompt-suggestions value beats the file); answers the roots view with
@@ -554,6 +555,12 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            // `sessions.sandbox` as MDM or the team policy forces it (`local_sandbox.rs`): only a
+            // forced `true` counts; the policy can turn the sandbox on, never off.
+            let sandbox_managed = params.get("sandboxManaged") == Some(&Value::Bool(true));
+            crate::local_sandbox::apply_managed_push(
+                sandbox_managed.then(|| params.get("sandbox") == Some(&Value::Bool(true))),
+            );
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
             hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;
