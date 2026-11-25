@@ -5,7 +5,7 @@ import type { AcpmuxSnapshot } from "../model";
 /// folder pick never puts the chips back on a default (Leo 2026-10-18). With no pick, the summary
 /// names only the folder, so the chips name what a chat there starts on.
 export function withDraftFolder(snapshot: AcpmuxSnapshot, projectDraft: string | undefined): AcpmuxSnapshot {
-  if (!projectDraft || snapshot.sessionId) return snapshot;
+  if (projectDraft === undefined || snapshot.sessionId) return snapshot;
   const picked = heldPick(snapshot).harness !== undefined;
   return {
     ...snapshot,

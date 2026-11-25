@@ -31,7 +31,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         setAccessibilityRole(.group)
         setAccessibilitySubrole(.dialog)
         setAccessibilityLabel(spec.title)
-        setAccessibilityHelp(([spec.origin.map(CmuxDialogStrings.from)].compactMap { $0 } + spec.lines).joined(separator: "\n"))
+        setAccessibilityHelp(([spec.origin.map(CmuxDialogStrings.from)].compactMap { $0 } + spec.lines + [spec.info].compactMap { $0 })
+            .joined(separator: "\n"))
         setAccessibilityModal(true)
         identifier = NSUserInterfaceItemIdentifier(spec.identifier ?? "cmux.dialog")
     }
@@ -151,6 +152,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The icon the card leads with: the spec's, else the app's for a cmux dialog; none for a web page's.
     static func icon(for spec: CmuxDialogSpec) -> NSImage? {
+        guard spec.leadsWithIcon else { return nil }
         if let data = spec.icon { return NSImage(data: data) }
         guard spec.origin == nil else { return nil }
         return NSApplication.shared.applicationIconImage
@@ -184,11 +186,27 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         outer.addArrangedSubview(body)
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
-        let titleFont = Typography.system(.default, size: TypeScale.title, weight: TypeScale.emphasis)
-        let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
+        let titleFont = Typography.dialogTitle
+        let title: NSView
+        if let info = spec.info {
+            // The circle sits right after the title's last word, not at the card's far edge: the title is as wide as
+            // its words (up to the room left beside the circle), and the row hugs them.
+            let circle = Self.infoCircle(info, font: titleFont)
+            let room = contentWidth - circle.fittingSize.width - Metrics.space2
+            let natural = ceil((spec.title as NSString).size(withAttributes: [.font: titleFont]).width) + 4
+            let words = label(spec.title, font: titleFont, role: .primary, width: min(natural, room))
+            let row = NSStackView(views: [words, circle])
+            row.orientation = .horizontal
+            row.alignment = .firstBaseline
+            row.spacing = Metrics.space2
+            row.translatesAutoresizingMaskIntoConstraints = false
+            title = row
+        } else {
+            title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
+        }
         body.addArrangedSubview(title)
         if let origin = spec.origin {
-            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.caption, role: .secondary, width: contentWidth))
+            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
         }
         if !spec.lines.isEmpty {
             let lines = linesView(width: contentWidth)
@@ -203,7 +221,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
         }
         if let error = spec.error {
-            let line = label(error, font: Typography.caption, role: .danger, width: contentWidth)
+            let line = label(error, font: Typography.cardBody, role: .danger, width: contentWidth)
             line.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.error")
             body.addArrangedSubview(line)
         }
@@ -256,7 +274,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         let content = NSView()
         content.addSubview(outer)
         // The card keeps the key-window glass while it fades out (debug.dialog_strip).
-        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook, usesTransientMaterial: spec.usesTransientMaterial)
+        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook, usesTransientMaterial: dialog.usesTransientMaterial)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         self.surface = surface
@@ -276,7 +294,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The lines; a long message (an import preview) scrolls in a box of bounded height, so the buttons stay on screen.
     private func linesView(width: CGFloat) -> NSView {
-        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.body, role: .secondary, width: width) })
+        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.cardMessage, role: .secondary, width: width) })
         lines.orientation = .vertical
         lines.alignment = .leading
         lines.spacing = Metrics.space2
@@ -297,7 +315,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             lines.topAnchor.constraint(equalTo: clip.topAnchor),
             lines.widthAnchor.constraint(equalToConstant: width),
             scroll.widthAnchor.constraint(equalToConstant: width),
-            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.body, spacing: lines.spacing)),
+            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.cardMessage, spacing: lines.spacing)),
             fit,
         ])
         return scroll
@@ -369,6 +387,24 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     enum TextRole { case primary, secondary, danger }
 
+    /// The title's info circle: the card's ``CmuxDialogSpec/info`` in the themed tooltip on hover, in the
+    /// secondary ink, as tall as the title's capitals.
+    static func infoCircle(_ info: String, font: NSFont) -> ThemedImageView {
+        let config = NSImage.SymbolConfiguration(pointSize: font.pointSize * 0.85, weight: .regular)
+        let image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: info)?.withSymbolConfiguration(config)
+        let view = ThemedImageView(image: image ?? NSImage())
+        view.themeTint = { Palette.sheetText(.secondary) }
+        view.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.info")
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.setContentHuggingPriority(.required, for: .horizontal)
+        view.setContentCompressionResistancePriority(.required, for: .horizontal)
+        view.themedToolTip = info
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.image)
+        view.setAccessibilityLabel(info)
+        return view
+    }
+
     /// A themed label: it re-reads its ink in the scope it draws in (on joining a window and on every theme
     /// change), never the scope it was built in.
     func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
@@ -392,7 +428,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
             let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
-            input.font = Typography.body
+            input.font = Typography.cardMessage
             input.placeholderString = placeholder
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
@@ -420,7 +456,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             return captioned(caption, popup, width: width)
         case .check(let id, let title, _):
             let check = ThemedCheckbox(checkboxWithTitle: title, target: self, action: #selector(controlChanged(_:)))
-            check.font = Typography.body
+            check.font = Typography.cardMessage
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             register(check, id: id)
             return [check]
@@ -443,7 +479,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     func captioned(_ caption: String?, _ view: NSView, width: CGFloat) -> [NSView] {
         guard let caption else { return [view] }
-        return [label(caption, font: Typography.caption, role: .secondary, width: width), view]
+        return [label(caption, font: Typography.cardBody, role: .secondary, width: width), view]
     }
 }
 

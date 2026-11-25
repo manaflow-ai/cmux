@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What the pane's transport does when its page falls a full queue behind the daemon
@@ -20,7 +21,9 @@ nonisolated enum AcpmuxPaneShedding {
     /// The notices a frozen page hears nothing of (``AcpmuxPaneSocket/setAsleep(_:)``): other chats'
     /// rows and machines, which the page reads again from its list cursor once it wakes. Never its own
     /// chat's stream, a reply, a request or a notice a host observer reads.
-    static let listNotices: Set<String> = ["_acpmux/session_changed", "_acpmux/peer_state_changed"]
+    /// `_acpmux/session_patch` is a row change in compact form (direct.ts chatDeltas.ts): left out with the whole
+    /// rows it patches, which the page reads again when it wakes.
+    static let listNotices: Set<String> = ["_acpmux/session_changed", "_acpmux/session_patch", "_acpmux/peer_state_changed"]
 
     /// The notice a page that slept gets when it wakes, after list notices were left out: the list
     /// and machines are read again (`watch`), its own chat is not (`sessionIds` names none: its stream
@@ -46,7 +49,7 @@ nonisolated enum AcpmuxPaneShedding {
     static func sheddable(_ text: String, method: String?) -> Bool {
         guard let method else { return false }
         if method == "_acpmux/event" {
-            return !AcpmuxRequestIds.eventObserverMarkers.contains(where: text.contains)
+            return !text.utf8ContainsAny(AcpmuxRequestIds.eventObserverMarkers)
         }
         return !AcpmuxRequestIds.observedNotificationMethods.contains(method)
     }

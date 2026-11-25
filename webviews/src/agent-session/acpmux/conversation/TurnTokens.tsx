@@ -12,22 +12,27 @@ import { usePaneLanguage, useT } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { uncachedTokens } from "../tokenSplit";
 import { formatDuration } from "./turns";
-import { Clock } from "../../../ui/Typography";
+import { Clock, clockSizerAcrossUnits } from "../../../ui/Typography";
 import { compactTokens, workingTokens, hasTokens, tokenDetail } from "./turnTokensModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// The tokens' span (no separator before it). `split` wins over `total` when both are known.
 export function TurnTokens({ total, split }: { total?: number; split?: TurnTokenSplit }) {
   const t = useT();
   const language = usePaneLanguage();
   if (hasTokens(split))
     return (
-      <span className="cv-worked__tokens is-split" aria-description={tokenDetail(t, language, split)}>
-        <span className="cv-worked__tokens-part">
-          {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
-        </span>
-        <span className="cv-worked__tokens-part">
-          {t("turn.tokens.in", { tokens: compactTokens(language, uncachedTokens(split)) })}
-        </span>
-      </span>
+      <WithFacts facts={[{ value: tokenDetail(t, language, split) }]}>
+        {(facts) => (
+          <span {...facts} className="cv-worked__tokens is-split">
+            <span className="cv-worked__tokens-part">
+              {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
+            </span>
+            <span className="cv-worked__tokens-part">
+              {t("turn.tokens.in", { tokens: compactTokens(language, uncachedTokens(split)) })}
+            </span>
+          </span>
+        )}
+      </WithFacts>
     );
   if (!total) return null;
   return <span className="cv-worked__tokens">{workingTokens(t, language, total)}</span>;
@@ -53,7 +58,14 @@ export function TimedLabel({
     <>
       {before}
       {ticking ? (
-        <Clock text={shown} className="cv-worked__label-time" />
+        // Nothing after the time on the line's words ("Working for 59s"): its box holds the minutes'
+        // width from the start, so the turn into "1m 0s" moves nothing after it either. Words after
+        // the time ("{time} 作業中") keep to its shape's width, never a gap before them.
+        <Clock
+          text={shown}
+          className="cv-worked__label-time"
+          size={after.trim() ? undefined : clockSizerAcrossUnits(shown)}
+        />
       ) : (
         <span className="cv-worked__label-time">{shown}</span>
       )}
