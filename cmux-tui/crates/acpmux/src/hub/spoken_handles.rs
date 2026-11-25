@@ -38,6 +38,9 @@ impl Hub {
             let former = m.former_names.clone();
             if let Some(old) = &given {
                 super::former_names::push_former(&mut m.former_names, old, handle);
+            } else {
+                // A first handle that was once a former name is no longer one: no "Mango (fka Mango)".
+                m.former_names.retain(|n| n != handle);
             }
             (m.handle.replace(handle.to_owned()), former)
         };

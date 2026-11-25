@@ -9,7 +9,9 @@
 //! cells to show as the real ones, and spans whose override goes because the records now draw
 //! them right. Each delta names the record seq it was computed against.
 
-use crate::{Cell, Color, Grid, Style};
+use std::hash::{Hash, Hasher};
+
+use crate::{Cell, Color, Grid, INVERSE, Style};
 
 /// One change to an [`Overlay`] row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +41,12 @@ pub struct Overlay {
     cols: u16,
     rows: u16,
     cells: Vec<Vec<Option<Cell>>>,
+}
+
+enum Change {
+    Keep,
+    Clear,
+    Set(Cell),
 }
 
 fn cell_at(grid: &Grid, y: usize, x: usize) -> Option<&Cell> {
@@ -79,56 +87,28 @@ impl Overlay {
     /// the real cell.
     pub fn diff(&self, drawn: &Grid, real: &Grid) -> Vec<Span> {
         let blank = Cell::default();
-        let runs = self.runs(drawn, real, |y, x| {
-            self.cells[y][x].as_ref().or_else(|| cell_at(drawn, y, x)).unwrap_or(&blank)
-        });
-        runs.into_iter().map(Run::into_span).collect()
-    }
-
-    /// [`Overlay::diff`] over borrowed cells, against what `shown(y, x)` says the phone shows.
-    fn runs<'a>(
-        &self,
-        drawn: &'a Grid,
-        real: &'a Grid,
-        shown: impl Fn(usize, usize) -> &'a Cell,
-    ) -> Vec<Run<'a>> {
-        let mut runs = Vec::new();
+        let mut spans = Vec::new();
         for (y, row) in self.cells.iter().enumerate() {
             let Ok(row_no) = u16::try_from(y) else { break };
-            let mut open: Option<Run<'a>> = None;
-            for x in 0..row.len() {
-                let Ok(col) = u16::try_from(x) else { break };
-                let want = cell_at(real, y, x).unwrap_or(&BLANK);
-                let under = cell_at(drawn, y, x).unwrap_or(&BLANK);
-                let change = if shown(y, x).looks_same(want) {
-                    None
-                } else if under.looks_same(want) {
-                    Some(None)
-                } else {
-                    Some(Some(want))
-                };
-                match (change, &mut open) {
-                    (Some(None), Some(Run::Clear { len, .. })) => *len += 1,
-                    (Some(Some(cell)), Some(Run::Set { cells, .. }))
-                        if cells.first().is_some_and(|first| first.style == cell.style) =>
-                    {
-                        cells.push(cell);
+            let changes: Vec<Change> = row
+                .iter()
+                .enumerate()
+                .map(|(x, over)| {
+                    let want = cell_at(real, y, x).unwrap_or(&blank);
+                    let under = cell_at(drawn, y, x).unwrap_or(&blank);
+                    let shown = over.as_ref().unwrap_or(under);
+                    if shown.looks_same(want) {
+                        Change::Keep
+                    } else if under.looks_same(want) {
+                        Change::Clear
+                    } else {
+                        Change::Set(want.clone())
                     }
-                    (change, open) => {
-                        runs.extend(open.take());
-                        *open = match change {
-                            None => None,
-                            Some(None) => Some(Run::Clear { row: row_no, col, len: 1 }),
-                            Some(Some(cell)) => {
-                                Some(Run::Set { row: row_no, col, cells: vec![cell] })
-                            }
-                        };
-                    }
-                }
-            }
-            runs.extend(open);
+                })
+                .collect();
+            row_spans(real, y, row_no, changes, &mut spans);
         }
-        runs
+        spans
     }
 
     /// Scroll the shown screen up by `by` rows (down when negative), blank rows coming in. A
@@ -157,14 +137,11 @@ impl Overlay {
 
     /// The smallest delta that makes the shown screen look like `real`: the plain diff, or a
     /// scroll and the diff after it, whichever takes fewer bytes.
-    ///
-    /// Each scroll is scored on borrowed cells and a byte count (what [`Overlay::scroll`] then
-    /// [`Overlay::diff`] would give, without cloning the overlay or a cell): the Mac runs this
-    /// for every frame, and the cloning search took about 23 ms on a 50x40 screen, longer than
-    /// a 16 ms redraw (the `tui-scroll-lag-projection` duress scenario's `mac_diff_ms`).
     pub fn delta(&self, drawn: &Grid, real: &Grid, seq: u64, at_ms: u64) -> Delta {
+        // Score each scroll against borrowed cells. The previous implementation cloned the
+        // overlay for every candidate, which made the projection path exceed one redraw frame.
         let shown = self.compose(drawn);
-        let mut best = self.runs(drawn, real, |y, x| &shown.cells[y][x]);
+        let mut best = borrowed_runs(drawn, real, |y, x| &shown.cells[y][x]);
         if best.is_empty() {
             return Delta { seq, at_ms, shift: 0, spans: Vec::new() };
         }
@@ -174,8 +151,6 @@ impl Overlay {
         let height = usize::from(self.rows);
         for by in (-(rows / 4)..rows).filter(|by| *by != 0) {
             let n = usize::from(by.unsigned_abs());
-            // What the phone shows after `scroll(drawn, by)`: the moved cell, or the drawn one
-            // when the moved cell looks the same (its override dropped).
             let moved_shown = |y: usize, x: usize| -> &Cell {
                 let from = if by > 0 {
                     y.checked_add(n).filter(|from| *from < height)
@@ -186,7 +161,7 @@ impl Overlay {
                 let under = cell_at(drawn, y, x).unwrap_or(&BLANK);
                 if moved.looks_same(under) { under } else { moved }
             };
-            let candidate = self.runs(drawn, real, moved_shown);
+            let candidate = borrowed_runs(drawn, real, moved_shown);
             let len = encoded_len(seq, at_ms, by, &candidate);
             if len < best_len {
                 (best, best_shift, best_len) = (candidate, by, len);
@@ -198,6 +173,139 @@ impl Overlay {
             shift: best_shift,
             spans: best.into_iter().map(Run::into_span).collect(),
         }
+    }
+
+    /// [`Overlay::scroll`] over a blank drawn screen. An override there never looks blank (a
+    /// diff over blank sets only cells that do not), so the rows just move: no compose, no
+    /// clone of a cell.
+    pub fn scroll_over_blank(&mut self, by: i16) {
+        let rows = self.cells.len();
+        let n = usize::from(by.unsigned_abs()).min(rows);
+        if n == 0 {
+            return;
+        }
+        let incoming = if by > 0 {
+            self.cells.rotate_left(n);
+            rows - n..rows
+        } else {
+            self.cells.rotate_right(n);
+            0..n
+        };
+        for row in self.cells.get_mut(incoming).into_iter().flatten() {
+            row.fill(None);
+        }
+    }
+
+    /// [`Overlay::apply_delta`] over a blank drawn screen.
+    pub fn apply_delta_over_blank(&mut self, delta: &Delta) {
+        self.scroll_over_blank(delta.shift);
+        self.apply(&delta.spans);
+    }
+
+    /// Each row's [`row_hash`] as shown over a blank drawn screen, into `out`.
+    pub fn row_hashes_over_blank(&self, out: &mut Vec<u64>) {
+        let blank = Cell::default();
+        out.clear();
+        out.extend(
+            self.cells
+                .iter()
+                .map(|row| row_hash(row.iter().map(|over| over.as_ref().unwrap_or(&blank)))),
+        );
+    }
+
+    /// [`Overlay::delta`] over a blank drawn screen, from the rows that changed. `shown` are the
+    /// overlay's row hashes, `real` `real`'s ([`row_hash`]); a row whose hash matches after a
+    /// shift is not diffed. Shifts are ranked by how many rows they line up, and only the best
+    /// `SHIFT_TRIES` are diffed and encoded, against no shift; the smallest wins, as in
+    /// [`Overlay::delta`]. `None`: the screen already shows `real`.
+    pub fn delta_over_blank(
+        &self,
+        real: &Grid,
+        shown: &[u64],
+        real_hashes: &[u64],
+        seq: u64,
+        at_ms: u64,
+        scratch: &mut Vec<u8>,
+    ) -> Option<Delta> {
+        if shown == real_hashes {
+            return None;
+        }
+        let rows = shown.len();
+        let blank_row = row_hash((0..self.cols).map(|_| &BLANK));
+        let from = |by: i16, y: usize| -> Option<usize> {
+            let n = usize::from(by.unsigned_abs());
+            if by >= 0 { y.checked_add(n).filter(|from| *from < rows) } else { y.checked_sub(n) }
+        };
+        let shifted = |by: i16, y: usize| from(by, y).and_then(|y| shown.get(y)).copied();
+        let lined_up = |by: i16| {
+            real_hashes
+                .iter()
+                .enumerate()
+                .filter(|(y, want)| shifted(by, *y).unwrap_or(blank_row) == **want)
+                .count()
+        };
+        let mut tries = [(0i16, lined_up(0)); SHIFT_TRIES + 1];
+        let limit = i16::try_from(self.rows).unwrap_or(i16::MAX);
+        for by in (-(limit / 4)..limit).filter(|by| *by != 0) {
+            let score = lined_up(by);
+            // Kept best first; a later shift needs strictly more rows to displace one.
+            let Some((_, kept)) = tries.split_first_mut() else { continue };
+            let Some(at) = kept.iter().position(|(_, best)| score > *best) else { continue };
+            if let Some(tail) = kept.get_mut(at..) {
+                tail.rotate_right(1);
+                if let Some(slot) = tail.first_mut() {
+                    *slot = (by, score);
+                }
+            }
+        }
+        let mut best: Option<(Delta, usize)> = None;
+        for (by, score) in tries {
+            if best.is_some() && score <= tries[0].1 {
+                continue;
+            }
+            let mut spans = Vec::new();
+            for (y, want) in real_hashes.iter().enumerate() {
+                if shifted(by, y).unwrap_or(blank_row) == *want {
+                    continue;
+                }
+                let source = from(by, y).and_then(|y| self.cells.get(y));
+                self.diff_row_over_blank(y, source, real, &mut spans);
+            }
+            let candidate = Delta { seq, at_ms, shift: by, spans };
+            scratch.clear();
+            candidate.encode_into(scratch);
+            if best.as_ref().is_none_or(|(_, len)| scratch.len() < *len) {
+                best = Some((candidate, scratch.len()));
+            }
+        }
+        best.map(|(delta, _)| delta)
+    }
+
+    /// [`Overlay::diff`]'s spans for row `y`, its overrides `source` (a shifted row, `None`
+    /// for a row scrolled in blank), over a blank drawn screen.
+    fn diff_row_over_blank(
+        &self,
+        y: usize,
+        source: Option<&Vec<Option<Cell>>>,
+        real: &Grid,
+        spans: &mut Vec<Span>,
+    ) {
+        let Ok(row_no) = u16::try_from(y) else { return };
+        let changes: Vec<Change> = (0..usize::from(self.cols))
+            .map(|x| {
+                let want = cell_at(real, y, x).unwrap_or(&BLANK);
+                let shown =
+                    source.and_then(|row| row.get(x)).and_then(Option::as_ref).unwrap_or(&BLANK);
+                if shown.looks_same(want) {
+                    Change::Keep
+                } else if BLANK.looks_same(want) {
+                    Change::Clear
+                } else {
+                    Change::Set(want.clone())
+                }
+            })
+            .collect();
+        row_spans(real, y, row_no, changes, spans);
     }
 
     /// Apply a delta: its scroll, then its spans.
@@ -230,40 +338,8 @@ impl Overlay {
     }
 }
 
-/// Where encoded bytes go: a buffer, or a count of them (scoring a candidate delta).
-trait Out {
-    fn push(&mut self, byte: u8);
-    fn extend_from_slice(&mut self, bytes: &[u8]);
-    fn put_bytes<const N: usize>(&mut self, bytes: [u8; N]) {
-        self.extend_from_slice(&bytes);
-    }
-}
-
-impl Out for Vec<u8> {
-    fn push(&mut self, byte: u8) {
-        Vec::push(self, byte);
-    }
-    fn extend_from_slice(&mut self, bytes: &[u8]) {
-        Vec::extend_from_slice(self, bytes);
-    }
-}
-
-/// Counts the bytes it would hold.
-struct Count(usize);
-
-impl Out for Count {
-    fn push(&mut self, _: u8) {
-        self.0 += 1;
-    }
-    fn extend_from_slice(&mut self, bytes: &[u8]) {
-        self.0 += bytes.len();
-    }
-}
-
-static BLANK: Cell =
-    Cell { text: String::new(), style: Style { fg: Color::Default, bg: Color::Default, attrs: 0 } };
-
-/// A [`Span`] over borrowed cells: [`Overlay::delta`] scores candidates without cloning.
+/// A span over borrowed cells. Candidate scrolls use these references while scoring so they do
+/// not clone an overlay or its cells; only the winning candidate is materialized on the wire.
 enum Run<'a> {
     Set { row: u16, col: u16, cells: Vec<&'a Cell> },
     Clear { row: u16, col: u16, len: u16 },
@@ -280,70 +356,214 @@ impl Run<'_> {
     }
 }
 
-/// How many bytes [`Delta::encode`] writes for these runs.
-fn encoded_len(seq: u64, at_ms: u64, shift: i16, runs: &[Run<'_>]) -> usize {
-    let mut count = Count(0);
-    write_delta(
-        &mut count,
-        seq,
-        at_ms,
-        shift,
-        runs.len(),
-        runs.iter().map(|run| match run {
-            Run::Set { row, col, cells } => {
-                SpanRef::Set(*row, *col, cells.len(), cells.iter().copied())
-            }
-            Run::Clear { row, col, len } => SpanRef::Clear(*row, *col, *len),
-        }),
-    );
-    count.0
-}
-
-/// One span as [`write_delta`] reads it: a set's cells as any iterator of borrowed cells.
-enum SpanRef<'a, I: Iterator<Item = &'a Cell>> {
-    Set(u16, u16, usize, I),
-    Clear(u16, u16, u16),
-}
-
-/// The wire form [`Delta::encode`] documents, into any [`Out`].
-fn write_delta<'a, O: Out, I: Iterator<Item = &'a Cell> + Clone>(
-    out: &mut O,
-    seq: u64,
-    at_ms: u64,
-    shift: i16,
-    count: usize,
-    spans: impl Iterator<Item = SpanRef<'a, I>>,
-) {
-    put(out, seq);
-    put(out, at_ms);
-    // Zigzag, so a small scroll either way is one byte.
-    let shift = i32::from(shift);
-    put(out, ((shift << 1) ^ (shift >> 31)) as u64);
-    put(out, count as u64);
-    for span in spans {
-        match span {
-            SpanRef::Set(row, col, len, cells) => {
-                put(out, u64::from(row));
-                put(out, u64::from(col));
-                put(out, ((len as u64) << 1) | 1);
-                let style = cells.clone().next().map(|cell| cell.style).unwrap_or_default();
-                put_color(out, style.fg);
-                put_color(out, style.bg);
-                put(out, u64::from(style.attrs));
-                for cell in cells {
-                    put_text(out, &cell.text);
+fn borrowed_runs<'a>(
+    drawn: &'a Grid,
+    real: &'a Grid,
+    shown: impl Fn(usize, usize) -> &'a Cell,
+) -> Vec<Run<'a>> {
+    let mut runs = Vec::new();
+    let rows = real.cells.len().max(drawn.cells.len());
+    let cols = real.cols.max(drawn.cols) as usize;
+    for y in 0..rows {
+        let Ok(row_no) = u16::try_from(y) else { break };
+        let mut open: Option<Run<'a>> = None;
+        for x in 0..cols {
+            let Ok(col) = u16::try_from(x) else { break };
+            let want = cell_at(real, y, x).unwrap_or(&BLANK);
+            let under = cell_at(drawn, y, x).unwrap_or(&BLANK);
+            let change = if shown(y, x).looks_same(want) {
+                None
+            } else if under.looks_same(want) {
+                Some(None)
+            } else {
+                Some(Some(want))
+            };
+            match (change, &mut open) {
+                (Some(None), Some(Run::Clear { len, .. })) => *len += 1,
+                (Some(Some(cell)), Some(Run::Set { cells, .. }))
+                    if cells.first().is_some_and(|first| first.style == cell.style) =>
+                {
+                    cells.push(cell);
+                }
+                (change, slot) => {
+                    runs.extend(slot.take());
+                    *slot = match change {
+                        None => None,
+                        Some(None) => Some(Run::Clear { row: row_no, col, len: 1 }),
+                        Some(Some(cell)) => Some(Run::Set { row: row_no, col, cells: vec![cell] }),
+                    };
                 }
             }
-            SpanRef::Clear(row, col, len) => {
-                put(out, u64::from(row));
-                put(out, u64::from(col));
-                put(out, u64::from(len) << 1);
+        }
+        runs.extend(open);
+    }
+    runs
+}
+
+fn varint_len(mut value: u64) -> usize {
+    let mut len = 1;
+    while value >= 128 {
+        value >>= 7;
+        len += 1;
+    }
+    len
+}
+
+fn encoded_len(seq: u64, at_ms: u64, shift: i16, runs: &[Run<'_>]) -> usize {
+    let shift = i32::from(shift);
+    let zigzag = ((shift << 1) ^ (shift >> 31)) as u64;
+    let mut len =
+        varint_len(seq) + varint_len(at_ms) + varint_len(zigzag) + varint_len(runs.len() as u64);
+    for run in runs {
+        match run {
+            Run::Clear { row, col, len: count } => {
+                len += varint_len(u64::from(*row)) + varint_len(u64::from(*col));
+                len += varint_len(u64::from(*count) << 1);
+            }
+            Run::Set { row, col, cells } => {
+                len += varint_len(u64::from(*row)) + varint_len(u64::from(*col));
+                len += varint_len(((cells.len() as u64) << 1) | 1);
+                let style = cells.first().map(|cell| cell.style).unwrap_or_default();
+                len +=
+                    color_len(style.fg) + color_len(style.bg) + varint_len(u64::from(style.attrs));
+                for cell in cells {
+                    len += text_len(&cell.text);
+                }
             }
         }
     }
+    len
 }
 
-fn put(out: &mut impl Out, mut value: u64) {
+fn color_len(color: Color) -> usize {
+    match color {
+        Color::Default => 1,
+        Color::Palette(_) => 2,
+        Color::Rgb(_, _, _) => 4,
+    }
+}
+
+fn text_len(text: &str) -> usize {
+    match text.as_bytes() {
+        [byte @ 0x20..=0x7e] => {
+            let _ = byte;
+            1
+        }
+        [] => 1,
+        bytes => 1 + varint_len(bytes.len() as u64) + bytes.len(),
+    }
+}
+
+/// One row's spans from its per-cell `changes` against `real`: a wide glyph's right half that
+/// changes goes as its own set, ahead of the glyph's, and runs of one style are one span.
+fn row_spans(real: &Grid, y: usize, row_no: u16, mut changes: Vec<Change>, spans: &mut Vec<Span>) {
+    // A glyph that is not one ASCII character and the empty cell right of it (the right
+    // half of a wide glyph): a blank written or erased over the right half erases the
+    // glyph in the viewer's terminal (a right half that looks blank, as one with only a
+    // foreground does, would otherwise go as a clear). So a right half that changes goes
+    // as a set, and its glyph is set with it. A glyph set over a right half that already
+    // looks right needs nothing more.
+    // The right half of a wide glyph has the glyph's style when the daemon's grid gives
+    // it, so the two go in one span. A right half of another style (a blank right of a
+    // narrow glyph, or a wide glyph's spacer the grid left plain) goes as its own span
+    // before the glyph's, so the glyph is written over it and stays.
+    let mut right_half = vec![false; changes.len()];
+    for x in 0..changes.len().saturating_sub(1) {
+        let (Some(glyph), Some(right)) = (cell_at(real, y, x), cell_at(real, y, x + 1)) else {
+            break;
+        };
+        let paired = right.text.is_empty()
+            && !glyph.text.is_empty()
+            && !matches!(glyph.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
+        if paired
+            && let [this, next, ..] = changes.get_mut(x..).unwrap_or_default()
+            && !matches!(next, Change::Keep)
+        {
+            *this = Change::Set(glyph.clone());
+            *next = Change::Set(right.clone());
+            if let [_, half, ..] = right_half.get_mut(x..).unwrap_or_default() {
+                *half = true;
+            }
+        }
+    }
+    let mut open: Option<Span> = None;
+    for (x, change) in changes.into_iter().enumerate() {
+        let Ok(col) = u16::try_from(x) else { break };
+        if let (Change::Set(cell), Some(Span::Set { cells, .. })) = (&change, &mut open)
+            && right_half.get(x).copied().unwrap_or(false)
+            && cells.first().is_some_and(|first| first.style != cell.style)
+        {
+            let glyph: Vec<Cell> = cells.pop().into_iter().collect();
+            if cells.is_empty() {
+                // The glyph was the span's only cell: nothing is left of it to send.
+                open = None;
+            } else {
+                spans.extend(open.take());
+            }
+            spans.push(Span::Set { row: row_no, col, cells: vec![cell.clone()] });
+            // The glyph's span ends here: it starts left of this cell, so the next cell
+            // cannot join it.
+            spans.push(Span::Set { row: row_no, col: col.saturating_sub(1), cells: glyph });
+            continue;
+        }
+        match (change, &mut open) {
+            (Change::Clear, Some(Span::Clear { len, .. })) => *len += 1,
+            (Change::Set(cell), Some(Span::Set { cells, .. }))
+                if cells.first().is_some_and(|first| first.style == cell.style) =>
+            {
+                cells.push(cell);
+            }
+            (change, open) => {
+                spans.extend(open.take());
+                *open = match change {
+                    Change::Keep => None,
+                    Change::Clear => Some(Span::Clear { row: row_no, col, len: 1 }),
+                    Change::Set(cell) => Some(Span::Set { row: row_no, col, cells: vec![cell] }),
+                };
+            }
+        }
+    }
+    spans.extend(open);
+}
+
+/// How many shifts besides none [`Overlay::delta_over_blank`] diffs and encodes.
+const SHIFT_TRIES: usize = 2;
+
+static BLANK: Cell = Cell { text: String::new(), style: Style::PLAIN };
+
+/// A row's hash, equal for rows whose cells [`Cell::looks_same`]: a cell that draws no glyph
+/// hashes as one blank, its foreground only under inverse.
+pub fn row_hash<'a>(cells: impl Iterator<Item = &'a Cell>) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for cell in cells {
+        let style = cell.style;
+        if cell.is_blank() {
+            0u8.hash(&mut hasher);
+            if style.attrs & INVERSE != 0 {
+                style.fg.hash(&mut hasher);
+            }
+        } else {
+            1u8.hash(&mut hasher);
+            cell.text.hash(&mut hasher);
+            style.fg.hash(&mut hasher);
+        }
+        style.bg.hash(&mut hasher);
+        style.attrs.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// [`row_hash`] of each of `grid`'s rows, `cols` cells each (a missing cell is blank), into `out`.
+pub fn grid_row_hashes(grid: &Grid, cols: u16, rows: u16, out: &mut Vec<u64>) {
+    out.clear();
+    out.extend(
+        (0..usize::from(rows)).map(|y| {
+            row_hash((0..usize::from(cols)).map(|x| cell_at(grid, y, x).unwrap_or(&BLANK)))
+        }),
+    );
+}
+
+fn put(out: &mut Vec<u8>, mut value: u64) {
     loop {
         let low = (value & 0x7f) as u8;
         value >>= 7;
@@ -355,17 +575,17 @@ fn put(out: &mut impl Out, mut value: u64) {
     }
 }
 
-fn put_color(out: &mut impl Out, color: Color) {
+fn put_color(out: &mut Vec<u8>, color: Color) {
     match color {
         Color::Default => out.push(0),
-        Color::Palette(index) => out.put_bytes([1, index]),
-        Color::Rgb(r, g, b) => out.put_bytes([2, r, g, b]),
+        Color::Palette(index) => out.extend([1, index]),
+        Color::Rgb(r, g, b) => out.extend([2, r, g, b]),
     }
 }
 
 /// A cell's text: a printable ASCII byte as itself, an empty cell as 2, anything else as 1,
 /// its length and its UTF-8 bytes.
-fn put_text(out: &mut impl Out, text: &str) {
+fn put_text(out: &mut Vec<u8>, text: &str) {
     match text.as_bytes() {
         [byte @ 0x20..=0x7e] => out.push(*byte),
         [] => out.push(2),
@@ -445,20 +665,39 @@ impl Delta {
     /// The delta on the wire: varints for numbers, a span's style once, then its cells' text.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        write_delta(
-            &mut out,
-            self.seq,
-            self.at_ms,
-            self.shift,
-            self.spans.len(),
-            self.spans.iter().map(|span| match span {
-                Span::Set { row, col, cells } => {
-                    SpanRef::Set(*row, *col, cells.len(), cells.iter())
-                }
-                Span::Clear { row, col, len } => SpanRef::Clear(*row, *col, *len),
-            }),
-        );
+        self.encode_into(&mut out);
         out
+    }
+
+    /// [`Delta::encode`], appended to `out`.
+    pub fn encode_into(&self, out: &mut Vec<u8>) {
+        put(out, self.seq);
+        put(out, self.at_ms);
+        // Zigzag, so a small scroll either way is one byte.
+        let shift = i32::from(self.shift);
+        put(out, ((shift << 1) ^ (shift >> 31)) as u64);
+        put(out, self.spans.len() as u64);
+        for span in &self.spans {
+            match span {
+                Span::Set { row, col, cells } => {
+                    put(out, u64::from(*row));
+                    put(out, u64::from(*col));
+                    put(out, ((cells.len() as u64) << 1) | 1);
+                    let style = cells.first().map(|cell| cell.style).unwrap_or_default();
+                    put_color(out, style.fg);
+                    put_color(out, style.bg);
+                    put(out, u64::from(style.attrs));
+                    for cell in cells {
+                        put_text(out, &cell.text);
+                    }
+                }
+                Span::Clear { row, col, len } => {
+                    put(out, u64::from(*row));
+                    put(out, u64::from(*col));
+                    put(out, u64::from(*len) << 1);
+                }
+            }
+        }
     }
 
     /// A delta [`Delta::encode`] wrote, or `None` when the bytes aren't one.
@@ -489,175 +728,5 @@ impl Delta {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{BOLD, Line};
-
-    fn grid(rows: &[&[(&str, Style)]]) -> Grid {
-        let mut grid = Grid::blank(20, 4);
-        for (slot, parts) in grid.cells.iter_mut().zip(rows) {
-            let mut line = Line::new();
-            for (text, style) in *parts {
-                line.push(text, *style);
-            }
-            *slot = line.into_row(20);
-        }
-        grid
-    }
-
-    #[test]
-    fn a_delta_turns_the_drawn_screen_into_the_real_one() {
-        let drawn = grid(&[&[("> hi", Style::PLAIN)], &[("hello", Style::fg(174))]]);
-        let real = grid(&[
-            &[("> hi", Style::PLAIN)],
-            &[("hello", Style::fg(174))],
-            &[("Do you want", Style::PLAIN.with(BOLD))],
-            &[("✻ Misting…", Style::fg(174))],
-        ]);
-        let mut overlay = Overlay::new(20, 4);
-        let spans = overlay.diff(&drawn, &real);
-        // Only the two rows the records lack. The space after the spinner draws the same pixels
-        // as the drawn blank, so it splits that row's span in two.
-        let at: Vec<(u16, u16)> = spans
-            .iter()
-            .map(|s| match s {
-                Span::Set { row, col, .. } | Span::Clear { row, col, .. } => (*row, *col),
-            })
-            .collect();
-        assert_eq!(at, [(2, 0), (3, 0), (3, 2)]);
-        overlay.apply(&spans);
-        assert_eq!(real.parity(&overlay.compose(&drawn)), (80, 80));
-        assert!(overlay.diff(&drawn, &real).is_empty());
-    }
-
-    #[test]
-    fn an_override_goes_when_the_screen_moves_on_to_what_the_records_draw() {
-        let drawn = grid(&[&[("> hi", Style::PLAIN)]]);
-        let dialog = grid(&[&[("Allow? y/n", Style::PLAIN)]]);
-        let mut overlay = Overlay::new(20, 4);
-        overlay.apply(&overlay.diff(&drawn, &dialog));
-        assert!(overlay.overrides() > 0);
-        // The dialog closes and the screen is what the records draw again.
-        let spans = overlay.diff(&drawn, &drawn);
-        assert!(spans.iter().all(|s| matches!(s, Span::Clear { row: 0, .. })), "{spans:?}");
-        overlay.apply(&spans);
-        assert_eq!(drawn.parity(&overlay.compose(&drawn)), (80, 80));
-    }
-
-    #[test]
-    fn a_scrolled_screen_moves_the_overlay_instead_of_resending_it() {
-        let drawn = Grid::blank(20, 4);
-        let line = |text| (text, Style::fg(246));
-        let before = grid(&[&[line("one")], &[line("two")], &[line("three")], &[line("four")]]);
-        let after = grid(&[&[line("three")], &[line("four")], &[line("five")], &[line("six")]]);
-        let mut overlay = Overlay::new(20, 4);
-        overlay.apply_delta(&overlay.delta(&drawn, &before, 1, 0), &drawn);
-        let delta = overlay.delta(&drawn, &after, 1, 10);
-        // Two lines printed: a scroll of two and the two new rows, nothing else.
-        assert_eq!(delta.shift, 2);
-        assert!(delta.spans.iter().all(|s| matches!(s, Span::Set { row: 2 | 3, .. })), "{delta:?}");
-        overlay.apply_delta(&delta, &drawn);
-        assert_eq!(after.parity(&overlay.compose(&drawn)), (80, 80));
-    }
-
-    /// The search `delta` ran before it scored on borrowed cells: clone, scroll, diff, encode.
-    fn delta_by_cloning(overlay: &Overlay, drawn: &Grid, real: &Grid) -> Delta {
-        let mut best = Delta { seq: 1, at_ms: 0, shift: 0, spans: overlay.diff(drawn, real) };
-        let mut best_len = best.encode().len();
-        if best.spans.is_empty() {
-            return best;
-        }
-        let rows = i16::try_from(overlay.rows).unwrap();
-        for by in (-(rows / 4)..rows).filter(|by| *by != 0) {
-            let mut moved = overlay.clone();
-            moved.scroll(drawn, by);
-            let candidate = Delta { seq: 1, at_ms: 0, shift: by, spans: moved.diff(drawn, real) };
-            let len = candidate.encode().len();
-            if len < best_len {
-                (best, best_len) = (candidate, len);
-            }
-        }
-        best
-    }
-
-    #[test]
-    fn the_delta_search_picks_what_cloning_each_scroll_picked() {
-        // A full-screen TUI's redraws: a growing document scrolled both ways, a status row,
-        // records drawing some rows right, two styles.
-        let (cols, rows) = (20u16, 12u16);
-        let page = |top: usize, status: &str| {
-            let mut grid = Grid::blank(cols, rows);
-            for (y, slot) in grid.cells.iter_mut().enumerate() {
-                let mut line = Line::new();
-                if y + 1 == usize::from(rows) {
-                    line.push(status, Style::fg(2));
-                } else {
-                    line.push(&format!("line {}", top + y), Style::fg(246));
-                    if (top + y) % 3 == 0 {
-                        line.push(" !", Style { attrs: BOLD, ..Style::fg(1) });
-                    }
-                }
-                *slot = line.into_row(cols);
-            }
-            grid
-        };
-        let mut drawn = Grid::blank(cols, rows);
-        drawn.cells[0] = page(0, "").cells[0].clone();
-        let mut overlay = Overlay::new(cols, rows);
-        for (step, top) in [0, 1, 2, 5, 4, 3, 3, 9, 30, 29, 31, 31].into_iter().enumerate() {
-            let real = page(top, &format!("step {step}"));
-            let want = delta_by_cloning(&overlay, &drawn, &real);
-            let got = overlay.delta(&drawn, &real, 1, 0);
-            assert_eq!(got, want, "step {step}");
-            assert_eq!(got.encode(), want.encode(), "step {step}");
-            overlay.apply_delta(&got, &drawn);
-            assert_eq!(real.parity(&overlay.compose(&drawn)), (240, 240), "step {step}");
-        }
-    }
-
-    #[test]
-    fn a_delta_round_trips_through_its_bytes() {
-        let delta = Delta {
-            seq: 300,
-            at_ms: 25_000,
-            shift: -3,
-            spans: vec![
-                Span::Set {
-                    row: 3,
-                    col: 7,
-                    cells: ["✻", "a", "", "字", " "]
-                        .into_iter()
-                        .map(|text| Cell {
-                            text: text.into(),
-                            style: Style {
-                                fg: Color::Rgb(1, 2, 3),
-                                bg: Color::Palette(237),
-                                attrs: BOLD,
-                            },
-                        })
-                        .collect(),
-                },
-                Span::Clear { row: 31, col: 99, len: 1 },
-            ],
-        };
-        let bytes = delta.encode();
-        assert_eq!(Delta::decode(&bytes), Some(delta));
-        assert_eq!(Delta::decode(&bytes[..bytes.len() - 1]), None);
-    }
-
-    /// A varint past 64 bits is not a delta: its high bits are not dropped to read a smaller
-    /// value (#44052 F2).
-    #[test]
-    fn a_varint_past_64_bits_is_not_a_delta() {
-        // seq, then at_ms 0, shift 0 and no spans.
-        let with_seq = |seq: &[u8]| [seq, &[0, 0, 0]].concat();
-        let max = [[0xff; 9].as_slice(), &[0x01]].concat();
-        assert_eq!(Delta::decode(&with_seq(&max)).map(|delta| delta.seq), Some(u64::MAX));
-        // Bit 64 set: the shift used to drop it and read seq 0.
-        let bit_64 = [[0x80; 9].as_slice(), &[0x02]].concat();
-        assert_eq!(Delta::decode(&with_seq(&bit_64)), None);
-        // An eleventh byte.
-        let eleven = [[0x80; 10].as_slice(), &[0x00]].concat();
-        assert_eq!(Delta::decode(&with_seq(&eleven)), None);
-    }
-}
+#[path = "hybrid_tests.rs"]
+mod tests;

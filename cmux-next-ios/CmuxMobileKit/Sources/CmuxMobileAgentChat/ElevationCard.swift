@@ -45,7 +45,7 @@ public struct ElevationCard: View {
                 .onSubmit(approve)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
-                .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 14, style: .continuous))
+                .cmuxMobileContentSurface(.inset, in: .rect(cornerRadius: 14, style: .continuous))
             HStack(spacing: 8) {
                 Button("Deny") { answer(nil) }
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(.destructive, size: .bar))

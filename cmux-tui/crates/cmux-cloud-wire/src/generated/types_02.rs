@@ -5,6 +5,65 @@
 use super::*;
 
 wire_enum! {
+    ConcurrencyOnLimit {
+        Queue = "queue",
+        Skip = "skip",
+    }
+}
+
+wire_enum! {
+    ConfirmLevel {
+        Strict = "strict",
+        DestructiveOnly = "destructive-only",
+        Off = "off",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Connection {
+    pub id: ConnectionId,
+    pub owner: TeamId,
+    pub created_by: UserId,
+    pub provider: IntegrationProvider,
+    pub account: Option<ConnectionAccount>,
+    pub scopes_requested: Vec<String>,
+    pub scopes_granted: Vec<String>,
+    pub status: ConnectionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    pub sharing: ConnectionSharing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ConnectionResources>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectionAccount {
+    pub key: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+wire_enum! {
+    ConnectionSharing {
+        Private = "private",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectionResources {
+    pub repos: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_by_github_id: Option<i64>,
+}
+
+/// One integration connection (a provider account linked to a team).
+pub type ConnectionId = String;
+
+wire_enum! {
     ConnectionStatus {
         Pending = "pending",
         Active = "active",
@@ -837,59 +896,3 @@ pub struct HomeReactionKindVariant2 {
 
 /// SHA-256 of the bytes, lowercase hex.
 pub type HomeSha256 = String;
-
-/// A styled range of a text part, in UTF-16 code units.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeTextRun {
-    pub start: i64,
-    pub length: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mention: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub link: Option<String>,
-}
-
-/// title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeThreadState {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<HomeThreadStateResolved>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeThreadStateResolved {
-    pub by: ParticipantId,
-    pub at: Timestamp,
-    pub seq: i64,
-}
-
-wire_enum! {
-    HomeThreadStatus {
-        Open = "open",
-        Resolved = "resolved",
-    }
-}
-
-/// status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeThreadSummary {
-    pub root: MessageId,
-    pub reply_count: i64,
-    pub last_reply_seq: Option<i64>,
-    pub last_reply_at: Option<Timestamp>,
-    pub authors: Vec<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<HomeThreadStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_by: Option<ParticipantId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_at: Option<Timestamp>,
-}
