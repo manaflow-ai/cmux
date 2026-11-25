@@ -45,7 +45,10 @@
 # --phase after: refuses (exit 3) unless kern.boottime changed since before and the boot is < 600 s old; then one
 # measured launch, scenario after-reboot.
 # --growth MINUTES: the app opened once and kept up; one LM-GROWTH line per minute (procs, threads, rss, footprint,
-# cpu %, wakeups/s, disk read and written per minute) into OUT/growth.log as well as stdout.
+# cpu %, wakeups/s, disk read and written per minute) into OUT/growth.log as well as stdout. Each line's "top" names
+# the minute's top spenders in the tree (process name, pid, cpu %, MB written, top 3 threads by name; LM_GROWTH_TOP,
+# default 5); at the end launch-matrix-growth.py prints LM-GROWTH-BURST per burst minute (the tree at >= 50 % of a
+# core) with its owner, LM-GROWTH-OWNER per process, and LM-GROWTH-VERDICT: the process that spends the bursts.
 # The probe skips an app already running (not ours to quit), and quits only what it opened.
 set -uo pipefail
 
@@ -123,6 +126,7 @@ lm_main() {
     local dir; dir="$(clone_profile growth)"
     # shellcheck disable=SC2046
     console "$PROBE" growth "$APP" growth "$growth" $(profile_args "$dir") 2>>"$OUT/probe.log" | tee -a "$OUT/growth.log"
+    python3 -I "$LM_DIR/launch-matrix-growth.py" "$OUT/growth.log" | tee "$OUT/growth-owners.log"
     return 0
   fi
   prime || exit 3
@@ -297,12 +301,30 @@ arm() {
     kill "$presser" 2>/dev/null; wait "$presser" 2>/dev/null
     local seen=false; grep -q 'LF-PROMPT' "$OUT/prompts-$tag.log" 2>/dev/null && seen=true
     extra="{\"prompt_seen\": $seen, \"quarantine\": \"$(qattr "$target" | cut -c1-40)\", \"ran_from\": \"$target\"}"
+    # No window: say why in the step log, before the prompt is cancelled (the logs below stay on the Mac otherwise).
+    [[ "$json" == *'"error"'* ]] && first_install_diag "$tag" "$target"
     sweep_prompts Cancel "after $tag"
   fi
   gone "$target"
   record "$scenario" "$rep" "$json" "$extra"
   [[ "$scenario" == first-install ]] && rm -rf "$OUT/fi/$tag"
   [[ "$json" != *'"error"'* ]]
+}
+
+# first_install_diag TAG TARGET: LM-DIAG lines for a first-install launch that showed no window: what the presser
+# saw, the prompt owners' windows now against the baseline, the app's processes, and Gatekeeper's last 90 s of log.
+first_install_diag() {
+  local tag="$1" target="$2" f
+  for f in "$OUT/prompts-$tag.log" "$OUT/prompts.log"; do
+    echo "LM-DIAG $tag $(basename "$f") lines=$(wc -l <"$f" 2>/dev/null | tr -d ' ')"
+    tail -n 6 "$f" 2>/dev/null | cut -c1-600 | sed "s/^/LM-DIAG $tag   /"
+  done
+  echo "LM-DIAG $tag prompt-owner windows now: [$(prompts ids 2>&1 | cut -c1-300)] baseline: [${PROMPT_BASELINE:-}] cua: ${CUA:-none}"
+  ps -axo pid,ppid,user,etime,comm | grep -E "CoreServicesUIAgent|syspolicyd|XprotectService|$(basename "$target" .app)" | grep -v grep \
+    | cut -c1-200 | sed "s/^/LM-DIAG $tag ps /"
+  log show --last 90s --style compact \
+    --predicate 'process == "syspolicyd" OR process == "CoreServicesUIAgent" OR process == "XprotectService"' 2>/dev/null \
+    | grep -iE 'gatekeeper|quarantine|prompt|assess|notariz|denied|error|scan' | tail -n 25 | cut -c1-400 | sed "s/^/LM-DIAG $tag log /"
 }
 
 # evict APP: the bundle out of the page cache; prints the row's evict fields.

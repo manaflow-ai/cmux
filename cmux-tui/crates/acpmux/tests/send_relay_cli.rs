@@ -452,7 +452,8 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         }
     }
 
-    // The kept listing's rows are listed, marked stale.
+    // The kept listing's rows are listed with their asOfMs, not marked `stale` (a down peer's
+    // copy), so the table shows their state, never `peer down`.
     let ls = cli(&dir, &["--json", "ls"]);
     assert!(ls.status.success(), "{}", text(&ls));
     let v: serde_json::Value = serde_json::from_slice(&ls.stdout).unwrap();
@@ -464,7 +465,11 @@ fn a_stalled_relay_listing_never_holds_or_fails_ls() {
         .filter(|r| r["sessionId"] == "01far-kept")
         .collect();
     assert_eq!(kept.len(), 1, "{v}");
-    assert_eq!(kept[0]["stale"], true, "{v}");
+    assert!(kept[0].get("stale").is_none(), "{v}");
+    assert!(kept[0]["asOfMs"].as_u64().is_some(), "{v}");
+    let table = cli(&dir, &["ls", "--all"]);
+    let table_out = String::from_utf8_lossy(&table.stdout);
+    assert!(!table_out.contains("peer down"), "{table_out}");
     let said = String::from_utf8_lossy(&ls.stderr);
     assert!(
         said.contains("from the last listing, refreshing; listed as of 1m ago"),

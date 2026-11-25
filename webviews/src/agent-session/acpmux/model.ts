@@ -1,8 +1,9 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
+import type { ApprovedPlan } from "./approvedPlan";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
-import { permissionCardHeight } from "./permissions/cardHeight";
+import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
@@ -34,6 +35,8 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { AutoSession } from "./autoSession/autoSession";
+import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -45,6 +48,7 @@ import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
 import { isRunPart } from "./conversation/runPartId";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
@@ -59,9 +63,11 @@ import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/
 import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./conversation/promptCoach";
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
+import type { LiveWait } from "./conversation/liveWait";
+import type { GitHubConnectNeed } from "./conversation/githubConnect";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
-import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "./subagents/subagent";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
 import type { SubagentRetryNotice } from "./subagents/retryState";
@@ -70,7 +76,6 @@ import {
   SUBAGENT_DONE,
   SUBAGENT_STARTED,
   SUBAGENT_EMPTY,
-  SUBAGENT_OF,
   SUBAGENT_ROW,
   WORKFLOW_CARD,
 } from "./subagents/subagentRows";
@@ -95,9 +100,15 @@ import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
+import {
+  linkedImagePath,
+  SENT_IMAGE_HEIGHT,
+  SENT_IMAGE_MAX_WIDTH,
+  sentImageSize,
+  sentImageWidth,
+} from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
-import { fileSizeLabel } from "./fileAttachmentModel";
+import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -273,6 +284,10 @@ export type AcpmuxBackgroundRun = {
   other: number;
   /// How many members are background shells' ends: a run of only those reads "N background commands".
   commands: number;
+  /// How many members are subagents' ends (a harness event, folded as a tool call is), and how they
+  /// ended when they all ended alike: a run of only those reads "N subagents stopped".
+  subagents?: number;
+  subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
   rows: string[];
 };
 
@@ -470,6 +485,12 @@ export type AcpmuxTurnRetry = {
   maxRetries?: number;
   error?: string;
   errorStatus?: number;
+  /// What acpmux classified the failure as (hub/outage.rs): the connection failed, not the model.
+  cause?: "dns" | "refused" | "timeout" | "unreachable";
+  /// The host that could not be reached, when the harness's words name one.
+  host?: string;
+  /// When the harness tries again, epoch ms (acpmux adds the harness's delay to its own clock).
+  retryAt?: number;
 };
 
 /// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
@@ -491,6 +512,9 @@ export type AcpmuxRow = {
   version: number;
   at: number;
   kind: string;
+  /// The row-store group whose children this activity row comes from. Closed groups are paged on
+  /// demand when their transcript disclosure opens.
+  foldId?: number;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
   /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
@@ -541,6 +565,11 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A row of the running turn that was already there when the chat was opened or reloaded (a v1
+  /// chat: direct.ts `noteReadWork`), with how many of its items were (an activity row's; 0 for any
+  /// other row). The running turn draws what of it its fold will hold folded from the first frame,
+  /// as the row store sends an open turn's settled work (turns.ts `withoutReadWork`).
+  readAtOpen?: number;
   /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
   /// draws even when it is only punctuation (visibleMessage.ts).
   answersPerson?: true;
@@ -653,6 +682,9 @@ export type AcpmuxRow = {
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
   /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
+  /// The chat's last turn's GitHub call that found no GitHub connection for this chat
+  /// (conversation/githubConnect.ts): its footer draws the Connect GitHub card.
+  githubConnect?: GitHubConnectNeed;
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
   /// ended, and the footer offers its Copy.
@@ -696,6 +728,9 @@ export type AcpmuxRow = {
   runOpen?: true;
   /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
   workedRuns?: AcpmuxActivity[];
+  /// The calls a "Worked for" hides, which its line counts with the Fold Summary Counts switch on
+  /// (conversation/turns.ts `workedCountsText`, `FOLD_COUNTS_SWITCH`).
+  foldCalls?: AcpmuxActivity[];
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
@@ -730,6 +765,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The acpmux tool kind of the call the live line names (`execute`, `read`, ...): a look's thinking
+  /// glyph plays the document's trigger for it (conversation/thinkingGlyphModel.ts `glyphTrigger`).
+  doingKind?: string;
   /// The Codex-style live line names a command still running in an earlier run, which that run
   /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
   /// is scrolled up, the call stays out of its run when the line lets go of it
@@ -753,6 +791,9 @@ export type AcpmuxRow = {
   /// That should replace the thinking area").
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  /// The names of the foreground subagents the line waits on, as the tray shows them (conversation/
+  /// turns.ts `foregroundAgentNames`): "Waiting on subagent Explore auth", never only a count.
+  liveAgentNames?: readonly string[];
   liveCompaction?: AcpmuxCompaction;
   /// With the line reading "Thinking" past the first step (conversation/turns.ts `liveClock`, this
   /// computer's clock): when this stretch of thinking began, the time beside the word ticking from
@@ -761,6 +802,10 @@ export type AcpmuxRow = {
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// What a silent line waits on, so it never reads a bare "Waiting" (conversation/liveWait.ts):
+  /// the model reading the call that just returned, its first reply, another agent's message, the
+  /// person's queued message, or its next step.
+  liveWait?: LiveWait;
   /// With the line reading "Waiting on N subagents" (conversation/turns.ts, this computer's clock):
   /// when that wait began, the last moment the turn's own rows did anything, so the time beside the
   /// words is the wait's, never the turn's whole time.
@@ -907,6 +952,8 @@ export type AcpmuxRow = {
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// A start line's: how many of its `subagents` it names; it counts the rest (runningTray.ts `startedLineModel`).
+  startedNamed?: number;
   /// On a background turn's line: the subagent whose report started the turn, which the line names
   /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
   subagentReport?: Subagent;
@@ -933,6 +980,10 @@ export type AcpmuxActivity = {
     awaitingCall?: true;
     inputSummary?: string;
     output?: string;
+    /// The output starts after the beginning of what the call printed: a long call's oldest lines went
+    /// with their records when the chat let go of its oldest (direct.ts `shedOlderHeld`), and scrolling
+    /// up reads them back (`foldOlder`). Its Shell block marks the cut as a read tail's is marked.
+    earlierOutput?: true;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
     command?: string;
     /// What the call says it does in a few words (Claude Code's Bash `rawInput.description`): a
@@ -962,6 +1013,10 @@ export type AcpmuxActivity = {
     /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
     /// not sufficient to identify plumbing calls with names such as ToolSearch.
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
+    /// The name of the subagent a SendMessage call goes to, as the daemon's subagent list names
+    /// it (`_meta.acpmux.recipient`, acpmux subagents.rs `recipient`): the "Sent to" row reads it
+    /// when the page holds no row of the subagent's Agent call.
+    recipient?: string;
   };
 };
 
@@ -1255,8 +1310,14 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /// The one-shot admission warning of an Auto start: with no `sessionId` while `session/new` waits
+  /// for a machine being added (`_acpmux/admission_waiting`), then the one `session/new` returned,
+  /// while its chat is starting.
+  startupAdmission?: { sessionId?: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
+  capacityWait?: CapacityWaitState;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.
@@ -1349,6 +1410,9 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
+    /// acpmux without Auto, and the pane then offers and draws nothing of it.
+    autoSession?: AutoSession;
     /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
     additionalDirectories?: readonly string[];
     branch?: string;
@@ -1366,6 +1430,9 @@ export type AcpmuxSnapshot = {
     /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
     /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
     taskList?: ChatTaskList;
+    /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
+    /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
+    approvedPlan?: ApprovedPlan;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
@@ -1437,9 +1504,6 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
-    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
-    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -1471,6 +1535,10 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// With `listedSessions`: `sessions` is only the newest window of the daemon's list (the first
+  /// `SESSION_PAGE` rows and their changes; sessionPages.ts `holdsAll` false), not the whole list,
+  /// so it says nothing about the chats older than its oldest row (newtab/chatStore.ts merges it).
+  sessionsWindowed?: true;
   /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
   /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
@@ -1523,6 +1591,9 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux forks a subagent's own context into a chat of its own (`acp.session.fork.subagent.v1`):
+  /// a subagent's chips offer Fork with <model>… and Fork with <mode>… (SubagentForkChips.tsx).
+  canForkSubagent?: true;
   /// The chat's own machine (a Cloud or SSH chat) opens its side chats there: New side chat and
   /// `/side` (direct.ts `sideChatOnMachine`).
   sideChatOnMachine?: true;
@@ -1764,6 +1835,8 @@ const META_ROW_PT = gridLength("transcript-action-control");
 const metaRow = () => META_ROW_PT * chromeScale;
 /// A reply footer's line: its 32 buttons (transcriptGrid.ts `TRANSCRIPT_FOOTER_CONTROL`).
 const footerRow = () => TRANSCRIPT_FOOTER_CONTROL * chromeScale;
+/// The Connect GitHub card above a footer: its line and button, in the failure card's padding.
+const GITHUB_CONNECT_CARD = 56;
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -2640,7 +2713,11 @@ export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
 }
 /// turns.ts isEmptyFooter, which this module cannot import.
 const isBlankFooter = (row: AcpmuxRow) =>
-  row.status !== "failed" && row.status !== "error" && !row.text && !((row.turnCopy?.length ?? 0) > 0);
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.githubConnect &&
+  !((row.turnCopy?.length ?? 0) > 0);
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||
@@ -2789,8 +2866,6 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // The child view's 28px "Subagent of" pill with 8px above and below it.
-  if (row.kind === SUBAGENT_OF) return finish(44);
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
@@ -2808,18 +2883,11 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
-  // answer in 8px.
+  // A tagged ask's card (conversation/NextStepCard.tsx), the same in every pane, waiting or answered
+  // (permissions/cardHeight.ts `nextStepCardHeight`).
   if (row.kind === NEXT_STEP && row.nextStep) {
     const { ask, answer, superseded } = row.nextStep;
-    const perLine = Math.max(120, width - 32) / 7.5;
-    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
-    return finish(
-      answer === undefined && !superseded
-        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
-        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
-    );
+    return finish(nextStepCardHeight(ask, width, { answer, superseded }));
   }
   // A walkthrough strip (conversation/Walkthrough.tsx): its 28px head and, open, the 96px row of
   // shots over two 16px caption lines, with 8px above and below.
@@ -2906,7 +2974,11 @@ function fallbackRowHeight(
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
-  if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A Connect GitHub card (conversation/GitHubConnectCard.tsx) adds its one line and button above it.
+  if (row.kind === "turnSummary")
+    return finish(
+      isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow() + (row.githubConnect ? GITHUB_CONNECT_CARD : 0),
+    );
   // A finished subagent's line: the chat's reply to its end is the chat's own message, never under it
   // (direct.ts `settleReaction`).
   if (row.kind === SUBAGENT_DONE || row.kind === SUBAGENT_STARTED) return finish(toolRowHeight());
@@ -3649,8 +3721,11 @@ function attachmentBox(
       width: sentImageWidth(video),
       height: SENT_IMAGE_HEIGHT,
     });
+  // An image sent as its file's link draws as a sent image of unknown size (UserBubble.tsx
+  // `SentLinkedImage`) until it is read.
+  if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
-  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
+  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(shownFileSize(part), "en");
   const content =
     2 * chip.side +
     chip.glyph +
@@ -3789,7 +3864,12 @@ function pickedPromptHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
+/// `open` is the row's state signature then (conversation/rowOpenState.ts): an estimate taken with a
+/// run, group, call or message open is never reused for the row once it is closed, or the other way.
+export type RowHeights = WeakMap<
+  AcpmuxRow,
+  { width: number; height: number; edge?: string; scale?: number; open?: string }
+>;
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3847,8 +3927,9 @@ export function layoutConversation(
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
-    const limit = Math.min(rows.length, previous.rows.length);
-    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    // Asked of the same two row arrays by the pane's other passes too: walked once a pair, or not at
+    // all where the rows' maker said how many it kept (prefixFlatMap.ts `noteKeptPrefix`).
+    start = keptPrefix(previous.rows, rows);
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
     let drawn = start - 1;
@@ -3904,8 +3985,12 @@ export function layoutConversation(
     if (!drawsNothing(row)) prevDrawn = row;
     const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
+    // The row's open state now (rowOpenState.ts), read only when a remembered estimate could place it:
+    // one taken in another open state is estimated again, from the same stores the DOM opens from.
+    const open = kept ? rowOpenState(sessionId, row) : undefined;
+    const keptOpen = kept !== undefined && (kept.open ?? "") === open;
     let height: number;
-    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    if (kept && keptOpen && kept.width === width && kept.edge === edge) height = kept.height;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3943,6 +4028,7 @@ export function layoutConversation(
         !custom &&
         near &&
         kept &&
+        keptOpen &&
         kept.edge === edge &&
         (kept.scale ?? 1) === scale &&
         (index < near.from || index >= near.to) &&
@@ -3977,7 +4063,7 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        known?.set(row, { width, height, edge, scale });
+        if (known) known.set(row, { width, height, edge, scale, open: open ?? rowOpenState(sessionId, row) });
       }
     }
     if (height > 0) {
@@ -4449,6 +4535,7 @@ import {
 } from "./chatDisplay";
 import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
+import { rowOpenState } from "./conversation/rowOpenState";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
