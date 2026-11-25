@@ -145,6 +145,25 @@ fn the_machine_route_op_names_its_command_and_judges_the_report() {
     assert_eq!(judged(&login.to_string()), json!("holds_credential"));
 }
 
+/// The spare's warm-home command carries the person's recent shapes from this Mac's acpmux home,
+/// and only the default warm when there is no home or file.
+#[test]
+fn the_warm_home_op_sends_the_persons_recent_shapes() {
+    let home = std::env::temp_dir().join(format!("ffi-warm-home-{}", std::process::id()));
+    std::fs::create_dir_all(&home).unwrap();
+    let file = json!({"spares": [{"harness": "codex", "cwd": "/w", "model": "gpt-5.5", "usedAtMs": 1000}]});
+    std::fs::write(home.join("pool-spares.json"), file.to_string()).unwrap();
+    let (code, got) =
+        call(c"cloud_warm_home", &json!({"acpmuxHome": home.to_str().unwrap(), "nowMs": 2000.0}));
+    assert_eq!(code, OK);
+    let command = got["command"].as_str().unwrap();
+    assert!(command.contains("acp --json warm-home --wait --shape 'codex:gpt-5.5'"), "{command}");
+    assert_eq!(got["shapes"], json!([{"harness": "codex", "model": "gpt-5.5"}]));
+    let bare = call(c"cloud_warm_home", &json!({})).1;
+    assert!(bare["command"].as_str().unwrap().contains("warm-home --wait 2>/dev/null"));
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
 /// The pre-approval token's two ops round-trip the state the app keeps, numbers as Swift's `JSONValue` sends them.
 #[test]
 fn the_capability_ops_answer() {
@@ -167,4 +186,17 @@ fn the_capability_ops_answer() {
         call(c"cloud_capability_header", &json!({"team": "team-a", "nowMs": 1.0e12 + 2000.0})).1;
     assert_eq!(after, json!({"header": null, "fetch": true}));
     call(c"cloud_capability_drop", &json!({}));
+}
+
+#[test]
+fn a_cloud_start_in_place_keeps_its_page() {
+    let shown = |kill: Option<&str>| {
+        call(
+            c"cloud_one_pane",
+            &json!({"inPlace": true, "pageLive": true, "cloudPageFree": true, "killSwitch": kill}),
+        )
+        .1
+    };
+    assert_eq!(shown(None), json!({"shown": "rehome"}));
+    assert_eq!(shown(Some("0")), json!({"shown": "swap"}));
 }
