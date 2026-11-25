@@ -46,7 +46,7 @@ extension NSMenu {
     /// looking"). So:
     /// - a menu with an icon column never shows the checkmark column: a checked or mixed row draws
     ///   its mark in its own icon slot, in place of its icon (`MenuMetrics.iconX`; see
-    ///   `MenuStateMark.fit` for why its state then reads off and its mark carries it);
+    ///   `MenuStateMark.fit` for why its state then reads off and its accessibility value carries it);
     /// - a menu without icons shows the column only when a row is checked or mixed, as a macOS menu
     ///   with no icons does (`MenuMetrics.stateX`, the text at `MenuMetrics.stateIconX`).
     public func fitStateColumn() {
@@ -101,9 +101,11 @@ extension NSImage {
 }
 
 /// A checked row's mark in its icon slot (`NSMenu.fitStateColumn()`): the checkmark (a dash for a
-/// mixed row) in the grid's icon box. The row itself keeps the icon the mark stands in for (an
-/// associated object), so it gets that icon back when it is no longer checked; nothing outside the
-/// row holds it.
+/// mixed row) in the grid's icon box. The mark is set as the menu is themed, and themed menus are
+/// built for each open, so a mark is never taken back: a row the caller unchecks in an open menu
+/// keeps its mark until the menu is built again. The row itself keeps the icon the mark stands in
+/// for (an associated object), so a re-mark (checked, then mixed) keeps that icon and not the first
+/// mark; nothing outside the row holds it.
 public enum MenuStateMark {
     /// What a marked row drew before its mark, and the mark it draws now.
     final class Replaced {
@@ -128,16 +130,33 @@ public enum MenuStateMark {
     /// Puts a checked or mixed `row`'s mark in its icon slot. AppKit draws a row's state mark in its
     /// own column, and opens that column for any row whose state is not off, whatever
     /// `showsStateColumn` says (measured on the profile menu: the text stayed at 47 with the column
-    /// switched off). So the marked row's state goes to off and its mark is its image, which names
-    /// the state for VoiceOver ("Checked", "Mixed"). A caller that sets the state again re-marks it;
-    /// a caller that sets a new image owns the slot.
+    /// switched off). So the marked row's state goes to off, and the state moves onto the row's own
+    /// accessibility value ("checked" or "mixed", `accessibilityStateValue`): VoiceOver reads a
+    /// menu row's state from the row, never from its image's description. A caller that sets the
+    /// state again re-marks it; a caller that sets a new image owns the slot, and the row stops
+    /// saying it is checked.
     static func fit(_ row: NSMenuItem) {
-        guard row.state != .off, let mark = image(for: row.state) else { return }
+        guard row.state != .off, let mark = image(for: row.state) else {
+            // The slot is the caller's again (a new image): the row no longer says it is marked.
+            if objc_getAssociatedObject(row, key()) != nil, replaced(row) == nil {
+                objc_setAssociatedObject(row, key(), nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                row.setAccessibilityValue(nil)
+            }
+            return
+        }
         let kept = replaced(row)
         let icon = if let kept { kept.icon } else { row.image?.fittedToMenuIconBox() }
         objc_setAssociatedObject(row, key(), Replaced(icon: icon, mark: mark, state: row.state), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        row.setAccessibilityValue(accessibilityStateValue(row.state))
         row.image = mark
         row.state = .off
+    }
+
+    /// What VoiceOver says for a slot-marked row's state: "checked" or "mixed", in the app's language.
+    public static func accessibilityStateValue(_ state: NSControl.StateValue) -> String {
+        state == .mixed
+            ? String(localized: "menu.row.state.mixed", defaultValue: "mixed", bundle: .module)
+            : String(localized: "menu.row.state.checked", defaultValue: "checked", bundle: .module)
     }
 
     /// The state a row's slot mark shows (`.on` or `.mixed`), or nil for a row that draws no mark.

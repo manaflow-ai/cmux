@@ -165,14 +165,20 @@ import CmuxNextDesignTokens
         let mark = try #require(menu.items[0].image)
         #expect(mark !== icon, "the checked row draws its mark in its icon slot")
         #expect(mark.size == box && mark.isTemplate)
-        #expect(mark.accessibilityDescription == "Checked")
+        // VoiceOver reads a menu row's state from the row, not its image: the row says it is checked.
+        #expect(menu.items[0].accessibilityValue() as? String == MenuStateMark.accessibilityStateValue(.on))
         #expect(menu.size.width == plain.size.width, "checking a row takes no width: \(menu.size.width) vs \(plain.size.width)")
         // Marked mixed later, the slot shows the dash; still no column.
         menu.items[0].state = .mixed
         menu.themeAddedRows()
         #expect(MenuStateMark.markedState(menu.items[0]) == .mixed)
-        #expect(menu.items[0].image?.accessibilityDescription == "Mixed")
+        #expect(menu.items[0].accessibilityValue() as? String == MenuStateMark.accessibilityStateValue(.mixed))
         #expect(!menu.showsStateColumn)
+        // A caller that puts its own image in the slot owns it: the row no longer says it is marked.
+        menu.items[0].image = NSImage(size: box)
+        menu.themeAddedRows()
+        #expect(menu.items[0].accessibilityValue() == nil)
+        #expect(MenuStateMark.markedState(menu.items[0]) == nil)
     }
 
     /// A checked row without an icon, in a menu with an icon column, marks the same slot.
@@ -185,6 +191,7 @@ import CmuxNextDesignTokens
         #expect(!menu.showsStateColumn)
         #expect(plain.state == .off)
         #expect(plain.image?.size == NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize))
+        #expect(plain.accessibilityValue() as? String == MenuStateMark.accessibilityStateValue(.on))
     }
 }
 
