@@ -36,6 +36,42 @@ fn catalog_fragments_give_exports_and_palette_commands() {
     );
 }
 
+#[test]
+fn contributed_keybindings_ride_on_their_ops_commands() {
+    let dir = std::env::temp_dir().join(format!("cmux-apps-keybindings-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let catalog = json!({ "family": "notes", "operations": [
+        { "name": "notes.export", "export": "exportNotes", "palette": { "title": "Export" },
+          "keyboard": [{ "key": "cmd+shift+e" }] },
+        { "name": "notes.focus", "export": "focus" }
+    ] });
+    std::fs::write(dir.join("catalog.json"), catalog.to_string()).unwrap();
+    let package = Package {
+        id: "local/notes".into(),
+        version: "1.0.0".into(),
+        tier: Tier::Unverified,
+        source: Source::Bundled,
+        dir: dir.clone(),
+        manifest: json!({ "catalog": "catalog.json", "contributes": { "keybindings": [
+            { "id": "export", "key": "cmd+alt+e", "op": "notes.export", "when": "agentPaneFocused" },
+            { "id": "focus", "key": "ctrl+shift+n", "op": "notes.focus", "title": "Focus notes" },
+            { "id": "stray", "key": "cmd+alt+x", "op": "notes.missing" }
+        ] } }),
+        fragment: Some(std::sync::Arc::new(catalog)),
+    };
+    let commands = package.palette_commands(None);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        commands,
+        vec![
+            json!({ "op": "notes.export", "title": "Export",
+                    "keys": [{ "key": "cmd+shift+e" }, { "key": "cmd+alt+e", "when": "agentPaneFocused" }] }),
+            json!({ "op": "notes.focus", "title": "Focus notes", "keys": [{ "key": "ctrl+shift+n" }] }),
+        ],
+        "a binding joins its op's command, or adds one; an op outside the catalog is dropped"
+    );
+}
+
 /// `local/customize` may run the person's own `cmuxConfig.*` actions
 /// (`actions::decide_for`), so only their customize folder may claim it:
 /// a package with that id in the local directory (or any other) is

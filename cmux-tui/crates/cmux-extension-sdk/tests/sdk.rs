@@ -214,6 +214,28 @@ fn the_builder_adds_composer_commands_and_mentions_cmux_accepts() {
 }
 
 #[test]
+fn the_builder_binds_a_shortcut_to_an_own_op() {
+    let manifest = Manifest::new("local/keys", "Keys", "0.1.0", "A shortcut.").keybinding(
+        "focus",
+        "cmd+shift+k",
+        "local.keys.focus",
+    );
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    assert_eq!(json["catalog"], "catalog.json");
+    assert_eq!(json["contributes"]["keybindings"][0]["op"], "local.keys.focus");
+    assert_eq!(json["activation"][0], "onKeybinding:focus");
+
+    let reserved = Manifest::new("local/keys", "Keys", "0.1.0", "A shortcut.").keybinding(
+        "quit",
+        "cmd+q",
+        "local.keys.quit",
+    );
+    assert!(reserved.validate().iter().any(|i| i.code == "keybindings.reserved"));
+}
+
+#[test]
 fn model_picker_layouts_are_validated_without_activation() {
     for (layout, option) in
         [(ReasoningMenu::Column, "column"), (ReasoningMenu::Separate, "separate")]

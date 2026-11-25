@@ -432,6 +432,14 @@
           },
           "description": "Rows the app adds to cmux's own right-click menus, after the built-in rows (one group per menu, before Customize Menu)."
         },
+        "keybindings": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/keybinding"
+          },
+          "description": "Shortcuts the app binds to its own catalog ops (`{id, key, op, when?, title?}`). They sit above cmux's defaults and below the person's keybindings.json, which can remove or rebind them; the op runs as from the palette (`app.command.run`). An entry `onKeybinding:<id>` in `activation` names one."
+        },
         "wallpapers": {
           "type": "array",
           "maxItems": 16,
@@ -681,7 +689,7 @@
       "maxItems": 64,
       "items": {
         "type": "string",
-        "pattern": "^(onStartup|onInterface:[a-z][a-z0-9.]*/[0-9]+|onOp:[a-z][a-zA-Z0-9_.-]{0,95}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
+        "pattern": "^(onStartup|onInterface:[a-z][a-z0-9.]*/[0-9]+|onOp:[a-z][a-zA-Z0-9_.-]{0,95}|onEvent:[a-z][a-z0-9_.-]{0,95}|onKeybinding:[a-z][a-zA-Z0-9-]{0,63})$"
       }
     },
     "files": {
@@ -1227,6 +1235,40 @@
         },
         "args": {
           "type": "object"
+        }
+      }
+    },
+    "keybinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "key",
+        "op"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^((cmd|ctrl|alt|option|opt|shift)\\+)+[a-z0-9`\\-=\\[\\];',./\\\\]+$",
+          "description": "One chord with cmd, ctrl or alt/option (shift alone is not enough), lowercase, `+` between parts: `cmd+shift+k`, `ctrl+alt+enter`. The format of keybindings.json."
+        },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96,
+          "description": "One of the app's own catalog ops; its export is the keybinding's handler (`onKeybinding` in cmux-extension-sdk)."
+        },
+        "when": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "A when clause (keybindings.json grammar): the shortcut applies only while it holds."
+        },
+        "title": {
+          "$ref": "#/$defs/text"
         }
       }
     },

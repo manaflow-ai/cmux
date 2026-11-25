@@ -168,6 +168,59 @@ impl Package {
     /// stay in #44151's app binding layer; page keys are routed after a
     /// browser page declines the key and include `cmux.keys` overrides.
     pub fn palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
+        let mut commands = self.catalog_palette_commands(key_overrides);
+        self.merge_contributed_keybindings(&mut commands);
+        commands
+    }
+
+    /// `contributes.keybindings`: each `{key, when?}` rides on its op's
+    /// command, so the shell's app binding layer runs it through
+    /// `app.command.run` (the op's export is the `onKeybinding` handler). An
+    /// op with no `palette` entry gets a command of its own, titled by the
+    /// keybinding, so the person can also find it in the palette.
+    fn merge_contributed_keybindings(&self, commands: &mut Vec<Value>) {
+        let Some(bindings) =
+            self.manifest.pointer("/contributes/keybindings").and_then(Value::as_array)
+        else {
+            return;
+        };
+        let ops: Vec<String> = self.catalog_ops().into_iter().map(|(name, _)| name).collect();
+        for binding in bindings {
+            let (Some(op), Some(key)) = (
+                binding.get("op").and_then(Value::as_str),
+                binding.get("key").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            if !is_chord(key) || !ops.iter().any(|name| name == op) {
+                continue;
+            }
+            let mut chord = serde_json::json!({ "key": key });
+            if let Some(when) = binding.get("when") {
+                chord.set("when", when.clone());
+            }
+            let index = match commands.iter().position(|c| c["op"] == op) {
+                Some(index) => index,
+                None => {
+                    let title =
+                        binding.get("title").cloned().unwrap_or_else(|| Value::String(op.into()));
+                    commands.push(serde_json::json!({ "op": op, "title": title }));
+                    commands.len() - 1
+                }
+            };
+            let command = &mut commands[index];
+            if !command["keys"].is_array() {
+                command.set("keys", Value::Array(Vec::new()));
+            }
+            if let Some(keys) = command["keys"].as_array_mut() {
+                if !keys.contains(&chord) {
+                    keys.push(chord);
+                }
+            }
+        }
+    }
+
+    fn catalog_palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
             .filter_map(|(op, entry)| {

@@ -32,6 +32,7 @@ mod deploy;
 pub mod hidden;
 mod interfaces;
 mod issue;
+mod keybindings;
 mod menus;
 pub mod module_store;
 mod package;
@@ -52,6 +53,7 @@ pub use cli::{
 };
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, interface_files};
 pub use issue::{Issue, Severity};
+pub use keybindings::{RESERVED_KEYBINDINGS, canonical_chord, is_dispatch_chord};
 pub use menus::MENU_TARGETS;
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};

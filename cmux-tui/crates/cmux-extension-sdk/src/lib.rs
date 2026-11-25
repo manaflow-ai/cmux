@@ -179,6 +179,22 @@ impl Manifest {
         self
     }
 
+    /// A keyboard shortcut (`contributes.keybindings`) that runs `op`, a catalog op of this
+    /// extension: the op's export is the handler (`onKeybinding` in the TypeScript SDK). `key`
+    /// holds cmd, ctrl or alt (`cmd+shift+k`); cmux refuses system chords such as `cmd+q`. The
+    /// person's keybindings.json still wins. Names `catalog.json` as the catalog when none is set.
+    pub fn keybinding(mut self, id: &str, key: &str, op: &str) -> Self {
+        self.value.entry("catalog").or_insert_with(|| json!("catalog.json"));
+        let contributes = self.value.entry("contributes").or_insert_with(|| json!({}));
+        if let Value::Object(contributes) = contributes
+            && let Value::Array(items) =
+                contributes.entry("keybindings").or_insert_with(|| json!([]))
+        {
+            items.push(json!({ "id": id, "key": key, "op": op }));
+        }
+        self.activate(&format!("onKeybinding:{id}"))
+    }
+
     /// A sidebar section (`cmux.section/1`) drawn by the script's `export`.
     pub fn section(self, export: &str, title: &str, symbol: &str, region: Region) -> Self {
         let options = json!({ "defaultRegion": region.as_str() });

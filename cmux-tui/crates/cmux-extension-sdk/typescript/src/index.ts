@@ -149,6 +149,23 @@ export function command<A, R>(run: (args: A, ctx: { app: string; gesture?: strin
   return run
 }
 
+/**
+ * The handler for a keyboard shortcut (`contributes.keybindings`). The shortcut runs a catalog op
+ * of this extension; export this under the op's `export` name.
+ *
+ *     // cmux-app.json: "catalog": "catalog.json", "activation": ["onKeybinding:focus"],
+ *     //   "contributes": { "keybindings": [
+ *     //     { "id": "focus", "key": "cmd+shift+k", "op": "local.notes.focus", "when": "agentPaneFocused" } ] }
+ *     // catalog.json: { "name": "local.notes.focus", ..., "export": "focusNotes" }
+ *     export const focusNotes = onKeybinding((_args, ctx) => ctx.cmux.toast("Notes focused"))
+ *
+ * The key needs cmd, ctrl or alt; cmux refuses system chords (cmd+q, cmd+tab, ...) and the
+ * person's keybindings.json still wins over it.
+ */
+export function onKeybinding<R>(run: (args: Record<string, unknown>, ctx: { app: string; gesture?: string; cmux: CmuxGlobal }) => R | Promise<R>) {
+  return run
+}
+
 // ---------------------------------------------------------------------------------------------
 // Composer places. These are data in the manifest, not exports: cmux's daemon reads them and
 // answers the agent chat composer, so a save of cmux-app.json updates the composer live.
