@@ -147,7 +147,7 @@ fn tail_opens_in_one_response_and_backfill_resumes_by_verified_id() -> anyhow::R
     assert_eq!(opened.manifest, manifest);
     assert_eq!(record.first_line, 7);
     assert_eq!(opened.read_lines(7..8).unwrap(), [lines[7].as_bytes()]);
-    assert_eq!(reads.lock().unwrap().blobs, [record.tail.blob.clone()]);
+    assert_eq!(reads.lock().unwrap().blobs, std::slice::from_ref(&record.tail.blob));
     let (blob, table) = manifest.segments[0].blob_chunks.as_ref().unwrap();
     assert!(cache.has(&unhex(blob).unwrap()) && cache.has(&unhex(table).unwrap()));
     assert!(!cache.has(&unhex(&manifest.segments[0].events).unwrap()));

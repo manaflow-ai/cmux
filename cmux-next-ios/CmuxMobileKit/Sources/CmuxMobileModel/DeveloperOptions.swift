@@ -17,6 +17,16 @@ public enum DeveloperOptions {
     /// TCP: WireGuard sends no plain UDP and rides TURN over TLS on 443.
     /// Applies live: changing it redials.
     public static let blockUDPKey = "cmuxMobile.dev.blockUDP"
+    /// `UserDefaults` key: proxy only, to simulate a company network whose only
+    /// way out is its HTTP proxy: no UDP, and TURN over TLS leaves only through
+    /// the system's proxy (Settings → Wi-Fi → Configure Proxy, or an MDM
+    /// profile). Applies at the next dial (PROTOCOL.md "Corporate networks").
+    public static let proxyOnlyKey = "cmuxMobile.dev.proxyOnly"
+    /// `UserDefaults` key: drop WireGuard, to simulate a firewall whose packet
+    /// inspection blocks WireGuard: STUN and TURN answer, every WireGuard
+    /// datagram over UDP is dropped, so the link falls through to TURN over
+    /// TLS. Applies at the next dial (PROTOCOL.md "Corporate networks").
+    public static let dropWireGuardKey = "cmuxMobile.dev.dropWireGuard"
     /// `UserDefaults` key: ride cmux's WebSocket relay only (PROTOCOL.md
     /// "WebSocket relay"): WireGuard sends no plain UDP, takes no TURN
     /// allocation and joins the relay at once. Applies at the next dial.
@@ -37,7 +47,8 @@ public enum DeveloperOptions {
     /// removes them so a value set by an earlier Debug or Demo install in the
     /// same container can never apply.
     public static let storedKeys = [
-        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
+        mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
+        browserVideoOnChannelKey, terminalDemoPhasesKey,
         slowApprovalKey, retiredSlowFaceIDKey, CloudBackendOverride.storedKey,
     ]
 
@@ -85,6 +96,26 @@ public enum DeveloperOptions {
         #endif
     }
 
+    /// Whether WireGuard acts as on a network whose only way out is its
+    /// proxy. Always off in Release builds.
+    public static var proxyOnly: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: proxyOnlyKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether WireGuard acts as behind a firewall that drops WireGuard over
+    /// UDP. Always off in Release builds.
+    public static var dropWireGuard: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: dropWireGuardKey)
+        #else
+        false
+        #endif
+    }
+
     /// Whether WireGuard rides cmux's WebSocket relay only. Always off in
     /// Release builds.
     public static var forceRelay: Bool {
@@ -116,9 +147,9 @@ public enum DeveloperOptions {
     /// "complete" and kept reading NO: the space choice never left the
     /// screen (App Review gate, 2026-11-11). Called once at launch, before
     /// anything reads the keys.
-    public static func seedLaunchArguments(into defaults: UserDefaults = .standard) {
+    public static func seedLaunchArguments(into defaults: UserDefaults = .standard, keys seeded: [String] = launchSeededKeys) {
         var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        let keys = launchSeededKeys.filter { arguments[$0] != nil }
+        let keys = seeded.filter { arguments[$0] != nil }
         guard !keys.isEmpty else { return }
         // `bool(forKey:)` reads the argument's "YES"/"NO" string as a Bool.
         let values = keys.map { (key: $0, value: defaults.bool(forKey: $0)) }

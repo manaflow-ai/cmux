@@ -121,6 +121,11 @@ extension AgentPaneTransport {
         return .sent(error)
     }
 
+    /// Names the keys P0 dropped. Debug level: a newer page drops the same keys on every frame.
+    nonisolated private static func logDropped(method: String?, _ dropped: [String]) {
+        logger.debug("agent pane dropped params this app does not know method=\(method ?? "-", privacy: .public) keys=\(dropped.joined(separator: ","), privacy: .public)")
+    }
+
     /// The off-main rules on one frame, in order (see ``Checked``).
     nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
         var object: [String: Any]
@@ -136,6 +141,12 @@ extension AgentPaneTransport {
             // to 64 characters and at most 8 of them, never a value.
             let names = stripped.keys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
             Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(stripped.keys.count, privacy: .public)")
+        }
+        // P0: any other key this app's lists do not name is dropped, not refused, so a page newer than the
+        // app keeps its chats (``AcpmuxPaneMethods/strippingUnknownParams(_:modeFields:)``).
+        if let strip = AcpmuxPaneMethods.strippingUnknownParams(object, modeFields: snapshot.modeFields) {
+            object = strip.object
+            logDropped(method: object["method"] as? String, strip.dropped)
         }
         let method = object["method"] as? String
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)

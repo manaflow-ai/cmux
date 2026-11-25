@@ -49,6 +49,13 @@ final class PageGracefulReload {
         return Task { [weak self] in await self?.look() }
     }
 
+    /// Reloads `page` now, under a picture of itself: the person asked, so no safe point is waited for
+    /// (their draft was saved first). A page out of sight, or one whose picture fails, reloads bare.
+    func reloadUnderCover(_ page: PageWebView) {
+        guard !page.isClosed else { return }
+        reloadNow(page)
+    }
+
     /// How many pages still wait for their safe point (tests).
     var waitingCount: Int { waiting.count }
 

@@ -306,7 +306,8 @@ impl Command {
     /// its `total` and revision were read with (`incognito_remote::list_with_one_view`),
     /// so the dispatcher leaves it as it is.
     pub(super) fn prunes_its_own_reply(&self) -> bool {
-        matches!(self, Self::ListWorkspaces { known, limit, .. } if known.is_some() || limit.is_some())
+        matches!(self, Self::ListWorkspaces { known, limit, since, .. }
+            if known.is_some() || limit.is_some() || since.is_some())
     }
 }
 

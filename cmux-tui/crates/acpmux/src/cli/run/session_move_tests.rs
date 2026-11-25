@@ -407,6 +407,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             from: None,
             slow_ok: false,
             from_snapshot: false,
+            as_harness: None,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -690,6 +691,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         resume_there: false,
         from: None,
         from_snapshot: false,
+        as_harness: None,
     };
     let mut src = MoveEnd::new("source", &client, None);
     let e = match begin_waiting(&mut src, "chat", "Chat", None, &args, None).await {
