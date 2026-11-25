@@ -542,6 +542,7 @@
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
+        "experiments.forumCallCard",
         "experiments.toastsV2",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
