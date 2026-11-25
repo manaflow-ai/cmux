@@ -17,6 +17,8 @@ import type { AcpmuxPlanEntry } from "../model";
 import { Check, ChevronRight, Spinner } from "./icons";
 import { planOpen, setPlanOpen } from "./planOpen";
 import { planStepParts } from "./planStepText";
+import { experimentArm } from "../../../experiments/experiment";
+import { earlierPlanHat } from "../subagents/earlierPlanHat.experiment";
 
 const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   completed: "plan.status.completed",
@@ -42,6 +44,7 @@ export const PlanList = memo(function PlanList({
   id?: string;
 }) {
   const t = useT();
+  const [banner] = useState(() => experimentArm(earlierPlanHat) === "before");
   const [open, setOpen] = useState(() => planOpen(id));
   const toggle = useCallback(() => {
     setOpen((was) => {
@@ -63,8 +66,9 @@ export const PlanList = memo(function PlanList({
       data-still={still && !ended && !earlier ? "" : undefined}
       data-folded={folded ? "" : undefined}
     >
-      {earlier && !ended && (
-        // Drawn and heard: the list is the agent's last plan, not the running turn's.
+      {earlier && !ended && banner && (
+        // Drawn and heard: the list is the agent's last plan, not the running turn's. Only the
+        // `before` arm draws it (earlierPlanHat.experiment.ts): the chip's own head says "Earlier plan".
         <div className="cv-plan__earlier">{t("plan.earlier")}</div>
       )}
       {ended ? (
