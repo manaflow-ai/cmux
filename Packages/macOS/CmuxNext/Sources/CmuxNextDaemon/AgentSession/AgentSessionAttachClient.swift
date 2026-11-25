@@ -165,6 +165,8 @@ public actor AgentSessionAttachClient {
 
     /// `surface`: the tab's surface id in the daemon's store.
     /// `reconnect`: asked when a connection fails (``Reconnect``); nil, never tried again.
+    /// `requestTimeout`: how long a call may go with no byte moving on its connection (``TransportProgress``),
+    /// not how long it may take: a prompt with a large image keeps going while it uploads.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
                 reconnect: Reconnect? = nil, personName: String? = nil, endpoint: @escaping EndpointProvider) {
         self.surface = surface

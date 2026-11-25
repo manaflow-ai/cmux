@@ -56,7 +56,9 @@ public final class TerminalTabHost {
     }
 
     public func prepareCard() {
-        model.captureSnapshot()
+        // Runs in the tabs button's tap: the still is composed off the main
+        // thread, never in the zoom's first frame.
+        model.captureSnapshotOffMain()
         // The grid opens: the page becomes a picture in its card. TabsKit
         // does not lay the page out again until it zooms back in, so it is
         // taken out of accessibility and hit-testing here; the page's next
@@ -232,9 +234,10 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                        // A frame from an earlier launch stands in, dimmed like a page
-                        // that is not live, until the Mac's screen arrives (T-TABS-01).
-                        .opacity(content.isCurrent ? 1 : 0.55)
+                        // A frame from an earlier launch stands in at full strength until the
+                        // Mac's screen arrives (T-TABS-01): never greyed (Leo, 2026-11-24:
+                        // "the graying out of workspaces, nah let's not do that").
+                        .opacity(content.drawnOpacity)
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
