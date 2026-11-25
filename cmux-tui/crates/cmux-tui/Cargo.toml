@@ -170,7 +170,6 @@ parking_lot.workspace = true
 sha2.workspace = true
 # `cmux link sync pull` merges a text file both sides changed by line.
 diffy.workspace = true
-cmux-sync.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
@@ -239,6 +238,7 @@ plist = "1.10"
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
 cmux-remote.workspace = true
+cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true

@@ -127,6 +127,7 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
+        if ws.isPinnedInGroup { parts.append(Strings.pinned) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
         parts += ws.usageWarnings
         // The computer: a one-list row on another computer says it with its status when it cannot connect
@@ -135,7 +136,6 @@ extension WorkspaceRowView {
         // line"), and the detail now holds only the facts the person turned on, so it is said on its own,
         // never matched against them: a branch named like the machine is no proof the machine was said
         // (review of #28510 at 4acab8c2).
-        if content.runsInCloud { parts.append(Strings.hoverCloud) }
         if let spoken = content.machineLabel ?? content.machine?.name { parts.append(spoken) }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")

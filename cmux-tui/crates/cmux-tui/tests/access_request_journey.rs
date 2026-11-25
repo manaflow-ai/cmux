@@ -401,6 +401,16 @@ fn a_secret_access_request_waits_for_the_person_and_its_value_is_read_once() {
     assert!(!printed.contains(FAKE_SECRET), "the Mac printed the secret: {printed}");
     let (ok, refused_answer, _) = answer(&refused_id, &["--deny"], "");
     assert!(ok, "{refused_answer}");
+    // Another chat's agent on this machine lists the requests, names this one
+    // and reads it before the asker does: it has no read token, so it learns
+    // the state and takes nothing.
+    let listed = vm.rpc(json!({"id": 5, "cmd": "access-request-list"}));
+    assert!(!listed.to_string().contains("read_token"), "{listed}");
+    for (id, token) in [(6, Value::Null), (7, json!("0".repeat(32)))] {
+        let stolen = vm.rpc(json!({"id": id, "cmd": "access-request-status",
+                                   "request_id": shared_id, "read_token": token}));
+        assert_eq!(stolen["data"], json!({"state": "delivered"}), "{stolen}");
+    }
 
     let (ok, got) = answered(shared);
     assert!(ok, "{got}");
@@ -423,6 +433,9 @@ fn a_secret_access_request_waits_for_the_person_and_its_value_is_read_once() {
                               "outcome": "delivered", "value": FAKE_SECRET}));
     assert_eq!(wrong["error_code"], "access_request.bad_request", "{wrong}");
     let _ = answered(file);
+    // A secret for one chat is not a machine-wide secret: nothing wrote
+    // the machine's secrets file.
+    assert!(!vm.home().join(".config/cmux/machine-secrets.env").exists());
     // Nowhere on disk on either side: homes, state folders, daemon logs.
     for (path, bytes) in files_below(&root) {
         assert!(
