@@ -67,6 +67,7 @@ import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
+import { useLiveSummary } from "../../liveSummary";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
@@ -202,7 +203,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const t = useT();
   const language = usePaneLanguage();
   const state = useSessionInfoState();
-  const { shown, summary, onShowUsage } = props;
+  const { shown, onShowUsage } = props;
+  // A usage update reaches the panel without the pane (liveSummary.ts).
+  const summary = useLiveSummary(props.summary);
   const screenSharing = useScreenSharing(
     summary?.sessionId,
     screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place)),
@@ -217,7 +220,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
+  // The pane's usage (`props.usage`) is as of its last draw; a usage update since reached `summary`
+  // alone (liveSummary.ts).
+  const contextUsage =
+    summary !== props.summary || !props.usage
+      ? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown)
+      : props.usage;
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable &&
