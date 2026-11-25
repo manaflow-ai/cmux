@@ -4150,6 +4150,120 @@ function withHeight(
 /// like chatgpt").
 export const isOverlayFooter = (row: AcpmuxRow) => row.kind === "turnSummary" && isEmptyFooter(row);
 
+type LayoutArrays = { gaps: Float64Array; marks: Uint8Array; tops: Float64Array; heights: Float64Array };
+
+/// New arrays of `length` rows holding `previous`'s first `start` rows.
+function freshLayoutArrays(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
+  const arrays = {
+    gaps: new Float64Array(length),
+    marks: new Uint8Array(length),
+    tops: new Float64Array(length),
+    heights: new Float64Array(length),
+  };
+  if (previous && start > 0) copyLayoutRows(arrays, previous, 0, start);
+  return arrays;
+}
+
+function copyLayoutRows(into: LayoutArrays, from: ConversationLayout, begin: number, end: number): void {
+  if (end <= begin) return;
+  if (from.gaps) into.gaps.set(from.gaps.subarray(begin, end), begin);
+  else into.gaps.fill(0, begin, end);
+  if (from.marks) into.marks.set(from.marks.subarray(begin, end), begin);
+  else into.marks.fill(0, begin, end);
+  into.tops.set(from.tops.subarray(begin, end), begin);
+  into.heights.set(from.heights.subarray(begin, end), begin);
+}
+
+/// How many layouts' arrays a transcript keeps before it writes over the oldest. The transcript
+/// reads the newest estimate and its last committed placement (`hold`), which reads an older
+/// estimate's arrays, so three leave one to write.
+const LAYOUT_BUFFER_SETS = 3;
+
+/// A transcript's layout arrays, kept from one layout to the next (chat-instant-under-load.md piece
+/// 4). Before, every new rows array (a streamed token) allocated four arrays of the chat's row count
+/// and copied every unchanged row into them: about 128 KB of garbage a token in a 4,000-row chat, the
+/// god chat's extra collector time. Now a set's capacity grows by doubling, and a layout writes
+/// into the set written longest ago, copying only the rows that changed since that set was written.
+export class LayoutBuffers {
+  private sets: { arrays?: LayoutArrays; generation: number }[] = Array.from({ length: LAYOUT_BUFFER_SETS }, () => ({
+    generation: -1,
+  }));
+  private generation = 0;
+  /// Per generation: the first row its layout may differ from the one before it in.
+  private written = new Map<number, number>();
+  private last: { layout?: ConversationLayout; set: number } = { set: -1 };
+  private pending?: { set: number; from: number };
+  private held?: ArrayBufferLike;
+
+  // perf-hot: O(changed rows) per streamed token chat-100k-flat
+  take(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
+    // The set written longest ago that neither the last layout nor the held one reads.
+    let index = -1;
+    for (let at = 0; at < this.sets.length; at += 1) {
+      const each = this.sets[at]!;
+      if (at === this.last.set || (this.held !== undefined && each.arrays?.gaps.buffer === this.held)) continue;
+      if (index < 0 || each.generation < this.sets[index]!.generation) index = at;
+    }
+    const set = this.sets[index]!;
+    let arrays = set.arrays;
+    const lineal = previous !== undefined && previous === this.last.layout;
+    if (!arrays || arrays.tops.length < length) {
+      const capacity = Math.max(length, (arrays?.tops.length ?? 0) * 2, 64);
+      arrays = {
+        gaps: new Float64Array(capacity),
+        marks: new Uint8Array(capacity),
+        tops: new Float64Array(capacity),
+        heights: new Float64Array(capacity),
+      };
+      set.arrays = arrays;
+      set.generation = -1;
+    }
+    // Rows this set already holds as `previous` does: those before the first row any layout written
+    // since this set changed. Anything else is copied from `previous`.
+    let agree = 0;
+    if (lineal && set.generation >= 0) {
+      agree = start;
+      for (let generation = set.generation + 1; generation < this.generation; generation += 1)
+        agree = Math.min(agree, this.written.get(generation) ?? 0);
+    }
+    if (previous && start > agree) copyLayoutRows(arrays, previous, agree, start);
+    // Rows a layout leaves alone (a row that draws nothing keeps no gap) read 0, as in new arrays.
+    arrays.gaps.fill(0, start, length);
+    // Until `wrote`, the set holds no generation's layout whole (a layout that throws leaves it so).
+    set.generation = -1;
+    this.pending = { set: index, from: lineal ? start : 0 };
+    return {
+      gaps: arrays.gaps.subarray(0, length),
+      marks: arrays.marks.subarray(0, length),
+      tops: arrays.tops.subarray(0, length),
+      heights: arrays.heights.subarray(0, length),
+    };
+  }
+
+  /// The layout the transcript keeps past the next estimates (its last committed placement,
+  /// VirtualTranscript previousLayout). A placement reads its estimate's arrays (placedFromEstimate
+  /// keeps gaps and marks, its geometry reads tops and heights), and several estimates can come
+  /// before the next commit (a send during a running call), so `take` never writes the set it reads.
+  hold(layout: { gaps?: Float64Array } | null): void {
+    this.held = layout?.gaps?.buffer;
+  }
+
+  /// Records the layout `take`'s arrays went into.
+  wrote(layout: ConversationLayout): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    this.written.set(this.generation, pending.from);
+    this.sets[pending.set]!.generation = this.generation;
+    this.generation += 1;
+    // A set reads the generations after its own: older ones are dropped, so at most a few are kept.
+    let oldest = this.generation;
+    for (const each of this.sets) if (each.generation >= 0) oldest = Math.min(oldest, each.generation);
+    for (const generation of this.written.keys()) if (generation <= oldest) this.written.delete(generation);
+    this.last = { layout, set: pending.set };
+  }
+}
+
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
   rows: readonly AcpmuxRow[],
@@ -4188,11 +4302,9 @@ export function layoutConversation(
   /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
   /// paint. The open's first frame costs the rows it mounts, not the whole page of history.
   roughAbove?: number,
+  /// The caller's reusable arrays (LayoutBuffers): one per transcript, never shared between two.
+  buffers?: LayoutBuffers,
 ): ConversationLayout {
-  const gaps = new Float64Array(rows.length);
-  const marks = new Uint8Array(rows.length);
-  const tops = new Float64Array(rows.length);
-  const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
@@ -4202,7 +4314,9 @@ export function layoutConversation(
   const gapScale = scale * gapFactor;
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
-  if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
+  const keeps =
+    previous !== undefined && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor;
+  if (keeps) {
     // Asked of the same two row arrays by the pane's other passes too: walked once a pair, or not at
     // all where the rows' maker said how many it kept (prefixFlatMap.ts `noteKeptPrefix`).
     start = keptPrefix(previous.rows, rows);
@@ -4216,11 +4330,13 @@ export function layoutConversation(
         rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
-    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
-    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
-    tops.set(previous.layout.tops.subarray(0, start));
-    heights.set(previous.layout.heights.subarray(0, start));
   }
+  // The rows before `start` keep the last layout's places. With `buffers` (the transcript's own), the
+  // arrays are reused and only what changed since they were last written is copied: a delta to the
+  // last row writes O(1) entries and allocates nothing. Without, new arrays as before.
+  const { gaps, marks, tops, heights } = buffers
+    ? buffers.take(keeps ? previous.layout : undefined, start, rows.length)
+    : freshLayoutArrays(keeps ? previous.layout : undefined, start, rows.length);
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
   // Kept rows may hold a remembered height of their own.
   let remembered = start > 0 && previous?.layout.remembered === true;
@@ -4369,6 +4485,7 @@ export function layoutConversation(
   };
   trimPreparedRows(cache);
   messages.finish(rows, layout);
+  buffers?.wrote(layout);
   return layout;
 }
 
