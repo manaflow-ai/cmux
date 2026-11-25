@@ -147,6 +147,17 @@ jobs:
             echo "::notice::No merge commit to diff: every web-browser step runs."
           fi
       - name: Run the routed web-browser steps (ci/steps.toml)
+        # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
+        env:
+          CI_PR_BASE_REF: ${{ github.base_ref }}
+          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
+          CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
+          CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
+          CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
+          CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
+          CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
         run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
       - name: Upload the agent pane measurements
@@ -155,6 +166,15 @@ jobs:
         with:
           name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/agent-pane-real-acpmux
+          if-no-files-found: ignore
+          retention-days: 3
+      # The react-apps-check step's pick, lane logs and test results (scripts/ci/react-apps-check-fleet.sh).
+      - name: Upload the react-apps-check logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-apps-check-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/react-apps-check
           if-no-files-found: ignore
           retention-days: 3
   # The `ios` job's Mac: an idle owned simulator Mac first (scripts/ci/ios_runner_pool.py, the `pipeline` lane: one

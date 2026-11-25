@@ -83,6 +83,7 @@ jobs:
       agent_pane: ${{ steps.scope.outputs.agent_pane }}
       react_shards: ${{ steps.react-shards.outputs.matrix }}
       react_class: ${{ steps.react-shards.outputs.class }}
+      react_fleet: ${{ steps.react-shards.outputs.fleet }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
@@ -192,6 +193,13 @@ jobs:
           CMUX_WEB_TEST_JOBS: "8"
           CMUX_WEB_TEST_DEV_JOBS: "4"
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
+          # Where react-apps-check runs (scripts/ci/react_apps_fleet.py): a feat-cmux-next pull request whose pick
+          # runs only touched tests runs it on the fleet (ci/steps.toml's react-apps-check, pr-pipeline.yml).
+          CI_PR_BASE_REF: ${{ github.base_ref }}
+          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
+          CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
         run: |
           picked=""
           class_file="$RUNNER_TEMP/webviews-durations/pr-shard-class"
@@ -215,6 +223,9 @@ jobs:
           echo "react-apps-check shards: $picked"
           echo "matrix=$picked" >> "$GITHUB_OUTPUT"
           echo "class=$(cat "$class_file" 2>/dev/null)" >> "$GITHUB_OUTPUT"
+          fleet="$(python3 scripts/ci/react_apps_fleet.py decide --class "$(cat "$class_file" 2>/dev/null)" --matrix "$picked" \
+            --direct "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" --routed)" || fleet=actions
+          echo "fleet=$([ "$fleet" = fleet ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           # The files those shards run, for react-apps-base-early (RFD 0023 item 3): only when the pick ran fewer
           # than every shard; any failure leaves no list, and the early job keeps its whole affected list.
           rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files"
@@ -808,7 +819,9 @@ jobs:
 
   react-apps-check-shard:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
+    # A feat-cmux-next pull request whose pick runs only touched tests (react_fleet, scripts/ci/react_apps_fleet.py)
+    # runs this check as the ci/steps.toml step `react-apps-check` (pr-pipeline.yml's web-browser job) instead.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.web-subarea-scope.outputs.react_fleet != 'true' && (inputs.only == '' || inputs.only == 'react-apps-check-shard') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). 16 vCPU has the memory and runs 16 files
     # and 4 dev-server files at once (run-webviews-tests.sh). These shards were the

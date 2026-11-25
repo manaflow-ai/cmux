@@ -200,6 +200,9 @@ REACT_EXACT = {
     "scripts/ci/guards_new_reds.py",
     # and the base's flake history that keeps a test flipping there a warning.
     "scripts/ci/webviews_test_history.py",
+    # A feat-cmux-next pull request's run on the fleet (ci/steps.toml's react-apps-check) and the rule both sides ask.
+    "scripts/ci/react-apps-check-fleet.sh",
+    "scripts/ci/react_apps_fleet.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
