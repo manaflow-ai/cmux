@@ -7,6 +7,7 @@
     "CmuxNextCompat": {"layer": "core"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextLiveCode": {"layer": "core"},
+    "CmuxLiveCode": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextActions": {"layer": "core"},
     "CmuxNextFocus": {"layer": "core"},

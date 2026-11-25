@@ -4620,7 +4620,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The reader scrolls itself while it is open; a zoomed grid pans under one finger.
             return model.isTUI && surface.superview === tuiHost && !tuiReader.isOpen && !tuiZoomActive
         }
-        // Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default).
+        // Settings → Terminal → Plain Scroll in Full-Screen Apps (on by default; off keeps line-by-line wheel scroll).
         tuiScroll.readerOpens = { [weak self] in
             CmuxMobilePreferences.terminalPlainScroll() && self?.openTUIReader() == true
         }

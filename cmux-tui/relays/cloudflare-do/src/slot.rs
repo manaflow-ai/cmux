@@ -34,6 +34,7 @@ use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
 };
+use crate::placement::{REGION_HEADER, is_region};
 use crate::wire::{
     close, decode_control, send_control, upgrade_required, valid_circuit_id,
     valid_opaque_identifier, websocket_upgrade,
@@ -41,6 +42,10 @@ use crate::wire::{
 
 const CONTROL_TAG: &str = "daemon-control";
 const CONNECT_TAG: &str = "client-allocation";
+/// A socket's tag naming the location hint of the caller that opened it (`crate::placement`): `region:weur`.
+/// `[vars]` switch, "1" to place far viewers' circuits near them. Off unless set (merge default-off).
+const VIEWER_CIRCUITS_VAR: &str = "CMUX_RELAY_VIEWER_CIRCUITS";
+const REGION_TAG_PREFIX: &str = "region:";
 const MAX_SLOT_ID_BYTES: usize = 128;
 const MAX_LANE_TOKEN_BYTES: usize = 128;
 const JOIN_TICKET_TTL_SECONDS: u64 = 30;
@@ -96,6 +101,34 @@ struct ConnectRequest {
 impl RelaySlot {
     fn now_ms(&self) -> u64 {
         Date::now().as_millis()
+    }
+
+    /// Whether this Connect leaves the inline path for a classic circuit: the relay is set to place circuits
+    /// near the viewer (`CMUX_RELAY_VIEWER_CIRCUITS`) and the viewer's region differs from the daemon's. An
+    /// inline circuit carries its frames in this slot's object, which sits by the daemon, so only a classic
+    /// circuit, created in the viewer's region by its join ticket, can move the data path.
+    fn far_viewer_takes_classic(&self, client: &WebSocket, daemon: Option<&WebSocket>) -> bool {
+        if !self.viewer_circuits() {
+            return false;
+        }
+        let viewer = self.socket_region(client);
+        let daemon = daemon.and_then(|daemon| self.socket_region(daemon));
+        matches!((viewer, daemon), (Some(viewer), Some(daemon)) if viewer != daemon)
+    }
+
+    /// Whether `CMUX_RELAY_VIEWER_CIRCUITS` is "1". Off, no ticket names a region and every circuit is
+    /// placed near the slot, as before this switch.
+    fn viewer_circuits(&self) -> bool {
+        self.env.var(VIEWER_CIRCUITS_VAR).is_ok_and(|value| value.to_string() == "1")
+    }
+
+    /// The location hint the router tagged `socket` with from its caller's `cf` (`crate::placement`).
+    fn socket_region(&self, socket: &WebSocket) -> Option<String> {
+        self.state.get_tags(socket).into_iter().find_map(|tag| {
+            tag.strip_prefix(REGION_TAG_PREFIX)
+                .filter(|region| is_region(region))
+                .map(str::to_owned)
+        })
     }
 
     fn now(&self) -> u64 {
@@ -782,7 +815,10 @@ impl RelaySlot {
         socket.serialize_attachment(&attachment)?;
         self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
 
+        let far_viewer =
+            self.far_viewer_takes_classic(socket, daemon.as_ref().map(|(daemon, _)| daemon));
         if request.inline
+            && !far_viewer
             && disposition == ConnectDisposition::Allocate
             && daemon.is_some()
             && self.pair_inline(socket, &attachment, &request).await? != InlineOutcome::NoStandby
@@ -945,6 +981,7 @@ impl RelaySlot {
                 unjoined.route.generation,
                 now,
                 expires_at,
+                unjoined.route.region.as_deref(),
             )?;
             send_control(
                 daemon,
@@ -969,6 +1006,7 @@ impl RelaySlot {
         generation: u64,
         now: u64,
         expires_at: u64,
+        region: Option<&str>,
     ) -> Result<String> {
         let key = self.ticket_key()?;
         let issuer = self.ticket_issuer();
@@ -984,6 +1022,7 @@ impl RelaySlot {
             issued_at_unix: now,
             expires_at_unix: expires_at,
             grant: None,
+            region: region.map(str::to_owned),
         };
         issue_ticket(&claims, key.as_bytes(), &issuer).map_err(|error| {
             worker::Error::RustError(format!("failed to mint {role:?} join ticket: {error}"))
@@ -1009,6 +1048,8 @@ impl RelaySlot {
         let now = now_ms / 1_000;
         let namespace = self.env.durable_object("RELAY_CIRCUITS")?;
         let circuit = CircuitId(namespace.unique_id()?.to_string());
+        // The viewer's region rides in both join tickets only with the switch on (`crate::placement`).
+        let region = self.viewer_circuits().then(|| self.socket_region(socket)).flatten();
         let join_expires_at = now
             .saturating_add(JOIN_TICKET_TTL_SECONDS)
             .min(client_expires_at)
@@ -1021,6 +1062,7 @@ impl RelaySlot {
             generation,
             now,
             join_expires_at,
+            region.as_deref(),
         )?;
         let daemon_join_ticket = self.join_ticket(
             RelayRole::Daemon,
@@ -1030,9 +1072,10 @@ impl RelaySlot {
             generation,
             now,
             join_expires_at,
+            region.as_deref(),
         )?;
         let join_deadline_ms = join_expires_at.saturating_mul(1_000);
-        let route = PendingRoute { lane: lane.clone(), generation };
+        let route = PendingRoute { lane: lane.clone(), generation, region: region.clone() };
         if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await? {
             Self::capacity(
                 socket,
@@ -1072,19 +1115,25 @@ impl RelaySlot {
             close(socket, 1011, "circuit allocation failed");
             return Ok(Allocation::DaemonFailed);
         }
-        self.place_circuit(&circuit);
+        self.place_circuit(&circuit, region.as_deref());
         Ok(Allocation::Sent)
     }
 
-    /// Create `circuit` near this slot, and so near the daemon, before either side's Join reaches
-    /// it (`crate::placement`). Off the answer's path; a Join that comes first places it as before.
-    fn place_circuit(&self, circuit: &CircuitId) {
+    /// Create `circuit` before either side's Join reaches it (`crate::placement`): in `region`, the
+    /// viewer's its tickets name, or else near this slot, and so near the daemon. Off the answer's
+    /// path; a Join that comes first places it with the same hint.
+    fn place_circuit(&self, circuit: &CircuitId, region: Option<&str>) {
         let env = self.env.clone();
         let circuit = circuit.0.clone();
+        let region = region.filter(|region| is_region(region)).map(str::to_owned);
         self.state.wait_until(async move {
             let placed = async {
                 let namespace = env.durable_object("RELAY_CIRCUITS")?;
-                let stub = namespace.id_from_string(&circuit)?.get_stub()?;
+                let id = namespace.id_from_string(&circuit)?;
+                let stub = match region.as_deref() {
+                    Some(region) => id.get_stub_with_location_hint(region)?,
+                    None => id.get_stub()?,
+                };
                 let request = Request::new(
                     &format!("https://relay.internal{}", crate::placement::PLACE_PATH),
                     Method::Post,
@@ -1300,7 +1349,17 @@ impl DurableObject for RelaySlot {
             pending_handover: false,
             inline: InlineState::default(),
         })?;
-        self.state.accept_websocket_with_tags(&pair.server, &[tag]);
+        // The caller's place rides on the socket as a tag, so it survives hibernation with no attachment field.
+        let region_tag = request
+            .headers()
+            .get(REGION_HEADER)
+            .ok()
+            .flatten()
+            .filter(|region| is_region(region))
+            .map(|region| format!("{REGION_TAG_PREFIX}{region}"));
+        let mut tags = vec![tag];
+        tags.extend(region_tag.as_deref());
+        self.state.accept_websocket_with_tags(&pair.server, &tags);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {
             close(&pair.server, 1011, "cleanup scheduling failed");
             return Err(error);
