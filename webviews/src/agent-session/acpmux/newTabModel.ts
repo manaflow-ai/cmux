@@ -14,7 +14,7 @@ import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { readClockStyle, type NewTabClockStyle } from "./newtab/clockModel";
-import { isStartableProject } from "./newtab/startedProject";
+import { isCloudPick, isStartableProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { ageWithDate } from "./timeLabels";
 
@@ -97,6 +97,8 @@ export type NewTabHost = {
   lastAgent?: string;
   /// The project of the chat the person last picked and started (newtab/startedProject.ts).
   startedProject?: string;
+  /// The folder or GitHub repository the person last started a Cloud chat in (newtab/startedProject.ts).
+  cloudStartedProject?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
@@ -190,6 +192,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }
+      : {}),
+    ...(isCloudPick(typeof object.cloudStartedProject === "string" ? object.cloudStartedProject : undefined)
+      ? { cloudStartedProject: object.cloudStartedProject as string }
       : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),

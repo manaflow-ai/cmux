@@ -99,6 +99,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
+    /// Cloud's last pick as the app keeps it (``NewTabChoiceMemory/cloudStartedProject``, the same defaults).
+    @ObservationIgnored public var cloudPick: @MainActor () -> String? = { NewTabChoiceMemory().cloudStartedProject }
     /// The new tab page's style switch picked a template.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
@@ -598,7 +600,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -710,6 +712,8 @@ public final class AgentPaneModel {
             // The page asked: it gets the shared text too, whatever its document's mark says (a document that lost it).
             guard sessionId == nil, let newTab = newTabForPage, let object = newTabReply(newTab, always: true) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
+        // Cloud's last pick names a folder of this Mac or a repository: a chat on another machine gets none.
+        case .newTabCloudPick: return AgentPaneReply.success(remoteChat ? [:] : cloudPick().map { ["cloudStarted": $0] } ?? [:])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
