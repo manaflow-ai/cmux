@@ -218,15 +218,17 @@ impl ScaleUp {
 
     /// Starts `plan` on `owner` (the Hub's scope: its close ends the run)
     /// unless a run is under way or within the cooldown. Never waits for the
-    /// run. Call inside a Tokio runtime.
+    /// run. Call inside a Tokio runtime. Admission calls [`Self::trigger_wait`];
+    /// the tests drive the detached form.
+    #[cfg(test)]
     pub(crate) fn trigger(&self, owner: &cmux_scope::Scope, plan: Plan, now: Instant) -> Trigger {
         self.trigger_wait(owner, plan, now).0
     }
 
     /// Starts a provider run and returns a receiver for its eventual answer.
     /// The receiver is present for a newly started or already-running run and
-    /// absent during cooldown. Ordinary callers use [`Self::trigger`] and keep
-    /// the run detached.
+    /// absent during cooldown. A caller that drops the receiver keeps the run
+    /// detached.
     pub(crate) fn trigger_wait(
         &self,
         owner: &cmux_scope::Scope,
