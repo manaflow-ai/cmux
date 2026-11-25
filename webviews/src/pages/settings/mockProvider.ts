@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
 import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
@@ -72,8 +73,8 @@ import {
   type McpServersRun,
   type McpServersState,
   type HubRun,
-  type ConnectionsRun,
-  type ConnectionsState,
+  type AutocloudAction,
+  type AutocloudState,
   type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -89,6 +90,10 @@ import {
   type DoctorRun,
   type LibraryAnswer,
   type AgentSkillRow,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -671,6 +676,8 @@ export class MockSettingsProvider {
         return { settled: [] };
       },
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.archived.list": () => this.archived,
+      "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
@@ -945,6 +952,14 @@ export class MockSettingsProvider {
         this.agentHooks = { ...state, listing: { ...listing, hooks } };
         return this.agentHooks;
       },
+      "cmux.settings.autocloud.state": () => this.autocloud,
+      "cmux.settings.autocloud.run": (params) => {
+        const run = params as AutocloudAction;
+        if (run.action !== "refresh" && run.action !== "preview") this.autocloudRuns.push(run);
+        const { answer, state } = runMockAutocloud(this.autocloud, run);
+        this.autocloud = state;
+        return answer;
+      },
       "cmux.settings.hub.state": () => this.hub,
       "cmux.settings.hub.run": (params) => {
         const run = params as HubRun;
@@ -1058,6 +1073,8 @@ export class MockSettingsProvider {
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
       "cmux.settings.shares.revoke",
+      "cmux.settings.archived.list",
+      "cmux.settings.archived.run",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",
       "cmux.settings.keys.decline",
@@ -1071,6 +1088,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.autocloud.state",
+      "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
       "cmux.settings.connections.state",
@@ -1309,6 +1328,22 @@ export class MockSettingsProvider {
   shares: SharesState = mockShares(Date.now());
   /** Every share the page revoked, in order (tests). */
   shareRevokes: string[] = [];
+
+  /** Settings > Sidebar > Archived Workspaces: two archived workspaces (one in a group) and a link. */
+  archived: ArchivedState = mockArchived();
+  /** Every archived-row action the page ran, in order (tests). */
+  archivedRuns: ArchivedRun[] = [];
+
+  /** Open leaves the row (it stays archived); Restore and Delete take it out of the list. */
+  private runArchived(run: ArchivedRun): { error?: string } {
+    const rows = this.archived.rows ?? [];
+    if (!rows.some((row) => row.kind === run.kind && row.id === run.id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "archived.not_found");
+    this.archivedRuns.push(run);
+    if (run.action !== "open")
+      this.archived = { ...this.archived, rows: rows.filter((row) => !(row.kind === run.kind && row.id === run.id)) };
+    return {};
+  }
 
   private revokeShare(id: string): { share_id: string; state: string } {
     const share = this.shares.shares?.find((row) => row.share_id === id);
@@ -1794,6 +1829,11 @@ export class MockSettingsProvider {
   /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
    * settings cmux could not put back. */
   agentToolsKeeps: string | null = null;
+
+  /** Settings > Automations as the app serves it (`SettingsAutomationsCloud.state`). */
+  autocloud: AutocloudState = mockAutocloudState();
+  /** Every Automations action but refresh and preview, in order. */
+  autocloudRuns: AutocloudAction[] = [];
 
   /** Settings > Integrations as the app serves it (`SettingsIntegrationsHub.state`). */
   hub: HubState = mockHubState();
@@ -3008,6 +3048,18 @@ export function mockShares(now: number): SharesState {
         guests: [],
         invitees: [],
       },
+    ],
+  };
+}
+
+/** Archived rows as the app lists them, in sidebar order. */
+export function mockArchived(): ArchivedState {
+  return {
+    available: true,
+    rows: [
+      { kind: "workspace", id: "ws-archived-1", title: "Fix the flaky login test", group: null, machine: "This Mac" },
+      { kind: "workspace", id: "ws-archived-2", title: "Release notes draft", group: "Docs", machine: "This Mac" },
+      { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
 }
