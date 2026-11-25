@@ -26,7 +26,9 @@ public final class GlassMenu {
     let panel = NativePopupPanel(identifier: "cmux.glass-menu")
     let host: NativePopupHost
     let list = GlassMenuListView()
-    private let surface: OverlaySurfaceView
+    let surface: OverlaySurfaceView
+    /// The theme file's fill and rim over the glass (``MenuLook``); nil while the look sets neither.
+    var lookView: GlassMenuLookView?
     private weak var parentMenu: GlassMenu?
     /// The submenu open beside this menu, else nil.
     private(set) var child: GlassMenu?
@@ -98,6 +100,7 @@ public final class GlassMenu {
         guard rows.contains(where: { $0.item != nil }) else { return false }
         self.scope = scope
         scope.adopt(panel)
+        applyLook(DesignSettings.shared.menuLook)
         list.load(rows)
         let size = list.fittingMenuSize()
         guard host.show(size: size, anchor: anchor, in: window, preferred: preferred, trailing: trailing, makeKey: makeKey,
@@ -282,7 +285,7 @@ public final class GlassMenu {
         let next = GlassMenu(menu: submenu)
         next.parentMenu = self
         child = next
-        let rect = panel.convertToScreen(view.convert(view.bounds, to: nil))
+        let rect = submenuAnchor(row: panel.convertToScreen(view.convert(view.bounds, to: nil)))
         guard next.present(at: rect, in: window, preferred: .below, sideBySide: true, makeKey: fromKeyboard, scope: scope) else {
             child = nil
             return
