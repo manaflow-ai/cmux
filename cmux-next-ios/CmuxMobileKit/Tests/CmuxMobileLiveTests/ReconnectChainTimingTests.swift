@@ -1260,7 +1260,10 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     static let summary = AgentSessionSummary(id: "s1", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",
                                              workspaceTitle: "w", macName: "Studio")
 
-    @Test func resumeMatrix() async throws {
+    @Test func resumeMatrix() async throws { try await run(cells: Self.onlyCells) }
+
+    /// Runs the matrix's cells, or only those in `cells` (`AWAY/REENTRY`) when it is set.
+    func run(cells: Set<String>?) async throws {
         let clock = LinkTestClock()
         // The coordinator's clock follows wall time, so heartbeats beat and a dead link's probe times out.
         let pump = Task.detached(priority: .high) {
@@ -1311,7 +1314,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 
         for away in Away.allCases { for reentry in Reentry.allCases {
             let cell = #""away":"\#(away.name)","reentry":"\#(reentry.name)""#
-            if let only = Self.onlyCells, !only.contains(away.name + "/" + reentry.name) { continue }
+            if let only = cells, !only.contains(away.name + "/" + reentry.name) { continue }
             if let why = Self.notModeled(away, reentry) {
                 emit(#"RESUME_MATRIX {\#(cell),"not_modeled":"\#(why)"}"#)
                 continue
@@ -1455,3 +1458,17 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     }
 }
 #endif
+
+/// The resume matrix's redial cells and a kept-link baseline, alone: where a redial's first key spends
+/// its time (`stage_p50_ms`), in minutes rather than the whole matrix's half hour. On the fleet:
+/// `--arg only=CmuxMobileLiveTests/ResumeStagesBenchTests` (scripts/ci/cmux-next-ios-sim.sh turns it on).
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(30)),
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RESUME_LIVE_BENCH"] == "1",
+                "runs alone: CMUX_RESUME_LIVE_BENCH=1")) struct ResumeStagesBenchTests {
+    static let cells: Set<String> = ["1s/app_switcher", "30s/app_switcher", "30s/notification_tap", "300s/app_switcher"]
+
+    @Test func resumeStages() async throws {
+        try await ResumeMatrixBenchTests().run(cells: ResumeMatrixBenchTests.onlyCells ?? Self.cells)
+    }
+}
