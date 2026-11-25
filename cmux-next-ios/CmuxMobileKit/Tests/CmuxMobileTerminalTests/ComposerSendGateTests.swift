@@ -18,7 +18,7 @@ import Testing
     @Test func offlineStatesAreNotAttached() {
         // An offline state is not attached, and its card says so without a spinner.
         #expect(!TerminalConnectionState.offline(mac: nil).isAttached)
-        #expect(TerminalConnectionState.offline(mac: nil).label == "Your Mac is offline")
+        #expect(TerminalConnectionState.offline(mac: nil).quietLine == "Your Mac is offline")
         #expect(!TerminalConnectionState.offline(mac: nil).showsProgress)
         #expect(TerminalConnectionState.reattaching(mac: nil).showsProgress)
     }

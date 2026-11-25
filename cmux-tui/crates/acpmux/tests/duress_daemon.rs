@@ -74,7 +74,9 @@
 //!
 //! `host150` (Leo's laptop, 2026-11-23: load 10 x cores, memory and swap pressure, 40 peers, a
 //! fork storm at about 40 processes a second) and `peerscale` (the baseline at 1, 10, 20 and 40
-//! peers) are named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
+//! peers) and `peerburst` (40 ready peer links cut in one instant; the row's `peerBurst` counts
+//! the redials in the first 250 ms and second and how long until every link is open again) are
+//! named on purpose, never by default; `ACPMUX_DURESS_PEERS` sets the other legs' peer
 //! count (default 2). Every leg's row also carries the presence gap, link drops, peer links,
 //! frames on the wire, peer notice gauges, spawns per second and a tool call's cost
 //! (`support/duress_host150.rs`).
@@ -281,6 +283,8 @@ impl Stress {
             l if l.starts_with("peerscale") => {}
             // starved: the daemon pinned with its load, capped and far (`host150::starved`).
             "starved" => {}
+            // peerburst: every ready link cut at once (`host150::peer_burst`).
+            "peerburst" => {}
             _ => unreachable!(),
         }
         s
@@ -1685,6 +1689,9 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         host150::Extras::start(name, daemon.pid(), &wire_now, k.cap + host150::extra_cap(name));
     notes.append(&mut extras.notes);
     stress_json.extend(extras.stress.clone());
+    if name == host150::BURST_LEG {
+        stress_json.insert("peerBurst".into(), host150::peer_burst(&proxies));
+    }
 
     // The kills: one harness and the external session's process.
     let harness_name = names.first().cloned();
