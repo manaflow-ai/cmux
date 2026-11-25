@@ -111,6 +111,7 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "signal-hook-registry",
  "syn 2.0.119",
@@ -231,6 +232,14 @@ dependencies = [
  "tokio",
  "unicode-width",
  "uuid",
+]
+
+[[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1407,6 +1416,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-config",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -2332,6 +2360,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2523,7 +2555,8 @@ dependencies = [
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-signed-envelope",
- "cmux-tui-core",
+ "cmux-terminal-host-protocol",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -2804,6 +2837,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-local"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-process",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -2855,6 +2898,17 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-terminal-host-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-pty",
+ "getrandom 0.3.4",
+ "serde",
+ "socket2",
 ]
 
 [[package]]
@@ -3129,9 +3183,11 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-find",
+ "cmux-terminal-host-protocol",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
