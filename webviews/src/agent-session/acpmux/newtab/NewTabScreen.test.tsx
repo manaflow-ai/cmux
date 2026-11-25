@@ -1060,6 +1060,8 @@ test("before the agent's deferred chat answers, `/` lists the skills of the newe
           [
             session({ sessionId: "older", cwd: "/Users/you/src/cmux", updatedAt: 1 }),
             session({ sessionId: "newer", cwd: "/Users/you/src/cmux", updatedAt: 2 }),
+            // A deferred chat that never started: the newest, with no list yet.
+            session({ sessionId: "deferred", cwd: "/Users/you/src/cmux", updatedAt: 3 }),
           ],
           { commands: [{ name: "model", description: "", source: "cmux" }] },
         )}
@@ -1069,6 +1071,7 @@ test("before the agent's deferred chat answers, `/` lists the skills of the newe
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         readChatCommands={async (sessionId) => {
           reads.push(sessionId);
+          if (sessionId === "deferred") return [];
           return [
             { name: "prime", description: "", source: "skill" },
             { name: "issues", description: "", source: "skill" },
@@ -1083,12 +1086,38 @@ test("before the agent's deferred chat answers, `/` lists the skills of the newe
     );
   await typePrompt("use this /");
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(reads).toEqual(["newer"]);
+  // The empty deferred chat gives way to the next newest.
+  expect(reads).toEqual(["deferred", "newer"]);
   expect(names()).toEqual(["/issues", "/prime"]);
   await typePrompt("/");
   expect(names()).toEqual(["/issues", "/prime", "/model"]);
-  // Read once: the menu opening again reads nothing more.
-  expect(reads).toEqual(["newer"]);
+  // Kept for this agent and folder: the menu opening again reads nothing more.
+  expect(reads).toEqual(["deferred", "newer"]);
+});
+
+test("a Codex skill from the newest chat's list goes as `/$name` before Codex's own list arrives", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([session({ sessionId: "codex-chat", harness: "codex", cwd: "/Users/you/src/cmux" })], {
+          commands: [],
+        })}
+        lastAgent="codex"
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        readChatCommands={async () => [{ name: "$emil-color", description: "", source: "skill" }]}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("use /");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await typePrompt("use /emil-color now");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("use /$emil-color now");
 });
 
 test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {

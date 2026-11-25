@@ -148,7 +148,7 @@ import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import { mentionQuery } from "../mentionMenuModel";
 import { toolMentionsIn, isToolCommand } from "../toolMentions";
-import { withFolderCommands, folderChat, skillsFirst } from "./folderCommands";
+import { withFolderCommands, skillsFirst, folderChats } from "./folderCommands";
 import {
   applyCommand,
   insertsText,
@@ -1088,7 +1088,8 @@ export function NewTabScreen(props: Props) {
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
     // read against the list of the harness that asks: an Ask row for another harness has none.
     const listed = snapshot.summary?.sessionId ? snapshot.summary.harness : harness;
-    const skills = agent === listed ? snapshot.commands : undefined;
+    // The list the menu showed, a kept chat's included, so a skill picked from it goes as Codex reads it.
+    const skills = agent === listed ? slashCommands : undefined;
     const inText = placeInline(withSkillDollars(prompt, skills, pickedSkills.current), attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
@@ -1287,24 +1288,30 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (commandOpening) void refreshSavedPrompts();
   }, [commandOpening]);
-  // The kept chat's list is read once per agent and folder, as the menu first opens: the chat list
-  // is looked at only then, never on each change to it (a Minimal page reads only what changed).
+  // The kept list is read as the menu opens, once per opening: the chat list is looked at only
+  // then (from a ref), never on each change to it, so busy chats cost nothing while it stays open.
+  // The newest chats of that agent there go first; one with no list yet (a deferred chat that never
+  // started, this page's own included) gives way to the next, and an empty answer is never kept.
   const readChatCommands = props.readChatCommands;
   const keptReadFor = keptRead?.key;
-  const sessions = snapshot.sessions;
+  const sessionsNow = useRef(snapshot.sessions);
+  sessionsNow.current = snapshot.sessions;
   useEffect(() => {
     if (!commandOpening || !readChatCommands || keptReadFor === keptKey) return;
-    const chat = folderChat(sessions, harness, chatFolder);
-    if (!chat) return;
+    const chats = folderChats(sessionsNow.current, harness, chatFolder);
+    if (chats.length === 0) return;
     let current = true;
-    void readChatCommands(chat).then(
-      (commands) => current && setKeptRead({ key: keptKey, commands }),
-      () => undefined,
-    );
+    void (async () => {
+      for (const chat of chats) {
+        const commands = await readChatCommands(chat).catch(() => [] as SlashCommand[]);
+        if (!current) return;
+        if (commands.length > 0) return setKeptRead({ key: keptKey, commands });
+      }
+    })();
     return () => {
       current = false;
     };
-  }, [commandOpening, readChatCommands, keptReadFor, keptKey, sessions, harness, chatFolder]);
+  }, [commandOpening, readChatCommands, keptReadFor, keptKey, harness, chatFolder]);
   const commandMatches = useMemo(
     () => (commandAt ? slashMatches(menuCommands, commandAt) : []),
     [commandAt, menuCommands],

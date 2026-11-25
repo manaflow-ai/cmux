@@ -3,26 +3,29 @@
 // shows the skills first, A to Z.
 import { expect, test } from "bun:test";
 import type { SlashCommand } from "../slashCommands";
-import { folderChat, skillsFirst, withFolderCommands } from "./folderCommands";
+import { folderChats, skillsFirst, withFolderCommands } from "./folderCommands";
 
 const skill = (name: string): SlashCommand => ({ name, description: "", source: "skill" });
 const cmux: SlashCommand = { name: "model", description: "Model", source: "cmux" };
 const builtIn: SlashCommand = { name: "compact", description: "", source: "agent" };
 
-test("the stand-in list is the newest local chat of the same agent in the same folder", () => {
+test("the stand-in lists come from the newest local chats of the same agent in the same folder", () => {
   const sessions = [
     { sessionId: "old", harness: "claude", cwd: "/Users/you/cmux", updatedAt: 1 },
     { sessionId: "new", harness: "claude", cwd: "/Users/you/cmux", updatedAt: 3 },
+    { sessionId: "mid", harness: "claude", cwd: "/Users/you/cmux", updatedAt: 2 },
+    { sessionId: "oldest", harness: "claude", cwd: "/Users/you/cmux", updatedAt: 0 },
     { sessionId: "codex", harness: "codex", cwd: "/Users/you/cmux", updatedAt: 9 },
     { sessionId: "elsewhere", harness: "claude", cwd: "/Users/you/other", updatedAt: 9 },
     // Another machine's chat: its folder is that machine's.
     { sessionId: "peer", harness: "claude", cwd: "/Users/you/cmux", updatedAt: 9, peer: "mini" },
   ];
-  expect(folderChat(sessions, "claude", "/Users/you/cmux")).toBe("new");
-  expect(folderChat(sessions, "codex", "/Users/you/cmux")).toBe("codex");
-  expect(folderChat(sessions, "claude", "/nowhere")).toBeUndefined();
-  expect(folderChat(sessions, undefined, "/Users/you/cmux")).toBeUndefined();
-  expect(folderChat(sessions, "claude", undefined)).toBeUndefined();
+  // The newest three, the newest first.
+  expect(folderChats(sessions, "claude", "/Users/you/cmux")).toEqual(["new", "mid", "old"]);
+  expect(folderChats(sessions, "codex", "/Users/you/cmux")).toEqual(["codex"]);
+  expect(folderChats(sessions, "claude", "/nowhere")).toEqual([]);
+  expect(folderChats(sessions, undefined, "/Users/you/cmux")).toEqual([]);
+  expect(folderChats(sessions, "claude", undefined)).toEqual([]);
 });
 
 test("the stand-in fills in only until the agent's own list arrives, without cmux's rows", () => {

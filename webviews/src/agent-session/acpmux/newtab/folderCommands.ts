@@ -8,21 +8,31 @@ import { shownName } from "../slashCommands";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { intl } from "../../../ui/intl";
 
-/// The person's newest chat on this Mac of `harness` in `folder`, whose command list stands in for
-/// the deferred chat's until that one answers; undefined when there is none.
-export function folderChat(
+/// How many of the newest chats are tried for a list, the newest first.
+const MAX_CHATS = 3;
+
+/// The person's newest chats on this Mac of `harness` in `folder` (at most three, the newest first),
+/// whose command list stands in for the deferred chat's until that one answers. One pass over the
+/// list, no sort of it.
+export function folderChats(
   sessions: readonly Pick<AcpmuxSessionEntry, "sessionId" | "harness" | "cwd" | "updatedAt" | "peer">[],
   harness: string | undefined,
   folder: string | undefined,
-): string | undefined {
-  if (!harness || !folder) return undefined;
-  let newest: { sessionId: string; updatedAt: number } | undefined;
+): string[] {
+  if (!harness || !folder) return [];
+  const newest: { sessionId: string; updatedAt: number }[] = [];
   for (const session of sessions) {
     if (session.peer || session.harness !== harness || session.cwd !== folder) continue;
     const updatedAt = session.updatedAt ?? 0;
-    if (!newest || updatedAt > newest.updatedAt) newest = { sessionId: session.sessionId, updatedAt };
+    const at = newest.findIndex((kept) => updatedAt > kept.updatedAt);
+    if (at < 0) {
+      if (newest.length < MAX_CHATS) newest.push({ sessionId: session.sessionId, updatedAt });
+      continue;
+    }
+    newest.splice(at, 0, { sessionId: session.sessionId, updatedAt });
+    if (newest.length > MAX_CHATS) newest.pop();
   }
-  return newest?.sessionId;
+  return newest.map((kept) => kept.sessionId);
 }
 
 /// The agent's own commands: its skills, prompts and built-ins, not cmux's, an extension's or a saved prompt.
