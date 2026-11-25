@@ -64,6 +64,10 @@ from app_launch_env import launch_env  # noqa: E402
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
               "big-plain", "huge-plain", "huge-repo", "parent-repos", "huge-parent-repos", "secrets", "odd-names")
+# The production projection matrix is deliberately a small, stable set.  Keep this separate from the
+# historical workspace list above so adding a fixture here never changes the nightly proof's coverage.
+PROJECTION_KINDS = ("bare-folder", "public-remote", "private-remote", "local-only-repo", "huge-monorepo",
+                    "build-output", "symlinks")
 # The cells past the copy's limits: the chat starts from a first pass, never a refusal; no tree or git compare
 # (a first pass sends no history), and the big file must stay on the Mac (left_on_mac >= 1).
 FIRST_PASS_CELLS = ("huge-plain", "huge-repo", "huge-parent-repos")
@@ -116,6 +120,8 @@ def parse_args(argv=None):
                              "cached Claude login for this run (claude_login_cache.py); removed when the run ends")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
+    parser.add_argument("--projection-kinds", action="store_true",
+                        help="run the seven projected-folder fixtures used by RFD 0007")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
                         help="a person's own folder as a cell, read only")
     parser.add_argument("--monorepo", default="https://github.com/manaflow-ai/cmux.git",
@@ -123,6 +129,10 @@ def parse_args(argv=None):
     parser.add_argument("--monorepo-ref", default="", help="the branch to clone (a mirror's HEAD may name none)")
     parser.add_argument("--submodule-url", default="https://github.com/octocat/Hello-World.git")
     parser.add_argument("--big-files", type=int, default=20000, help="files in the big non-Git folder")
+    parser.add_argument("--projection-big-files", type=int, default=100000,
+                        help="files in the huge-monorepo projection fixture")
+    parser.add_argument("--projection-sparse-bytes", type=int, default=3 * 1024 ** 3,
+                        help="logical bytes in the huge-monorepo sparse build output")
     parser.add_argument("--parallel", type=int, default=3, help="most machines at once")
     parser.add_argument("--timeout", type=int, default=900, help="seconds one start-chat may wait")
     parser.add_argument("--out", required=True, help="folder for matrix.json and matrix.md")
@@ -186,10 +196,63 @@ def small_repo(path: Path) -> None:
     git(path, "commit", "-qm", "first")
 
 
+def projection_repo(path: Path, remote: str | None = None) -> None:
+    """The tiny repository used by the projection kinds, with explicit round-trip targets."""
+    small_repo(path)
+    write(path / "projection-edit.txt", "before\n")
+    write(path / "projection-delete.txt", "remove me\n")
+    write(path / "projection-rename-old.txt", "rename me\n")
+    git(path, "add", "-A")
+    git(path, "commit", "-qm", "projection actions")
+    if remote:
+        git(path, "remote", "add", "origin", remote)
+
+
 def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None, str]:
     """The cell's folder, made under ROOT, and a note (a skip reason when it cannot be made here)."""
     path = root / kind
-    if kind == "empty":
+    if kind == "bare-folder":
+        path.mkdir(parents=True)
+        write(path / "projection-edit.txt", "before\n")
+        write(path / "projection-delete.txt", "remove me\n")
+        write(path / "projection-rename-old.txt", "rename me\n")
+    elif kind == "public-remote":
+        projection_repo(path, "https://github.com/manaflow-ai/cmux.git")
+    elif kind == "local-only-repo":
+        projection_repo(path)
+    elif kind == "huge-monorepo":
+        # The sparse image gives the fixture multi-GB logical size without consuming the runner disk.
+        projection_repo(path, "https://github.com/manaflow-ai/cmux.git")
+        for index in range(max(100_000, args.projection_big_files)):
+            write(path / "tree" / f"d{index % 1000:04d}" / f"f{index:06d}.txt", f"{index}\n")
+        with open(path / "build-image.bin", "wb") as sparse:
+            sparse.truncate(max(3 * 1024 ** 3, args.projection_sparse_bytes))
+    elif kind == "build-output":
+        path.mkdir(parents=True)
+        write(path / "package.json", '{"name":"projection-fixture"}\n')
+        write(path / "src/index.js", "export default 1;\n")
+        for index in range(100):
+            write(path / "node_modules/pkg" / f"module-{index:03d}.js", "module.exports = 1;\n")
+        write(path / "target/debug/app", "debug\n")
+        write(path / "dist/bundle.js", "bundle\n")
+        write(path / "projection-edit.txt", "before\n")
+        write(path / "projection-delete.txt", "remove me\n")
+        write(path / "projection-rename-old.txt", "rename me\n")
+    elif kind == "symlinks":
+        path.mkdir(parents=True)
+        write(path / "projection-edit.txt", "before\n")
+        write(path / "projection-delete.txt", "remove me\n")
+        write(path / "projection-rename-old.txt", "rename me\n")
+        write(path / "inside/target.txt", "inside\n")
+        outside = root / "projection-outside.txt"
+        write(outside, "outside\n")
+        os.symlink("inside/target.txt", path / "relative-link")
+        os.symlink(str(outside), path / "absolute-link")
+        os.symlink("../../projection-outside.txt", path / "escaping-link")
+        os.symlink("missing-target", path / "dangling-link")
+        write(path / "CaseOnly.txt", "case\n")
+        write(path / "case-only-source.txt", "case rename\n")
+    elif kind == "empty":
         path.mkdir(parents=True)
     elif kind == "small-repo":
         small_repo(path)
@@ -202,8 +265,11 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
         if not any(entry.name != ".git" for entry in path.iterdir()):
             raise RuntimeError(f"the clone of {args.monorepo} checked out nothing (give --monorepo-ref)")
     elif kind == "private-remote":
-        small_repo(path)
-        git(path, "remote", "add", "origin", "https://github.com/manaflow-ai/cmuxterm-hq.git")
+        if args.projection_kinds:
+            projection_repo(path, "https://github.com/manaflow-ai/cmuxterm-hq.git")
+        else:
+            small_repo(path)
+            git(path, "remote", "add", "origin", "https://github.com/manaflow-ai/cmuxterm-hq.git")
     elif kind == "submodules":
         # A public GitHub submodule, as a real project has: the machine fetches it itself (a file://
         # submodule only this Mac can reach is not a workspace anyone moves to Cloud).
@@ -733,11 +799,20 @@ class Matrix:
         # File reads only: a shell command makes the agent ask permission first, and a headless --wait
         # then ends at chat.permission_waiting (the first live run, 2026-11-10). The copy's folder on
         # the machine is found with `cloud exec`, not from the reply.
+        projection = bool(self.args.projection_kinds)
         ask_word = "" if read_only or name == "empty" else (
             f" Read the file {WORD_FILE} in your working folder with your file-reading tool; it holds one word.")
-        form = "MATRIX_OK" + ("" if not ask_word else " word=<the word>")
-        prompt = (f"This is an automated check of the folder this chat started in. Do not run any shell command."
-                  f"{ask_word} Reply on one line in exactly this form and nothing else: {form}")
+        if projection and not read_only:
+            prompt = ("This is an automated projected-folder check. Use only your file tools, never a shell command. "
+                      "Read cmux-matrix-word.txt, edit projection-edit.txt to exactly 'after\\n', delete "
+                      "projection-delete.txt, rename projection-rename-old.txt to projection-rename-new.txt, "
+                      "and create projection-created.txt containing exactly 'created\\n'. "
+                      "Reply on one line in exactly this form and nothing else: PROJECTION_OK word=<the word>")
+            form = "PROJECTION_OK"
+        else:
+            form = "MATRIX_OK" + ("" if not ask_word else " word=<the word>")
+            prompt = (f"This is an automated check of the folder this chat started in. Do not run any shell command."
+                      f"{ask_word} Reply on one line in exactly this form and nothing else: {form}")
         chat_started = time.monotonic()
         deadline = chat_started + self.args.timeout
         while True:
@@ -797,12 +872,27 @@ class Matrix:
             remote = self.find_copy(machine, folder, word if ask_word else "")
         cell["reply"] = {
             "observed": bool(reply),
-            "form_ok": bool(match),
+            "form_ok": bool(re.search(r"PROJECTION_OK" if projection else r"MATRIX_OK", reply)),
             "word_ok": (not ask_word) or (f"word={word}" in reply),
             "canary_in_reply": bool(canary) and canary in reply,
             "text": clean(reply.replace(canary, "[canary]") if canary else reply, 300),
         }
         cell["remote_folder"] = clean(remote, 300)
+        if projection and remote and machine and not read_only:
+            # The agent actions are checked on the machine before cleanup.  Bring Back's full
+            # three-way correctness is covered by the companion Rust matrix, which runs the same
+            # projection-v1 daemon and is recorded beside this production row.
+            action_probe = (
+                "import json,os; r='%(r)s'; "
+                "read=lambda p: open(os.path.join(r,p), encoding='utf-8').read() if os.path.isfile(os.path.join(r,p)) else None; "
+                "print(json.dumps({'edit':read('projection-edit.txt')=='after\\n',"
+                "'created':read('projection-created.txt')=='created\\n',"
+                "'deleted':not os.path.lexists(os.path.join(r,'projection-delete.txt')),"
+                "'renamed':read('projection-rename-new.txt')=='rename me\\n' and not os.path.lexists(os.path.join(r,'projection-rename-old.txt'))}))" %
+                {"r": shlex_quote(remote)})
+            actions, problem = self.exec_json(machine, f"python3 -c {shlex_quote(action_probe)}", timeout=120)
+            cell["agent_actions"] = actions or {"error": problem}
+            cell["agent_actions_ok"] = all(actions.get(key) is True for key in ("edit", "created", "deleted", "renamed"))
         if machine and remote:
             script = base64.b64encode(MANIFEST_PY.encode()).decode()
             started = time.monotonic()
