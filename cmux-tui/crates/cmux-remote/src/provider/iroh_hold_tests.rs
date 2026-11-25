@@ -99,3 +99,69 @@ async fn a_new_listener_closes_a_connection_that_sends_anything_but_a_hold() {
     sender.finish().unwrap();
     tokio::time::timeout(Duration::from_secs(5), connection.closed()).await.unwrap();
 }
+
+/// A warm standby goes on the socket that does not carry the peer's live link: iroh keeps one
+/// selected path per peer per endpoint, so a standby on the link's endpoint rides the link's
+/// path and dies with it. The carrier follows the last link opened, so after a failover onto
+/// the standby the next standby goes back on the first socket.
+#[tokio::test]
+async fn a_standby_dials_on_the_socket_apart_from_the_live_link() {
+    use crate::provider::{ConnectRequest, LinkRequest, ROUTING_STANDBY, TransportProvider};
+
+    let (listener, _state) = new_listener().await;
+    let route = listener.route().await.unwrap();
+    let node = route.node_id();
+    let provider = super::IrohProvider::new(config()).unwrap();
+    let request = |standby: bool| {
+        let mut routing = route.routing_hints();
+        if standby {
+            routing.insert(ROUTING_STANDBY.into(), "1".into());
+        }
+        ConnectRequest {
+            endpoint: format!("iroh://{node}").parse().unwrap(),
+            session: cmux_remote_protocol::SessionId([7; 16]),
+            lane_policy: cmux_remote_protocol::LanePolicy::Single,
+            routing,
+        }
+    };
+    let link = || LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 1 };
+
+    let active = provider.connect(request(false)).await.unwrap();
+    let _link = active.open(link()).await.unwrap();
+    assert!(provider.spare.get().is_none(), "a link dial binds no second socket");
+    assert_eq!(provider.carriers.of(node), super::Socket::Main);
+
+    let standby = provider.connect(request(true)).await.unwrap();
+    let main = provider.endpoint.get().unwrap().id();
+    let spare = provider.spare.get().expect("the standby bound the second socket").id();
+    assert_ne!(main, spare, "the standby is a different iroh endpoint, with its own paths");
+    assert_eq!(provider.carriers.of(node), super::Socket::Main, "a standby carries nothing yet");
+
+    // The link fails over onto the standby: its socket carries the peer now, and the next
+    // standby goes on the first socket.
+    let _failover = standby.open(link()).await.unwrap();
+    assert_eq!(provider.carriers.of(node), super::Socket::Spare);
+    assert_eq!(provider.carriers.for_dial(node, true), super::Socket::Main);
+    assert_eq!(provider.carriers.for_dial(node, false), super::Socket::Spare);
+    provider.close().await;
+}
+
+/// After a dead link is abandoned, the redial goes on the socket that held it: closing its
+/// last connection cleared iroh's path for the peer there, while the other socket may still
+/// hold a standby riding the dead path. The next standby goes apart from the new link.
+#[test]
+fn a_redial_goes_on_the_socket_the_dead_link_was_abandoned_from() {
+    let carriers = super::Carriers::default();
+    let node = iroh::SecretKey::from_bytes(&[9; 32]).public();
+    assert_eq!(carriers.for_dial(node, false), super::Socket::Main);
+    assert_eq!(carriers.for_dial(node, true), super::Socket::Spare);
+
+    // The link failed over onto the standby on Spare; then that link died too.
+    carriers.opened(node, super::Socket::Spare);
+    carriers.abandoned(node, super::Socket::Spare);
+    assert_eq!(carriers.for_dial(node, false), super::Socket::Spare);
+
+    // The redial opened there: the next standby goes on Main.
+    carriers.opened(node, super::Socket::Spare);
+    assert_eq!(carriers.for_dial(node, true), super::Socket::Main);
+}

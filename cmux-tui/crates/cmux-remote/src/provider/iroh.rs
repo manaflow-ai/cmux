@@ -24,7 +24,8 @@ use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSn
 use crate::provider::{
     CMUX_IROH_ALPN, CarrierEvidence, ConnectRequest, IrohPathMode, LengthDelimitedLink, LinkGroup,
     LinkRequest, ProviderCapabilities, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
-    ROUTING_RELAY_URL, ROUTING_STANDBY, SupportedClientAuthModes, TransportProvider, sanitized_route,
+    ROUTING_RELAY_URL, ROUTING_STANDBY, SupportedClientAuthModes, TransportProvider,
+    sanitized_route,
 };
 use crate::secure_directory::{DirectoryAccess, ensure_secure_directory};
 
@@ -463,29 +464,51 @@ impl Socket {
     }
 }
 
-/// Which socket carries each peer's live link: the socket of the group that opened a link to
-/// it last. One entry per peer dialed.
+/// Per peer, which socket carries its live link and which one a redial should use.
+#[derive(Debug, Clone, Copy)]
+struct PeerSockets {
+    /// The socket of the group that opened a link to the peer last.
+    live: Socket,
+    /// The socket of the group last abandoned (its link declared dead, its connection
+    /// closed): iroh holds no path for the peer there any more, while the other socket may
+    /// hold a standby that rides the dead path. `None` before any.
+    fresh: Option<Socket>,
+}
+
+/// [`PeerSockets`] of each peer dialed.
 #[derive(Debug, Clone, Default)]
-struct Carriers(Arc<StdMutex<std::collections::HashMap<NodeId, Socket>>>);
+struct Carriers(Arc<StdMutex<std::collections::HashMap<NodeId, PeerSockets>>>);
 
 impl Carriers {
+    fn with<R>(&self, node: NodeId, f: impl FnOnce(&mut PeerSockets) -> R) -> R {
+        let mut map = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        f(map.entry(node).or_insert(PeerSockets { live: Socket::Main, fresh: None }))
+    }
+
+    #[cfg(test)]
     fn of(&self, node: NodeId) -> Socket {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&node)
-            .copied()
-            .unwrap_or(Socket::Main)
+        self.with(node, |peer| peer.live)
     }
 
-    fn set(&self, node: NodeId, socket: Socket) {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(node, socket);
+    /// A link opened on a group of `socket`.
+    fn opened(&self, node: NodeId, socket: Socket) {
+        self.with(node, |peer| peer.live = socket);
     }
 
-    /// The socket a dial goes on: the carrier for a link, the other one for a standby.
+    /// A group of `socket` was abandoned.
+    fn abandoned(&self, node: NodeId, socket: Socket) {
+        self.with(node, |peer| peer.fresh = Some(socket));
+    }
+
+    /// The socket a dial goes on: a standby apart from the live link; a link dial on the
+    /// socket last abandoned (cleared of the dead path), else beside the live link.
     fn for_dial(&self, node: NodeId, standby: bool) -> Socket {
-        let carrier = self.of(node);
-        if standby { carrier.other() } else { carrier }
+        self.with(
+            node,
+            |peer| {
+                if standby { peer.live.other() } else { peer.fresh.unwrap_or(peer.live) }
+            },
+        )
     }
 }
 
@@ -1209,7 +1232,7 @@ impl LinkGroup for IrohLinkGroup {
                 }
             }
         };
-        self.carriers.set(self.node_addr.id, self.socket);
+        self.carriers.opened(self.node_addr.id, self.socket);
         Ok(Box::new(LengthDelimitedLink::new(
             format!("{}:{}:{}", self.description, request.lane, request.generation),
             self.maximum_frame_bytes,
@@ -1248,6 +1271,7 @@ impl LinkGroup for IrohLinkGroup {
         // A held lock is an `open` in flight, which dials its own replacement on failure.
         if let Ok(connection) = self.connection.try_lock() {
             connection.close(0_u8.into(), b"cmux link declared dead");
+            self.carriers.abandoned(self.node_addr.id, self.socket);
         }
     }
 }

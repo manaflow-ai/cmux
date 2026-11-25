@@ -144,7 +144,11 @@ impl<T> WarmStandby<T> {
     fn took(&self, index: usize) {
         let failed = self.active.swap(index, Ordering::Relaxed);
         let mut slot = self.failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        *slot = (failed != index).then(|| FailedRoute { index: failed, at: Instant::now(), raced: false });
+        *slot = (failed != index).then(|| FailedRoute {
+            index: failed,
+            at: Instant::now(),
+            raced: false,
+        });
     }
 
     /// The failed route while it cools down, and how long it has left.
@@ -342,9 +346,17 @@ pub(crate) async fn next_warm_route<T: Send>(
         None => {}
     }
     let skip = standby.skip_once();
-    let group =
-        next_reconnect_route_skipping(next, routes, skip, race, session, lane_policy, auth, attempt)
-            .await?;
+    let group = next_reconnect_route_skipping(
+        next,
+        routes,
+        skip,
+        race,
+        session,
+        lane_policy,
+        auth,
+        attempt,
+    )
+    .await?;
     let len = routes.len().max(1);
     standby.set_active((next.load(Ordering::Relaxed) + len - 1) % len);
     standby.wake.notify_one();
