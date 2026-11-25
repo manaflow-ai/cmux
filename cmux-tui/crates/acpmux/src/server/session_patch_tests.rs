@@ -1,33 +1,7 @@
 use super::*;
 
-/// Applies `patch` (this module's form) to `target`: the client's side of the contract, kept here
-/// so the tests check the two against each other.
 fn apply(target: &mut Value, patch: &Value) {
-    match patch {
-        Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
-            let args = &p["$splice"];
-            let (from, keep) =
-                (args[0].as_u64().unwrap() as usize, args[1].as_u64().unwrap() as usize);
-            let held = target.as_array().cloned().unwrap_or_default();
-            let mut out: Vec<Value> = held[from..from + keep].to_vec();
-            out.extend(args[2].as_array().unwrap().iter().cloned());
-            *target = Value::Array(out);
-        }
-        Value::Object(p) => {
-            if !target.is_object() {
-                *target = Value::Object(Map::new());
-            }
-            let obj = target.as_object_mut().unwrap();
-            for (k, v) in p {
-                if v.is_null() {
-                    obj.remove(k);
-                } else {
-                    apply(obj.entry(k.clone()).or_insert(Value::Null), v);
-                }
-            }
-        }
-        other => *target = other.clone(),
-    }
+    assert!(super::apply(target, patch), "{patch} applies to {target}");
 }
 
 fn roundtrip(old: Value, new: Value) -> Value {
@@ -96,6 +70,10 @@ fn a_new_kind_of_row_or_a_forgotten_one_goes_out_whole() {
     assert!(matches!(rows.change("s", false, &json!({"a": 1})), Change::Whole { row_seq: 1 }));
     assert!(matches!(rows.change("s", true, &json!({"a": 1})), Change::Whole { row_seq: 2 }));
     assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Patch { row_seq: 3, .. }));
+    // A resync: whole, numbered on; patches after it.
+    rows.resend("s");
+    assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 4 }));
+    assert!(matches!(rows.change("s", true, &json!({"a": 3})), Change::Patch { row_seq: 5, .. }));
     rows.forget("s");
     assert!(matches!(rows.change("s", true, &json!({"a": 2})), Change::Whole { row_seq: 1 }));
     for i in 0..MAX_ROWS + 10 {
@@ -103,13 +81,49 @@ fn a_new_kind_of_row_or_a_forgotten_one_goes_out_whole() {
     }
     assert!(rows.rows.len() <= MAX_ROWS);
 }
-/// A peer link's rows are masked whole (`peer_text.rs`); a patch of the raw row would skip
-/// the masker, so a masked connection never gets patches even when it asks.
+/// A client asks with `true` (version 1) or a version; a daemon before version 2 took only
+/// `true`, so a link's `2` reads there as not asking.
 #[test]
-fn only_a_raw_text_connection_gets_patches() {
-    let asks = json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}});
-    let raw = |o| !crate::server::peer_text::masks(o);
-    assert!(!allowed(&asks, raw(crate::server::Origin::Peer)));
-    assert!(allowed(&asks, raw(crate::server::Origin::Local)));
-    assert!(!allowed(&json!({}), raw(crate::server::Origin::Local)));
+fn a_client_asks_with_true_or_a_version() {
+    assert!(allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": true}}})));
+    assert!(allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": VERSION}}})));
+    assert!(!allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": false}}})));
+    assert!(!allowed(&json!({"_meta": {"acpmux": {"sessionChangedDelta": 0}}})));
+    assert!(!allowed(&json!({})));
+}
+
+/// A splice that does not fit the held array is refused, not a panic: the client reads the
+/// row whole instead.
+#[test]
+fn a_patch_that_does_not_fit_is_refused() {
+    let mut held = json!({"a": [1, 2]});
+    assert!(!super::apply(&mut held, &json!({"a": {"$splice": [1, 5, []]}})));
+    let mut held = json!({"a": 1});
+    assert!(!super::apply(&mut held, &json!({"a": {"$splice": [0, 0, []]}})));
+    let mut held = json!({"a": [1]});
+    assert!(!super::apply(&mut held, &json!({"a": {"$splice": ["x", 0, []]}})));
+}
+
+/// A peer reads rows masked: the patches between two masked rows take the masked old row to
+/// the masked new one, and never carry the secret the raw row has.
+#[test]
+fn a_masked_rows_patch_takes_the_masked_row_on_and_carries_no_secret() {
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let row = |title: &str, prompt: &str| {
+        json!({"sessionId": "s", "harness": "claude", "lastSeq": 1, "title": title,
+               "lastPrompt": prompt, "status": "running"})
+    };
+    let old = row("plain", "hello");
+    let new = row(&format!("fix {token}"), &format!("use {token} now"));
+    let masked = |v: &Value| crate::server::peer_text::masked_row(v).unwrap_or(v.clone());
+    let mut rows = SentRows::default();
+    assert!(matches!(rows.change("s", true, &masked(&old)), Change::Whole { row_seq: 1 }));
+    let Change::Patch { patch, .. } = rows.change("s", true, &masked(&new)) else {
+        panic!("a patch")
+    };
+    assert!(!patch.to_string().contains(&token), "{patch}");
+    let mut held = masked(&old);
+    apply(&mut held, &patch);
+    assert_eq!(held, masked(&new));
+    assert_ne!(held["title"], new["title"], "the title is masked");
 }

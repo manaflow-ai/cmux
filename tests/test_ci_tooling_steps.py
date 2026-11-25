@@ -172,7 +172,7 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("mystery_module_nowhere", steps["tt-c"].reason)
 
     def test_a_step_naming_no_test_or_hiding_its_script_runs(self):
-        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        steps = self.verdicts(self.route(["docs/notes.md"]))
         self.assertTrue(steps["tt-d"].run)
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
@@ -224,6 +224,15 @@ class FixtureRepo(unittest.TestCase):
         steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/new.tsx"],
                                                   "pull_request", ["webviews/src/new.tsx"]))
         self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+
+    def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
+        # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
+        # product source alone (which no tooling test reads) skips it.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        # With a file of its own directory in the diff, it runs.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx", "tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
 
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",

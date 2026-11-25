@@ -19,6 +19,7 @@ import { chatTaskListOf, type ChatTaskList } from "./chatTaskList";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
+import { readCapacityWait } from "./capacityWait";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice } from "./subagents/retryState";
@@ -386,6 +387,7 @@ export {
   textFromContent,
   appendThought,
 } from "./direct/toolItems";
+import { unknownParamRefused, withoutParam } from "./relaySkew";
 export { permissionFromMessage, permissionDiffs, permissionPlan } from "./direct/permissions";
 export {
   queuedMessage,
@@ -5867,7 +5869,14 @@ export class AcpmuxDirectClient {
       waitsForSlot(method, params) ? send : undefined,
     );
     this.budget.admit(id, method, send, params);
-    return result;
+    // An older relay that refused a key it does not know (relaySkew.ts, cmux#55066): the same request
+    // without it, as a newer relay sends it on. Each try drops one key the request carries, so it ends.
+    return result.catch((error: unknown) => {
+      const key = unknownParamRefused(error, params);
+      if (key === undefined) throw error;
+      this.wire.lifecycle("relay refused an unknown param, sent again without it", { method, key });
+      return this.request(method, withoutParam(params, key), deadline, maySend);
+    });
   }
 
   /// Whether `method` is one a chat open waits on (`CHAT_OPEN_METHODS`). An acpmux that follows the
@@ -11408,7 +11417,10 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       ...(this.replayThrough === undefined
-        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
+        ? {
+            autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt),
+            capacityWait: readCapacityWait(summary?.capacityWait),
+          }
         : {}),
       rows: publishedRows,
       ...(this.supersededRowIds.size > 0
@@ -11438,6 +11450,9 @@ export class AcpmuxDirectClient {
         : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
+      ...(this.listedSessions && !this.fedMode && !this.replayMode && !this.sessionPages.holdsAll
+        ? { sessionsWindowed: true as const }
+        : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.peerCopy
         ? {

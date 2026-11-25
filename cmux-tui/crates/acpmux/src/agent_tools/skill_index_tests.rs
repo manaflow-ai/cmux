@@ -30,6 +30,7 @@ fn the_index_lists_the_skills_the_sessions_tools_serve() {
             "cmux-computer-use",
             "cmux-customization",
             "cmux-live",
+            "cmux-ui-preview",
             "cmux-rich-output",
             "acpmux",
             "cmux-quota",
@@ -48,6 +49,7 @@ fn the_index_lists_the_skills_the_sessions_tools_serve() {
             "cmux-browser",
             "cmux-customization",
             "cmux-live",
+            "cmux-ui-preview",
             "cmux-rich-output",
             "acpmux",
             "cmux-quota"

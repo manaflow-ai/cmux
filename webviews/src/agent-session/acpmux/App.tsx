@@ -103,6 +103,9 @@ import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapsho
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
 import { approvedPlanPlace } from "./approvedPlan.experiment";
+import { CustomizeBar, customizeBarShows } from "./customizeBar/CustomizeBar";
+import { customizeBarPlace } from "./customizeBar/customizeBar.experiment";
+import { useCustomizeBar } from "./customizeBar/useCustomizeBar";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
@@ -547,6 +550,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
+import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -2275,6 +2279,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
   const [approvedPlanArm] = useState(() => experimentArm(approvedPlanPlace));
+  // A live customization's Apply / Discard / Undo / Save as profile (customizeBar/), off by default.
+  const [customizeBarArm] = useState(() => experimentArm(customizeBarPlace));
+  const customizeBar = useCustomizeBar(customizeBarArm !== "off", snapshot.isWorking);
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -2586,6 +2593,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useLayoutEffect(() => {
     subsessionStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);
+  // A hidden chat keeps the session list and nothing made from it (hq#21290: 100 open chats in one
+  // renderer each held a card and a name index per listed chat). Shown again, the stores are made
+  // from the latest list before the first frame, with no redraw of the pane.
+  useLayoutEffect(() => {
+    const stores = [hoverStore.current!, subsessionStore.current!];
+    const sync = () => {
+      const hidden = document.visibilityState === "hidden";
+      for (const store of stores) {
+        if (hidden) store.release();
+        else store.restore();
+      }
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      for (const store of stores) store.restore();
+    };
+  }, []);
   const subsessions = useMemo<Subsessions>(
     () => ({
       store: subsessionStore.current!,
@@ -6073,8 +6099,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =
-    cloudRecoveryShows && (cloudRecovery.state === "paused" || cloudRecovery.state === "deleted")
-      ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
+    cloudRecoveryShows &&
+    (cloudRecovery.state === "paused" ||
+      cloudRecovery.state === "deleted" ||
+      (cloudRecovery.resuming && cloudRecovery.state === "live"))
+      ? cloudChatUnavailable(
+          snapshot.unavailable ?? { reason: "offline" },
+          cloudRecovery.state,
+          machineName,
+          cloudRecovery.resuming,
+        )
       : snapshot.unavailable;
   /// The chat a send now wakes its Cloud machine for (cloudWake.ts), or undefined.
   const cloudWakeState: CloudWakeState = {
@@ -6634,6 +6668,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [linkDown, setLinkDown] = useState(false);
   /// When the pane's trouble began (paneSnapshot.ts `troubleSince`): bounds the bare "Reconnecting…".
   const [hostTroubleSince, setHostTroubleSince] = useState<number | undefined>();
+  /// The pane's handshake loop stopped past its bound (paneSnapshot.ts `stopped`): the failure line
+  /// says why and offers Retry, and an event (focus, shown, online, acpmux answering) asks again.
+  const [hostGaveUp, setHostGaveUp] = useState(false);
   /// The host says acpmux is restoring its chats after a start (its `acpmux-host-status` event, or
   /// a refused handshake's `details.restoring`): the line says "Restoring sessions… m:ss" instead.
   const [hostRestoring, setHostRestoring] = useState<HostRestoring | undefined>();
@@ -7486,6 +7523,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           : sandboxHoldsChat && !sandboxDraftMoved
             ? "sandbox_holds_chat"
             : undefined),
+    runPlace: () => ({
+      runMode: sandbox.mode ?? null,
+      checked: sandbox.checked,
+      freshChat,
+      sessionId: snapshot.sessionId ?? null,
+      summarySessionId: snapshot.summary?.sessionId ?? null,
+      switchingPhase: snapshot.switching?.phase ?? null,
+      selection: sessionSelection?.state ?? null,
+      surface,
+      offered: sandboxOffered,
+      cloudPickedNotOffered,
+    }),
   };
   const focusComposer = () => composerHandle.current?.focus();
   useEffect(() => {
@@ -7619,6 +7668,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       restartGate,
       setLinkDown,
       setHostTroubleSince,
+      setHostGaveUp,
       setHostRestoring,
       runPendingAdoption,
       freshRef,
@@ -7659,7 +7709,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A failure the pane clears by asking again by itself (a machine rebooting) is quiet in the
   // header too: the one line above the composer says Reconnecting… (HostError.tsx).
   const header = paneHeader(composerSnapshot, t, {
-    hostRecovering: !hostErrorShown || hostSelfRetrying(hostFailure, acpmuxRestartOffered),
+    hostRecovering: !hostErrorShown || (!hostGaveUp && hostSelfRetrying(hostFailure, acpmuxRestartOffered)),
   });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
@@ -9416,7 +9466,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
-        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+        </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
@@ -9808,6 +9860,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         initiallyOpen={approvedPlanArm === "open"}
       />
     ) : null;
+  // Leo, 2026-11-25: "the customization live... in the gui chat". The bar's buttons run the CLI's
+  // customize verbs on this Mac (cmux.customize.run), not an agent turn.
+  const customizeBarNode =
+    !showNewTab && customizeBarArm !== "off" && customizeBarShows(customizeBar.state, customizeBar.outcome) ? (
+      <CustomizeBar
+        look={customizeBarArm}
+        state={customizeBar.state}
+        outcome={customizeBar.outcome}
+        run={(verb, arg) => void customizeBar.run(verb, arg)}
+      />
+    ) : null;
   // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
   // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
   const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
@@ -9897,6 +9960,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     goalNode,
     approvedPlanNode,
     approvedPlanAtFoot: approvedPlanArm === "foot",
+    customizeBarNode,
     hatQuestionList,
     NO_HAT_QUESTIONS,
     hatQuestionActions,
@@ -10084,11 +10148,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         onRetry={() => retryHost.current?.()}
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
-        selfRetrying={hostSelfRetrying(
-          hostFailure,
-          acpmuxRestartOffered,
-          hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
-        )}
+        // A stopped loop (paneSnapshot.ts `stopped`) is not retrying: the line says why and offers Retry.
+        selfRetrying={
+          !hostGaveUp &&
+          hostSelfRetrying(
+            hostFailure,
+            acpmuxRestartOffered,
+            hostTroubleSince === undefined ? 0 : Date.now() - hostTroubleSince,
+          )
+        }
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered
