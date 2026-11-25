@@ -198,7 +198,35 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .ok("_acpmux/plan/build", json!({"sessionId": chat, "permissionId": pid, "target": "here"}))
         .await;
     assert_eq!(here["builds"], json!([]), "{here}");
-    assert!(app.said(rid).await.contains("chose yes"));
+    let said = app.said(rid).await;
+    assert!(said.contains("chose yes") && !said.contains("building:"), "{said}");
+    let summary = hub.session_summary(&hub.resolve(&chat).unwrap());
+    assert_eq!(summary["approvedPlan"]["markdown"], "Add a changelog", "{summary}");
+    assert_eq!(summary["approvedPlan"]["edited"], false, "{summary}");
+
+    // Edit the plan, then Approve: the agent builds the edited plan.
+    let (rid, pid) = app.ask_plan(&chat, "plan-ask: 1. Add a changelog").await;
+    let r = app
+        .call(
+            "_acpmux/plan/build",
+            json!({"sessionId": chat, "permissionId": pid, "target": "here", "plan": "   "}),
+        )
+        .await;
+    assert!(r.get("error").is_some(), "an empty edit is refused: {r}");
+    let edited = "1. Add a changelog\n2. Link it from the README";
+    app.ok(
+        "_acpmux/plan/build",
+        json!({"sessionId": chat, "permissionId": pid, "target": "here", "plan": edited}),
+    )
+    .await;
+    let said = app.said(rid).await;
+    assert!(said.contains(&format!("chose yes building: {edited}")), "{said}");
+    // The approved plan stays on the chat while the agent builds it, as edited.
+    let summary = hub.session_summary(&hub.resolve(&chat).unwrap());
+    let approved = &summary["approvedPlan"];
+    assert_eq!(approved["markdown"], edited, "{summary}");
+    assert_eq!(approved["edited"], true, "{summary}");
+    assert_eq!(approved["permissionId"], pid.as_str(), "{summary}");
 
     // Build on two agents: two chats in two new worktrees, the plan's own chat stopped.
     // A harness that plans on after the rejected plan (as Claude's adapter does) is stopped.

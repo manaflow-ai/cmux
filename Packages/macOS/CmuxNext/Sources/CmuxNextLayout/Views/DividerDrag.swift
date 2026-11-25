@@ -226,7 +226,7 @@ struct DividerDrag {
         }
         guard drag.dockEdge == nil, let strip = drag.strip else { return [.width(id, fraction)] }
         if drag.modifiers.all { return strip.uniform(fraction) }
-        if drag.modifiers.push { return strip.trading(id, to: fraction) }
+        if drag.modifiers.push || drag.tradesAtStripEnd { return strip.trading(id, to: fraction) }
         return [.width(id, fraction)]
     }
 

@@ -218,7 +218,17 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
     // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
-    let outcome = run(&mut runner, request);
+    // No app named and a cmux credential in the environment: the cmux API answers the app's
+    // verbs (direct.rs), so a machine with no signed-in app starts the same chat.
+    let outcome = match direct::Route::choose(global, |key| std::env::var(key).ok()) {
+        direct::Route::App => run(&mut runner, request),
+        direct::Route::Direct => match direct::Api::from_env(|key| std::env::var(key).ok()) {
+            Ok(mut api) => {
+                run(&mut direct::DirectRunner { inner: &mut runner, cloud: &mut api }, request)
+            }
+            Err(error) => Outcome::Failed { error, exit: 2 },
+        },
+    };
     if let Outcome::Done(answer) = &outcome {
         super::start_stages::print_table(request.timings, answer);
     }
@@ -255,7 +265,11 @@ pub(super) fn send_existing(
         no_focus: false,
     };
     let mut runner = SelfRunner::new(global);
-    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+    // With CMUX_CLOUD_ACCESS_TOKEN and no app named, the exec goes through the cmux API (direct.rs).
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        send_to(runner, &request, machine_id, session)
+    });
+    report(&outcome, global.output)
 }
 
 /// The newest records `cmux chat read` reads of a chat on a Cloud VM, in one exec.
@@ -271,7 +285,10 @@ pub(super) fn read_existing(
     limit: usize,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    match read_on(&mut runner, machine_id, session, after, limit) {
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        read_on(runner, machine_id, session, after, limit)
+    });
+    match outcome {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
         Outcome::Failed { error, exit } => {
             super::wire::print_local_error(&error, global.output, exit)
@@ -330,7 +347,10 @@ pub(super) fn wait_existing(
     timeout: Duration,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        wait_on(runner, machine_id, session, timeout)
+    });
+    report(&outcome, global.output)
 }
 
 /// [`wait_existing`]'s wait: the newest turn (any seq after 0), within `timeout`.
@@ -1290,7 +1310,24 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let outcome = run_once(runner, request);
     // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
     let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    if request.make_room { make_room(runner, request, began, outcome) } else { outcome }
+    let outcome =
+        if request.make_room { make_room(runner, request, began, outcome) } else { outcome };
+    explain_account_limit(outcome, &request.agent)
+}
+
+/// A turn that failed on its agent's account (out of usage, or turned off) answers what
+/// happened and the way on, not the agent's bare words (account_limit.rs, cmux#55066).
+fn explain_account_limit(outcome: Outcome, agent: &str) -> Outcome {
+    match outcome {
+        Outcome::Failed { mut error, exit }
+            if at(&error, "code").as_str() == Some("chat.turn_failed") =>
+        {
+            let said = at(&error, "message").as_str().unwrap_or_default().to_owned();
+            super::account_limit::explain(&mut error, &said, agent);
+            Outcome::Failed { error, exit }
+        }
+        outcome => outcome,
+    }
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
@@ -1370,7 +1407,11 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut progress = Progress::default();
     let mut timed = Timed::new(runner);
     let mut outcome = steps(&mut timed, request, deadline, &mut progress);
-    if deadline.passed(&mut timed) {
+    // Rollback follows a definitive refusal. Its receipt must survive a deadline crossed
+    // during deletion, rather than suggesting the caller retry on a machine we just deleted.
+    let rolled_back = matches!(&outcome, Outcome::Failed { error, .. }
+        if error.pointer("/details/cleanup").is_some());
+    if deadline.passed(&mut timed) && !rolled_back {
         outcome = progress.late(request);
     }
     if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
@@ -1760,7 +1801,14 @@ fn steps(
                 Some(name) => unmade_fresh_retry(runner, error, name, request),
                 None => error,
             };
-            return start_refused(error, &listed, request);
+            let refused = start_refused(error, &listed, request);
+            return fresh::release_refused(
+                runner,
+                fresh.as_deref(),
+                progress.made.as_deref(),
+                refused,
+                deadline,
+            );
         }
     };
     if at(&started, "pending").as_bool() == Some(true) {
@@ -1806,6 +1854,11 @@ fn steps(
     }
     if let Some(estimate) = estimate {
         answer.set("estimate", estimate);
+    }
+    // How the machine came (a warm spare, made fresh, or one that already existed), when the start said:
+    // a lane's readback proves a spare claim from it (direct.rs `spare_origin`).
+    if let Some(origin) = started.get("machine_origin").filter(|v| v.is_object()) {
+        answer.set("machine_origin", origin.clone());
     }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
@@ -3461,6 +3514,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod clone_wait;
+pub(in crate::cli) mod direct;
 mod fault;
 mod folder;
 mod fresh;

@@ -25,7 +25,6 @@ import main_compile_attribution as mca  # noqa: E402
 
 ATTRIBUTION = ROOT / ".github/workflows/ci-compile-attribution.yml"
 PROBE = ROOT / ".github/workflows/main-compile-probe.yml"
-SEED = ROOT / ".github/workflows/seed-derived-data.yml"
 
 # Trimmed from job 109345503595 (seed, glaeda-trusted-std-xcode-26.6).
 SEED_LOG = textwrap.dedent("""\
@@ -240,10 +239,10 @@ class Workflows(unittest.TestCase):
         data = yaml.safe_load(path.read_text())
         return data, data.get("on", data.get(True))
 
-    def test_attribution_follows_the_seed_and_probe_runs_by_name(self):
+    def test_attribution_follows_the_probe_runs_by_name(self):
+        """This branch has no seed-derived-data.yml (#53395), so only the probe's runs trigger it here."""
         data, on = self.load(ATTRIBUTION)
-        self.assertEqual(on["workflow_run"]["workflows"], [mca.SEED_WORKFLOW, mca.PROBE_WORKFLOW])
-        self.assertEqual(yaml.safe_load(SEED.read_text())["name"], mca.SEED_WORKFLOW)
+        self.assertEqual(on["workflow_run"]["workflows"], [mca.PROBE_WORKFLOW])
         self.assertEqual(yaml.safe_load(PROBE.read_text())["name"], mca.PROBE_WORKFLOW)
 
     def test_only_later_jobs_write_and_analyze_reads(self):
@@ -254,17 +253,8 @@ class Workflows(unittest.TestCase):
         self.assertEqual(data["jobs"]["report"]["name"], "${{ needs.analyze.outputs.headline || 'report' }}")
 
     def test_the_verdict_steps_exist_where_attribution_reads_them(self):
-        seed = yaml.safe_load(SEED.read_text())["jobs"]["seed"]
         probe = yaml.safe_load(PROBE.read_text())["jobs"]["compile"]
-        self.assertIn(mca.COMPILE_STEPS[mca.SEED_WORKFLOW_FILE], [s.get("name") for s in seed["steps"]])
         self.assertIn(mca.COMPILE_STEPS[mca.PROBE_WORKFLOW_FILE], [s.get("name") for s in probe["steps"]])
-
-    def test_the_seed_starts_attribution_only_after_its_build_fails(self):
-        seed = yaml.safe_load(SEED.read_text())["jobs"]["seed"]
-        step = next(s for s in seed["steps"] if s.get("name") == "Start compile attribution")
-        self.assertIn("steps.build.outcome == 'failure'", step["if"])
-        self.assertTrue(step["continue-on-error"])
-        self.assertIn("ci-compile-attribution.yml/dispatches", step["run"])
 
     def test_the_probe_is_named_by_its_commit(self):
         data = yaml.safe_load(PROBE.read_text())

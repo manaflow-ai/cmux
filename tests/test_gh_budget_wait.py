@@ -438,15 +438,19 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
-    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # The dispatches: run 42726398544's dispatch failed on "HTTP 403: API rate limit exceeded for
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
-    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
 # missed ask costs at most the tick's 5-minute cron, and wake-nightly-next-tick asks again at the job's end.
-DISPATCH_NEVER_WAITS = {"nightly-next-one": "Ask main's nightly-next tick at notarization"}
+DISPATCH_NEVER_WAITS = {
+    "nightly-next-one": "Ask main's nightly-next tick at notarization",
+    # The type-check hand-off (#49884) is best effort beside the nightly, never on its publish path.
+    "fixit-handoff": "Dispatch fixit-handoff on feat-cmux-next",
+}
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
 # these guards hold the limit with the mode off, the smaller one.
