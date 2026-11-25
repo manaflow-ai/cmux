@@ -211,6 +211,7 @@ public final class FeedStore {
             #if DEBUG
             if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
+            if !items.isEmpty { markKnown() }
             onItemsChange?(items)
         }
     }
@@ -466,6 +467,12 @@ public final class FeedStore {
     }
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
+    /// Called once when the live source has answered, including an empty Feed. The archive
+    /// uses this to remember that an empty result is known, so a relaunch does not show a
+    /// spinner while waiting for a list that was already read.
+    @ObservationIgnored public var onKnownData: (@MainActor () -> Void)?
+    /// The live source or an account archive has answered at least once this run.
+    public private(set) var hasKnownData = false
     public var filter: FeedFilter = .all {
         didSet { if filter != oldValue { refreshDerived() } }
     }
@@ -493,10 +500,28 @@ public final class FeedStore {
             if read.contains(item.id) { item.isRead = true }
             return item
         }
+        hasKnownData = !items.isEmpty
         self.answersLocally = answersLocally
         reindex()
         refreshDerived()
         memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
+    }
+
+    /// Marks even an empty live result as known. This is separate from `items` because an
+    /// empty reply does not change the array and therefore does not trigger `onItemsChange`.
+    public func markKnown() {
+        guard !hasKnownData else { return }
+        hasKnownData = true
+        onKnownData?()
+    }
+
+    /// Starts a new account/team Feed source before its snapshot or live reply
+    /// arrives. The rows are replaced separately so an uncached team can show
+    /// its first-load placeholder without inheriting the previous team's state.
+    public func resetKnownData() {
+        hasKnownData = false
+        evictedDoneIDs = []
+        refreshError = nil
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -626,8 +651,10 @@ public final class FeedStore {
     /// deleted by the caller); nothing is saved for it any more.
     public func clearForSignOut() {
         onItemsChange = nil
+        onKnownData = nil
         actions = nil
         replaceAll([])
+        hasKnownData = false
         useSpill(nil)
         evictedDoneIDs = []
         useReadMarks(nil)

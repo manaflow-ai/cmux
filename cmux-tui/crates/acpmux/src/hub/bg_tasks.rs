@@ -26,8 +26,6 @@ fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
 
-/// The most tasks one chat runs at once.
-const MAX_RUNNING: usize = 32;
 /// The most a `bg/output` returns, and what one without `maxBytes` returns.
 const OUTPUT_MAX: u64 = 1 << 20;
 const OUTPUT_DEFAULT: u64 = 64 << 10;
@@ -154,7 +152,7 @@ impl Hub {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
-        // One start at a time: the running count and a purge's stop see every task.
+        // One start at a time: a purge's stop sees every task.
         let _one = self.bg_starts.lock().await;
         // A chat stopped before a restart is Closed with no closing flag: both count.
         let closing = || {
@@ -185,14 +183,10 @@ impl Hub {
                 return Ok(bg_view(&dir, &record, LIST_TAIL));
             }
         }
-        // A runner whose lock cannot be probed counts: the cap never lets an unknown one by. An
-        // ended record's runner wrote its end last, so only the others are probed.
-        let running = self.bg_running_in(&dir, |_| true);
-        if running >= MAX_RUNNING {
-            return Err(RpcError::invalid_params(format!(
-                "{MAX_RUNNING} background tasks already run in this chat; stop one first"
-            )));
-        }
+        // No count cap: a chat runs as many tasks as it starts (Leo, 2026-11-22: "shouldn't have
+        // these arbitrary caps yo"). Each costs a constant: its own runner process, a spool of at
+        // most two segments (`bg_run::SEGMENT`), and with `notify` one daemon watch thread
+        // (`bg_notify.rs`, a small stack) holding one descriptor. A start reads no other task.
         let mut env = self.bg_env(session, &meta).await?;
         let word = |key: &str| subagent.as_ref()?.get(key)?.as_str();
         if let (Some(kind), Some(sub)) = (word("type"), word("id")) {

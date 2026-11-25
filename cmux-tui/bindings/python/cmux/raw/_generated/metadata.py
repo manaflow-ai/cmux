@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c'
+IR_SHA256 = 'e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008'
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1081,7 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
+            'op_id': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -1675,6 +1676,16 @@ COMMANDS = {
             'y': CommandFieldMetadata(None, None),
         },
     ),
+    'flush-launch-snapshot': CommandMetadata(
+        'flush-launch-snapshot',
+        'control',
+        12,
+        'launch-snapshot-flush-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'focus-direction': CommandMetadata(
         'focus-direction',
         'control',
@@ -1923,6 +1934,7 @@ COMMANDS = {
         None,
         {
             'limit': CommandFieldMetadata(None, None),
+            'stats': CommandFieldMetadata(None, None),
         },
     ),
     'list-personal': CommandMetadata(
@@ -2837,6 +2849,16 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'release-workspace-names': CommandMetadata(
+        'release-workspace-names',
+        'control',
+        12,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
         },
     ),
     'reload-config': CommandMetadata(
