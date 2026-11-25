@@ -486,7 +486,7 @@ jobs:
           key: ${{ steps.xcf-key.outputs.key }}
 
       # The build fleet's copy (link-ffi-fleet above): its cache entry when the inputs were built before, else this
-      # run's artifact, waited for while that job runs, at most 4 min (the Mac build takes 3.3-5.0). A copy that
+      # run's artifact, waited for while that job runs (not while it is queued), at most 4 min (the Mac build takes 3.3-5.0). A copy that
       # never comes is built here.
       - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
         id: xcf-fleet-restore
@@ -529,7 +529,8 @@ jobs:
               exit 0
             fi
             state="$(gh api "$RUN/attempts/$ATTEMPT/jobs?per_page=100" --jq "[.jobs[] | select(.name == \"$JOB\")][0].status // \"absent\"" 2>/dev/null || echo unknown)"
-            if [[ "$state" == completed || "$state" == absent ]]; then
+            # Only a running build is worth waiting for: one still queued for a gateway would not finish in time.
+            if [[ "$state" != in_progress ]]; then
               echo "no fleet-built xcframework ($JOB: $state); building it here"
               exit 0
             fi
