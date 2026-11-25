@@ -36,12 +36,15 @@ const SIDE_PREFIX: &str = "handover-";
 /// Each message's payload: which listener its descriptor is.
 const UNIX: &[u8; 4] = b"unix";
 const WS: &[u8; 4] = b"ws\0\0";
+const EGRESS: &[u8; 4] = b"egrs";
 /// How long either side waits on the other over the side socket.
 // timeout: a peer that stops mid-handover; the new daemon then binds as before.
 const SIDE_WITHIN: Duration = Duration::from_secs(3);
 
 /// Copies of this daemon's listening sockets, kept to hand over.
 static OFFERED: Mutex<Option<(OwnedFd, Option<OwnedFd>)>> = Mutex::new(None);
+/// A copy of the vault egress proxy's listener (`vault/egress.rs`), offered once it is bound.
+static OFFERED_EGRESS: Mutex<Option<OwnedFd>> = Mutex::new(None);
 /// The pid this daemon handed its listeners to (0: none).
 static HANDED_TO: AtomicU32 = AtomicU32::new(0);
 /// The listeners this start received from the daemon it took over from.
@@ -52,6 +55,7 @@ static RECEIVED: Mutex<Option<Received>> = Mutex::new(None);
 pub(crate) struct Received {
     pub unix: Option<std::os::unix::net::UnixListener>,
     pub ws: Option<std::net::TcpListener>,
+    pub egress: Option<std::net::TcpListener>,
 }
 
 /// Keep copies of the listeners this daemon serves, to hand to a successor.
@@ -60,6 +64,12 @@ pub(crate) fn offer(unix: BorrowedFd<'_>, ws: Option<BorrowedFd<'_>>) {
     let Ok(unix) = copy(unix) else { return };
     let ws = ws.and_then(|fd| copy(fd).ok());
     *OFFERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((unix, ws));
+}
+
+/// Keep a copy of the vault egress proxy's listener to hand to a successor.
+pub(crate) fn offer_egress(egress: BorrowedFd<'_>) {
+    let Ok(egress) = egress.try_clone_to_owned() else { return };
+    *OFFERED_EGRESS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(egress);
 }
 
 /// A re-bound unix socket replaces the copy kept to hand over (`daemon/socket_rebind.rs`).
@@ -110,12 +120,46 @@ pub(crate) fn hand(home: &Path, path: &Path, asker: u32) -> Result<Vec<&'static 
             .map_err(|e| format!("send the web listener: {e}"))?;
         sent.push("ws");
     }
+    if let Some(egress) =
+        OFFERED_EGRESS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+    {
+        cmux_unix_socket::descriptor::send(&stream, EGRESS, egress.as_raw_fd())
+            .map_err(|e| format!("send the egress listener: {e}"))?;
+        sent.push("egress");
+    }
     HANDED_TO.store(asker, Ordering::SeqCst);
     Ok(sent)
 }
 
+/// Copies of this daemon's TCP listeners (the web listener, the egress proxy's), with the kind
+/// each goes by: what a listener keeper holds across a restart (`daemon/listener_keeper.rs`).
+pub(crate) fn offered_tcp() -> Vec<(&'static [u8; 4], OwnedFd)> {
+    let mut held = Vec::new();
+    let offered = OFFERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(ws) = offered.as_ref().and_then(|(_, ws)| ws.as_ref()?.try_clone().ok()) {
+        held.push((WS, ws));
+    }
+    drop(offered);
+    let egress = OFFERED_EGRESS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(egress) = egress.as_ref().and_then(|fd| fd.try_clone().ok()) {
+        held.push((EGRESS, egress));
+    }
+    held
+}
+
+/// The listener a kind names, as [`Side::read`] takes it.
+pub(crate) fn add_received(received: &mut Received, kind: &[u8], fd: OwnedFd) {
+    if kind == UNIX {
+        received.unix = Some(UnixListener::from(fd));
+    } else if kind == WS {
+        received.ws = Some(std::net::TcpListener::from(fd));
+    } else if kind == EGRESS {
+        received.egress = Some(std::net::TcpListener::from(fd));
+    }
+}
+
 /// The pid of the process at the other end of `stream`.
-fn peer_pid(stream: &UnixStream) -> Option<u32> {
+pub(crate) fn peer_pid(stream: &UnixStream) -> Option<u32> {
     let fd = stream.as_fd().as_raw_fd();
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
@@ -198,6 +242,7 @@ impl Side {
                 tracing::info!(
                     unix = received.unix.is_some(),
                     ws = received.ws.is_some(),
+                    egress = received.egress.is_some(),
                     "the daemon this start takes over from handed it its listeners"
                 );
                 *RECEIVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -228,11 +273,7 @@ impl Side {
         for _ in 0..count {
             let (kind, fd) = cmux_unix_socket::descriptor::receive(&stream, 4)?;
             let fd = fd.ok_or_else(|| io::Error::other("a handover message without a listener"))?;
-            if kind.as_slice() == UNIX {
-                received.unix = Some(UnixListener::from(fd));
-            } else if kind.as_slice() == WS {
-                received.ws = Some(std::net::TcpListener::from(fd));
-            }
+            add_received(&mut received, &kind, fd);
         }
         Ok(received)
     }
