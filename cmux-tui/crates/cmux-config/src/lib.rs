@@ -49,6 +49,7 @@ pub mod render;
 pub mod schema;
 pub mod session_worktrees;
 pub mod sidebar_look;
+pub mod site_engines;
 pub mod store;
 pub mod text;
 pub mod theme_file;
