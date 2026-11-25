@@ -184,6 +184,10 @@ jobs:
         env:
           REACT_APPS_SHARDS: "8"
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
+          # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
+          CI_WEBVIEWS_PR_BASE: ${{ github.base_ref }}
+          CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_JOBS: "8"
           CMUX_WEB_TEST_DEV_JOBS: "4"
