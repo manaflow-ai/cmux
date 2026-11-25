@@ -166,16 +166,22 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
       const span = page.locator(`[data-row-id="${headerId(state)}"] .cv-worked__label-time`).first();
       if ((await span.count()) > 0) {
         for (const scale of SCALES) {
+          // The scale once, as the host sets it: its variables, then its event (chatDisplay.ts re-applies the
+          // chat's own `--cv-font-size` on it), then the person's font size over that. Set per text, the event's
+          // re-apply would undo an override after the first text.
+          await page.evaluate(async (scale) => {
+            const root = document.documentElement.style;
+            root.setProperty("--cmux-interface-scale", String(scale.interface));
+            root.setProperty("--cmux-density-text-scale", String(scale.densityText));
+            root.setProperty("--cmux-chat-text-scale", String(scale.chat));
+            root.removeProperty("--cv-font-size");
+            window.dispatchEvent(new Event("cmux-ui-scale-change"));
+            if (scale.font) root.setProperty("--cv-font-size", `${scale.font}px`);
+            await window.cmuxPaintFrame();
+          }, scale);
           const widthNow = (text: string | null) =>
             page.evaluate(
               async ({ header, text, scale }) => {
-                const root = document.documentElement.style;
-                root.setProperty("--cmux-interface-scale", String(scale.interface));
-                root.setProperty("--cmux-density-text-scale", String(scale.densityText));
-                root.setProperty("--cmux-chat-text-scale", String(scale.chat));
-                if (scale.font) root.setProperty("--cv-font-size", `${scale.font}px`);
-                else root.removeProperty("--cv-font-size");
-                window.dispatchEvent(new Event("cmux-ui-scale-change"));
                 const row = document.querySelector<HTMLElement>(`[data-row-id="${header}"]`)!;
                 const el = row.querySelector<HTMLElement>(".cv-worked__label-time")!;
                 if (text !== null) el.textContent = text;
@@ -186,17 +192,24 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
                 const range = document.createRange();
                 range.selectNodeContents(el);
                 return {
-                  scale: scale.name,
+                  scale,
                   text: el.textContent ?? "",
                   width: toggle.getBoundingClientRect().width,
                   gap: glyph ? glyph.left - range.getBoundingClientRect().right : Number.NaN,
                 };
               },
-              { header: headerId(state), text, scale },
+              { header: headerId(state), text, scale: scale.name },
             );
           timer.push(await widthNow(null));
           for (const text of texts) timer.push(await widthNow(text));
         }
+        await page.evaluate(async () => {
+          const root = document.documentElement.style;
+          for (const name of ["--cmux-interface-scale", "--cmux-density-text-scale", "--cmux-chat-text-scale", "--cv-font-size"])
+            root.removeProperty(name);
+          window.dispatchEvent(new Event("cmux-ui-scale-change"));
+          await window.cmuxPaintFrame();
+        });
       }
     }
     return { ...read, timer };
