@@ -70,6 +70,25 @@ struct AASidebarEntryPointGalleryTests {
         return Double(differing) / Double(width * height)
     }
 
+    /// Distinct colours (RGB quantised to 5 bits) on a 32×32 sample grid: a background-only stage shows one or two.
+    static func distinctColors(_ image: CGImage) -> Int {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0, let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                                             bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data else { return 0 }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        var colors = Set<Int>()
+        for row in 0..<32 {
+            for column in 0..<32 {
+                let index = ((row * height / 32) * width + column * width / 32) * 4
+                colors.insert((Int(pixels[index]) >> 3) << 10 | (Int(pixels[index + 1]) >> 3) << 5 | Int(pixels[index + 2]) >> 3)
+            }
+        }
+        return colors.count
+    }
+
     /// The sidebar background menu as the app builds it, every row bound, Customize Sidebar… through the app's binding.
     static func backgroundMenu() -> NSMenu {
         let registry = ActionRegistry.standard()
@@ -368,7 +387,9 @@ struct AASidebarEntryPointGalleryTests {
                 let image = try await Self.render(variant, dark: dark)
                 row.append(image)
                 // A variant that drew only the stage's background is a broken capture, not a picture.
-                #expect(Self.ink(image) > 0.01, "\(dark ? "dark" : "light")-\(variant.rawValue) is blank (ink \(Self.ink(image)))")
+                let name = "\(dark ? "dark" : "light")-\(variant.rawValue)"
+                #expect(Self.ink(image) > 0.01, "\(name) is blank: it differs from its background on \(Self.ink(image)) of its pixels")
+                #expect(Self.distinctColors(image) >= 8, "\(name) is blank: \(Self.distinctColors(image)) distinct colours on a 32×32 sample")
                 try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(dark ? "dark" : "light")-\(variant.rawValue).png"))
             }
             grid.append(row)
