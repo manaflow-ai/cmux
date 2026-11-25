@@ -80,7 +80,6 @@ PATH_OWNERS = {
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
-    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
     "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
     "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),

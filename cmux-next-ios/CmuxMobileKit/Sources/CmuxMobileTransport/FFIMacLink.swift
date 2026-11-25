@@ -28,6 +28,10 @@ public struct FFIMacLinkDialer: MacLinkDialer {
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
+        // Macs nearby are browsed for once a dial has run (linked or not), never at launch: the Local
+        // Network prompt then never covers the first frame. The core races a nearby Mac's hub with
+        // the service from the next dial on, and a declined prompt costs nothing.
+        defer { LocalLinkBrowser.shared.start() }
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
         try applyBuildSpaceToCore()
@@ -143,6 +147,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 }
 
 extension FFIMacLink: ParkableMacLink {
+    var resumeHedge: Duration? { .milliseconds(handle.resumeHedgeMs()) }
+
     func park(hold: Duration, timeout: Duration) async -> Bool {
         (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
     }
@@ -264,6 +270,7 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let closeLock = NSLock()
     private var closeInfo: LinkError?
     var closedBy: LinkError? { closeLock.withLock { closeInfo } }
+    var sentBytes: UInt64? { handle.sentBytes() }
 
     init(handle: ChannelHandle) {
         self.handle = handle
