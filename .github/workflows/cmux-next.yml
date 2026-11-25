@@ -4775,6 +4775,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-251
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-daemon-test-seed-root.md
       # Why: docs/ci/cmux-next-workflow-notes.md#note-385
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
