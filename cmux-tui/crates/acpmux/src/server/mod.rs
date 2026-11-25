@@ -3196,6 +3196,7 @@ mod share_host;
 mod vault;
 mod web_device;
 pub(crate) use vault::reply as vault_reply;
+mod autocloud_enroll;
 mod races;
 mod session_auth;
 mod session_files;
