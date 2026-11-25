@@ -189,6 +189,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/customize_run": (["run", "_meta"], []),
         // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
         "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
         // `action`: show, apply or discard.
