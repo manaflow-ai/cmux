@@ -21,7 +21,7 @@ pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
 
 /// [`Hub::import_into`]'s `(live, guarded, replace_durable, defer_finalize, staged)`.
 pub(super) type ImportOptions<'a> = (
-    bool,
+    Live,
     Option<super::transfer_guard::GuardedImport<'a>>,
     bool,
     bool,
@@ -159,7 +159,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None, false, false, None).await
+        self.import_into(bundle, name, Live::No, None, false, false, None).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -171,7 +171,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -198,7 +198,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -221,6 +221,7 @@ impl Hub {
         hold: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let (live, guarded, replace_durable, defer_finalize, staged) = plain;
+        let mut steps = transfer_out::transfer_live::MoveSteps::new("import");
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
@@ -342,8 +343,10 @@ impl Hub {
         meta.created_by = None;
         // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
         super::races::settle_imported(&mut meta.races);
+        steps.step("meta");
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
+        steps.step("harness_prepare");
         if let Err(e) = self.store.save(&meta) {
             let _ = self.abort_harness_state(&meta);
             return Err(RpcError::internal(e.to_string()));
@@ -351,13 +354,18 @@ impl Hub {
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
         let control = guarded.map(|g| g.guard.control);
-        let last = match self.copy_bundle_events(bundle, &meta.id, control, staged) {
+        // A whole bundle's records are the chat's whole history: copied off the runtime's
+        // workers, so the daemon's other chats answer meanwhile (`qos::off_worker`, cmux#54461).
+        let copied =
+            crate::qos::off_worker(|| self.copy_bundle_events(bundle, &meta.id, control, staged));
+        let last = match copied {
             Ok(last) => last,
             Err(e) => {
                 self.drop_failed_import(&meta);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
+        steps.step("events");
         if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
             self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
@@ -365,11 +373,25 @@ impl Hub {
         let restored = match guarded {
             // A history-later move's receive bundle is read by nothing after its finish: its
             // transcript becomes the home folder's file by a link, not a copy under the freeze.
+            // A move's receive bundle (`live`) is read by nothing after its finish either, which
+            // removes it: its transcripts are linked too, not copied under the freeze (a Claude
+            // chat's is 1.6 GB of a 7 GB chat; cmux#54461).
             None if staged.is_some_and(|s| s.history_later) => {
-                crate::native::restore_linked(bundle, &meta).unwrap_or_default()
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
             }
-            None if the_chat => crate::native::restore_replacing(bundle, &meta).unwrap_or_default(),
-            None => crate::native::restore(bundle, &meta).unwrap_or_default(),
+            // Auto mode's Cloud copy is the chat itself: its files replace the ones here.
+            None if the_chat => {
+                crate::qos::off_worker(|| crate::native::restore_replacing(bundle, &meta))
+                    .unwrap_or_default()
+            }
+            None if matches!(live, Live::Moved(_)) => {
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
+            }
+            None => {
+                crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
+            }
             // A guarded chat keeps its agent session only with its file: a failed restore fails
             // the import, like its events.
             Some(g) => {
@@ -385,6 +407,7 @@ impl Hub {
                 }
             }
         };
+        steps.step("native");
         // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
         // kept leaves the chat showing that image as missing, as a pruned one does.
         if let Err(e) = super::prompt_images::restore_images(bundle) {
@@ -395,8 +418,10 @@ impl Hub {
         if let Err(e) = crate::native::import_opencode(bundle, &meta) {
             tracing::warn!(session = %meta.id, "opencode session not imported: {e:#}");
         }
+        steps.step("images");
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
+        steps.step("make_session");
         // Its copied log may hold the source's move: unknown until its own `imported` receipt
         // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -407,7 +432,12 @@ impl Hub {
             // The copied log may end in transcript records: say it may have.
             meta.transcript_seq = last;
         }
-        if live {
+        if let Live::Moved(credential) = live {
+            // The login the move brought is the chat's before its queue runs (`end_move` below):
+            // the turn it continues starts signed in. Held in memory only, as `session/new`'s.
+            if let Some(credential) = credential {
+                *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = Some(credential);
+            }
             self.restore_queue(&session);
             // A bundle from a daemon that wrote none moves the chat without them.
             if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
@@ -418,6 +448,7 @@ impl Hub {
             }
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
+            steps.step("queue");
         }
         // Published frozen: it is not this daemon's chat until its own receipt is logged (a
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
@@ -426,10 +457,13 @@ impl Hub {
             Some(if hold { super::AUTO_AWAY } else { transfer_out::IMPORTING }.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
+        steps.step("subagent_retries");
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.update_live_session_index(&session);
+        steps.step("publish");
         // A session that came may be another row's parent: every closed row is built again.
         self.session_came(&session);
+        steps.step("session_came");
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
@@ -448,11 +482,14 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal("import: could not durably record imported"));
         }
+        steps.step("imported_receipt");
         // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
         if !hold {
             self.end_move(&session);
         }
+        steps.step("end_move");
         self.save_meta(&session);
+        steps.step("save_meta");
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();
             let _ = self.kill(&session, true).await;
@@ -940,6 +977,13 @@ impl Hub {
     }
 }
 
+/// Whether an import is a chat moved here (`transfer_in.rs`), which keeps its queue, composers
+/// and the owner's login its move brought (`agent_credentials.rs`), or a plain import.
+pub(super) enum Live {
+    No,
+    Moved(Option<crate::agent_credentials::AgentCredential>),
+}
+
 #[cfg(test)]
 #[path = "fork_reference_export_tests.rs"]
 mod fork_reference_export_tests;
@@ -987,7 +1031,8 @@ mod tests {
         std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
         let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
         for attempt in ["first", "retry"] {
-            let failed = hub.import_into(&bundle, None, true, None, true, true, None).await;
+            let failed =
+                hub.import_into(&bundle, None, Live::Moved(None), None, true, true, None).await;
             let failed = failed.err().map(|e| e.message);
             assert!(
                 failed.as_deref().is_some_and(|m| m.starts_with("import events")),

@@ -34,6 +34,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
@@ -171,6 +172,7 @@ mod held_asks;
 mod host_level;
 pub(super) mod idle;
 mod idle_census;
+mod idle_governor;
 mod paused_fs;
 mod person_prompt_at;
 mod turn_rules;
@@ -189,6 +191,7 @@ mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+pub(crate) mod op_once;
 mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
@@ -323,7 +326,9 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
+pub use pool::{
+    PrewarmRequest, PrewarmShape, RssProbe, parse_home_shapes, person_spare_shapes, tree_rss_bytes,
+};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -425,6 +430,7 @@ pub use paging::{
 };
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod dead_letters;
 mod former_names;
 mod harness_key;
 pub(crate) mod key_route;
@@ -444,6 +450,7 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;
+mod successors;
 mod task_names;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
@@ -462,6 +469,7 @@ pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
 mod moved_forward;
+mod moved_prompt_fence;
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 mod peers;
 mod remote_rows;
@@ -473,12 +481,14 @@ mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
 pub mod cmux_tools_answer;
+pub mod here;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
 pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
+pub mod synced;
 pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
@@ -521,6 +531,8 @@ pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
 pub(crate) mod release_to_watch;
+#[cfg(test)]
+mod reply_segment_tests;
 mod restore_point;
 pub mod rules;
 pub(crate) mod session_hold;
@@ -546,6 +558,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_cost;
+pub(crate) mod turn_frames;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
@@ -1098,6 +1111,8 @@ pub struct Hub {
     pub(crate) link_v2: Arc<crate::link_v2::Shared>,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// `_acpmux/archive` and `_acpmux/rename` run once per `opId` (`op_once.rs`).
+    pub(crate) op_once: op_once::OpOnce,
     /// This daemon's rows in list order, kept as they change (`list_order.rs`).
     pub(super) list_order: list_order::ListOrder,
     /// Client requests every connection serves now, each holding its work slot
@@ -1225,16 +1240,7 @@ pub struct Hub {
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
     /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
-    /// The probe's choices (`probed_choices`) ride along, so a restart needs no probe for them.
-    pub(super) acp_cached: StdMutex<
-        HashMap<String, (String, Vec<(String, String)>, Option<crate::live_models::AcpChoices>)>,
-    >,
-    /// When each ACP harness's list was last probed (this run, or the kept file's time): a
-    /// models read probes one older than `live_ages::ACP_MAX_AGE` again (`model_probe.rs`).
-    pub(super) acp_ages: StdMutex<live_ages::LiveAges>,
-    /// The program each live list kept on disk was listed by, as loaded at start: an unchanged
-    /// program is not probed at start (`hub/live_models.rs`).
-    pub(super) live_disk_keys: StdMutex<HashMap<String, crate::live_models::CacheKey>>,
+    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
@@ -1498,6 +1504,10 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// Who has each chat open and who types in it, in memory only (`presence.rs`).
     pub presence: presence::Presence,
+    /// Who is on this machine now, across devices, in memory only (`here.rs`).
+    pub here: here::HereTable,
+    /// Chat titles and read marks as a sync replica, opened on first use (`synced.rs`).
+    pub synced: std::sync::OnceLock<synced::Synced>,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1732,6 +1742,7 @@ impl Hub {
             events,
             link_v2: Arc::default(),
             list_guard: Default::default(),
+            op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
             usage_stats: Default::default(),
@@ -1790,8 +1801,6 @@ impl Hub {
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
-            acp_ages: StdMutex::new(live_ages::LiveAges::default()),
-            live_disk_keys: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
@@ -1921,6 +1930,8 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
+            here: Default::default(),
+            synced: std::sync::OnceLock::new(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
@@ -2474,6 +2485,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
+            loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
@@ -3101,6 +3113,8 @@ impl Hub {
         }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
+        // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
+        turn_frames::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)

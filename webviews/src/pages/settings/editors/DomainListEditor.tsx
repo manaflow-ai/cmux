@@ -1,17 +1,21 @@
 import { useSettingsSelector, useStore } from "../context";
 import { FontPicker } from "../components/FontPicker";
+import { UI_FONT_VALIDATION, fontFace, uiFontFace } from "../fontPickerModel";
 import { text } from "../strings";
 import { TextEditor } from "./TextEditor";
 import type { EditorProps } from "./types";
 
 /**
  * font_family: the installed families the app published in ready().domains, fonts picked lately
- * first, each drawn in its own face; the highlighted one previews live (FontPicker). With no
- * published names, a text field.
+ * first, each drawn in its own face; the highlighted one previews live (FontPicker). The App Font
+ * (appearance.appFont) lists every family, and its preview restyles the whole app as the theme
+ * picker's does. With no published names, a text field.
  */
 export function DomainListEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const names = useSettingsSelector((state) => state.domains.font_families);
+  // The App Font (domain:ui_font_family) lists every installed family; the rest fixed-pitch ones.
+  const ui = row.validation === UI_FONT_VALIDATION;
+  const names = useSettingsSelector((state) => (ui ? state.domains.ui_font_families : state.domains.font_families));
   const recent = useSettingsSelector((state) => state.domains.recent_fonts);
   if (names.length === 0) return <TextEditor row={row} value={value} disabled={disabled} labelId={labelId} />;
   const current = typeof value === "string" && value !== row.default ? value : null;
@@ -25,6 +29,7 @@ export function DomainListEditor({ row, value, disabled, labelId }: EditorProps)
       title={text(row.title)}
       defaultLabel={text(row.default_label) || text(row.title)}
       onPick={(name) => (name === null ? store.reset(row.key) : store.set(row.key, name))}
+      face={ui ? uiFontFace : fontFace}
       onPreview={(name, owner) => (name ? store.preview(row.key, name, owner) : store.previewEnd(row.key, owner))}
     />
   );

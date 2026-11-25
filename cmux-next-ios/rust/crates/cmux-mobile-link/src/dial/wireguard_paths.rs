@@ -108,6 +108,12 @@ pub(super) struct Paths {
     /// Where the app's background state is read ([`APP_BACKGROUNDED`]; a
     /// test's own flag in unit tests, which run side by side).
     backgrounded: &'static AtomicBool,
+    /// A TURN route that went quiet or lost a probe since the last
+    /// [`Self::take_turn_quiet`], and its smoothed RTT then.
+    turn_quiet: Option<Option<u64>>,
+    /// The chosen route went quiet or lost its standing since the last
+    /// [`Self::take_chosen_quiet`].
+    chosen_quiet: Option<Route>,
 }
 
 impl Paths {
@@ -121,6 +127,8 @@ impl Paths {
             last_probe_id: 0,
             busy_until: None,
             backgrounded: &APP_BACKGROUNDED,
+            turn_quiet: None,
+            chosen_quiet: None,
         }
     }
 
@@ -338,13 +346,32 @@ impl Paths {
         let config = self.probes;
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else { return };
         if let Some(rtt_us) = entry.watch.answer(&config, probe, now) {
-            // An answer also says the path is not silent.
-            entry.watch.heard();
+            // `answer` also says the path is not silent.
             let _ = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us });
         }
     }
 
+    /// A route through our TURN allocation went quiet (a probe left
+    /// unanswered past its silence window, or lost): the largest smoothed
+    /// RTT of such routes, once per report.
+    pub fn take_turn_quiet(&mut self) -> Option<Option<u64>> {
+        self.turn_quiet.take()
+    }
+
+    /// The route the selector held went quiet (silent past its window, or
+    /// it lost its standing by a lost probe), once per report.
+    pub fn take_chosen_quiet(&mut self) -> Option<Route> {
+        self.chosen_quiet.take()
+    }
+
     /// The probes due at `now`, after applying lost probes and silences.
+    /// Hold every path's routine pings until `floor` (`PathWatch::hold_routine`).
+    pub fn hold_routine(&mut self, floor: Option<Instant>) {
+        for entry in &mut self.entries {
+            entry.watch.hold_routine(floor);
+        }
+    }
+
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
         let current = self.selector.current();
@@ -384,6 +411,12 @@ impl Paths {
                 (a, b) => a.or(b),
             };
         }
+        for &id in lost.iter().chain(&silent) {
+            if self.route_of(id).is_some_and(|route| route.carrier == Carrier::Turn) {
+                let rtt = self.selector.path(id).and_then(|view| view.rtt_us);
+                self.turn_quiet = Some(self.turn_quiet.flatten().max(rtt));
+            }
+        }
         for id in lost {
             let _ = self.selector.on_probe(id, ProbeOutcome::Lost);
         }
@@ -399,6 +432,7 @@ impl Paths {
         // suspect, and the fallback needs the same fresh answers.
         let left_current = current.is_some() && self.selector.current() != current;
         if chosen_quiet || left_current {
+            self.chosen_quiet = self.route_of_id(chosen.or(current));
             // The other paths were last heard up to a 30 s probe ago, and the
             // cut that silenced the chosen one may have taken them too (one
             // Wi-Fi carries the LAN and the routed address): probe them all
@@ -616,6 +650,37 @@ mod tests {
         answer_all(&mut paths, Instant::now(), std::time::Duration::from_millis(5));
         assert_eq!(paths.current(), Some(lan));
         assert!(paths.drives());
+    }
+
+    /// The side that reaches the peer through the peer's TURN server sees
+    /// that route go quiet first (it has data to send); the underlay hears
+    /// of it once, within the route's silence window, to nudge the peer
+    /// (an idle peer would otherwise find out at its next 5 s probe).
+    #[test]
+    fn a_quiet_chosen_route_is_reported_once_within_its_window() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let relayed = udp("203.0.113.9:4100");
+        paths.sync(&[Wanted { route: relayed, relayed: true }]);
+        let cut = answer_all(&mut paths, Instant::now(), ms(2));
+        assert_eq!(paths.current(), Some(relayed));
+        assert_eq!(paths.take_chosen_quiet(), None);
+        paths.sent(relayed, cut);
+        let mut now = cut;
+        let mut reported = Vec::new();
+        while now < cut + ms(1000) {
+            now += ms(10);
+            let _ = paths.poll(now);
+            if let Some(route) = paths.take_chosen_quiet() {
+                reported.push((route, now - cut));
+            }
+        }
+        let (route, at) = *reported.first().expect("the quiet route is reported");
+        assert_eq!(route, relayed);
+        // Silence window (100 ms floor at this RTT) for the unanswered send,
+        // then the probe it triggers gets the same window.
+        assert!(at <= ms(250), "reported at {at:?}");
+        assert_eq!(reported.len(), 1, "once per quiet spell: {reported:?}");
     }
 
     #[test]

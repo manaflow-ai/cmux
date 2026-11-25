@@ -108,6 +108,8 @@ MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
 CANDIDATE_DEPTH = 80
+# What one plan's tree lookups (tree_published) may take together, inside the plan step's `timeout 600`.
+TREE_LOOKUP_SECONDS = 300
 # feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
 # always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
 # and the ticks in between go to the bisect.
@@ -291,6 +293,19 @@ PARTS = [
     # (0). A mode whose run is not complete, or that the native bench cannot fully load (its mode_missing), has no
     # row: its number would read as the whole mode. The rows behind cmuxterm-hq NOW's typing-under-load rows.
     # run_seconds: step 3b72dd7b ran all six modes in about 3200 s with its queue and build (cmux20-bench, 2026-11-20).
+    # The power-user input stress harness's native half (scripts/perf-bench/power_user_native.py; Leo, 2026-11-22:
+    # "you guys also need to be testing flicks of extremely fast input for scrolling and resizing/mouse movement and
+    # typing/pasting/switching workspaces around. we need to test like power users more often."): a random seed's
+    # bursts of window resize flicks (live drags and setFrame jumps), workspace switches (Ctrl+digit, steps,
+    # goToWorkspace), tab switches and all three mixed, 0-33 ms apart, in the bench app at 120 Hz. Rows
+    # power_user.native.<class>.*: frame p95 and p99 against 1.5 and 2.5 refresh periods, and long frames, blank
+    # frames, flashes, unprovoked layout shift, lost switches, tab reloads and bursts not measured (a hang) against 0.
+    # --report-only: the step exits 0 on a breach so its rows are stored and judged here; each breach line carries its
+    # replay. run_seconds: the harness's own deadline (1500 s) plus a cold bench build (about 2100 s, the power part).
+    {"name": "power-user-native", "args": [*MEASURE, "--config=bench", "--suite=power-user",
+                                           "--report-only"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "power-user-native",
+     "run_seconds": 3600},
     {"name": "typing-load", "args": [*MEASURE, "--suite=typing-frame", "--modes=all", "--surfaces=agentpane",
                                      "--chat-agent=real", "--rounds=1", "--samples=200"],
      "artifact": "artifacts/split-spring/report.json", "kind": "typing_frame", "needs": "typing-load", "run_seconds": 3600},
@@ -302,6 +317,11 @@ PARTS = [
     # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
     {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
+    # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
+    # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
+    # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
+    {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -427,8 +447,8 @@ ROW_PARTS = [
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
-    (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"),
+    (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -1475,7 +1495,13 @@ def supersede_for_unread(state, t, newest, supported_parts):
     # Only a measurement a day old gives way: parts land most days, so giving way at once restarted every Mac pass
     # before it finished (tip 12aa19c2, 2026-11-22: 4 Mac parts done, 17 superseded for tabs and typing 12 h in,
     # chat-size among them). Wall time, not active_hours: the stall this fixes was yielding to the fleet.
-    if hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
+    # The hold protects a Mac pass that is making headway. One that finished no Mac part (the build aside) has none to
+    # lose, so it gives way at once (tip b76703549055, 2026-11-24: 23 h in, 20 of them yielded to the fleet, its only
+    # Mac part launch-dock yielded, while web-ui-orchestrator, merged after it, kept NOW's
+    # competitive.orchestrator.p99_frame_ms_16_children unknown).
+    mac_done = any(name != "build" and not is_linux_part(name) and (rec or {}).get("state") == "done"
+                   for name, rec in cur.get("parts", {}).items())
+    if mac_done and hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
         return None
     have = [p for p in missing if p in supported_parts(newest)]
     if not have:
@@ -2461,16 +2487,24 @@ def part_minutes(run_seconds):
     return step_minutes, step_minutes + 5
 
 
-def tree_published(sha):
+def tree_published(sha, deadline=None):
+    """Whether sha's cmux-tui tree is on files.cmux.com. deadline (time.monotonic()) bounds the key and the fetch: past
+    it the answer is False, as for a tree not yet published, and the caller says so (plan's tree_ready)."""
     for version in ("v2", "v1"):
+        left = 120 if deadline is None else min(120, deadline - time.monotonic())
+        if left <= 1:
+            return False
         try:
             key = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/ci/cmux_tui_tree_key.py"), "--version", version, sha],
-                                 capture_output=True, text=True, check=True, timeout=120).stdout.strip()
+                                 capture_output=True, text=True, check=True, timeout=left).stdout.strip()
         except subprocess.SubprocessError:
             continue
         url = f"https://files.cmux.com/cmux-tui/tree/{key}/cmux-tui-aarch64-apple-darwin.sha256"
+        left = 20 if deadline is None else min(20, deadline - time.monotonic())
+        if left <= 1:
+            return False
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ci"}), timeout=20) as r:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ci"}), timeout=left) as r:
                 if r.status == 200:
                     return True
         except (urllib.error.URLError, TimeoutError):
@@ -2523,6 +2557,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{ORCHESTRATOR_BENCH}")
         elif need == "web-ui-typing":
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
+        elif need == "power-user-native":
+            ok = has_path(sha, f"{POWER_USER_NATIVE}")
         elif need == "web-ui-power-user":
             ok = has_path(sha, f"{POWER_USER_BENCH}")
         elif need == "web-ui-settled":
@@ -2570,7 +2606,8 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
+                      "chat-snappy"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -2633,6 +2670,7 @@ CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 ORCHESTRATOR_BENCH = "webviews/bench/orchestrator-16.bench.ts"
 # The web-ui-power-user part's adapter around the power-user input stress harness.
 POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
+POWER_USER_NATIVE = "scripts/perf-bench/power_user_native.py"
 SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
@@ -3759,10 +3797,23 @@ def plan(o):
     last_sha = (state.get("last_tried") or state.get("last") or {}).get("sha")
     candidate, newest = None, None
     trees = {}
+    # Every tree lookup of this plan shares one budget: the step's `timeout 600` killed a plan that walked the unread
+    # loop's 80 commits at up to 280 s each (run 45536170489, 2026-11-25), so no tick planned and the cron stopped.
+    # Past it a commit reads as unpublished, which every caller already handles (the next tick looks again).
+    tree_deadline = time.monotonic() + TREE_LOOKUP_SECONDS
 
     def tree_ready(sha):
         if sha not in trees:
-            trees[sha] = tree_published(sha)
+            if time.monotonic() >= tree_deadline:
+                if not trees.get("_spent"):
+                    trees["_spent"] = True
+                    print(f"perf-cron: tree lookups used this plan's {TREE_LOOKUP_SECONDS} s; later commits read as "
+                          "unpublished this tick")
+                return False
+            started = time.monotonic()
+            trees[sha] = tree_published(sha, tree_deadline)
+            if time.monotonic() - started > 30:
+                print(f"perf-cron: the tree lookup of {sha[:12]} took {round(time.monotonic() - started)} s")
         return trees[sha]
     if not state.get("current"):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
@@ -4042,7 +4093,8 @@ def cmd_run_part(o):
 # "Executable doesn't exist", runs 43809071719 and 43812228014 on 2026-11-16) or refused the job. The commit is not
 # to blame, so record_part runs the part once more (a runner that writes no result at all is NO_RESULT, a yield).
 SETUP_FAILURE_RE = re.compile(r"Executable doesn't exist|Please run the following command to download new browsers"
-                              r"|browserType\.launch(?:Server)?: |The runner refused the job|No space left on device"
+                              r"|browserType\.launch(?:Server)?: |Chrome printed no DevTools endpoint:"
+                              r"|The runner refused the job|No space left on device"
                               r"|runner left no result")
 
 
@@ -4579,8 +4631,14 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
     instead of only when the whole measurement ends: a part that finishes keeps its rows when another part fails, the
     host goes quiet or the tip is replaced (rows and comparison at the end of the measurement are unchanged: this
     store feeds neither row_history nor any regression). A complete part only (an incomplete one is judged at the
-    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored."""
-    if cur.get("kind") != "tip" or report_is_incomplete(PART_BY_NAME[name], report):
+    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored.
+
+    An incomplete part (a bench of it failed or timed out) stores the rows its finished benches measured: its report
+    carries no row of the failed bench, whose own rows keep their older date. On 2026-11-24 web-ui-god's
+    transcript-replay-god timed out at 420 s and the 87 rows its four other benches measured (the rest-wakeup rows
+    among them) were dropped, so those rows read 3 days old while each tick measured them. part_stored names what
+    was missing, and its date still moves, so a part that keeps failing one bench does not take every Linux turn."""
+    if cur.get("kind") != "tip":
         return 0
     named, _ = part_rows_named(cur, name, p, report, mod, budgets, p.get("worker"))
     store = state.setdefault("part_rows", {})
@@ -4589,7 +4647,10 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
         if isinstance(row, dict) and isinstance(row.get("p95"), (int, float)):
             store[row_name] = {**{k: v for k, v in row.items() if k in keep},
                                "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name}
-    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    stored = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    if report_is_incomplete(PART_BY_NAME[name], report):
+        stored["incomplete"] = incomplete_why(report)
+    state.setdefault("part_stored", {})[name] = stored
     return len(named)
 
 

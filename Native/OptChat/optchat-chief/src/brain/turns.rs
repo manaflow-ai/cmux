@@ -480,6 +480,7 @@ impl Brain {
         }
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        self.length_refused = false;
         self.turn_spawned.clear();
         self.turn_said = false;
         self.tool_stopped = false;
