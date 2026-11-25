@@ -164,8 +164,9 @@ import UIKit
         func store() -> AgentChatStore { running ? Self.runningLongStore(600) : ListWorkCountersTests.finishedLongStore(600) }
         let (whole, wholeWindow) = Self.openNow(store(), windowed: false)
         await Self.fill(whole, wholeWindow)
-        // Growth driven here: each one after at least one off-main layout landed, so every growth
-        // takes landed rows in place (the guard covers them, not by chance).
+        // Growth driven here: rows that land wait for the next growth (as they wait for the next
+        // chunk while the fill runs), and each growth goes in once some are pending, so the
+        // growths take landed rows in place (the guard covers them, not by chance).
         let grown = SubagentTranscriptHost(store: store(), subagentID: "s")
         grown.growsByItself = false
         let grownWindow = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
@@ -174,14 +175,15 @@ import UIKit
         ChatTranscriptSourceTests.settle(grownWindow)
         let deadline = Date().addingTimeInterval(30)
         while !grown.filled, Date() < deadline {
-            let landed = grown.list.layoutsMadeOffMain
-            while grown.list.layoutsMadeOffMain == landed, Date() < deadline { await Self.frame(grownWindow) }
+            let wait = Date().addingTimeInterval(2)
+            while !grown.list.hasPendingLandings, Date() < wait { await Self.frame(grownWindow) }
             grown.growOnce()
             await Self.frame(grownWindow)
         }
         await Self.fill(grown, grownWindow)
         #expect(grown.list.growthsWithLandings > 0 || grown.chunks == 0,
                 "no growth took landed rows in place (\(grown.chunks) chunks): the guard did not cover landings")
+        #expect(!grown.list.hasPendingLandings, "rows landed after the last growth were reloaded")
         let a = whole.list.layout.items
         let b = grown.list.layout.items
         #expect(a.count == b.count, "rows: \(b.count) windowed, \(a.count) whole")
@@ -199,41 +201,39 @@ import UIKit
     }
 
     /// The main thread's time per chunk of a growing transcript (finished: below its top;
-    /// running: above its end), bounded by half a frame. The numbers are attached
-    /// ("subagent-chunk"): the chunk size is picked from them.
+    /// running: above its end), each bounded by half a frame, one chunk per display frame, and
+    /// rows that land while it fills wait at most a frame. The numbers are attached
+    /// ("subagent-chunk", with every reload of the fill: its cause, path and parts): the chunk
+    /// size is picked from them.
     @Test(arguments: [false, true])
     func eachChunkFitsAFrame(_ running: Bool) async {
         let store = running ? Self.runningLongStore(2000) : ListWorkCountersTests.finishedLongStore()
         let (host, window) = Self.openNow(store)
-        func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
-        var times: [Double] = []
-        var weighed: [Int] = []
-        var parts: [String] = []
-        var chunks = host.chunks
-        var time = host.list.reloadTime
-        var rows = host.list.rowsWeighed
-        var sections = host.list.sectionTimes
+        let firstReload = host.list.reloadLog.count
         let deadline = Date().addingTimeInterval(30)
-        while !host.filled, Date() < deadline {
-            await Self.frame(window)
-            guard host.chunks != chunks else { continue }
-            chunks = host.chunks
-            let spent = host.list.reloadTime - time
-            times.append(Double(spent.components.attoseconds) / 1e15 + Double(spent.components.seconds) * 1000)
-            weighed.append(host.list.rowsWeighed - rows)
-            let now = host.list.sectionTimes
-            parts.append(now.keys.sorted().map { "\($0)=\(String(format: "%.1f", ms(now[$0]! - (sections[$0] ?? .zero))))" }.joined(separator: ","))
-            sections = now
-            time = host.list.reloadTime
-            rows = host.list.rowsWeighed
-        }
+        while !host.filled, Date() < deadline { await Self.frame(window) }
+        for _ in 0..<3 { await Self.frame(window) }
+        let log = host.chunkLog
+        let times = log.map(\.ms)
         let worst = times.max() ?? 0
-        let perRow = zip(times, weighed).map { $1 > 0 ? $0 / Double($1) : 0 }.max() ?? 0
-        let summary = "running=\(running) chunk=\(SubagentRowWindow.chunk) chunks=\(times.count) worst_ms=\(String(format: "%.2f", worst)) worst_ms_per_row=\(String(format: "%.3f", perRow)) ms=\(times.map { String(format: "%.1f", $0) }) weighed=\(weighed) parts=\(parts)"
+        let frames = log.map(\.timestamp)
+        let reloads = host.list.reloadLog.dropFirst(firstReload).map { record in
+            "\(record.cause)/\(record.path) \(String(format: "%.1f", record.ms)) added=\(record.added) landed=\(record.landed) "
+                + "reconf=\(record.reconfigured) reload=\(record.reloaded) "
+                + record.parts.keys.sorted().map { "\($0)=\(String(format: "%.1f", record.parts[$0]!))" }.joined(separator: ",")
+        }
+        let waits = host.list.landingWaits
+        let summary = "running=\(running) chunk=\(SubagentRowWindow.chunk) chunks=\(log.count) worst_ms=\(String(format: "%.2f", worst)) "
+            + "ms=\(times.map { String(format: "%.1f", $0) }) frames=\(log.map(\.frame)) landing_waits=\(waits)\nreloads:\n"
+            + reloads.joined(separator: "\n")
         Attachment.record(summary, named: "subagent-chunk-\(running ? "running" : "finished")")
         window.isHidden = true
         #expect(host.filled, "every chunk came in: \(summary)")
+        #expect(!log.isEmpty, "the window grew: \(summary)")
         #expect(worst <= 8, "a chunk took \(String(format: "%.1f", worst)) ms on the main thread: \(summary)")
+        #expect(Set(frames).count == frames.count, "a display frame carried two chunks: \(summary)")
+        #expect(waits.allSatisfy { $0 <= 1 }, "a landing waited more than a frame: \(waits)")
+        #expect(!host.list.hasPendingLandings, "rows landed during the fill were reloaded when it ended")
     }
 
     /// A growth's cost is its chunk's, not the rows already shown: the main thread's time per row
@@ -253,6 +253,8 @@ import UIKit
         let deadline = Date().addingTimeInterval(30)
         while !host.filled, Date() < deadline {
             for _ in 0..<3 { await Self.frame(window) }
+            // Rows landed since are reloaded first: the growth times its chunk alone.
+            if host.list.hasPendingLandings { host.list.reload() }
             let loop = host.list.sectionTimes["loop"] ?? .zero
             let weighed = host.list.rowsWeighed
             guard host.growOnce() else { break }

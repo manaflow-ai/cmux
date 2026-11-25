@@ -587,7 +587,34 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var openingOffsetSet: (asked: CGFloat, kept: CGFloat)?
     /// The main thread's time in each part of `reload` (tests: what a growth costs, by part).
     private(set) var sectionTimes: [String: Duration] = [:]
+    /// One reload: what asked for it, the path its apply took, its time and parts (tests: what a
+    /// frame's reload cost, and why).
+    struct ReloadRecord {
+        var cause: String
+        var path: String
+        var ms: Double
+        var parts: [String: Double]
+        var added: Int
+        var landed: Int
+        var reconfigured: Int
+        var reloaded: Int
+    }
+    private(set) var reloadLog: [ReloadRecord] = []
+    private var reloadCause = "other"
+    private var reloadPath = "none"
+    /// The host's frame count (tests: how many frames a deferred landing waited).
+    var frameStamp: (() -> Int)?
+    private var landingsPendingSince: Int?
+    /// Per deferred landing batch, the frames it waited before a reload took it.
+    private(set) var landingWaits: [Int] = []
     #endif
+    /// Whether rows whose native layouts land wait for the next reload instead of reloading on their
+    /// own (a subagent window filling a chunk a frame: the next growth takes them in place, so a
+    /// frame carries one reload). The host that says so reloads them itself when no growth is
+    /// next (`hasPendingLandings`), so a landing waits at most a frame.
+    var defersLandings: (() -> Bool)?
+    /// Landed rows not reloaded yet (`defersLandings`).
+    var hasPendingLandings: Bool { !reweigh.isEmpty }
     /// Rows to reconfigure on the next reload although their content is the same (a code
     /// card shown in full).
     private var forced: Set<String> = []
@@ -822,6 +849,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             landed = true
         }
         guard landed else { return }
+        if defersLandings?() == true {
+            #if DEBUG
+            if landingsPendingSince == nil { landingsPendingSince = frameStamp?() }
+            #endif
+            return
+        }
+        #if DEBUG
+        reloadCause = "landing"
+        #endif
         reload()
     }
 
@@ -980,6 +1016,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The source shows more of its rows than before (a subagent transcript's window grew a chunk):
     /// the new chunk is a turn of its own, so the reload builds and weighs it only.
     func sourceRowsChanged() {
+        #if DEBUG
+        reloadCause = "chunk"
+        #endif
         reload()
     }
 
@@ -987,6 +1026,27 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if waitsForWidth, lookup.layouts.environment == nil { return }
         let reloadStart = ContinuousClock.now
         defer { reloadTime += reloadStart.duration(to: .now) }
+        #if DEBUG
+        let cause = reloadCause
+        reloadCause = "other"
+        reloadPath = "none"
+        let partsBefore = sectionTimes
+        let landedBefore = reweigh.count
+        var counts = (added: 0, reconfigured: 0, reloaded: 0)
+        if let since = landingsPendingSince, !reweigh.isEmpty {
+            landingWaits.append((frameStamp?() ?? since) - since)
+        }
+        landingsPendingSince = nil
+        defer {
+            func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
+            var parts: [String: Double] = [:]
+            for (key, value) in sectionTimes { parts[key] = ms(value - (partsBefore[key] ?? .zero)) }
+            reloadLog.append(ReloadRecord(cause: cause, path: reloadPath, ms: ms(reloadStart.duration(to: .now)), parts: parts,
+                                          added: counts.added, landed: landedBefore, reconfigured: counts.reconfigured,
+                                          reloaded: counts.reloaded))
+            if reloadLog.count > 512 { reloadLog.removeFirst(reloadLog.count - 512) }
+        }
+        #endif
         // A turn that ended under a reader scrolled up keeps its work open: folding it under
         // "Worked for" would take away what they are reading (the Mac's rule, cmux#42802).
         let running = source.runningTurn()
@@ -1298,6 +1358,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         #if DEBUG
         let snapshotStart = ContinuousClock.now
         defer { sectionTimes["snapshot", default: .zero] += snapshotStart.duration(to: .now) }
+        counts = (addedIDs.count, reconfigure.count, reloadIDs.count)
         #endif
         if let chunkAdd, reconfigure.isEmpty, reloadIDs.isEmpty, !addedIDs.isEmpty, ids.count == shownIDs.count + addedIDs.count {
             // The chunk's rows into the snapshot shown, before or after its rows: no snapshot of every
@@ -1311,6 +1372,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             shownIDs = ids
             shownIDSet.formUnion(addedIDs)
             snapshotApplies += 1
+            #if DEBUG
+            reloadPath = "insert"
+            #endif
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if ids != shownIDs {
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
@@ -1326,6 +1390,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             shownIDs = ids
             shownIDSet = Set(ids)
             snapshotApplies += 1
+            #if DEBUG
+            reloadPath = "full"
+            #endif
             dataSource.apply(snapshot, animatingDifferences: false)
         } else if !changed.isEmpty, reloadIDs.isEmpty, reconfigure.allSatisfy(redrawsInPlace) {
             // The same rows, only content changed (a streamed token): the cell on screen for each
@@ -1337,14 +1404,23 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 lookup.stale.insert(id)
                 if let cell = cell(for: id) { redraw(cell, id) }
             }
+            #if DEBUG
+            reloadPath = "inPlace"
+            #endif
             layout.invalidateLayout()
         } else if !changed.isEmpty {
             var snapshot = dataSource.snapshot()
             snapshot.reconfigureItems(reconfigure)
             snapshot.reloadItems(reloadIDs)
             snapshotApplies += 1
+            #if DEBUG
+            reloadPath = "reconfigure"
+            #endif
             dataSource.apply(snapshot, animatingDifferences: false)
         } else {
+            #if DEBUG
+            reloadPath = "invalidate"
+            #endif
             layout.invalidateLayout()
         }
         // Rows inserted or resized above a reader scrolled up do not move what they read.

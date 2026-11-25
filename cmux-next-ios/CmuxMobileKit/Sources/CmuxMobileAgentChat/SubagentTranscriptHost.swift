@@ -41,6 +41,10 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         source.window?.enabled = windowed
         super.init(nibName: nil, bundle: nil)
         list.scrollDelegate = self
+        list.defersLandings = { [weak self] in self?.defersLandings ?? false }
+        #if DEBUG
+        list.frameStamp = { [weak self] in self?.frames ?? 0 }
+        #endif
         // A finished transcript opens at its top: its newest rows are not primed on the main thread.
         list.opensOnNewest = { [weak self] in self?.follow.follows ?? true }
         // A row above the reader that changes height moves nothing they see, unless the end of a
@@ -121,47 +125,100 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         }
     }
 
-    /// Chunks of the transcript's rows a frame each until every row is shown: below a finished
-    /// one's top, above a running one's end (the list keeps the reader's rows where they are).
-    private var filling: Task<Void, Never>?
+    /// Chunks of the transcript's rows, one per display frame, until every row is shown: below a
+    /// finished one's top, above a running one's end (the list keeps the reader's rows where they
+    /// are). Driven by the display, so a frame never carries two chunks (#47189 r8: a 16 ms sleep
+    /// is not the frame, and two chunks landed in one about a time in three).
+    private var link: CADisplayLink?
+    /// Display frames the fill has run (a deferred landing waits at most one).
+    private(set) var frames = 0
     /// Chunks put in (tests).
     private(set) var chunks = 0
     /// Every row of the transcript is shown (the open's window has grown to all of it).
     var filled: Bool { list.source.window?.complete ?? true }
 
     #if DEBUG
-    /// Off: the window grows only by `growOnce` (tests that time each growth, or wait for landed
-    /// rows before one).
+    /// Off: the window grows only by `growOnce` (tests that time each growth, or that put one in
+    /// with landed rows pending). Rows that land wait for the next `growOnce` until every row is in.
     var growsByItself = true
 
-    /// One chunk in, now (tests). False once every row is shown.
+    /// Each chunk: the display frame it went in on, and the main thread's time it took.
+    struct ChunkRecord {
+        var frame: Int
+        var timestamp: CFTimeInterval
+        var ms: Double
+    }
+    private(set) var chunkLog: [ChunkRecord] = []
+
+    /// One chunk in, now (tests). False once every row is shown (rows landed and still pending
+    /// are reloaded then).
     @discardableResult
     func growOnce() -> Bool {
-        guard let window = list.source.window, window.grow() else { return false }
+        guard let window = list.source.window, window.grow() else {
+            if list.hasPendingLandings { list.reload() }
+            return false
+        }
         chunks += 1
         list.sourceRowsChanged()
         return true
     }
     #endif
 
+    /// Whether rows that land wait for the next chunk (the fill runs, so one comes next frame).
+    private var defersLandings: Bool {
+        #if DEBUG
+        if !growsByItself { return !filled }
+        #endif
+        return link != nil
+    }
+
     private func fill() {
         #if DEBUG
         guard growsByItself else { return }
         #endif
-        guard filling == nil, let window = list.source.window, !window.complete else { return }
-        filling = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                await Self.nextFrame()
-                guard let self, let window = self.list.source.window, window.grow() else { break }
-                self.chunks += 1
-                self.list.sourceRowsChanged()
-            }
-            self?.filling = nil
-        }
+        guard link == nil, let window = list.source.window, !window.complete else { return }
+        let link = CADisplayLink(target: FrameTarget(self), selector: #selector(FrameTarget.frame(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
     }
 
-    private static func nextFrame() async {
-        try? await Task.sleep(for: .milliseconds(16))
+    /// A display frame of the fill: the next chunk, which takes in place the rows that landed since
+    /// the last one. With every row in, the rows still pending are reloaded and the fill stops.
+    fileprivate func fillFrame(_ link: CADisplayLink) {
+        frames += 1
+        guard let window = list.source.window, window.grow() else {
+            stopFilling()
+            if list.hasPendingLandings { list.reload() }
+            return
+        }
+        chunks += 1
+        #if DEBUG
+        let start = ContinuousClock.now
+        #endif
+        list.sourceRowsChanged()
+        #if DEBUG
+        let spent = start.duration(to: .now)
+        chunkLog.append(ChunkRecord(frame: frames, timestamp: link.timestamp,
+                                    ms: Double(spent.components.seconds) * 1000 + Double(spent.components.attoseconds) / 1e15))
+        #endif
+    }
+
+    private func stopFilling() {
+        link?.invalidate()
+        link = nil
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // Off screen the fill stops: what landed is reloaded, the rest come when it shows again.
+        guard link != nil else { return }
+        stopFilling()
+        if list.hasPendingLandings { list.reload() }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if positioned { fill() }
     }
 
     // MARK: The reader's scroll decides whether the end is followed.
@@ -195,6 +252,17 @@ struct SubagentTranscriptRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ host: SubagentTranscriptHost, context: Context) {
         host.list.context.openSubagent = open
+    }
+}
+
+/// The display link's target: it holds the host weakly (a display link retains its target).
+@MainActor
+private final class FrameTarget: NSObject {
+    weak var host: SubagentTranscriptHost?
+    init(_ host: SubagentTranscriptHost) { self.host = host }
+    @objc func frame(_ link: CADisplayLink) {
+        guard let host else { link.invalidate(); return }
+        host.fillFrame(link)
     }
 }
 #endif
