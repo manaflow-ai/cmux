@@ -540,7 +540,17 @@ impl Hub {
         admission.listen();
         tokio::select! {
             biased;
-            answer = &mut setup => return answer,
+            answer = &mut setup => {
+                if admission.defer_requested() {
+                    admission.release();
+                    return match unanswered {
+                        Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, admission.stage_now()).await,
+                        Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
+                        Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
+                    };
+                }
+                return answer;
+            },
             () = tokio::time::sleep_until(admission.answer_due()) => {}
         }
         // Past a step it must finish, it finishes: its answer is on its way.
@@ -684,18 +694,39 @@ impl Hub {
         // A stale host or a teardown may hold either child mutex. Do not let that await keep
         // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
         // as live so the cold-chat refusal never drops a deliverable prompt.
-        let live = tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+        let live = if admission.queue_owned() {
             let child = session.child.lock().await.clone();
             match child {
                 Some(child) => child.is_alive().await,
                 None => false,
             }
-        })
-        .await
-        .unwrap_or_else(|_| {
-            tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
-            true
-        });
+        } else {
+            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+                let child = session.child.lock().await.clone();
+                match child {
+                    Some(child) => child.is_alive().await,
+                    None => false,
+                }
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(_) => {
+                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
+                    if admission.listened() {
+                        // Do not continue into queue_slot: with a free turn lock it would
+                        // start the prompt after the caller's answer deadline. The outer
+                        // admission future owns the durable deferral and will accept queued.
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt live check",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                    true
+                }
+            }
+        };
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
