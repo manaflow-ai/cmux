@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0" as const;
+export const SDK_IR_SHA256 = "a778a465a40b641793e328255ee0e5328b1b6c4c4546a3a9c2fe5b9492d54b75" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1812,6 +1812,10 @@ export const COMMAND_METADATA = {
       "limit": {
         "since": 12,
         "capability": "list-workspaces-limit-v1"
+      },
+      "since": {
+        "since": null,
+        "capability": "workspace-list-delta-v1"
       }
     },
     "stream": null,
@@ -2619,6 +2623,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "An absent lease is a successful no-op."
+    ]
+  },
+  "release-workspace-names": {
+    "authority": "control",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Idempotent: a second call releases nothing."
     ]
   },
   "reload-config": {
@@ -8974,6 +8988,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ListWorkspacesSince": {
+    "additional_properties": false,
+    "fields": {
+      "epoch": {
+        "constraints": [
+          "Opaque; the epoch of the last reply applied (\"\" when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "constraints": [
+          "The seq of the last reply applied (0 when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "LivePane": {
     "additional_properties": false,
     "fields": {
@@ -9923,6 +9965,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ReleaseWorkspaceNamesResult": {
+    "additional_properties": false,
+    "fields": {
+      "released": {
+        "description": "Workspace names this call handed back to the automatic namer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "still_pinned": {
+        "description": "User-owned names left pinned: a row renamed between the read and its release.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -16005,6 +16071,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "Tree": {
     "additional_properties": false,
     "fields": {
+      "changed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Workspace"
+          },
+          "kind": "array"
+        }
+      },
+      "delta": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "epoch": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "generation": {
         "capability": "workspace-registry-v1",
         "nullable": false,
@@ -16028,6 +16133,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "order": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta, when the order of the workspaces changed: every id, in the tree's order."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -16045,6 +16165,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "removed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: the ids of the workspaces no longer in the tree."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "seq": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "terminal_revision": {
@@ -23661,6 +23808,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint64"
           }
+        },
+        "stats": {
+          "default": false,
+          "description": "true: the reply also carries agent_notice_stats.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -23840,6 +23997,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "since": {
+          "capability": "workspace-list-delta-v1",
+          "constraints": [
+            "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ListWorkspacesSince"
           }
         }
       },
@@ -27216,6 +27386,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "release-workspace-names": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ReleaseWorkspaceNamesResult"
     }
   },
   "reload-config": {
