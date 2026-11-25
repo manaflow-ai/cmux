@@ -251,6 +251,8 @@ jobs:
       contents: read
       actions: read
       statuses: write
+      # The lane receipt lookup (ci_receipt.py --lane): the controller answers only this workflow's OIDC token.
+      id-token: write
     outputs:
       valid: ${{ steps.verify.outputs.valid }}
       audit: ${{ steps.verify.outputs.audit }}
@@ -280,6 +282,8 @@ jobs:
           HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
           MERGE_TREE: ${{ needs.resolve.outputs.merge_tree }}
           AUDIT_PERCENT: ${{ vars.CI_RECEIPT_AUDIT_PERCENT }}
+          LANE: ${{ vars.CI_LANE_RECEIPTS }}
+          RUN_URL_SELF: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           if [[ ! -f scripts/ci/ci_receipt.py ]]; then
@@ -290,6 +294,9 @@ jobs:
           DISCOVER_ARGS=()
           # The base's verifier decides: one from before discover existed has no --pr.
           if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' scripts/ci/ci_receipt.py; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
+          # A lane's own pass recorded with the controller (on unless vars.CI_LANE_RECEIPTS=0), when the base's
+          # verifier knows it.
+          if [[ "${LANE:-1}" != 0 ]] && grep -q -- '"--lane"' scripts/ci/ci_receipt.py; then DISCOVER_ARGS+=(--lane); fi
           python3 scripts/ci/ci_receipt.py verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
             ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"} --output "$GITHUB_OUTPUT"
@@ -579,8 +586,11 @@ jobs:
     timeout-minutes: 5
     permissions:
       statuses: write
+    outputs:
+      state: ${{ steps.status.outputs.state }}
     steps:
       - name: Post the cmux-next/fast-gates status
+        id: status
         env:
           GH_TOKEN: ${{ github.token }}
           CONTEXT: cmux-next/fast-gates
@@ -646,3 +656,34 @@ jobs:
             exit 1
           fi
           echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+  # A lane receipt that was re-run in full (an audit, or a producer in shadow): tell the controller whether the gates
+  # agreed, so a lane whose green re-ran red stops counting until it agrees again (cmuxterm-hq
+  # build-fleet/cmd/controller/lane_receipt.go). Best effort: a failed report changes no verdict. No checkout, no
+  # repository code: an OIDC token and one POST.
+  lane-receipt-audit:
+    name: report the lane receipt audit
+    needs: [resolve, receipt, post]
+    if: ${{ always() && !cancelled() && needs.receipt.outputs.audit == 'true' && startsWith(needs.receipt.outputs.producer, 'lane:') && (needs.post.outputs.state == 'success' || needs.post.outputs.state == 'failure') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      id-token: write
+    steps:
+      - name: Report the audit
+        env:
+          PRODUCER: ${{ needs.receipt.outputs.producer }}
+          HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
+          STATE: ${{ needs.post.outputs.state }}
+        run: |
+          set -euo pipefail
+          token="$(curl -fsS --max-time 20 -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=cmux-ci-lane-receipt" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')"
+          passed=false; [[ "$STATE" == success ]] && passed=true
+          body="$(python3 -c 'import json,os,sys; print(json.dumps({"op": "audit", "check": "fast-gates", "head_tree": os.environ["HEAD_TREE"], "producer": os.environ["PRODUCER"], "passed": sys.argv[1] == "true"}))' "$passed")"
+          curl -fsS --max-time 20 -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            --data "$body" https://gh-events.cmux.com/github/lane-receipt
+          echo
+          echo "lane receipt audit: $PRODUCER passed=$passed on head tree $HEAD_TREE"
