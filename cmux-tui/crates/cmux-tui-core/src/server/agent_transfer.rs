@@ -40,13 +40,17 @@
 //! (hq-84). A peer-control chat keeps its policy and mode and runs its queue
 //! at once, so it may only land on a Mac or a personal Cloud VM.
 //!
-//! Source verbs (the chat leaves here), by tab, never by session id:
-//! - `agent-transfer-source {surface}` answers `{session}`, the session the
-//!   tab's store record names, read here without reaching acpmux (attaching
-//!   would mark the chat seen), so a pump can tell the tab still shows the
-//!   chat its recorded move took.
-//! - `agent-transfer-begin {surface, interrupt?}` answers `{transfer_id,
-//!   source_session, manifest}` (`source_session` as `agent-transfer-source`). The bundle's `manifest.json` is served without its absolute
+//! Source verbs (the chat leaves here), by tab, never by session id. A verb
+//! names the tab by `surface` (this daemon run's slot) or by `tab` (its public
+//! `tab_…` id), exactly one: a restart restores every tab in a new slot but
+//! with its public id, so a pump that recorded the `tab` a source answered
+//! still reaches the chat after the source daemon restarted mid-move.
+//! - `agent-transfer-source {surface | tab}` answers `{session, tab}`, the
+//!   session the tab's store record names, read here without reaching acpmux
+//!   (attaching would mark the chat seen), so a pump can tell the tab still
+//!   shows the chat its recorded move took, and the tab's public id.
+//! - `agent-transfer-begin {surface | tab, interrupt?}` answers `{transfer_id,
+//!   source_session, tab, manifest}` (`source_session` and `tab` as `agent-transfer-source`). The bundle's `manifest.json` is served without its absolute
 //!   `source` paths, and its `session.json` without the source machine's
 //!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
 //!   stays, the target's finish replaces it); the manifest lists their
@@ -55,8 +59,8 @@
 //!   that refused it takes it.
 //! - `agent-transfer-read {transfer_id, path, offset, limit?}` pages a bundle
 //!   file the begin manifest of a move begun through this daemon lists.
-//! - `agent-transfer-commit {surface, transfer_id, to}` and
-//!   `agent-transfer-abort {surface, transfer_id}`.
+//! - `agent-transfer-commit {surface | tab, transfer_id, to}` and
+//!   `agent-transfer-abort {surface | tab, transfer_id}`.
 //!
 //! Who: trusted local (Unix) connections that are not remote clients, the
 //! test `agent-session-attach` uses. The remote relay (`cmux link`) runs
@@ -85,6 +89,7 @@ use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
 use crate::mux::Mux;
+use crate::resource::TabPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 mod bundle;
@@ -432,12 +437,20 @@ struct ReceiveAbortParams {
 
 #[derive(Deserialize)]
 struct SourceParams {
-    surface: SurfaceId,
+    #[serde(default)]
+    surface: Option<SurfaceId>,
+    /// The tab's public id, which outlives a daemon restart (`surface` does not).
+    #[serde(default)]
+    tab: Option<TabPublicId>,
 }
 
 #[derive(Deserialize)]
 struct BeginParams {
-    surface: SurfaceId,
+    #[serde(default)]
+    surface: Option<SurfaceId>,
+    /// The tab's public id, which outlives a daemon restart (`surface` does not).
+    #[serde(default)]
+    tab: Option<TabPublicId>,
     #[serde(default)]
     interrupt: bool,
     #[serde(default)]
@@ -461,14 +474,22 @@ struct ReadParams {
 
 #[derive(Deserialize)]
 struct CommitParams {
-    surface: SurfaceId,
+    #[serde(default)]
+    surface: Option<SurfaceId>,
+    /// The tab's public id, which outlives a daemon restart (`surface` does not).
+    #[serde(default)]
+    tab: Option<TabPublicId>,
     transfer_id: String,
     to: Value,
 }
 
 #[derive(Deserialize)]
 struct AbortParams {
-    surface: SurfaceId,
+    #[serde(default)]
+    surface: Option<SurfaceId>,
+    /// The tab's public id, which outlives a daemon restart (`surface` does not).
+    #[serde(default)]
+    tab: Option<TabPublicId>,
     transfer_id: String,
 }
 
@@ -743,6 +764,8 @@ enum Prepared {
     },
     Begin {
         session: String,
+        /// The tab's public id, answered so a pump can name it after a restart.
+        tab: Option<String>,
         interrupt: bool,
         ask_first: bool,
         begin_token: Option<String>,
@@ -850,11 +873,18 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
             }
         }
-        Verb::Begin(BeginParams { surface, interrupt, ask_first, begin_token, prepare_id }) => {
+        Verb::Begin(BeginParams {
+            surface,
+            tab,
+            interrupt,
+            ask_first,
+            begin_token,
+            prepare_id,
+        }) => {
             if begin_token.as_deref().is_some_and(|token| !is_plain_id(token)) {
                 return Err(Refusal::BadRequest.into());
             }
-            let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
+            let (session, tab) = named_tab(mux, surface, tab.as_ref())?;
             let prefix = match prepare_id {
                 Some(id) => {
                     let prefix = transfers.history_later.prefix(&id, &session);
@@ -865,7 +895,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt, ask_first, begin_token, prefix }
+            Prepared::Begin { session, tab, interrupt, ask_first, begin_token, prefix }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -883,21 +913,21 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 },
             }
         }
-        Verb::Commit(CommitParams { surface, transfer_id, to }) => {
-            let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
+        Verb::Commit(CommitParams { surface, tab, transfer_id, to }) => {
+            let (session, _) = named_tab(mux, surface, tab.as_ref())?;
             if !is_plain_id(&transfer_id) || to.to_string().len() > MAX_TO_BYTES {
                 return Err(Refusal::BadRequest.into());
             }
             let epoch = transfers.move_epoch(&transfer_id)?;
             Prepared::Commit { session, transfer_id, to, epoch }
         }
-        Verb::Source(SourceParams { surface }) => {
+        Verb::Source(SourceParams { surface, tab }) => {
             // The tab's own store record, read without reaching acpmux.
-            let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
-            Prepared::Answer(json!({"session": session}))
+            let (session, tab) = named_tab(mux, surface, tab.as_ref())?;
+            Prepared::Answer(json!({"session": session, "tab": tab}))
         }
-        Verb::Abort(AbortParams { surface, transfer_id }) => {
-            let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
+        Verb::Abort(AbortParams { surface, tab, transfer_id }) => {
+            let (session, _) = named_tab(mux, surface, tab.as_ref())?;
             if !is_plain_id(&transfer_id) {
                 return Err(Refusal::BadRequest.into());
             }
@@ -916,6 +946,27 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
         ConversationTabRecord::AgentSession { session: Some(session), .. } => Some(session),
         _ => None,
     }
+}
+
+/// [`tab_session`] of the tab a source verb names by `surface` or by `tab`
+/// (exactly one), with the tab's public id (`None` for a tab without one).
+fn named_tab(
+    mux: &Mux,
+    surface: Option<SurfaceId>,
+    tab: Option<&TabPublicId>,
+) -> Result<(String, Option<String>), Failure> {
+    let surface = match (surface, tab) {
+        (Some(surface), None) => surface,
+        (None, Some(tab)) => mux
+            .with_state(|state| state.surface_by_tab_public_id(tab).map(|surface| surface.id))
+            .ok_or(Refusal::UnknownTab)?,
+        _ => return Err(Refusal::BadRequest.into()),
+    };
+    let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
+    let tab = mux.surface(surface).and_then(|runtime| {
+        runtime.resource_identity().map(|identity| identity.tab_id.to_string())
+    });
+    Ok((session, tab))
 }
 
 // MARK: The guard
@@ -1066,7 +1117,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt, ask_first, begin_token, prefix } => {
+        Prepared::Begin { session, tab, interrupt, ask_first, begin_token, prefix } => {
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
@@ -1112,7 +1163,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             mux.forget_landed_agent_session(&source_session);
             mux.control_clients.agent_sessions.known_children.forget(&source_session);
             let mut answer = json!({"transfer_id": transfer_id, "source_session": source_session,
-                                    "manifest": manifest});
+                                    "tab": tab, "manifest": manifest});
             if prefix.is_some() {
                 answer.insert("staged", json!(staged));
                 answer.insert("history_later", json!(history_later));
