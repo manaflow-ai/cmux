@@ -3,6 +3,7 @@ import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileSupport
 import GhosttyNextKit
+import Observation
 import SwiftUI
 import UIKit
 import OSLog
@@ -60,8 +61,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var statusScrimHeight: NSLayoutConstraint!
 
     private let scrollView = TerminalScrollView()
-    private let tuiClip = UIView()
-    private let tuiHost = UIView()
+    let tuiClip = UIView()
+    let tuiHost = UIView()
     /// The app's first rows pinned above the keyboard-clipped body
     /// (`TerminalGridSizing.keyboardPlacement`): the surface's presented
     /// frame again, cropped to those rows. Not the surface: it draws nothing.
@@ -120,29 +121,40 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The strip's own glide runs: the strip stays hidden until it lands.
     private var jumpingToLastSent = false
     static let shellTapQuiet: CFTimeInterval = 0.6
-    private var tuiHeight: NSLayoutConstraint!
+    var tuiHeight: NSLayoutConstraint!
     /// The terminal's background from the area's last row down to the
     /// composer: while the keyboard hides, the gap that opens below the old
     /// (shorter) grid shows nothing live or stale (the surface reaches below
     /// the area).
     private let tuiBelowCover = UIView()
+    /// The page's ground and the copies under the chrome that hides rows (``TerminalGroundView``):
+    /// the Mac's wallpaper under its tint while the terminal shows its Mac's look, else the plain background.
+    private lazy var pageGround = TerminalGroundView(page: view)
+    private lazy var backingGround = TerminalGroundView(page: view)
+    private lazy var coverGround = TerminalGroundView(page: view)
+    private lazy var headerGround = TerminalGroundView(page: view)
+    private lazy var fadeGround = TerminalGroundView(page: view, fade: true)
+    private lazy var scrimGround = TerminalGroundView(page: view, fade: true)
+    private var groundInstalled = false
+    /// Whether a wallpaper change is being watched (one watch at a time; it re-arms when it fires).
+    private var groundObserved = false
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
     /// surface covers the old and new visible ranges during a keyboard animation.
     private var surfaceRows = 0
     /// Rows a TUI gets: between the toolbar and the composer, keyboard down.
     /// The soft keyboard never changes them (`TerminalGridSizing`).
-    private var tuiRows = 0
+    var tuiRows = 0
     /// How far the TUI grid is moved down while the keyboard covers its
     /// bottom, so the cursor's row stays on screen (`TerminalGridSizing.keyboardLift`).
     private var tuiKeyboardLift: CGFloat = 0
     private var gridColumns = 0
-    private var cell = CGSize.zero
+    var cell = CGSize.zero
     /// The Mac's grid when it is not the phone's (PROTOCOL.md "Terminal
     /// sizing policy"): the mirror takes its columns, the page pans sideways
     /// and a full-screen app is letterboxed or shifted (`TerminalHostGridLayout`).
-    private var tuiPanX: CGFloat = 0
-    private var tuiRowShift = 0
+    var tuiPanX: CGFloat = 0
+    var tuiRowShift = 0
     /// The mirror width the last layout gave the surface, for `syncHostGrid`.
     private var mirrorWidth: CGFloat = 0
     /// The Mac's grid when it differs from the phone's (docs/shared-terminal-sizing.md
@@ -175,7 +187,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         pan.delegate = self
         return pan
     }()
-    private var tuiPanStartX: CGFloat = 0
+    var tuiPanStartX: CGFloat = 0
     /// The Mac's columns as of the bytes fed so far (``TerminalSessionEvent/hostGrid(columns:rows:)``,
     /// taken in feed order); nil until the first, then the session's value.
     var appliedHostColumns: Int?
@@ -217,9 +229,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private weak var shellTap: UITapGestureRecognizer?
     private var tapStoppedScroll = false
     /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
-    private let tuiScroll = TerminalTUIScrollController()
+    let tuiScroll = TerminalTUIScrollController()
     /// Leo, 2026-11-23: a full-screen app's row jumps while the finger scrolls it.
     let tuiSmoother = TerminalTUISmoother()
+    /// The alternate screen at the Mac's grid, zoomed and panned (`TerminalViewController+Zoom`).
+    let tuiZoom = TerminalTUIZoom()
+    /// Settings → Terminal → Zoom Full-Screen Apps (off by default), read when the page opens:
+    /// off, a full-screen app claims the phone's grid as before and nothing here zooms.
+    let tuiZoomEnabled = CmuxMobilePreferences.terminalZoomFullScreenApps()
     /// Every pan's frame times, to the Mac (`phone-frames`), in every build.
     private lazy var panFrames: TerminalPanFrameRecorder = {
         let recorder = TerminalPanFrameRecorder()
@@ -229,9 +246,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         return recorder
     }()
+    /// Session output bytes Ghostty parsed: each presented frame's painted-through offset (`painted`).
+    private var parsedBytes = 0
     /// A tap in a full-screen app: a click when the app asked for the mouse,
     /// and it focuses the terminal (not a tap that stops a fling).
-    private lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
+    lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -472,6 +491,73 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         if statusScrim.superview != nil {
             statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+        }
+        applyGround()
+    }
+
+    // MARK: The ground (the Mac's wallpaper)
+
+    /// Puts the grounds in place, once the chrome they sit under exists (the first layout).
+    private func installGround() {
+        guard !groundInstalled else { return }
+        groundInstalled = true
+        pageGround.frame = view.bounds
+        pageGround.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(pageGround, at: 0)
+        for (ground, host) in [(backingGround, bottomBacking), (coverGround, tuiBelowCover), (fadeGround, bottomFade as UIView)] {
+            ground.frame = host.bounds
+            ground.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            host.addSubview(ground)
+        }
+        if statusScrim.superview != nil {
+            scrimGround.frame = statusScrim.bounds
+            scrimGround.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            statusScrim.addSubview(scrimGround)
+        }
+        headerGround.isHidden = true
+        view.insertSubview(headerGround, belowSubview: tuiHeader)
+        applyGround()
+    }
+
+    /// Paints the grounds with the Mac's wallpaper (``CmuxMobileMacTheme/wallpaper``) under the
+    /// terminal background at its tint, and makes the surface see-through over it, as the Mac's
+    /// terminals are over its window's picture; without a wallpaper the page is the terminal
+    /// background as before. Follows the wallpaper live (Observation).
+    private func applyGround() {
+        guard groundInstalled else { return }
+        let wallpaper: (image: UIImage, tint: Double)?
+        if groundObserved {
+            wallpaper = CmuxMobileMacTheme.shared.wallpaper
+        } else {
+            groundObserved = true
+            wallpaper = withObservationTracking {
+                CmuxMobileMacTheme.shared.wallpaper
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.groundObserved = false
+                    self?.applyGround()
+                }
+            }
+        }
+        let base = terminalBackground
+        let seeThrough = wallpaper != nil
+        surface.seeThrough = seeThrough
+        for ground in [pageGround, backingGround, coverGround, headerGround, fadeGround, scrimGround] {
+            ground.show(wallpaper, background: base)
+        }
+        // Over the picture the chrome's own colors would hide it: the grounds under them paint instead.
+        pageGround.isHidden = !seeThrough
+        for ground in [backingGround, coverGround, fadeGround, scrimGround] { ground.isHidden = !seeThrough }
+        let clear = UIColor.clear
+        bottomBacking.backgroundColor = seeThrough ? clear : base
+        tuiBelowCover.backgroundColor = seeThrough ? clear : base
+        bottomFade.gradient.colors = seeThrough ? [clear.cgColor, clear.cgColor]
+            : [base.withAlphaComponent(0).cgColor, base.cgColor]
+        fadeGround.setFade(alphas: [0, 1], locations: nil)
+        if statusScrim.superview != nil {
+            statusScrim.gradient.colors = seeThrough ? [clear.cgColor, clear.cgColor, clear.cgColor]
+                : [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+            scrimGround.setFade(alphas: [1, 1, 0], locations: statusScrim.gradient.locations)
         }
     }
 
@@ -797,6 +883,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         installFind()
         installCopyMode()
         installTUIScroll()
+        installTUIZoom()
 
         surface.configurePasteControlTarget()
         surface.onInput = { [weak self] data in
@@ -856,6 +943,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         surface.onPresent = { [weak self] in
             guard let self else { return }
             self.measured("present") { self.surfacePresented() }
+            self.panFrames.painted(self.parsedBytes)
             #if DEBUG
             self.rttLog.presented()
             #endif
@@ -954,6 +1042,49 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         } else {
             keyboardProbe = probe
         }
+    }
+
+    /// Settle probe (TerminalProjectionUITests, the demo's `altproj` phase):
+    /// from its start (the attach, or the demo starting a program) to the
+    /// first display frame that shows the full-screen app at its final grid
+    /// (``TerminalModel/demoFinalColumns``) with nothing held, replayed or
+    /// pending. Every display frame of the app at another grid (from the
+    /// first start on) is counted in ``TerminalModel/unsettledTUIFrames``.
+    private var settleProbe: (link: CADisplayLink, start: CFTimeInterval?)?
+
+    func startSettleProbe() {
+        model.settleMs = -1
+        if let probe = settleProbe {
+            settleProbe = (probe.link, CACurrentMediaTime())
+            return
+        }
+        // Through the weak proxy: a display link retains its target, so
+        // targeting self would keep the controller alive for good.
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
+            guard let self, let link = self.settleProbe?.link else { return }
+            self.settleProbeTick(link)
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
+        link.add(to: .main, forMode: .common)
+        settleProbe = (link, CACurrentMediaTime())
+    }
+
+    private func settleProbeTick(_ link: CADisplayLink) {
+        guard let probe = settleProbe, probe.link === link, view.window != nil || probe.start != nil else { return }
+        let pending = freezeView != nil || replayGate.isReplaying || !output.isEmpty || feedInFlight
+        let final = model.demoFinalColumns?()
+        let right = model.isTUI && !pending && final != nil && final == appliedHostColumns
+        // A frame at a wrong grid: the full-screen app drawn at columns that
+        // are not the final ones (a replay in flight at the final grid shows
+        // nothing wrong, so it is not one).
+        if model.isTUI, final != nil, final != appliedHostColumns {
+            model.unsettledTUIFrames += 1
+        }
+        guard let start = probe.start else { return }
+        let elapsed = link.timestamp - start
+        guard right || elapsed > 5 else { return }
+        model.settleMs = right ? Int((max(0, elapsed) * 1000).rounded()) : -2
+        sizingLog.notice("settle probe: full-screen app right after \(self.model.settleMs, privacy: .public) ms")
+        settleProbe = (link, nil)
     }
 
     /// The page as drawn this frame, for `TerminalFlickerTrace`.
@@ -1138,15 +1269,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard chrome == .embedded, insets != embeddedInsets else { return }
         embeddedInsets = insets
         tuiTop.constant = insets.top
-        // Solid under the status bar, then an 18 pt fade that ends at the top
-        // inset: row 0 at rest is at full brightness, and only rows scrolled
-        // up under the status bar fade (R1-5).
-        statusScrimHeight?.constant = insets.top
-        if insets.top > 18 { statusScrim.gradient.locations = [0, NSNumber(value: Double((insets.top - 18) / insets.top)), 1] }
+        applyStatusScrim()
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
         view.setNeedsLayout()
+    }
+
+    /// Embedded: where the page's chrome ends this frame (`TerminalTabPage.chromeTop`). A
+    /// collapsed top bar's is above `embeddedInsets.top`; the grid stays at the inset (its
+    /// rows never change with the bar) and the scrim shrinks to this, so the band the bar
+    /// gave back shows the rows under it, not a solid strip under the pill.
+    private var embeddedChromeTop: CGFloat?
+
+    /// The chrome's line moved (the top bar collapsed or expanded).
+    func needsChromeTop(_ top: CGFloat) -> Bool {
+        chrome == .embedded && embeddedChromeTop != top
+    }
+
+    func setChromeTop(_ top: CGFloat) {
+        guard chrome == .embedded else { return }
+        embeddedChromeTop = top
+        applyStatusScrim()
+        view.setNeedsLayout()
+    }
+
+    /// Solid under the chrome, then an 18 pt fade that ends at its line: row 0
+    /// at rest is at full brightness, and only rows scrolled up under the
+    /// chrome fade (R1-5).
+    private func applyStatusScrim() {
+        let top = min(embeddedChromeTop ?? embeddedInsets.top, embeddedInsets.top)
+        statusScrimHeight?.constant = top
+        if top > 18 { statusScrim.gradient.locations = [0, NSNumber(value: Double((top - 18) / top)), 1] }
     }
 
     /// Top of the content area (under the navigation bar or the status bar).
@@ -1541,6 +1695,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        installGround()
+        if pageGround.showsPicture {
+            for ground in [backingGround, coverGround, fadeGround, scrimGround] { ground.align() }
+            if statusScrim.superview != nil { scrimGround.setFade(alphas: [1, 1, 0], locations: statusScrim.gradient.locations) }
+        }
         keyboardDock.refresh()
         measured("layout-terminal") { layoutTerminal() }
         if !started, surface.surface != nil, cell.height > 0 {
@@ -1550,6 +1709,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // replay, a full reset first, replaces it.
             if let seed = model.takeSeed() { surface.feed(seed) }
             model.session.start { [weak self] event in self?.sessionEvent(event) }
+            #if DEBUG
+            if model.demoFinalColumns != nil { startSettleProbe() }
+            #endif
         }
     }
 
@@ -2360,6 +2522,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
+        parsedBytes += raw
         pacer.finished()
         paintParsed += raw
         // A full-screen app taller than the phone (the Mac's rows as of the
@@ -2732,7 +2895,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let surfaceSize = CGSize(width: layout.surfaceWidth, height: CGFloat(rows) * cellHeight)
         if surface.bounds.size != surfaceSize {
             UIView.performWithoutAnimation {
-                surface.frame.size = surfaceSize
+                if surface.transform.isIdentity { surface.frame.size = surfaceSize } else { surface.bounds.size = surfaceSize }
                 surface.layoutIfNeeded()
             }
         }
@@ -3021,6 +3184,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        if model.connectionState.isAttached,
+           !LaunchMarks.shared.has("terminal_first_row_frame"),
+           let text = surface.activeAreaText(),
+           TerminalHeldFrame.nonBlankRows(in: text, limit: max(1, surface.grid.rows)) > 0 {
+            LaunchMarks.shared.markNextFrame("terminal_first_row_frame")
+        }
         #if DEBUG
         ResumeMarks.shared?.note(model.connectionState.isAttached ? "terminal_frame" : "terminal_detached")
         #endif
@@ -3341,6 +3510,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             statusScrim.isHidden = true
             tuiClip.isHidden = false
             tuiHost.addSubview(surface)
+            resetTUIZoom()
             surface.frame = CGRect(x: 0, y: 0, width: hostLayout.surfaceWidth, height: CGFloat(surfaceRows) * cell.height)
             tuiPanX = 0
             tuiRowShift = 0
@@ -3360,6 +3530,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
             statusScrim.isHidden = false
+            resetTUIZoom()
             scrollView.addSubview(surface)
             viewportTop = -1
             scroll.reset()
@@ -4284,9 +4455,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func installTUISelection() {
         let geometry = { [weak self] () -> TerminalTUISelectionGeometry in
             guard let self else { return TerminalTUISelectionGeometry(cellSize: .zero, padding: .zero, rows: 0, columns: 0) }
-            let padding = surface.gridPadding
-            return TerminalTUISelectionGeometry(cellSize: CGSize(width: cell.width, height: cell.height),
-                                                padding: CGPoint(x: padding.x - tuiPanX, y: padding.y - CGFloat(tuiRowShift) * cell.height),
+            // At the zoom and pan (`TerminalViewController+Zoom`).
+            let placement = tuiGridPlacement
+            return TerminalTUISelectionGeometry(cellSize: placement.cell, padding: placement.padding,
                                                 rows: surface.grid.rows, columns: surface.grid.columns)
         }
         tuiSelection.isEnabled = { [weak self] in
@@ -4323,7 +4494,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func installTUIScroll() {
         tuiScroll.isEnabled = { [weak self] in
             guard let self else { return false }
-            return model.isTUI && surface.superview === tuiHost
+            // A zoomed grid pans under one finger; nothing reaches the app.
+            return model.isTUI && surface.superview === tuiHost && !tuiZoomActive
         }
         tuiScroll.selectionOwns = { [weak self] touch in
             guard let self else { return false }
@@ -4769,6 +4941,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
 
     /// Typing pans just far enough to show the cursor's column.
     func followCursorColumn() {
+        if tuiZoomActive { return tuiZoomFollowCursor() }
         let layout = hostLayout
         guard layout.maxPanX > 0, cell.width > 0, let cursor = surface.visibleCursorCell else { return }
         let column = Int(floor((cursor.minX - surface.gridPadding.x) / cell.width))
@@ -4781,8 +4954,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         }
     }
 
-    /// The full-screen app's surface in its host: panned, shifted to keep
-    /// the cursor row, and the letterbox note under a shorter grid.
+    /// The full-screen app's surface in its host: zoomed and panned (the
+    /// Mac's grid, `TerminalViewController+Zoom`), or panned and shifted to
+    /// keep the cursor row; and the letterbox note under a shorter grid.
     func applyTUIPlacement() {
         guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else {
             if tuiKeyboardLift != 0 {
@@ -4795,26 +4969,36 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             }
             return
         }
-        let layout = hostLayout
-        tuiPanX = layout.clampPan(tuiPanX)
-        tuiRowShift = layout.rowShift(keeping: surface.cursorViewportRow, from: tuiRowShift)
-        let origin = CGPoint(x: -tuiPanX, y: -CGFloat(tuiRowShift) * cell.height)
-        if surface.frame.origin != origin {
-            UIView.performWithoutAnimation { surface.frame.origin = origin }
+        // Zoomed (the Mac's grid at a scale): the zoom's pan. Else the
+        // sideways pan and the cursor row's shift (`tuiSurfacePlacement`).
+        let surfacePlacement = tuiSurfacePlacement()
+        placeTUISurface(origin: surfacePlacement.origin, scale: surfacePlacement.scale)
+        tuiZoom.layoutChrome()
+        if tuiZoomActive {
+            // The zoom pans the whole grid itself: no keyboard lift, no pinned header.
+            if tuiKeyboardLift != 0 {
+                tuiKeyboardLift = 0
+                tuiClip.bounds.origin.y = 0
+            }
+            if tuiHeaderRows != 0 {
+                tuiHeaderRows = 0
+                applyTUIHeader()
+            }
+        } else {
+            // Keyboard up: the grid's bottom rides the stack and its top is
+            // clipped; the app's first rows stay pinned at the top (the top
+            // exception) and the body moves down only as far as the cursor's row
+            // needs. Set in the layout pass, so inside the keyboard's own animation.
+            let placement = TerminalGridSizing(cellHeight: cell.height)
+                .keyboardPlacement(gridRows: tuiGridHold.rows(page: tuiRows), visibleHeight: tuiClip.bounds.height,
+                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+            if placement.lift != tuiKeyboardLift {
+                tuiKeyboardLift = placement.lift
+                tuiClip.bounds.origin.y = -placement.lift
+            }
+            tuiHeaderRows = placement.headerRows
+            applyTUIHeader()
         }
-        // Keyboard up: the grid's bottom rides the stack and its top is
-        // clipped; the app's first rows stay pinned at the top (the top
-        // exception) and the body moves down only as far as the cursor's row
-        // needs. Set in the layout pass, so inside the keyboard's own animation.
-        let placement = TerminalGridSizing(cellHeight: cell.height)
-            .keyboardPlacement(gridRows: tuiGridHold.rows(page: tuiRows), visibleHeight: tuiClip.bounds.height,
-                               cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
-        if placement.lift != tuiKeyboardLift {
-            tuiKeyboardLift = placement.lift
-            tuiClip.bounds.origin.y = -placement.lift
-        }
-        tuiHeaderRows = placement.headerRows
-        applyTUIHeader()
         positionHostGridNote()
         // The surface moved (a sideways pan, the rows shifted to keep the cursor): the
         // highlights move with its cells.
@@ -4832,6 +5016,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
               let frameLayer = surface.layer.sublayers?.first, let contents = frameLayer.contents,
               frameLayer.bounds.width > 0, frameLayer.bounds.height > 0 else {
             if !tuiHeader.isHidden { tuiHeader.isHidden = true }
+            if !headerGround.isHidden { headerGround.isHidden = true }
             tuiHeader.layer.contents = nil
             return
         }
@@ -4849,6 +5034,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         CATransaction.setDisableActions(true)
         if tuiHeader.frame != frame { tuiHeader.frame = frame }
         tuiHeader.backgroundColor = surface.backgroundColor
+        // See-through rows over the picture: the ground under the header hides the rows under it.
+        if headerGround.frame != frame { headerGround.frame = frame }
+        headerGround.isHidden = !pageGround.showsPicture
+        headerGround.align()
         tuiHeader.layer.contents = contents
         tuiHeader.layer.contentsRect = unit
         let hairline = 1 / (view.window?.screen.scale ?? surface.renderScale)
@@ -4886,7 +5075,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             positionHostGridNote()
             return
         }
-        let corner = layout.letterbox == nil
+        // A zoomed grid has the letterbox of its size at the zoom.
+        let letterbox = tuiZoomActive ? tuiZoomLetterbox : layout.letterbox
+        let corner = letterbox == nil
         let text = corner ? layout.compactNote ?? note : note
         if hostGridNote.text != text { hostGridNote.text = text }
         if hostGridNote.accessibilityLabel != note { hostGridNote.accessibilityLabel = note }
@@ -4901,7 +5092,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         hostGridNote.layer.borderColor = corner ? hostGridNote.textColor.withAlphaComponent(0.35).cgColor : nil
         hostGridNote.clipsToBounds = corner
         let line = ceil(hostGridNote.font.lineHeight)
-        if let box = layout.letterbox {
+        if let box = letterbox {
             hostGridNoteSpot = .letterbox(gridHeight: box.top, offset: min(8, max(0, box.height - line) / 2))
         } else {
             let pointSize = hostGridNote.font.pointSize
@@ -4960,6 +5151,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     }
 
     @objc func tuiPanned(_ pan: UIPanGestureRecognizer) {
+        if tuiZoomActive { return tuiZoomPanned(pan) }
         switch pan.state {
         case .began:
             tuiPanStartX = tuiPanX
@@ -4999,6 +5191,8 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// that is more horizontal than vertical (the app's own drag scrolls it).
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === tuiHorizontalPan, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        // A zoomed grid: one finger pans it in any direction (the app's own drag is off).
+        if tuiZoomActive { return true }
         guard model.isTUI, hostLayout.maxPanX > 0 else { return false }
         let moved = pan.translation(in: pan.view)
         let motion = moved == .zero ? pan.velocity(in: pan.view) : moved
