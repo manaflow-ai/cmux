@@ -347,6 +347,16 @@ pub struct SessionMeta {
     /// name still arrives. At most `former_names::KEPT`; no other session keeps the same one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub former_names: Vec<String>,
+    /// The sessions it took over (`acpmux succeed`), as `HOST/NAME` (or a bare NAME on this
+    /// host), each with the former names its predecessor listed. They go out in its heartbeat
+    /// row's `formerNames`, so the hub sends a message for a dead predecessor here
+    /// (plans/cmux-next/message-delivery-successors.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub succeeds: Vec<String>,
+    /// The role addresses (`goal:SLUG`, `area:NAME`, `topic:NAME`) it claimed (`acpmux role
+    /// claim`): a send to the address reaches it, here and through the hub.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<crate::mesh::RoleClaim>,
     /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
     #[serde(alias = "agent")]
     pub harness: String,
@@ -736,6 +746,10 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// A person pinned the chat to the top of their list (`_acpmux/pin`), synced to their other
+    /// replicas as `pin/<id>` (`hub/synced.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
     /// The session took its mode from the person's approval of its preset
     /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
     /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).
