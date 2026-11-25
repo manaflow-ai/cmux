@@ -130,7 +130,7 @@ import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
-import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
+import { clientSpans, hopDurations, modelFloor, readStartTrace, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -5998,6 +5998,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   writeProbe();
+  // snappy-bench/v1 (cloud-start-trace.ts): this fresh chat's send to first token, its parts, and the same model and
+  // prompt straight through the Messages API with the same login (the floor). A real-model run that made its machine.
+  const snappy = !modelStub && !reuse ? snappyRun({ steps: J.steps, run: probeRun }) : null;
+  if (snappy) {
+    const model = agent.startsWith("claude/") ? agent.slice("claude/".length) : "claude-opus-5-5";
+    const floor = agent.startsWith("claude") ? await modelFloor(process.env, model, prompt) : null;
+    const report = snappyReport([snappy], floor, { sha: process.env.GITHUB_SHA ?? null, host: process.env.RUNNER_NAME ?? "local", platform: "linux", model, runUrl: probeRun ?? null });
+    if (outDir) writeFileSync(path.join(outDir, "snappy-bench.json"), `${JSON.stringify(report)}\n`);
+    process.on("exit", () => console.log(scrub(JSON.stringify(report), J.secrets)));
+  }
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
 }

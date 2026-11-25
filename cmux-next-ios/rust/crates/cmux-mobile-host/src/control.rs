@@ -587,6 +587,8 @@ pub fn spawn_stdin_reader() -> Supplied {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
                 Some(Inbound::DropPhone { phone_device_id }) => {
+                    // A removed phone resumes no dormant tunnel either.
+                    cmux_mobile_link::dial::wireguard::dormant::forget(&phone_device_id);
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
                 }
