@@ -175,6 +175,7 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
+mod mcp_loopback;
 mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
