@@ -21,6 +21,11 @@ import UIKit
 /// the deceleration and counts as a shifted frame of its own. Every decelerating frame's velocity is
 /// logged (category `feed-shift`), so such a frame shows in the app log's timeline.
 ///
+/// A test may name the row to judge (`CMUX_MOBILE_FEED_SHIFT_WATCH=feed.row.<id>`): then that row is
+/// judged instead of the top-most one, and a row below a resized row moving (SH-11 rule b) is not
+/// counted. The rows above it are reported too
+/// (`above=…`: the most any visible row above it moved), so a test of rule (b) checks both.
+///
 /// The rig's load waits `CMUX_MOBILE_FEED_STRESS_LIVE_DELAY` seconds (default 0), so a test can
 /// place the list before rows arrive; the measure starts with it. `CMUX_MOBILE_FEED_STRESS_HEADER=S`
 /// shows and clears the Feed's refresh error every S seconds once the load starts: the header
@@ -44,6 +49,11 @@ final class FeedShiftProbe {
     private var explained: CGFloat = 0
     private var last: (id: String, screenY: CGFloat)?
     private var lastRows = 0
+    /// The row a test named (`CMUX_MOBILE_FEED_SHIFT_WATCH`), else the top-most visible row.
+    private var watched: String? = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHIFT_WATCH"]
+    /// The visible rows above the watched one, where they were on screen last frame.
+    private var lastAbove: [String: CGFloat] = [:]
+    private(set) var maxAbove: CGFloat = 0
     /// The scroll's own offset move since the last frame while decelerating, and the last frame's.
     private var decelMove: CGFloat = 0
     private var lastDecel: (move: CGFloat, at: CFTimeInterval, velocity: CGFloat?)?
@@ -133,12 +143,21 @@ final class FeedShiftProbe {
         let maxOffset = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
         let atEdge = top <= 0.5 || table.contentOffset.y >= maxOffset - 0.5
         let visibleTop = table.contentOffset.y + table.adjustedContentInset.top
-        let read = table.visibleCells
-            .compactMap { cell -> (String, CGFloat)? in
-                guard let id = cell.accessibilityIdentifier, id.hasPrefix("feed.row."), cell.frame.minY >= visibleTop - 0.5 else { return nil }
-                return (id, cell.frame.minY)
-            }
-            .min { $0.1 < $1.1 }
+        let rows = table.visibleCells.compactMap { cell -> (String, CGFloat)? in
+            guard let id = cell.accessibilityIdentifier, id.hasPrefix("feed.row."), cell.frame.minY >= visibleTop - 0.5 else { return nil }
+            return (id, cell.frame.minY)
+        }
+        let named = watched.flatMap { name in rows.first { $0.0 == name } }
+        let read = named ?? rows.min { $0.1 < $1.1 }
+        // The rows above the read row: none of them may move either (SH-11).
+        if let read, !atEdge {
+            var above: [String: CGFloat] = [:]
+            for row in rows where row.1 < read.1 { above[row.0] = row.1 - table.contentOffset.y }
+            for (id, y) in above { if let was = lastAbove[id] { maxAbove = max(maxAbove, abs((y - was) + explained)) } }
+            lastAbove = above
+        } else {
+            lastAbove = [:]
+        }
         defer {
             explained = 0
             last = read.map { (id: $0.0, screenY: $0.1 - table.contentOffset.y) }
@@ -183,8 +202,8 @@ final class FeedShiftProbe {
     }
 
     private func publish() {
-        table?.accessibilityLabel = String(format: "shift samples=%d shifted=%d max=%.2f arrivals=%d against=%d",
-                                           samples, shiftedFrames, maxShift, arrivals, againstFrames)
+        table?.accessibilityLabel = String(format: "shift samples=%d shifted=%d max=%.2f arrivals=%d against=%d above=%.2f",
+                                           samples, shiftedFrames, maxShift, arrivals, againstFrames, maxAbove)
     }
 }
 #endif

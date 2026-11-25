@@ -16,6 +16,13 @@ import XCTest
 ///   (Aziz's recording, 109.59 s: every row moved down one row with the list still).
 /// - `SettleFrame`: rows arriving as a deceleration ends, or just after (the settle frame): what
 ///   waited applies with its restore in one pass, never a frame with the rows shown before it.
+/// - `HeaderDuringDrag`: the header changes height (a refresh error comes and goes every 0.5 s) while
+///   the finger drags and while the list flings, mid-list.
+/// - `OnScreenResize` (a guard: it passes on base too, SH-11 rule b): Show more on a row below the
+///   first visible one. That row and the rows below it may move; the first row, above it, may not.
+///
+/// Not tested: an open ask resolving while it is the reader's anchor row (the next visible row must
+/// stay within 0.5 pt); the rig has no way to answer an ask on screen yet.
 ///
 /// Two loads: `feed-live` (the rig's 3 changes a second, one row in four) and `pressure84` (12 a
 /// second: three rows a second, the rate of 84 workspaces with a row each about every 30 s).
@@ -34,6 +41,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
     @MainActor func testHeaderOffTopFeedLive() { run(.headerOffTop, liveHz: 3) }
     @MainActor func testFingerRestingPressure84() { run(.fingerResting, liveHz: 12) }
     @MainActor func testSettleFramePressure84() { run(.settleFrame, liveHz: 12) }
+    @MainActor func testHeaderDuringDragFeedLive() { run(.headerDuringDrag, liveHz: 3) }
+    @MainActor func testOnScreenResizeGuard() { run(.onScreenResize, liveHz: 0) }
 
     enum Case: String {
         case drag = "Drag (rows applied while the finger moves the list)"
@@ -43,6 +52,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
         case headerOffTop = "HeaderOffTop (header re-measure off the top, no anchor)"
         case fingerResting = "FingerResting (a finger on the glass, not moving, while rows arrive)"
         case settleFrame = "SettleFrame (rows arriving as a deceleration ends)"
+        case headerDuringDrag = "HeaderDuringDrag (the header changes height while the finger drags and the list flings)"
+        case onScreenResize = "OnScreenResize guard (Show more below the first row: the first row stays)"
     }
 
     /// The rig's load starts this long after launch: the list is placed before rows arrive.
@@ -50,14 +61,15 @@ final class FeedArrivalShiftUITests: XCTestCase {
 
     @MainActor
     private func run(_ which: Case, liveHz: Int) {
-        let load = liveHz >= 12 ? "pressure84" : "feed-live"
+        let load = liveHz >= 12 ? "pressure84" : liveHz > 0 ? "feed-live" : "no-load"
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS"] = "300"
-        app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = String(liveHz)
+        if liveHz > 0 { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE"] = String(liveHz) }
         app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_LIVE_DELAY"] = String(Self.liveDelay)
         app.launchEnvironment["CMUX_MOBILE_FEED_SHIFT_PROBE"] = "1"
         if which == .headerOffTop { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "1.5" }
+        if which == .headerDuringDrag { app.launchEnvironment["CMUX_MOBILE_FEED_STRESS_HEADER"] = "0.5" }
         app.launchArguments += ["-cmux-mobile-tab", "feed", "-cmux-mobile-no-restore"]
         app.launch()
         defer { app.terminate() }
@@ -104,6 +116,28 @@ final class FeedArrivalShiftUITests: XCTestCase {
                 app.swipeUp(velocity: .slow)
                 Thread.sleep(forTimeInterval: 0.7)
             }
+        case .headerDuringDrag:
+            for _ in 0..<3 {
+                let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+                from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -300)),
+                           withVelocity: XCUIGestureVelocity(120), thenHoldForDuration: 0.4)
+            }
+            for _ in 0..<3 {
+                app.swipeUp(velocity: .fast)
+                Thread.sleep(forTimeInterval: 1.2)
+            }
+        case .onScreenResize:
+            // A Show more below the first visible row, both on screen.
+            let first = list.cells.matching(NSPredicate(format: "identifier BEGINSWITH 'feed.row.'")).allElementsBoundByIndex
+                .filter { $0.isHittable }.min { $0.frame.minY < $1.frame.minY }
+            guard let first else { return XCTFail("\(which.rawValue): no row on screen") }
+            let more = app.buttons.matching(NSPredicate(format: "label == 'Show more'")).allElementsBoundByIndex
+                .filter { $0.isHittable && $0.frame.minY > first.frame.maxY }.min { $0.frame.minY < $1.frame.minY }
+            guard let more else { return XCTFail("\(which.rawValue): no Show more below the first row on screen") }
+            more.tap()
+            Thread.sleep(forTimeInterval: 3)
+            more.tap()
+            Thread.sleep(forTimeInterval: 3)
         case .restOffTop, .restJustBelowTop, .headerOffTop:
             Thread.sleep(forTimeInterval: 10)
         }
@@ -123,7 +157,7 @@ final class FeedArrivalShiftUITests: XCTestCase {
         let maxShift = Self.number("max", in: reading)
         let arrivals = Self.number("arrivals", in: reading)
         XCTAssertGreaterThan(samples, 30, "\(which.rawValue) [\(load)]: the shift measure judged \(samples) frames: \(reading)")
-        XCTAssertGreaterThan(arrivals, 0, "\(which.rawValue) [\(load)]: no row arrived: \(reading)")
+        if liveHz > 0 { XCTAssertGreaterThan(arrivals, 0, "\(which.rawValue) [\(load)]: no row arrived: \(reading)") }
         XCTAssertTrue(maxShift <= 0.5 && shifted == 0,
                       "FEED-15 \(which.rawValue) [\(load)]: the row being read moved \(maxShift) pt in a frame the scroll does not explain, \(Int(shifted)) shifted frames: \(reading)")
     }
