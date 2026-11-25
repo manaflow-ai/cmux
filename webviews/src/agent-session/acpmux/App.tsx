@@ -5649,7 +5649,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const sessionId = snapshot.sessionId;
       const folders = sessionInfoSnapshot.summary?.additionalDirectories;
       if (!client || !sessionId || !folders) return Promise.reject(new Error(translate("error.notOpen")));
-      return client.setDirectories(folders.filter((path) => path !== folder), sessionId, folders);
+      return client.setDirectories(
+        folders.filter((path) => path !== folder),
+        sessionId,
+        folders,
+      );
     },
     [sessionInfoSnapshot.summary?.additionalDirectories, snapshot.sessionId],
   );

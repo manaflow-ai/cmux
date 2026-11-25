@@ -13835,9 +13835,7 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/set_directories", {
       sessionId,
       additionalDirectories: [...additionalDirectories],
-      ...(expectedAdditionalDirectories
-        ? { expectedAdditionalDirectories: [...expectedAdditionalDirectories] }
-        : {}),
+      ...(expectedAdditionalDirectories ? { expectedAdditionalDirectories: [...expectedAdditionalDirectories] } : {}),
     });
     if (
       generation === this.selectionGeneration &&
