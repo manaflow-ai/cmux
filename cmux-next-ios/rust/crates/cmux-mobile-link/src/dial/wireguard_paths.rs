@@ -865,7 +865,7 @@ mod tests {
         let mut last = paths.current();
         let (mut switches, mut uncarried, mut steps) = (0, 0, 0);
         while now < start + std::time::Duration::from_secs(60) {
-            let lan_up = (now - start).as_secs() % 2 == 0;
+            let lan_up = (now - start).as_secs().is_multiple_of(2);
             let route = step_busy(&mut paths, lan, now, lan_up);
             if route != last {
                 switches += 1;

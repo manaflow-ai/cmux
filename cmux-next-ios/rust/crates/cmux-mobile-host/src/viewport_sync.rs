@@ -1353,7 +1353,7 @@ mod tests {
         let mut now = start;
         for ms in 0..seconds * 1000 {
             now = start + Duration::from_millis(ms);
-            if ms % 16 == 0 {
+            if ms.is_multiple_of(16) {
                 sync.feed(format!("\x1b[H\x1b[2Kline {ms}\r\n").as_bytes());
             }
             let sent = sync.poll(now);
