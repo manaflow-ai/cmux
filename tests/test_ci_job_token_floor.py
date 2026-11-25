@@ -26,7 +26,14 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 RECURRING_RUNS_PER_DAY = 12
 
 NIGHTLY = "the NEXT nightly train: the calls under the floor are kept for it, so it takes none"
+NIGHTLY_MAIN = ("the main nightly train (hourly :17 tick since cmux#56246): these jobs run only when decide builds, "
+                "at most once per NIGHTLY_PUSH_MIN_INTERVAL_HOURS, or on a manual dispatch; the floor keeps calls for it")
 EXEMPT = {
+    "nightly.yml:promote-nightly-next": NIGHTLY_MAIN,
+    "nightly.yml:pick-nightly-app-runner": NIGHTLY_MAIN,
+    "nightly.yml:pick-classic-sign-runner": NIGHTLY_MAIN,
+    "nightly.yml:prepare-nightly-variant": NIGHTLY_MAIN,
+    "nightly.yml:publish-nightly": NIGHTLY_MAIN,
     "actions-artifact-prune.yml:prune": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",
     "ci-cla-quota-rerun.yml:cla-quota-rerun": "reads only the free /rate_limit on github.token (RATE_TOKEN); "
                                               "re-runs go on the glaeda-route App",
