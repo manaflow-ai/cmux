@@ -36,6 +36,7 @@ dependencies = [
  "cmux-command-class",
  "cmux-computer-use",
  "cmux-config",
+ "cmux-deadline",
  "cmux-device-kind",
  "cmux-egress",
  "cmux-embed",
@@ -111,6 +112,7 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "signal-hook-registry",
  "syn 2.0.119",
@@ -209,6 +211,14 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "mimalloc",
+]
+
+[[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1413,6 +1423,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cmux-cloud-config",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "crossterm",

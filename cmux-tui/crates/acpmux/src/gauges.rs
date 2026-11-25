@@ -500,13 +500,20 @@ pub const CANARY_PERIOD: Duration = Duration::from_millis(10);
 /// late by the block's length, and the next one is back at [`CANARY_PERIOD`].
 pub const CANARY_IDLE_PERIOD: Duration = Duration::from_secs(4);
 
+/// How late a wake may come with no work before the canary reads it as a block: macOS wakes a tokio
+/// sleep of 10-160 ms up to 6.7 ms late on an idle runtime (3.7 ms p50 at 10 ms; cmux-lawrence,
+/// 2026-11-24), where Linux is within a millisecond. With 2 ms here every macOS wake was a "block",
+/// the canary never backed off, and each acpmux daemon woke about 150 times a second at idle
+/// (cmux20-bench, step 7289b85b). `gauges.workerLag` still records every wake's real lateness.
+pub const CANARY_TIMER_SLACK: Duration = Duration::from_millis(10);
+
 /// How long the runtime stays quiet before the canary starts to back off.
 pub const CANARY_QUIET_BEFORE_BACKOFF: Duration = Duration::from_secs(1);
 
 /// The canary's next sleep after a wake that slept `slept` and came `late`, while the runtime's
 /// workers were busy for `busy` of it, and the runtime has been quiet for `quiet` before it. Work
-/// (workers busy over 1% of the time slept) or a late wake (over 2 ms plus 2% of the sleep, so a
-/// coalesced idle timer is not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
+/// (workers busy over 1% of the time slept) or a late wake (over [`CANARY_TIMER_SLACK`] plus 2% of
+/// the sleep, so the system's timer slack and a coalesced idle timer are not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
 /// quiet starts doubling it to [`CANARY_IDLE_PERIOD`]. Returns the sleep and the new quiet span.
 pub fn canary_next(
     slept: Duration,
@@ -515,7 +522,7 @@ pub fn canary_next(
     quiet: Duration,
 ) -> (Duration, Duration) {
     let worked = busy > slept / 100;
-    let held = late > Duration::from_millis(2) + slept / 50;
+    let held = late > CANARY_TIMER_SLACK + slept / 50;
     if worked || held {
         return (CANARY_PERIOD, Duration::ZERO);
     }
@@ -898,6 +905,32 @@ mod tests {
 
     fn runtime_spawn_blocker(block: Duration) {
         tokio::spawn(async move { std::thread::sleep(block) });
+    }
+
+    /// macOS wakes a tokio sleep late with no work at all: on a 12-worker runtime, a 10 ms sleep came
+    /// back 3.7 ms late (p50) and sleeps of 10-160 ms up to 6.7 ms late (cmux-lawrence, 2026-11-24). Read
+    /// as a block, every 10 ms wake reset the quiet span, so the canary never backed off and each
+    /// acpmux daemon woke about 150 times a second at idle (cmux20-bench, step 7289b85b).
+    #[test]
+    fn the_canary_backs_off_through_macos_timer_slack() {
+        let ms = Duration::from_millis;
+        let (mut period, mut quiet, mut wakes) = (CANARY_PERIOD, Duration::ZERO, 0);
+        while quiet < Duration::from_secs(120) && wakes < 20_000 {
+            let late = if period <= ms(160) { ms(7) } else { ms(4) };
+            (period, quiet) = canary_next(period, late, Duration::ZERO, quiet);
+            wakes += 1;
+        }
+        assert_eq!(period, CANARY_IDLE_PERIOD, "never backed off: {wakes} wakes");
+        assert!(wakes < 150, "{wakes} wakes in two quiet minutes");
+        // A block well past the slack still snaps it back.
+        assert_eq!(
+            canary_next(CANARY_IDLE_PERIOD, ms(200), Duration::ZERO, quiet),
+            (CANARY_PERIOD, Duration::ZERO)
+        );
+        assert_eq!(
+            canary_next(CANARY_PERIOD, ms(15), Duration::ZERO, quiet),
+            (CANARY_PERIOD, Duration::ZERO)
+        );
     }
 
     #[test]
