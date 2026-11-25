@@ -522,7 +522,9 @@ mod apps {
     #[test]
     fn kept_state_over_the_cap_is_refused() {
         let mut h = Harness::new(&app("return {}"));
-        h.eval(r#"for (let i = 0; i < 300; i++) cmux.state("k" + i, 0)[1](1); 0"#);
+        h.eval(
+            r#"(() => { for (let i = 0; i < 300; i++) cmux.state("k" + i, 0)[1](1); return 0 })()"#,
+        );
         assert!(
             h.kept.iter().all(|v| v.as_object().is_some_and(|m| m.len() <= 256)),
             "{:?}",
@@ -534,7 +536,7 @@ mod apps {
             h.logs
         );
         let before = h.kept.len();
-        h.eval(r#"cmux.state("big", "")[1]("x".repeat(70000)); 0"#);
+        h.eval(r#"(() => { cmux.state("big", "")[1]("x".repeat(70000)); return 0 })()"#);
         assert_eq!(h.kept.len(), before);
         assert!(h.logs.iter().any(|(l, m)| l == "warn" && m.contains("byte cap")), "{:?}", h.logs);
 
