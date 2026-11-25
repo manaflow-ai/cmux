@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::history_ops::ledger;
@@ -72,14 +72,7 @@ pub(crate) fn dispatch(
     fingerprint_fields.insert("selectors".into(), json!(request.selectors));
     let fingerprint = ledger::fingerprint(operation, &fingerprint_fields);
     if ledger::seen(mux, key, operation)? {
-        return ledger::commit(
-            mux,
-            key,
-            operation,
-            &fingerprint,
-            &Value::Null,
-            &request.actor,
-        );
+        return ledger::commit(mux, key, operation, &fingerprint, &Value::Null, &request.actor);
     }
     let value = match request.envelope.operation {
         ResourceOperation::BrowserProfileCreate => create(mux, &request, key)?,
@@ -91,21 +84,11 @@ pub(crate) fn dispatch(
 
 /// The tab keeps its id and place; its record names the profile.
 fn set_profile(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let profile = request
-        .fields
-        .get("profile")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let profile = request.fields.get("profile").and_then(Value::as_str).unwrap_or_default();
     let path = mux.resolve_resource_path(ResourceTarget::Tab, &request.selectors)?;
-    let tab = path
-        .tab
-        .ok_or_else(|| ResourceError::not_found("tab", "tab"))?;
+    let tab = path.tab.ok_or_else(|| ResourceError::not_found("tab", "tab"))?;
     let surface = mux
-        .with_state(|state| {
-            state
-                .surface_by_tab_public_id(&tab)
-                .map(|surface| surface.id)
-        })
+        .with_state(|state| state.surface_by_tab_public_id(&tab).map(|surface| surface.id))
         .ok_or_else(|| ResourceError::not_found("tab", tab.as_str()))?;
     let (record, changed) = mux
         .update_frontend_browser_tab_with_owner_and_profile_as(
@@ -138,11 +121,8 @@ fn list(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
     let snapshot = mux.personal_snapshot().map_err(|error| {
         ResourceError::operation_failed("browser.profile.list", error.to_string(), json!({}))
     })?;
-    let rows = snapshot
-        .browser_profiles
-        .iter()
-        .map(public_profile)
-        .collect::<Result<Vec<_>, _>>()?;
+    let rows =
+        snapshot.browser_profiles.iter().map(public_profile).collect::<Result<Vec<_>, _>>()?;
     Ok(json!({"browser_profiles": rows}))
 }
 
@@ -199,14 +179,7 @@ fn profile_id_for_key(key: &str) -> String {
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
-    )
+    format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
 }
 
 /// `browser.profile.open`: a frontend browser tab whose record names the
@@ -254,10 +227,7 @@ fn open(
         // The app that shows the tab claims the record; a caller never does.
         owner: None,
     };
-    let activate = fields
-        .get("activate")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
+    let activate = fields.get("activate").and_then(Value::as_bool).unwrap_or(true);
     let outcome = mux
         .new_frontend_browser_tab_keyed_as(
             &request.actor,
@@ -265,18 +235,12 @@ fn open(
             record,
             None,
             &tab_key(key),
-            FrontendTabPlacement {
-                activate,
-                after: None,
-                index: None,
-            },
+            FrontendTabPlacement { activate, after: None, index: None },
         )
         .map_err(|error| registry_error(error, OPEN, key))?;
     let surface = &outcome.surface;
     let failed = |reason: &str| ResourceError::operation_failed(OPEN, reason, json!({}));
-    let identity = surface
-        .resource_identity()
-        .ok_or_else(|| failed("the new tab has no id"))?;
+    let identity = surface.resource_identity().ok_or_else(|| failed("the new tab has no id"))?;
     let ContentPublicId::Browser(browser) = &identity.content_id else {
         return Err(failed("the new tab is not a browser"));
     };
@@ -379,9 +343,7 @@ fn target_pane(
         return Ok(None);
     }
     let path = mux.resolve_resource_path(ResourceTarget::Pane, selectors)?;
-    let public = path
-        .pane
-        .ok_or_else(|| ResourceError::not_found("pane", "pane"))?;
+    let public = path.pane.ok_or_else(|| ResourceError::not_found("pane", "pane"))?;
     mux.with_state(|state| state.pane_by_public_id(&public).map(|pane| pane.id))
         .map(Some)
         .ok_or_else(|| ResourceError::not_found("pane", public.as_str()))
