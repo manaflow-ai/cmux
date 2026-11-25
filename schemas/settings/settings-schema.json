@@ -1737,6 +1737,7 @@
               "notifications.sounds.events.bell",
               "notifications.sounds.events.message",
               "notifications.sounds.volume",
+              "notifications.sounds.maxSeconds",
               "notifications.sounds.when",
               "notifications.sounds.cooldownSeconds"
             ],
@@ -2396,6 +2397,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.appStore",
               "labs.liveTree",
               "labs.voiceRoom",
               "labs.voiceRoomURL",
@@ -2404,6 +2406,7 @@
               "labs.pauseAgentMachines",
               "customize.fromTheApp",
               "labs.agentCustomization",
+              "labs.previousBuild",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -92060,7 +92063,8 @@
       "default" : [
         "media",
         "zoom",
-        "downloads"
+        "downloads",
+        "profile"
       ],
       "default_label" : null,
       "group" : {
@@ -110018,6 +110022,149 @@
     },
     {
       "accepts" : [
+        0,
+        30,
+        15
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.maxSeconds.help",
+        "text" : "Sounds cmux plays itself stop after this long. 0 plays the whole sound."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.maxSeconds",
+      "keywords" : [
+        "sound",
+        "length",
+        "duration",
+        "seconds",
+        "stop"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "maxSeconds"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 30,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -30,
+        60,
+        "1"
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.sounds.maxSeconds"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.sounds.maxSeconds",
+        "text" : "Sound Duration"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "unlessViewed",
         "whenInactive",
         "always"
@@ -111391,6 +111538,141 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.appStore.help",
+        "text" : "Browse, install and update apps for cmux. Still being shaped."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.appStore",
+      "keywords" : [
+        "labs",
+        "app store",
+        "apps",
+        "store",
+        "extensions",
+        "install"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "appStore"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.appStore"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.appStore",
+        "text" : "Show App Store"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -112468,6 +112750,144 @@
       "title" : {
         "key" : "settings.labs.agentCustomization",
         "text" : "Claude Code and Codex Customization"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.previousBuild.help",
+        "text" : "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.previousBuild",
+      "keywords" : [
+        "labs",
+        "update",
+        "updates",
+        "rollback",
+        "previous",
+        "build",
+        "version",
+        "go back",
+        "downgrade"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "previousBuild"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.previousBuild"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.previousBuild",
+        "text" : "Go Back to Previous Build"
       },
       "validation" : "portable"
     },
