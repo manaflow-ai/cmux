@@ -301,7 +301,7 @@ fn classic_strokes_and_chords() {
 #[test]
 fn classic_empty_key_is_an_unbind_and_media_keys_stay_behind() {
     let cleared = classic_binding(&stored("", "", None)).unwrap();
-    assert_eq!(shortcut::parse(&cleared), Some(shortcut::Binding::Unbound));
+    assert_eq!(shortcut::parse(&cleared), Some(Binding::Unbound));
     assert_eq!(classic_binding(&stored("media.playpause", "", None)), None);
     // A named key next knows comes over as written.
     let left = classic_binding(&stored("left", "c", None)).unwrap();

@@ -431,8 +431,8 @@ fn ns_bool(value: &Value) -> Option<bool> {
     match value {
         Value::Bool(flag) => Some(*flag),
         Value::Number(number) => match number.as_f64() {
-            Some(n) if n == 0.0 => Some(false),
-            Some(n) if n == 1.0 => Some(true),
+            Some(0.0) => Some(false),
+            Some(1.0) => Some(true),
             _ => None,
         },
         _ => None,
