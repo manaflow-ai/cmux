@@ -63,6 +63,11 @@ struct DividerDragState {
     var tree: SplitNode?
     /// A column edge in the strip: the scrolling columns at the start, for Option and Command.
     var strip: StripStart?
+    /// A strip column edge pressed while the strip overflows with its camera at the strip's end (#55403): the camera
+    /// cannot move there, so a width change alone leaves the edge where it was on screen (a narrower column only slides
+    /// the camera back, and a release reveal undoes a wider one). The plain drag trades its points with the next column,
+    /// as Option does: the content keeps its width, the camera stays, and the edge follows the pointer.
+    var tradesAtStripEnd = false
     /// Splits and columns the drag sets now: one it stops setting goes back to its start.
     var touched: Set<DividerDragValueKey> = []
     /// The mode hint shown (`DividerDrag.showHint`).

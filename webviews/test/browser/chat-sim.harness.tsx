@@ -18,6 +18,7 @@ import type { EventRecord } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { playbackAt, playbackWindow } from "../../src/agent-session/acpmux/sim/playback";
 import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
+import { runLayoutCase } from "./layoutCaseRunner";
 import { watchChurn, type ChurnReport } from "./chatChurnWatch";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
@@ -43,12 +44,13 @@ if (query.get("motion") !== "on") {
   document.documentElement.dataset.cmuxMotion = "off";
 }
 
-type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number };
+type PaneState = { rows: readonly AcpmuxRow[]; working: boolean; sends: number; sessionId?: string };
 let show: (next: PaneState) => void = () => {};
 const expanded = new Set<string>();
 
 function Pane() {
   const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
+  const sessionId = state.sessionId ?? "chat-sim";
   // The page drives the pane through `show`; it is set after the first render, not during one.
   useLayoutEffect(() => {
     show = setState;
@@ -60,7 +62,7 @@ function Pane() {
           <header className="acpmux-header" />
           <VirtualTranscript
             rows={state.rows as AcpmuxRow[]}
-            sessionId="chat-sim"
+            sessionId={sessionId}
             working={state.working}
             sends={state.sends}
             onToggleActivity={() => {}}
@@ -177,6 +179,14 @@ async function at(name: string, until: number) {
   });
   return dump();
 }
+
+/** Plays one case of the layout-shift case space (sim/layoutCases.ts) with motion on; see layoutCaseRunner.ts. */
+const runCase = (id: string) =>
+  runLayoutCase(id, {
+    root,
+    show: (next) => flushSync(() => show(next)),
+    simulate: createSimulation,
+  });
 
 export type WatchOptions = {
   /** A scenario name (as `run` takes), unless `records` is given. */
@@ -394,4 +404,4 @@ async function live(name: string, { maxWaitMs = 3_000 }: { maxWaitMs?: number } 
   return watch.stop();
 }
 
-Object.assign(window, { __chatSim: { run, at, dump, watch, live, seek } });
+Object.assign(window, { __chatSim: { run, at, dump, watch, live, seek, runCase } });
