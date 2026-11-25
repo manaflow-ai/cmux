@@ -1821,13 +1821,13 @@
       }
     },
     "mobile.github.loginCantReach": {
-      "comment": "A Cloud chat's start: the gh login carried to the machine (%1$@, a GitHub user name) can't read the repository (%2$@, owner/name).",
+      "comment": "A Cloud chat's start: the gh login carried to the machine (%1$@, a GitHub user name) has no access to the repository (%2$@, owner/name).",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub account %1$@ can't reach %2$@. Sign in with GitHub to give Cloud access."
+            "value": "GitHub account %1$@ doesn't have access to %2$@. Sign in with GitHub to give Cloud access."
           }
         },
         "de": {
@@ -1845,7 +1845,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن لحساب GitHub ‏%1$@ الوصول إلى %2$@. سجّل الدخول باستخدام GitHub لمنح Cloud الوصول."
+            "value": "ليس لحساب GitHub ‏%1$@ صلاحية الوصول إلى %2$@. سجّل الدخول باستخدام GitHub لمنح Cloud الوصول."
           }
         },
         "es": {
@@ -1857,37 +1857,37 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 帳號 %1$@ 無法存取 %2$@。使用 GitHub 登入以授予 Cloud 存取權。"
+            "value": "GitHub 帳號 %1$@ 沒有 %2$@ 的存取權。使用 GitHub 登入以授予 Cloud 存取權。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 账号 %1$@ 无法访问 %2$@。使用 GitHub 登录以授予 Cloud 访问权限。"
+            "value": "GitHub 账号 %1$@ 没有 %2$@ 的访问权限。使用 GitHub 登录以授予 Cloud 访问权限。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 계정 %1$@은(는) %2$@에 접근할 수 없습니다. GitHub로 로그인하여 Cloud에 접근 권한을 주세요."
+            "value": "GitHub 계정 %1$@에는 %2$@에 대한 접근 권한이 없습니다. GitHub로 로그인하여 Cloud에 접근 권한을 주세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub アカウント %1$@ は %2$@ にアクセスできません。GitHub でサインインして Cloud にアクセス権を与えてください。"
+            "value": "GitHub アカウント %1$@ には %2$@ へのアクセス権がありません。GitHub でサインインして Cloud にアクセス権を与えてください。"
           }
         }
       }
     },
     "mobile.github.loginCantReach.noRepo": {
-      "comment": "A Cloud chat's start: the gh login carried to the machine (%@, a GitHub user name) can't read its repository.",
+      "comment": "A Cloud chat's start: the gh login carried to the machine (%@, a GitHub user name) has no access to its repository.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub account %@ can't reach this repository. Sign in with GitHub to give Cloud access."
+            "value": "GitHub account %@ doesn't have access to this repository. Sign in with GitHub to give Cloud access."
           }
         },
         "de": {
@@ -1905,7 +1905,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن لحساب GitHub ‏%@ الوصول إلى هذا المستودع. سجّل الدخول باستخدام GitHub لمنح Cloud الوصول."
+            "value": "ليس لحساب GitHub ‏%@ صلاحية الوصول إلى هذا المستودع. سجّل الدخول باستخدام GitHub لمنح Cloud الوصول."
           }
         },
         "es": {
@@ -1917,25 +1917,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 帳號 %@ 無法存取這個儲存庫。使用 GitHub 登入以授予 Cloud 存取權。"
+            "value": "GitHub 帳號 %@ 沒有這個儲存庫的存取權。使用 GitHub 登入以授予 Cloud 存取權。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 账号 %@ 无法访问此仓库。使用 GitHub 登录以授予 Cloud 访问权限。"
+            "value": "GitHub 账号 %@ 没有此仓库的访问权限。使用 GitHub 登录以授予 Cloud 访问权限。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 계정 %@은(는) 이 저장소에 접근할 수 없습니다. GitHub로 로그인하여 Cloud에 접근 권한을 주세요."
+            "value": "GitHub 계정 %@에는 이 저장소에 대한 접근 권한이 없습니다. GitHub로 로그인하여 Cloud에 접근 권한을 주세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub アカウント %@ はこのリポジトリにアクセスできません。GitHub でサインインして Cloud にアクセス権を与えてください。"
+            "value": "GitHub アカウント %@ にはこのリポジトリへのアクセス権がありません。GitHub でサインインして Cloud にアクセス権を与えてください。"
           }
         }
       }

@@ -220,10 +220,10 @@ public enum GitHubSignInWords {
         String(localized: "mobile.github.cloneNeedsAccess.noRepo", defaultValue: "Sign in with GitHub so Cloud can clone this repository.", bundle: .module)
     }
     static var loginCantReach: String {
-        String(localized: "mobile.github.loginCantReach", defaultValue: "GitHub account %1$@ can't reach %2$@. Sign in with GitHub to give Cloud access.", bundle: .module)
+        String(localized: "mobile.github.loginCantReach", defaultValue: "GitHub account %1$@ doesn't have access to %2$@. Sign in with GitHub to give Cloud access.", bundle: .module)
     }
     static var loginCantReachRepo: String {
-        String(localized: "mobile.github.loginCantReach.noRepo", defaultValue: "GitHub account %@ can't reach this repository. Sign in with GitHub to give Cloud access.", bundle: .module)
+        String(localized: "mobile.github.loginCantReach.noRepo", defaultValue: "GitHub account %@ doesn't have access to this repository. Sign in with GitHub to give Cloud access.", bundle: .module)
     }
     static var permissionsPending: String {
         String(localized: "mobile.github.permissionsPending", defaultValue: "GitHub needs you to accept cmux's updated permissions", bundle: .module)

@@ -19,10 +19,10 @@ import Testing
         #expect(GitHubSignInNeed(startCode: nil, details: details) == nil)
     }
 
-    @Test func aCarriedLoginThatCantReachTheRepositoryIsNamed() throws {
+    @Test func aCarriedLoginWithNoAccessToTheRepositoryIsNamed() throws {
         let details: JSONValue = .object(["repo": .string("acme/web"), "githubLogin": .string("carried"), "githubUser": .string("octo")])
         let need = try #require(GitHubSignInNeed(startCode: "seed.needs_github", details: details))
-        #expect(need.line == "GitHub account octo can't reach acme/web. Sign in with GitHub to give Cloud access.")
+        #expect(need.line == "GitHub account octo doesn't have access to acme/web. Sign in with GitHub to give Cloud access.")
         // A login that was not carried, or a user name GitHub would not allow, is not named.
         let notCarried: JSONValue = .object(["repo": .string("acme/web"), "githubLogin": .string("not_carried"), "githubUser": .string("octo")])
         #expect(try #require(GitHubSignInNeed(startCode: "seed.needs_github", details: notCarried)).line
