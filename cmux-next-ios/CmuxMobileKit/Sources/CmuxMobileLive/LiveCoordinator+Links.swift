@@ -288,6 +288,14 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        #if canImport(CmuxMobileLinkFFI)
+        // Other devices waiting for this Mac's Allow, answered from here (ask-45c37458ea).
+        pairRequests.linkServed(macID: macID, source: MacPairRequests.Source(
+            link: { [weak session] in session?.servedLink },
+            name: { [weak session] in session?.name ?? "" },
+            capabilities: { [weak self] in self?.store.macCapabilities[macID] }
+        ))
+        #endif
         // The Mac's tabs (titles, favicons, pictures, terminal screens), for as long as this link lives.
         let tabs = self.tabs
         Task { await tabs.read(on: link, macID: macID) }
@@ -465,6 +473,10 @@ extension LiveCoordinator {
         let protocolVersion = object?["link"] as? Int ?? 1
         let capabilities = Set(object?["capabilities"] as? [String] ?? [])
         if store.macCapabilities[macID] != capabilities { store.macCapabilities[macID] = capabilities }
+        #if canImport(CmuxMobileLinkFFI)
+        // The signal a pairing-requests poll that found no capabilities yet waits for (ask-45c37458ea).
+        pairRequests.capabilitiesKnown(macID: macID)
+        #endif
         // The Mac is up and said what it serves: Chief info's Computer card reads its Cloud directory again.
         ChiefComputer.shared.macChanged()
         log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
@@ -1159,7 +1171,7 @@ extension LiveCoordinator {
             guard let target = session.link.target else { continue }
             let phase = session.link.phase
             let quietOver = session.linkDownSince.map { now - $0 >= QuietStatusGate.threshold } ?? false
-            var line = phase.statusLine(macName: target.name, media: session.link.media)
+            var line = phase.statusLine(macName: target.name, media: session.link.media, block: session.link.networkBlock)
             if phase != .signedOut, !quietOver { line = nil }
             // Keep the section header actionable and calm. Raw acpmux/daemon
             // failures belong in diagnostics, never in the normal status line.
@@ -1195,7 +1207,8 @@ extension LiveCoordinator {
             if store.macLinkDiagnostics.removeValue(forKey: session.macID) != nil { return }
             return
         }
-        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
+        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media,
+                                                       block: session.link.networkBlock)]
         if let error = session.chatsError { parts.append("Chats: \(error)") }
         if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }
         let detail = parts.compactMap { $0 }.joined(separator: "\n")

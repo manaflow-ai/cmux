@@ -22,24 +22,46 @@ public final class TerminalFindController {
     /// The text searched for. Kept after the bar closes.
     public private(set) var query = ""
     /// Number of matches, nil until the search reports it.
-    public private(set) var total: Int?
+    public internal(set) var total: Int?
     /// Ghostty's 0-based index of the selected match, nil when none is selected.
-    public private(set) var selected: Int?
+    public internal(set) var selected: Int?
     /// Increments each time the bar should take the keyboard with its
     /// query selected; the view focuses its field on every change.
     public private(set) var focusRequest = 0
 
+    /// The match kinds the daemon's history search honors.
+    public internal(set) var options = TerminalFindOptions()
+    /// The regex's compile error while it does not compile.
+    public internal(set) var invalidPattern: String?
+    /// Older rows are still being read: ``total`` only grows.
+    public internal(set) var isSearching = false
+    /// Matches come from the daemon's whole-history search, not Ghostty's screen search. False
+    /// for a terminal with no daemon or one too old to serve `terminal-find`, which also have
+    /// no case, whole-word or regex options.
+    public internal(set) var searchesHistory = false
+
     /// What the count label shows.
     public var count: TerminalFindCount {
-        TerminalFindCount(query: query, total: total, selected: selected)
+        TerminalFindCount(query: query, total: total, selected: selected, searching: isSearching, invalidPattern: invalidPattern)
     }
+
+    /// Whether the bar offers the case, whole-word and regex toggles.
+    public var offersOptions: Bool { target?.historyFind != nil && !historyUnavailable }
 
     /// The terminal searched. Weak: the session owns this controller.
     @ObservationIgnored public weak var target: (any TerminalFindTarget)?
     /// The query changed and no match has been selected for it yet.
-    @ObservationIgnored private var revealPending = false
+    @ObservationIgnored var revealPending = false
     /// The reveal's `navigate(.next)` was sent and its selection is awaited.
     @ObservationIgnored private var revealSent = false
+    /// The daemon's matches so far, newest first, and the terminal's width.
+    @ObservationIgnored var matches: [TerminalFindMatch] = []
+    @ObservationIgnored var columns = 80
+    @ObservationIgnored var searchTask: Task<Void, Never>?
+    /// Bumped by every new search; a page that comes back for an older one is dropped.
+    @ObservationIgnored var searchGeneration = 0
+    /// The daemon could not serve a search (too old): Ghostty's screen search takes over.
+    @ObservationIgnored var historyUnavailable = false
 
     /// - Parameter target: The terminal to search; set later when it
     ///   needs this controller to exist first.
@@ -79,7 +101,7 @@ public final class TerminalFindController {
         guard text != query else { return }
         // Ghostty matches case-insensitively and ignores a needle that
         // differs only in case, reporting nothing new: keep the results.
-        let unchanged = isPresented && !text.isEmpty && text.lowercased() == query.lowercased()
+        let unchanged = !historyActive && isPresented && !text.isEmpty && text.lowercased() == query.lowercased()
         query = text
         if unchanged {
             target?.setSearchNeedle(text)
@@ -101,6 +123,7 @@ public final class TerminalFindController {
         // The user is stepping now; a pending reveal would skip a match.
         revealPending = false
         revealSent = false
+        if searchesHistory { return stepHistory(direction) }
         target?.navigateSearch(direction)
     }
 
@@ -142,6 +165,7 @@ public final class TerminalFindController {
 
     /// Ghostty's match count for the current needle (nil when the search stopped).
     public func receiveTotal(_ total: Int?) {
+        guard !searchesHistory else { return } // the daemon's count is the one shown
         self.total = total
         guard let total, total > 0 else {
             // A new needle restarts the count at zero; a reveal sent for
@@ -158,19 +182,31 @@ public final class TerminalFindController {
 
     /// Ghostty's selected match index (nil when none is selected).
     public func receiveSelected(_ selected: Int?) {
+        guard !searchesHistory else { return }
         self.selected = selected
         guard selected != nil else { return }
         revealPending = false
         revealSent = false
     }
 
-    private func search(_ text: String) {
+    func search(_ text: String) {
         resetResults()
+        if historyActive { return searchHistory() }
         revealPending = !text.isEmpty
         target?.setSearchNeedle(text)
     }
 
-    private func resetResults() {
+    /// Whether this search goes to the daemon.
+    var historyActive: Bool { target?.historyFind != nil && !historyUnavailable }
+
+    func resetResults() {
+        searchGeneration += 1
+        searchTask?.cancel()
+        searchTask = nil
+        matches = []
+        invalidPattern = nil
+        isSearching = false
+        searchesHistory = false
         total = nil
         selected = nil
         revealPending = false

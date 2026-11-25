@@ -255,6 +255,7 @@ impl Peer {
                 return;
             }
         }
+        self.watch_tailnet();
         let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
             crate::gauges::bump(&crate::gauges::links().link_dials);
@@ -539,7 +540,10 @@ impl Peer {
     pub(super) fn initialize_hello(&self) -> Value {
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
             // Large replies (the session list) may come compressed (`frame_compress.rs`).
-            "_meta": {"acpmux": {"compression": crate::frame_compress::offer()}}});
+            "_meta": {"acpmux": {"compression": crate::frame_compress::offer(),
+                // What this build reads (`server/client_features.rs`): the peer sends a gated
+                // notification only once it is listed.
+                crate::server::client_features::FIELD: crate::server::client_features::own()}}});
         // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
         if self.github_broker() {
             hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
@@ -815,6 +819,13 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let channels = init
+                .pointer("/_meta/acpmux/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(crate::server::channels::CAPABILITY))
+                });
+            me.agent_channels.store(channels, Ordering::SeqCst);
             let follows =
                 init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),

@@ -15,7 +15,6 @@ use super::*;
 use crate::workspace_registry::workspace_rows_commit::{
     MovedWorkspace, later_workspace_rows, stored_live_workspace,
 };
-use cmux_json::JsonGet as _;
 
 /// One new workspace and its place in the order (the count of workspaces for
 /// an append): a commit that adds it and changes nothing else.

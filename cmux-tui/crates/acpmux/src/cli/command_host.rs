@@ -54,7 +54,16 @@ pub enum PeerCmd {
     /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
-    Load,
+    /// `--watch`: sample once a second and print one JSON line each time a line
+    /// is crossed (memory available under 25% / 10%, an OOM kill, CPU saturated
+    /// 5 minutes, disk under 10% or 2 GiB), until stdout closes.
+    Load {
+        /// Sample once a second and print an event line when a line is crossed.
+        #[arg(long)]
+        watch: bool,
+        #[command(flatten)]
+        lines: crate::host_load_watch::Lines,
+    },
     /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
     /// it in the background when the last split is old.
     #[command(name = "disk-walk", hide = true)]
@@ -344,6 +353,18 @@ pub enum PeerCmd {
         /// Also try key-only ssh to each online machine.
         #[arg(long)]
         probe: bool,
+    },
+    /// A unix socket here that reaches OWNER's lane-gh broker over the held carrier link (RFD
+    /// 0127 cut 2) instead of an `ssh -R` forward: one carrier stream per connection, so
+    /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
+    /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
+    BrokerForward {
+        /// The machine whose broker to reach (its name in the hub's address book).
+        #[arg(value_name = "OWNER")]
+        owner: String,
+        /// Where to listen (a stale socket there is replaced; a served one is left alone).
+        #[arg(long, value_name = "PATH")]
+        socket: std::path::PathBuf,
     },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
