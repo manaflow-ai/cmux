@@ -1,0 +1,71 @@
+{
+  "envs": [["dark", "none"]],
+  "shots": [
+    {
+      "name": "send-working-24",
+      "entry": "agent-pane.woken-turn-gap",
+      "variant": "send-working-24",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "send-working-16",
+      "entry": "agent-pane.woken-turn-gap",
+      "variant": "send-working-16",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "send-working-8",
+      "entry": "agent-pane.woken-turn-gap",
+      "variant": "send-working-8",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "woken-tool-24",
+      "entry": "agent-pane.woken-turn-gap",
+      "variant": "woken-tool-24",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "woken-tool-16",
+      "entry": "agent-pane.woken-turn-gap",
+      "variant": "woken-tool-16",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    },
+    {
+      "name": "woken-tool-8",
+      "entry": "agent-pane.woken-turn-gap",
+      "variant": "woken-tool-8",
+      "width": 760,
+      "height": 520,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": ""
+      }
+    }
+  ]
+}
