@@ -514,7 +514,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 // Back walks the page history first, then leaves the workspace.
                 navigation: TabsKitNavigationState(canGoBack: true, canGoForward: model?.canGoForward ?? false,
                                                    isLoading: model?.isLoading ?? false, progress: model?.progress ?? 1),
-                features: .web
+                features: .web,
+                // The page's own top color runs up under the horizontal tabs' bar.
+                pageColor: (model as? BrowserTabModel)?.topColor.map { Color(uiColor: $0) }
             )
         case .simulator:
             // A Mac phone tab: no address or page history; Back leaves the workspace.
