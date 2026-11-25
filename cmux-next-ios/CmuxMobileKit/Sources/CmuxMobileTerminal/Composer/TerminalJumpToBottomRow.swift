@@ -61,7 +61,7 @@ struct TerminalJumpToBottomRow: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.cmuxPressFillInLabel)
-                .sensoryFeedback(.impact(weight: .light), trigger: taps)
+                .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
                 .accessibilityLabel("Scroll to bottom")
                 .accessibilityIdentifier("terminal.jumpToBottom")
                 // It rises out of the key row: up 14 pt from 92 % and
