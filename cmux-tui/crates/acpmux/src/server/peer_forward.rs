@@ -68,6 +68,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_GITHUB_ACTION,
     // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
     method::MUX_GITHUB_APP_LEASE,
+    // So are the app's own GitHub calls with it (`github_rest_op.rs`).
+    method::MUX_GITHUB_REST,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -108,6 +110,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
     method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
@@ -484,7 +488,8 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 }
 
 /// Whether request `m` says a person is writing to the chat: typing turned on
-/// (`_acpmux/typing`), or a surface's unsent text that is not blank (`_acpmux/composer_set`).
+/// (`_acpmux/typing`), or a surface's unsent draft that is not blank: text, or an image
+/// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
 fn composing(m: &str, params: &Value) -> bool {
@@ -492,6 +497,7 @@ fn composing(m: &str, params: &Value) -> bool {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {
             params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+                || params.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty())
         }
         _ => false,
     }
@@ -747,6 +753,15 @@ async fn forward_inner(
         if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
+        // Every other method a peer feature gates (`peer::PEER_FEATURES`) goes only to a peer
+        // that listed one of its features; a link that is down lists none, so it is unreachable.
+        let features = crate::peer::features_gating(m);
+        if !features.is_empty() && !features.iter().any(|f| peer.lists(f)) {
+            if !peer.ready() {
+                return Err(peer.unreachable_error());
+            }
+            return Err(peer_feature_unsupported(&peer, m, &features));
         }
         // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
         // forwarded, whatever the peer serves this link as, one entry there would stand for
@@ -1616,6 +1631,17 @@ mod message_identity_tests {
 #[cfg(test)]
 #[path = "row_read_tests.rs"]
 mod row_read_tests;
+
+/// A method `features` gate, for a peer that listed none of them: its build does not serve it.
+fn peer_feature_unsupported(peer: &crate::peer::Peer, m: &str, features: &[&str]) -> RpcError {
+    RpcError::method_not_found(&format!(
+        "{m} (peer {} runs acpmux build {}, which lists none of {features:?}; run `acpmux machine update {}`)",
+        peer.name,
+        peer.remote_build().unwrap_or_else(|| "unknown".into()),
+        peer.name
+    ))
+    .with_data(json!({"reason": "peerFeature.unsupported", "peer": peer.name, "features": features}))
+}
 
 #[cfg(test)]
 #[path = "prompt_link_wait_tests.rs"]
