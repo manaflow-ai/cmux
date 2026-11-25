@@ -948,6 +948,10 @@ impl Hub {
                         .provenance
                         .clone()
                         .filter(|p| super::inbox::is_notice(Some(p))),
+                    origin: Some(super::queue_origin::of(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    )),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,
