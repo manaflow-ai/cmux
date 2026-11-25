@@ -246,6 +246,11 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// The timers of the /loops its live agent armed, as that agent last said
+    /// (`agent_timer.rs`): `(due time, recurring)` each. Kept beside the goal, not in it: a
+    /// `goal_set` replaces the goal and left the timers unseen, and the saved goal outlives a
+    /// reboot that ended the agent holding them. Memory only, cleared with the agent.
+    pub(super) loop_timers: StdMutex<Option<Vec<(Option<u64>, bool)>>>,
     /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
     /// while none does (`asks_below.rs`).
     pub(super) asks_below: StdMutex<(u32, u64)>,
@@ -568,6 +573,9 @@ pub struct Session {
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,
+    /// The harness exited while it started, with the same error again: starts fail with it
+    /// until a bounded, doubling window passed (`launch_backoff.rs`).
+    pub(super) launch_backoff: super::launch_backoff::LaunchBackoff,
     /// The agent's own requests (a file read, a terminal, a permission) whose task has not
     /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
     pub(super) agent_requests: std::sync::atomic::AtomicUsize,
@@ -706,6 +714,7 @@ impl Session {
     pub(crate) fn person_wrote(&self) {
         self.person.store(true, Ordering::SeqCst);
         self.policy_refusal.clear();
+        self.launch_backoff.clear();
     }
 
     /// Fence untagged compaction metadata for this live session. Claude's
