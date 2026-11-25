@@ -13,26 +13,30 @@ fn control_socket_matches_the_app_table() {
         (
             Some("com.cmuxterm.app.debug.Feat_X"),
             None,
-            "/Users/a/.local/state/cmux/cmux-debug--ec0e7410.sock",
+            "/Users/a/.local/state/cmux-next/cmux-debug--ec0e7410.sock",
         ),
         (
             Some("com.cmuxterm.app.debug"),
             Some("clic"),
-            "/Users/a/.local/state/cmux/cmux-debug-clic.sock",
+            "/Users/a/.local/state/cmux-next/cmux-debug-clic.sock",
         ),
         (
             Some("com.cmuxterm.app.debug"),
             None,
-            "/Users/a/.local/state/cmux/cmux-debug--650e93e3.sock",
+            "/Users/a/.local/state/cmux-next/cmux-debug--650e93e3.sock",
         ),
-        (None, Some("nx9"), "/Users/a/.local/state/cmux/cmux-debug-nx9.sock"),
-        (Some("com.cmuxterm.app.nightly"), None, "/Users/a/.local/state/cmux/cmux-nightly.sock"),
+        (None, Some("nx9"), "/Users/a/.local/state/cmux-next/cmux-debug-nx9.sock"),
+        (
+            Some("com.cmuxterm.app.nightly"),
+            None,
+            "/Users/a/.local/state/cmux-next/cmux-nightly.sock",
+        ),
         (
             Some("com.cmuxterm.app.rc.try2"),
             None,
-            "/Users/a/.local/state/cmux/cmux-rc--36529c0e.sock",
+            "/Users/a/.local/state/cmux-next/cmux-rc--36529c0e.sock",
         ),
-        (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux/cmux.sock"),
+        (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux-next/cmux.sock"),
     ];
     for (bundle, tag, expected) in cases {
         assert_eq!(
@@ -41,6 +45,32 @@ fn control_socket_matches_the_app_table() {
             "{bundle:?} {tag:?}"
         );
     }
+}
+
+/// An app from before the move to `~/.local/state/cmux-next` is reached where it
+/// listens, in classic's `~/.local/state/cmux`; once the new socket exists it
+/// wins. Release's `cmux.sock` never falls back there (classic's own release
+/// socket has that name).
+#[test]
+fn control_socket_reaches_an_app_from_before_the_move() {
+    let home = tempfile::tempdir().unwrap();
+    let nightly = identity(Some("com.cmuxterm.app.nightly"), None);
+    let new = home.path().join(".local/state/cmux-next/cmux-nightly.sock");
+    let before = home.path().join(".local/state/cmux/cmux-nightly.sock");
+    assert_eq!(nightly.control_socket(home.path()), new);
+    std::fs::create_dir_all(before.parent().unwrap()).unwrap();
+    std::fs::write(&before, b"").unwrap();
+    assert_eq!(nightly.control_socket(home.path()), before);
+    std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+    std::fs::write(&new, b"").unwrap();
+    assert_eq!(nightly.control_socket(home.path()), new);
+
+    let release = identity(Some("com.cmuxterm.app"), None);
+    std::fs::write(home.path().join(".local/state/cmux/cmux.sock"), b"").unwrap();
+    assert_eq!(
+        release.control_socket(home.path()),
+        home.path().join(".local/state/cmux-next/cmux.sock")
+    );
 }
 
 #[test]

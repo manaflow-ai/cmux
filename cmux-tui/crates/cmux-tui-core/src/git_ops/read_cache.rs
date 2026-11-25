@@ -333,7 +333,7 @@ pub(super) fn listed(
     };
     let root = repository.root.clone();
     let folder = root.join(below);
-    let key = Key::Listing(root.clone());
+    let key = Key::Listing(root);
     let reader = repository.clone();
     let read: Read = Arc::new(move || {
         let git_dir = reader.git_dir().to_path_buf();
