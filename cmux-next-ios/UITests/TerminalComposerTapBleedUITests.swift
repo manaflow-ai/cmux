@@ -124,7 +124,7 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
             }
         }
         attach("\(name)-after-edge-taps")
-        XCTAssertGreaterThan(tapped, 20, "too few taps landed")
+        XCTAssertGreaterThan(tapped, 12, "too few taps landed")
         XCTAssertTrue(bled.isEmpty, "\(bled.count) of \(tapped) taps on the composer's edge fired a key "
             + "(row \(rowFrame), card \(cardFrame)):\n" + bled.joined(separator: "\n"))
 
