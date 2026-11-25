@@ -547,6 +547,8 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
+    // The person's own status line under a chat's prompt (`server/status_line.rs`).
+    Capability { id: "status-line-v1", wire: &[method::MUX_STATUS_LINE] },
     // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
     // without a freeze, a target stages it (`transfer_stage`, `transfer_stage_finish`), and
     // `transfer_begin {prepareId, afterSeq}` freezes the chat for only what followed. A client

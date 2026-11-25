@@ -17,6 +17,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
+import { ComposerStatusLine } from "./ComposerStatusLine";
 import { useComposerSettings } from "./composerSettings";
 import { lookRowInBox } from "./composerLook";
 import { useComposerLookWithV2, useComposerV2 } from "./composerV2";
@@ -122,6 +123,9 @@ export type ComposerBoxProps = {
   /// Drawn centered in the quiet row, out of its flow (the chat's Customize button,
   /// ComposerCustomizer.tsx); the row's fit never counts it.
   footCenter?: React.ReactNode;
+  /// The person's own status line (ComposerStatusLine.tsx), under the box and its quiet row; unset
+  /// or empty draws nothing.
+  statusLine?: string;
   /// The one send control (Send or Stop) before the mic, which keeps the right edge (the plain
   /// footer, in both looks); without the plain footer it is last (`trailing`).
   actionsLead?: React.ReactNode;
@@ -171,6 +175,7 @@ export function ComposerBox({
   chips,
   ring,
   footCenter,
+  statusLine,
   actionsLead,
   accessory,
   trailing,
@@ -527,6 +532,7 @@ export function ComposerBox({
         {rowInBox && quietRow}
       </div>
       {!rowInBox && quietRow}
+      {statusLine && <ComposerStatusLine line={statusLine} />}
     </>
   );
 }

@@ -402,6 +402,9 @@ type Props = {
   accessory?: React.ReactNode;
   /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
   dictating?: boolean;
+  /// The person's own status line (Settings > Status Line Command), one muted row under the box;
+  /// unset draws nothing (ComposerStatusLine.tsx).
+  statusLine?: string;
   /// The pane's dictation. While a session runs the composer draws its strip before Send, and Send
   /// (or Return) ends the session and sends once its last words land: the one send while
   /// dictating (Leo 2026-11-05: "The dictate button has its own send button. We don't need that.").
@@ -783,6 +786,7 @@ function ComposerFrame({
   accessory,
   dictating = false,
   dictation,
+  statusLine,
   prompt,
   onEdit,
   onCmuxCommand,
@@ -3881,6 +3885,7 @@ function ComposerFrame({
         accessory={accessory}
         trailing={quietActions ? undefined : slot}
         chromeItems={chrome.all}
+        statusLine={statusLine}
       />
     </form>
   );

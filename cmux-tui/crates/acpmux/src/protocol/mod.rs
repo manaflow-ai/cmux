@@ -310,6 +310,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::AgentHomeParams>(method::MUX_AGENT_HOME, Request),
         keyed::<params::AgentHomeResolveParams>(method::MUX_AGENT_HOME_RESOLVE, Request),
         keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
+        keyed::<params::StatusLineParams>(method::MUX_STATUS_LINE, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),

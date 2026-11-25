@@ -218,6 +218,8 @@ keyed! {
     AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
+    /// `_acpmux/status_line`.
+    StatusLineParams: ["sessionId"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
