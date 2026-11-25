@@ -438,7 +438,9 @@ public struct LinkMachine: Sendable {
             default: return []
             }
         case .dialOverdue(let gen):
-            guard gen == generation, !isBackgrounded, case .connecting(_, let attempt) = phase,
+            // A link kept beside the redial (``standby``) is probed every 250 ms: it finds a path
+            // that came back first and keeps every channel, so no hedge races it.
+            guard gen == generation, !isBackgrounded, standby == nil, case .connecting(_, let attempt) = phase,
                   dialPatience < .seconds(25) else { return [] }
             overdueHedges += 1
             return dial(attempt: attempt + 1, closing: false)
