@@ -401,18 +401,28 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
     /// relay alone (path `httpsRelay`). WebRTC ignores it.
     public var forceRelay: Bool = false
+    /// Debug "simulate a network whose only way out is its proxy": WireGuard
+    /// rides TURN over TLS through the system's proxy, or fails saying there
+    /// is none. WebRTC ignores it.
+    public var proxyOnly: Bool
+    /// Debug "simulate a firewall that drops WireGuard": WireGuard falls
+    /// through to TURN over TLS (path `turnTLS`). WebRTC ignores it.
+    public var dropWireGuard: Bool
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool
 
     public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false,
-                blockUDP: Bool = false, browserVideoOnChannel: Bool = false) {
+                blockUDP: Bool = false, proxyOnly: Bool = false, dropWireGuard: Bool = false,
+                browserVideoOnChannel: Bool = false) {
         self.baseURL = baseURL
         self.teamID = teamID
         self.deviceID = deviceID
         self.macDeviceID = macDeviceID
         self.relayOnly = relayOnly
         self.blockUDP = blockUDP
+        self.proxyOnly = proxyOnly
+        self.dropWireGuard = dropWireGuard
         self.browserVideoOnChannel = browserVideoOnChannel
     }
 }
