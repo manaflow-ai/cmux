@@ -1109,6 +1109,15 @@ extension ShellModel {
         service.shareCarrier = { approval, target, hub in
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
         }
+        // Mac Screen over Link: the Macs this phone holds a link to, by name, with what their hosts
+        // list in `version` (a Mac listing `mac-display-v1` can show its screen on the link).
+        service.linkedMacs = { [weak self] in
+            guard let self, let live = self.live else { return [] }
+            let names = Dictionary(self.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            return live.linkedMacIDs.compactMap { macID in
+                names[macID].map { ScreenSharingLinkedMac(macID: macID, name: $0, capabilities: self.store.macCapabilities[macID]) }
+            }
+        }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() {
             service.useDemo(demo)
