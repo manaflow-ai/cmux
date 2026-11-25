@@ -38,7 +38,8 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # linux_16: the debug cmux-tui link lost two linux_8 runners (attempts 3 and 6 of run 45703929549).
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_16 }}
     timeout-minutes: 120
     steps:
       # The tree that is built: the machine side's branch. The script comes from this run's own commit (e2e/).
