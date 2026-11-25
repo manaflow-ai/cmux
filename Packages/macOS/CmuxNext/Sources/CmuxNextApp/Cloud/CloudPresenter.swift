@@ -54,8 +54,6 @@ enum CloudPresenter {
     /// The money confirmation of a machine create: only the person answers
     /// it (`DebugDialog.userOnly`), so automation can never approve a spend.
     static let createConfirmIdentifier = "cmux.dialog.cloud.createConfirm"
-    /// The confirmation of an environment build (a spend) or delete: only the person answers it.
-    static let environmentConfirmIdentifier = "cmux.dialog.cloud.environmentConfirm"
 
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
     static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",

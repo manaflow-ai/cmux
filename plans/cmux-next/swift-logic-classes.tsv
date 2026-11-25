@@ -4768,10 +4768,7 @@ CmuxNextCloudUI	func	attempt	0	MIXED	70	30	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextCloudUI	class	AutomationsPageHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageHost.swift	from class AutomationsPageHost:17: SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCloudUI	struct	AutomationsPageView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageView.swift	SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCloudUI	struct	AutomationsPalette	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPalette.swift	SwiftUI/AppKit view, strings or settings page glue
-CmuxNextCloudUI	struct	CloudEnvironmentRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentRow.swift	Decoded cloud environment row / settings run op
 CmuxNextCloudUI	struct	CloudEnvironmentStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentStrings.swift	SwiftUI/AppKit view, strings or settings page glue
-CmuxNextCloudUI	struct	CloudEnvironmentsRun	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsRun.swift	Decoded cloud environment row / settings run op
-CmuxNextCloudUI	class	CloudEnvironmentsSettings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift	from class CloudEnvironmentsSettings:19: SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCloudUI	struct	CloudPortNames	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudPortStrings.swift	SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCloudUI	struct	CloudPortStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudPortStrings.swift	from struct CloudPortNames:5: SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCloudUI	enum	CloudWorkspaceSetupWizardSizeStrings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard+Size.swift	from extension CloudWorkspaceSetupWizard:9: Machine size options from plan limits

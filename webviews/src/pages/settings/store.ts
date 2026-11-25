@@ -53,13 +53,10 @@ import {
   type AgentsRun,
   type AgentsState,
   type AppUpdateAction,
-  type PreviousBuild,
   type ChannelsState,
-  type CloudEnvironmentsRun,
-  type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
+  type CloudEnvironmentMethod,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -70,10 +67,15 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
+  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -84,39 +86,36 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type KeysState,
+  type LibraryListing,
+  type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
-  type RowNoteData,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentConfigAnswer,
   type AgentConfigRun,
   type AllotmentSet,
   type AllotmentView,
   type HubRun,
   type HubState,
+  type AutocloudAction,
+  type AutocloudAnswer,
+  type AutocloudState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type ConnectionsRun,
   type ConnectionsState,
-  type Checklist,
-  type ChecklistFact,
-  type TailnetVMReply,
-  type AutocloudAction,
-  type AutocloudAnswer,
-  type AutocloudState,
   type ArchivedRun,
   type ArchivedState,
+  type TailnetVMReply,
+  type Checklist,
+  type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1008,10 +1007,12 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.harnesses);
   }
 
-  /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
-  async environments(): Promise<CloudEnvironmentsState | null> {
-    const reply = await this.request("cmux.settings.environments.state", {});
-    return reply.ok ? reply.value : null;
+  /** Settings > Cloud > Cloud Environments: one request of the shared Cloud environment editor. Rejects
+   * with the host's `{code, message}`, which the editor maps to its own sentences. */
+  async cloudEnvironment<T>(method: CloudEnvironmentMethod, params: Record<string, unknown> = {}): Promise<T> {
+    const reply = await this.request("cmux.settings.cloud_environment", { method, params });
+    if (!reply.ok) throw reply.error;
+    return reply.value as T;
   }
 
   /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,
@@ -1072,16 +1073,6 @@ export class SettingsStore {
     const answered = (reply.value as { values?: unknown } | null)?.values;
     const next = answered && typeof answered === "object" ? (answered as Record<string, unknown>) : null;
     return { values: next, error: null };
-  }
-
-  /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
-  async runEnvironments(
-    run: CloudEnvironmentsRun,
-  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
-    const reply = await this.request("cmux.settings.environments.run", run);
-    const state = await this.environments();
-    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
-    return { state, error: reply.value?.error ?? null };
   }
 
   /** The customization being tried on, after running `verb` (Keep, Revert Now); null when none is,

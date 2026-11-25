@@ -1081,47 +1081,18 @@ export type HarnessesRun = {
   recheck?: boolean;
 };
 
-/** Settings > Accounts > Cloud Environments (`cmux.settings.environments.state`,
- * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
- * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
-export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
-/** A plain variable (baked into the snapshot) or a secret (a vault item's name; its value never
- * enters the snapshot), as CloudDO's `CloudEnvironmentVariable`. */
-export type CloudEnvironmentVariable = { name: string; value: string } | { name: string; secret: string };
-export type CloudEnvironmentRow = {
-  id: string;
-  name: string;
-  repo: string | null;
-  setup_script: string;
-  /** Absent from a host that predates variables. */
-  env?: CloudEnvironmentVariable[];
-  status: CloudEnvironmentStatus | string;
-  /** The last failed build's message and its log tail; null otherwise. */
-  error: string | null;
-  log_tail: string | null;
-};
-export type CloudEnvironmentsState = {
-  /** False on the classic Cloud path or while signed out: the card explains instead of listing. */
-  available: boolean;
-  loading: boolean;
-  environments: CloudEnvironmentRow[];
-  error: string | null;
-};
-/** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
-export type CloudEnvironmentsRun =
-  | { action: "refresh" }
-  | {
-      action: "save";
-      id?: string;
-      /** Required to create; an edit sends it only when renamed. */
-      name?: string;
-      repo?: string;
-      setup_script?: string;
-      /** The whole list; absent leaves it as it is. */
-      env?: CloudEnvironmentVariable[];
-    }
-  | { action: "build"; id: string }
-  | { action: "delete"; id: string };
+/** Settings > Cloud > Cloud Environments (`cmux.settings.cloud_environment`): one request of the shared
+ * Cloud environment editor, the composer's (pages/cloud/environmentModel.ts `EnvironmentClient`). The app
+ * forwards it to the platform's `/v1/cloud-environments` for the signed-in account; the answer is the
+ * platform's (secret values never included), a refusal the editor's codes (`cloud_disabled` while Cloud is off
+ * or signed out). `update` and `create` take only the person's own click or key. */
+export type CloudEnvironmentMethod =
+  | "cloud.environment.list"
+  | "cloud.environment.get"
+  | "cloud.environment.update"
+  | "cloud.environment.create"
+  | "cloud.environment.derive";
+export type CloudEnvironmentCall = { method: CloudEnvironmentMethod; params: Record<string, unknown> };
 
 /** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
  * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
@@ -2430,10 +2401,8 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
-  /** Native: Settings > Accounts > Cloud Environments (CloudDO through the Cloud app server). */
-  "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
-  /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
-  "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
+  /** Native: Settings > Cloud > Cloud Environments, one editor request (`CloudEnvironmentCall`). */
+  "cmux.settings.cloud_environment": [CloudEnvironmentCall, unknown];
   /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
   "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */

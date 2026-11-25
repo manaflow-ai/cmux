@@ -204,36 +204,6 @@ struct PageFactory {
                                               policy: services.accounts.modelsPolicy)
         models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
         provider.models = models
-        let cloud = services.cloud
-        let environments = CloudEnvironmentsSettings(
-            available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
-            list: { [weak cloud] in
-                guard let cloud else { throw PageError.closed }
-                return try JSONEncoder().encode(await cloud.appOps("cloud.environment.list", .object([:]), nil, .script))
-            },
-            save: { [weak cloud] args in
-                guard let cloud else { throw PageError.closed }
-                _ = try await cloud.appOps("cloud.environment.set", try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: args), UUID().uuidString, .user)
-            },
-            approvedCall: { [weak cloud] op, id, confirm in
-                guard let cloud else { throw PageError.closed }
-                do { _ = try await cloud.appServerApprovedCall(op, args: .object(["environment": .string(id)]), confirm: confirm) }
-                catch CloudMachineCreateFlow.Failure.declined { return false }
-                return true
-            },
-            confirm: { [weak services] title, body, button in
-                await withCheckedContinuation { continuation in
-                    CloudPresenter.confirm(title, body, button: button, identifier: CloudPresenter.environmentConfirmIdentifier,
-                                           in: services?.windows.active?.window) { continuation.resume(returning: $0) }
-                }
-            })
-        provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
-        provider.environmentsRun = { params in
-            guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
-                throw PageError.invalidParams("unknown environments action")
-            }
-            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
-        }
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
         devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .page)) }
@@ -256,6 +226,8 @@ struct PageFactory {
         let cli: @MainActor () async -> URL? = { [bundled = services.bundledCLI] in await bundled.resolve() }
         let integrations = SettingsAgentIntegrations(cli: cli, agentTools: services.onboarding.agentTools), archived = SettingsArchivedWorkspaces(host: .host(services), personOnly: RefusalStrings.personOnlyFromPage), mcpServers = SettingsMcpServers(cli: cli, home: { [weak services] in await services?.catalogAcpmux()?.home }, openPage: { [weak services] url in _ = services?.linkOpener.openWeb(url, from: services?.windows.active?.focusedPane, background: false) }), agentMcp = SettingsAgentMcpServers(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }, pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first }), agentHooks = SettingsAgentHooks(cli: cli, enabled: { [weak settings] in settings?.snapshot.agentCustomization == true }), hub = integrationsHub, autocloud = SettingsAutomationsCloud(cli: cli), connections = SettingsConnections(cli: cli, linkScheme: { [weak services] in services?.linkScheme ?? "cmux" }, openInBrowser: { [weak services] url in if services?.cloud.auth.openSignInInApp?(url) != true { LinkRouter.shared.open(url, in: .system) } }), agentSkills = SettingsAgentSkills(cli: cli, enabled: { [weak services] in services?.settings?.snapshot.agentCustomization == true }, workingFolder: { [weak services] in services.flatMap { s in s.windows.active.flatMap { s.fileExplorers.folder(focusedIn: $0) } } }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })
         provider.parts = [SettingsArchivedWorkspaces.listOp: archived, SettingsArchivedWorkspaces.runOp: archived, SettingsIntegrationsHub.stateOp: hub, SettingsIntegrationsHub.runOp: hub, SettingsConnections.stateOp: connections, SettingsConnections.runOp: connections, SettingsAutomationsCloud.stateOp: autocloud, SettingsAutomationsCloud.runOp: autocloud, "cmux.settings.integrations.state": integrations, "cmux.settings.integrations.run": integrations, "cmux.settings.agentTools.state": integrations, "cmux.settings.agentTools.run": integrations, SettingsMcpServers.stateOp: mcpServers, SettingsMcpServers.runOp: mcpServers, SettingsAgentMcpServers.stateOp: agentMcp, SettingsAgentMcpServers.runOp: agentMcp, SettingsAgentHooks.stateOp: agentHooks, SettingsAgentHooks.runOp: agentHooks, SettingsAgentSkills.stateOp: agentSkills, SettingsAgentSkills.runOp: agentSkills, CustomizeTryOnPage.op: CustomizeTryOnPage(cli: cli), SettingsCustomizeLibrary.op: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsCustomizeLibrary.checklistOp: SettingsCustomizeLibrary(cli: cli, settingsFile: { settings.file.url }), SettingsAgentConfig.op: SettingsAgentConfig(cli: cli, enabled: { settings.snapshot.agentCustomization }, openFile: { [weak services] url in _ = services?.linkOpener.openFile(url, from: services?.windows.active?.focusedPane, asText: true) })]
+        provider.parts[AgentPaneCloudEnvironmentSettingsPart.op] = AgentPaneCloudEnvironmentSettingsPart { [weak services] request in
+            await services?.runCloudEnvironment(request) ?? AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }

@@ -95,7 +95,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     mock.provider.host = { ...mock.provider.host, theme: { ...mock.provider.host.theme, config } };
   }
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
-  if (state.environments) mock.provider.environments = structuredClone(state.environments);
+  if (state.environments) mock.provider.cloudEnvironments.environments = structuredClone(state.environments);
   if (state.sharedLinks) mock.provider.shares = structuredClone(state.sharedLinks);
   if (state.library) mock.provider.library = structuredClone(state.library);
   if (state.libraryRefusal) mock.provider.libraryRefusal = state.libraryRefusal;

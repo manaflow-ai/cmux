@@ -533,10 +533,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudMachineWire.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
-  "JSON / property-list decode": 1,
-  "JSON / property-list encode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift": {
   "JSON / property-list decode": 1
  },

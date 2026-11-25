@@ -32,12 +32,12 @@ import type { MockOptions } from "../pages/settings/mockProvider";
 import type { MockEndpoint } from "../pages/settings/mockAgents";
 import type { BranchPickerGroup } from "../diff/generated/protocol";
 import type { SourceOption } from "../toolbar-model";
+import type { CloudEnvironment } from "../pages/cloud/environmentModel";
 import type {
   AccountsState,
   AgentsState,
   ChannelSwitch,
   ChannelsState,
-  CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
@@ -69,8 +69,8 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
-  /** Settings > Accounts > Cloud Environments fixture state. */
-  environments?: CloudEnvironmentsState;
+  /** Settings > Cloud > Cloud Environments: the account's environments the platform lists. */
+  environments?: CloudEnvironment[];
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
   /** Appearance > Customization Library fixture state; default the mock's few entries. */

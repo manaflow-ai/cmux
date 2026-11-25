@@ -169,7 +169,6 @@
     "pages/onboarding/parts.tsx#OnboardingContext",
     "pages/server-cards/ServerCardsPage.tsx#ServerCardsPage",
     "pages/settings/components/AppearanceBar.tsx#AppearanceBar",
-    "pages/settings/components/CloudEnvironmentsCard.tsx#CloudEnvironmentsCard",
     "pages/settings/components/DensityCard.tsx#DensityCard",
     "pages/settings/components/DensityCard.tsx#DensityPreview",
     "pages/settings/components/EndpointForm.tsx#EndpointForm",

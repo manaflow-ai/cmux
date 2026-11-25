@@ -39,9 +39,6 @@ final class SettingsPageProvider: PageProvider {
     /// watch that keeps its history current while a page shows it; nil in
     /// tests without an app.
     var devicesState: (@MainActor () -> JSONValue)?
-    /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
-    var environmentsState: (@MainActor () -> JSONValue)?
-    var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
@@ -223,8 +220,6 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
-        case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
-        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
         case "cmux.settings.shares.revoke":

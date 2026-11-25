@@ -18,8 +18,11 @@ export default settingsPageEntry({
   title: "Settings Cloud",
   area: "Settings",
   height: 820,
-  covers: ["pages/settings/components/CloudModelsCard.tsx#CloudModelsCard"],
-  anchors: [{ selector: '[data-card="cloudModels"]' }],
+  covers: [
+    "pages/settings/components/CloudModelsCard.tsx#CloudModelsCard",
+    "pages/settings/components/CloudEnvironmentsCard.tsx#CloudEnvironmentsCard",
+  ],
+  anchors: [{ selector: '[data-card="cloudModels"]' }, { selector: '[data-card="cloudEnvironments"]' }],
   variants: {
     empty: variant(mockModels.empty, "Nothing connected: each row Not set up for Cloud, with its Set Up."),
     "mac-only": variant(
@@ -34,6 +37,14 @@ export default settingsPageEntry({
       shown,
       { selector: '[data-cloud-action="setUpClaude"]', action: "click" },
       { selector: "[data-models-claude-form]", action: "wait" },
+    ]),
+    // #47676: Cloud Environments lists the account's Default first; Edit opens the composer's editor on it.
+    "environment-default": variant(mockModels.macOnly, "Cloud Environments: Edit on the Default opens its editor.", [
+      {
+        selector: '[data-card="cloudEnvironments"] [data-environment-default] [data-environment-action="edit"]',
+        action: "click",
+      },
+      { selector: ".cloud-environment-sheet .env-drill", action: "wait" },
     ]),
   },
 });

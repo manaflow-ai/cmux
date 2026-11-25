@@ -179,6 +179,14 @@ export const PAGES = {
           ),
       },
       {
+        // Cloud > Cloud Environments opens the composer's environment editor (pages/cloud/EnvironmentSheet.tsx).
+        file: "webviews/src/pages/cloud/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("environment.") || ["page.loading", "page.retry", "action.cancel"].includes(key),
+          ),
+      },
+      {
         // Machines > Add Device… (add-device-DESIGN.md): the palette action's own title, until the host lists arrive.
         file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
         keys: () => ["action.device.add"],
