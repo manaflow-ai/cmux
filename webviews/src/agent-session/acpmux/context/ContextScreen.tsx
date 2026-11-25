@@ -26,6 +26,7 @@ import {
   parseInventory,
 } from "./contextInventory";
 import "./context.css";
+import { intl } from "../../../ui/intl";
 
 /// `partId`: a preset prompt's id (`Inventory.prompts`), none for cmux's guidance. `text: null`
 /// removes the saved replacement, so new chats get the default again. A `project` edit is for the
@@ -149,7 +150,7 @@ function ContextBody({
   save?(change: ContextOverride): Promise<void>;
 }) {
   const t = useT();
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const groups = grouped(inventory);
   const firstText = inventory.parts.find((part) => part.text !== undefined)?.id;
   const [picked, setPicked] = useState<string | undefined>(firstText);

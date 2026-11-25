@@ -2,6 +2,7 @@
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
 // prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
 import { useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { ConnectionChip } from "../../ui/ConnectionChip";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
@@ -46,6 +47,7 @@ export function PosterLine({ item, strings, now }: { item: ViewItem; strings: St
     <span className="feed-poster">
       <span className="feed-poster-label">{posterLabel(item)}</span>
       <span aria-hidden="true">·</span>
+      {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
       <time className="feed-num" title={fullDate(item.created_at, strings.language)}>
         {relativeTime(item.created_at, now, strings.language)}
       </time>
@@ -68,14 +70,10 @@ export function EmptyState({ text, size = 32 }: { text: string; size?: 32 | 44 }
   );
 }
 
-/** A line above the content: the owner is unreachable. */
+/** The owner is unreachable: a mark in the page's corner (ui/ConnectionChip.tsx), out of flow, so the
+ *  list under it never moves when it comes or goes. Its sentence is the tooltip. */
 export function Banner({ text }: { text: string }) {
-  return (
-    <output className="feed-banner">
-      <span className="feed-banner-dot" aria-hidden="true" />
-      {text}
-    </output>
-  );
+  return <ConnectionChip text={text} />;
 }
 
 // MARK: - A row
@@ -125,7 +123,6 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       data-detail={detail ? "" : undefined}
       style={style}
       ref={line.selected && !style ? revealOnSelect : undefined}
-      title={row.headline}
       onClick={onSelect}
       onDoubleClick={onOpen}
       onKeyDown={(event) => {
@@ -140,6 +137,7 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
         <UnreadDot visible={unread} />
         <Glyph item={item} />
         <span className="feed-row-headline">{row.headline}</span>
+        {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
         <time className="feed-row-time feed-num" title={fullDate(item.created_at, strings.language)}>
           {relativeTime(item.created_at, now, strings.language)}
         </time>

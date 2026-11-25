@@ -77,7 +77,16 @@ impl Vaapi {
         b.put(1, 1); // vui_parameters_present_flag
         b.put(0, 1); // aspect_ratio_info_present_flag
         b.put(0, 1); // overscan_info_present_flag
-        b.put(0, 1); // video_signal_type_present_flag
+        // What the pictures are (crate::color::SCREEN), so a viewer converts them back with
+        // the same matrix and range instead of guessing.
+        let color = crate::color::SCREEN;
+        b.put(1, 1); // video_signal_type_present_flag
+        b.put(5, 3); // video_format: unspecified
+        b.put(u32::from(color.full_range), 1); // video_full_range_flag
+        b.put(1, 1); // colour_description_present_flag
+        b.put(u32::from(color.primaries), 8);
+        b.put(u32::from(color.transfer), 8);
+        b.put(u32::from(color.matrix), 8);
         b.put(0, 1); // chroma_loc_info_present_flag
         b.put(0, 1); // timing_info_present_flag
         b.put(0, 1); // nal_hrd_parameters_present_flag

@@ -4,6 +4,6 @@ public nonisolated struct DensityActionTitles: Sendable {
 
     /// "Density: ", localized with its separator; a custom density's row is this plus its name.
     public var prefix: String {
-        String(localized: "action.appearance.density.prefix", defaultValue: "Density: ", table: "SettingsActions", bundle: .module)
+        String(localized: "action.appearance.density.prefix", defaultValue: "Density: ", table: "SettingsActions", bundle: .localizedModule)
     }
 }

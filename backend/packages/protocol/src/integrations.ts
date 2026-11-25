@@ -31,6 +31,12 @@ export const PENDING_CONNECTION_TTL_MS = 30 * 60_000
 /** Expired connections leave the owner's state this long after they expired (the projection keeps the row). */
 export const EXPIRED_CONNECTION_RETENTION_MS = 24 * 3600_000
 
+/** What a connection may act on: GitHub's recorded repositories, and who linked them (see Connection). */
+export const ConnectionResources = Schema.Struct({
+  repos: Schema.NullOr(Schema.Array(Schema.String)),
+  linked_by_github_id: Schema.optionalKey(Schema.Int)
+})
+
 export const Connection = Schema.Struct({
   id: ConnectionId,
   owner: TeamId,
@@ -46,9 +52,11 @@ export const Connection = Schema.Struct({
   /**
    * Provider resources this connection may act on. GitHub: the repositories the
    * linking user could access in the installation (`null` = the whole
-   * installation, when the team policy says so).
+   * installation, when the team policy says so). `linked_by_github_id`: the
+   * linking user's GitHub user id, recorded with a list; a repository that same
+   * user adds to the installation joins the list (absent on older connections).
    */
-  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) })),
+  resources: Schema.optionalKey(ConnectionResources),
   created_at: Schema.Int,
   updated_at: Schema.Int
 }).annotate({ identifier: "Connection" })
@@ -240,7 +248,12 @@ export const IntegrationComplete = def({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
-    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
+    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+    /**
+     * GitHub, staging and development only: a GitHub Actions OIDC token from an allowed workflow run, in place of
+     * `code` (cmux-api integrations/github-actions-connect.ts). Production refuses it.
+     */
+    actions_oidc: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8000)))
   }),
   /**
    * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
@@ -375,7 +388,7 @@ export const ConnectionActivateParams = Schema.Struct({
   connection: ConnectionId,
   account: Schema.Struct({ key: Schema.String, name: DisplayName, url: Schema.optionalKey(Schema.String) }),
   scopes_granted: Schema.Array(Schema.String),
-  resources: Schema.optionalKey(Schema.Struct({ repos: Schema.NullOr(Schema.Array(Schema.String)) }))
+  resources: Schema.optionalKey(ConnectionResources)
 })
 
 export const PolicyApplyManagedParams = Schema.Struct({
@@ -386,14 +399,17 @@ export const PolicyApplyManagedParams = Schema.Struct({
 })
 /**
  * A GitHub App webhook changed what an installation grants (`installation.unsuspend`,
- * `installation.new_permissions_accepted`, `installation_repositories.removed`): the permissions now
- * granted, and repositories that left the installation (they leave the connection's recorded list).
+ * `installation.new_permissions_accepted`, `installation_repositories.removed` or `.added`): the permissions
+ * now granted, repositories that left the installation (they leave the connection's recorded list), and
+ * repositories the linking user added (they join it).
  * The connection's status stays as it is.
  */
 export const ConnectionGithubSyncParams = Schema.Struct({
   connection: ConnectionId,
   scopes_granted: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(100)))),
-  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
+  repos_removed: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201)))),
+  /** Repositories the linking user added to the installation (its `sender` is the recorded `linked_by_github_id`). */
+  repos_added: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(201))))
 })
 export const ConnectionStatusParams = Schema.Struct({
   connection: ConnectionId,
@@ -430,8 +446,16 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })
-/** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
-export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
+/** A machine joined with `acpmux machine join` (cmux-platform's join registry). */
+export const JoinedMachineId = Schema.String.check(isPattern(/^machine_[A-Za-z0-9_-]{1,120}$/)).annotate({
+  identifier: "JoinedMachineId",
+  description: "A machine joined to a team with acpmux machine join."
+})
+/**
+ * `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. `machine`
+ * (a team admin only, never with `install`): every token issued to that joined machine.
+ */
+export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId), machine: Schema.optionalKey(JoinedMachineId) })
 
 /** One mint as the team's audit records it (never the token); principal_kind is session or the install kind. */
 export const GitHubTokenMintedParams = Schema.Struct({

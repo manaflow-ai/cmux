@@ -95,6 +95,33 @@ test("a directly attached element follows a scroll that moves it and goes when i
   expect(reports.at(-1)).toEqual([]);
 });
 
+test("a directly attached element follows a style or class change that moves it with no resize", async () => {
+  const view = page();
+  const doc = view.document;
+  const element = doc.createElement("div");
+  doc.body.append(element);
+  let box = { left: 40, top: 60, right: 240, bottom: 180 };
+  (element as unknown as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
+    ({ ...box, width: box.right - box.left, height: box.bottom - box.top, x: box.left, y: box.top }) as DOMRect;
+  const reports: GlassSurfaceState[][] = [];
+  host = createGlassHost({ view, transport: (s) => (reports.push(s), Promise.resolve()) });
+  host.attach(element, { level: "menu" });
+  await frames(view, 5);
+  expect(reports.at(-1)?.[0]).toMatchObject({ top: 60 });
+  // Long after it settled, its inline transform moves it: no scroll, resize or transition.
+  box = { left: 40, top: 20, right: 240, bottom: 140 };
+  (element as HTMLElement).style.transform = "translateY(-40px)";
+  await settled();
+  await frames(view);
+  expect(reports.at(-1)?.[0]).toMatchObject({ top: 20 });
+  // A class on an ancestor that moves it does too.
+  box = { left: 90, top: 20, right: 290, bottom: 140 };
+  doc.body.className = "shifted";
+  await settled();
+  await frames(view);
+  expect(reports.at(-1)?.[0]).toMatchObject({ left: 90 });
+});
+
 test("a refusal falls every surface back and ends the reports", async () => {
   const view = page();
   let calls = 0;

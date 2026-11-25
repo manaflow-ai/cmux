@@ -21,7 +21,7 @@ enum CmuxAppLinks {
     static func open(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
         if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
-        if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
+        if let action = DeepLink.linkAction(for: url, linkScheme: services.linkScheme) { // settings, Fork and customize
             return services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user))
         }
         if let agent = openAgentWeb(url, services: services, click: click) { return agent }
@@ -78,9 +78,6 @@ enum CmuxAppLinks {
         }
         return true
     }
-
-    /// The action a settings link runs (``DeepLink/settingsAction(for:linkScheme:)``).
-    static func settingsAction(for url: URL, linkScheme: String) -> DeepLink.SettingsLinkAction? { DeepLink.settingsAction(for: url, linkScheme: linkScheme) }
 
     /// The link `url` opens in this app (``DeepLink/appLink(for:linkScheme:chiefHost:)``).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {

@@ -92,73 +92,31 @@ struct PendingConnection {
 ///
 /// Only a definite answer removes an entry, so every entry here is unsettled
 /// and none is ever evicted: dropping one would make its retry mint a new id
-/// and could create a second machine. While the ledger is full, a request
-/// with a new intent is refused before it reaches the provider; a retry of a
-/// listed request still replays its id and, once answered, frees its slot.
+/// and could create a second machine. The ledger is not capped by count: each
+/// entry is one request held in memory and keyed by its serialized form, so a
+/// lookup, an add and a settle each cost a constant, however many wait.
 #[derive(Default)]
 struct UnsettledMutations {
-    entries: Vec<(protocol::ProviderRequest, protocol::OpaqueId)>,
+    entries: HashMap<String, protocol::OpaqueId>,
 }
 
-/// How many mutations may wait for a definite answer at once. A new intent
-/// past this is refused, never made room for by forgetting an unsettled one.
-const MAX_UNSETTLED_MUTATIONS: usize = 32;
-
-/// The refusal a new mutation gets while the ledger is full of unsettled ones.
-#[derive(Debug)]
-struct UnsettledMutationsFull {
-    pending: usize,
+/// The ledger key of a request with its id cleared: its JSON (the protocol's maps are
+/// `BTreeMap`s, so equal requests serialize alike), or its `Debug` text should that fail.
+fn intent_key(intent: &protocol::ProviderRequest) -> String {
+    serde_json::to_string(intent).unwrap_or_else(|_| format!("{intent:?}"))
 }
-
-impl std::fmt::Display for UnsettledMutationsFull {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "{} earlier machine-provider requests are still waiting for an answer, so a new one \
-             is not sent. Retry one of them until it succeeds or fails; each retry reuses its \
-             request id, so it cannot create a second machine.",
-            self.pending
-        )
-    }
-}
-
-impl std::error::Error for UnsettledMutationsFull {}
 
 impl UnsettledMutations {
     fn replay_id(&self, intent: &protocol::ProviderRequest) -> Option<protocol::OpaqueId> {
-        self.entries
-            .iter()
-            .find(|(candidate, _)| candidate == intent)
-            .map(|(_, mutation_id)| mutation_id.clone())
+        self.entries.get(&intent_key(intent)).cloned()
     }
 
-    /// Refuses a new intent while the ledger is full. A listed intent passes:
-    /// its retry replays an id already in the ledger and adds no entry.
-    fn admit(&self, intent: &protocol::ProviderRequest) -> Result<(), UnsettledMutationsFull> {
-        if self.entries.len() >= MAX_UNSETTLED_MUTATIONS
-            && !self.entries.iter().any(|(candidate, _)| candidate == intent)
-        {
-            return Err(UnsettledMutationsFull { pending: self.entries.len() });
-        }
-        Ok(())
-    }
-
-    fn remember(
-        &mut self,
-        intent: protocol::ProviderRequest,
-        mutation_id: protocol::OpaqueId,
-    ) -> Result<(), UnsettledMutationsFull> {
-        if let Some(entry) = self.entries.iter_mut().find(|(candidate, _)| *candidate == intent) {
-            entry.1 = mutation_id;
-            return Ok(());
-        }
-        self.admit(&intent)?;
-        self.entries.push((intent, mutation_id));
-        Ok(())
+    fn remember(&mut self, intent: &protocol::ProviderRequest, mutation_id: protocol::OpaqueId) {
+        self.entries.insert(intent_key(intent), mutation_id);
     }
 
     fn settle(&mut self, intent: &protocol::ProviderRequest) {
-        self.entries.retain(|(candidate, _)| candidate != intent);
+        self.entries.remove(&intent_key(intent));
     }
 }
 
@@ -1207,8 +1165,7 @@ impl ProviderMachineRuntime {
         );
         let result: anyhow::Result<protocol::ConnectExternalMachineResult> =
             self.send_mutation(intent.clone());
-        // The connect stays ambiguous exactly while the ledger still lists
-        // it. A connect the full ledger refused leaves another one alone.
+        // The connect stays ambiguous exactly while the ledger still lists it.
         if self.unsettled_mutations.replay_id(&intent).is_some() {
             self.pending_external_connect = Some(PendingExternalConnect { scope_id, specifier });
         } else if self
@@ -1563,7 +1520,7 @@ impl ProviderMachineRuntime {
     /// attempt of the exact same request already sent.
     ///
     /// Every provider mutation goes through here, so every one is replayed
-    /// and counted against `MAX_UNSETTLED_MUTATIONS`. The test
+    /// and kept in the ledger until it is answered. The test
     /// `every_provider_mutate_call_goes_through_send_mutation` fails on a
     /// `.mutate(` call anywhere else in the crate.
     fn send_mutation<T>(&mut self, mut request: protocol::ProviderRequest) -> anyhow::Result<T>
@@ -1575,8 +1532,6 @@ impl ProviderMachineRuntime {
             anyhow::bail!("machine-provider request carries no mutation id");
         };
         *intent_id = unassigned_mutation_id()?;
-        // Refuse before minting an id, so a refused request leaves no trace.
-        self.unsettled_mutations.admit(&intent)?;
         let replayed = self.unsettled_mutations.replay_id(&intent);
         let first_attempt = replayed.is_none();
         let mutation_id = match replayed {
@@ -1586,7 +1541,7 @@ impl ProviderMachineRuntime {
         if let Some(slot) = request_mutation_id_mut(&mut request) {
             *slot = mutation_id.clone();
         }
-        self.unsettled_mutations.remember(intent.clone(), mutation_id)?;
+        self.unsettled_mutations.remember(&intent, mutation_id);
         let result = self.client.mutate(request);
         // A first attempt that failed before its frame was written left
         // nothing on the provider, so it holds no slot. A replay keeps its

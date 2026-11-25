@@ -22,7 +22,9 @@ is where it was before; in full screen and back, no strip's first tab sits under
 Usage: fullscreen-transition.py --tag <tag> --app PATH [--rounds 3] [--parked 10] [--triggers action,key,zoom]
        [--json PATH] [--out DIR] [--gate]
 """
-import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, os, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -183,6 +185,29 @@ def lights_clear(geo, tabs):
     return not bad, f"lights {lights} tabs under them {bad}"
 
 
+def all_panes():
+    return [p for w in ((rpc("debug.surfaces") or {}).get("windows") or []) for p in w.get("panes") or []]
+
+
+def split(name):
+    """A split, waited on: the app lists one more pane."""
+    before = len(all_panes())
+    action(name)
+    if not wait(lambda: len(all_panes()) > before, 10):
+        print(f"  {name}: no new pane within 10 s ({before} before)", flush=True)
+
+
+def window_hash():
+    """A hash of the app's own picture of its window right now (a probe file in the scratch folder)."""
+    probe = os.path.join(SCRATCH, "probe.png")
+    if os.path.exists(probe):
+        os.remove(probe)
+    reply = rpc("debug.window_snapshot", {"path": probe}) or {}
+    if reply.get("error") or not os.path.exists(probe):
+        raise RuntimeError(f"no probe picture: {reply}")
+    return hashlib.sha256(open(probe, "rb").read()).hexdigest()
+
+
 def setup():
     for _ in range(opts.parked):
         made = run("workspace", "create", "--name", "parked")
@@ -196,16 +221,19 @@ def setup():
     ws = re.search(r"value\.workspace_id\s+(\S+)", made.stdout)
     if ws:
         run("workspace", ws.group(1), "focus")
-    time.sleep(1.0)  # test harness: shell prompt
-    action("splitRight")
-    time.sleep(0.5)  # test harness: the split lands
-    action("splitDown")
-    time.sleep(0.5)  # test harness: the split lands
+    # The busy workspace's first terminal shows: the app's surfaces stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the busy workspace's surfaces", timeout=10, interval=0.1,
+                raise_on_timeout=False)
+    split("splitRight")
+    split("splitDown")
     page = os.path.join(SCRATCH, "page.html")
     open(page, "w").write("<!doctype html><body style='margin:0;background:#2980b9;color:white;font:40px -apple-system'>"
                           + "<p>full screen row</p>" * 60)
     action("openBrowser.webkit", {"url": "file://" + page}, timeout=120)
-    time.sleep(3.0)  # test harness: the page paints
+    # The page paints: its pane is listed, then the window's pixels stop changing.
+    if not wait(lambda: any(p.get("kind") not in (None, "terminal") for p in all_panes()), 20):
+        print("  no page pane listed within 20 s", flush=True)
+    wait_stable(window_hash, "the window's pixels with the page", timeout=15, interval=0.2, raise_on_timeout=False)
 
 
 def spaces_round():
@@ -233,7 +261,8 @@ def cleanup():
         return
     if is_full():
         action("toggleFullScreen")
-        time.sleep(2)  # test harness: leave full screen before quitting
+        # Leave full screen before quitting: the window reports it is windowed.
+        wait(lambda: not is_full(), 15)
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     if app:
         try:
@@ -259,7 +288,9 @@ def main():
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
-    time.sleep(5)  # test harness: launch work settles
+    # Launch work settles: the app's windows and panes stop changing.
+    wait_stable(lambda: rpc("debug.surfaces"), "the app's surfaces after launch", timeout=20, interval=0.2, reads=5,
+                raise_on_timeout=False)
     setup()
     report = {"tag": TAG, "transitions": [], "geometry": {}}
     before, tabs_before = geometry(), first_tabs()

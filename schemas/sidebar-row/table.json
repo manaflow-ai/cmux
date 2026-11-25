@@ -1,0 +1,735 @@
+{
+  "events": [
+    "launch_snapshot",
+    "listed",
+    "unlisted",
+    "create_failed",
+    "create_closed",
+    "interact"
+  ],
+  "layout": "A creating row is drawn in the final row's look and box (render.look final, render.layoutBox row, as live), and turning live it keeps its place (patch_in_place): nothing on screen changes. Every other change of state lays the list out again (relayout).",
+  "refusals": [
+    "row_gone",
+    "names_no_workspace",
+    "awaits_live_list",
+    "not_creating",
+    "stale_create",
+    "stale_connection",
+    "unchanged",
+    "pending"
+  ],
+  "source": "cmux-tui/crates/cmux-layout-reducer/src/sidebar_row.rs",
+  "stale": "A daemon answer carries the connection it came over and a create's end its create ticket. Against a row holding generation 7 each is tried at 6 (older), 7 (same) and 8 (newer): an answer over an older connection is refused stale_connection, the end of another create stale_create, and an answer over the same connection that says what the row says already unchanged. A refusal leaves the row unchanged.",
+  "states": [
+    {
+      "pending": true,
+      "render": {
+        "interactive": false,
+        "layoutBox": "bar",
+        "liveStatus": false,
+        "look": "bar",
+        "provisional": true,
+        "saved": false
+      },
+      "state": "placeholder"
+    },
+    {
+      "pending": true,
+      "render": {
+        "interactive": false,
+        "layoutBox": "row",
+        "liveStatus": false,
+        "look": "pending_title",
+        "provisional": true,
+        "saved": false
+      },
+      "state": "placeholder_titled"
+    },
+    {
+      "pending": false,
+      "render": {
+        "interactive": true,
+        "layoutBox": "row",
+        "liveStatus": false,
+        "look": "last_known",
+        "provisional": true,
+        "saved": true
+      },
+      "state": "stale"
+    },
+    {
+      "pending": true,
+      "render": {
+        "interactive": false,
+        "layoutBox": "row",
+        "liveStatus": false,
+        "look": "final",
+        "provisional": false,
+        "saved": false
+      },
+      "state": "creating"
+    },
+    {
+      "pending": false,
+      "render": {
+        "interactive": true,
+        "layoutBox": "row",
+        "liveStatus": true,
+        "look": "final",
+        "provisional": false,
+        "saved": true
+      },
+      "state": "live"
+    },
+    {
+      "pending": false,
+      "render": null,
+      "state": "gone"
+    }
+  ],
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarRowState.swift",
+  "transitions": [
+    {
+      "event": "launch_snapshot",
+      "from": "placeholder",
+      "generation": "older",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "placeholder",
+      "generation": "same",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "placeholder",
+      "generation": "newer",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "listed",
+      "from": "placeholder",
+      "generation": "older",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "listed",
+      "from": "placeholder",
+      "generation": "same",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "listed",
+      "from": "placeholder",
+      "generation": "newer",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "placeholder",
+      "generation": "older",
+      "to": "gone"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "placeholder",
+      "generation": "same",
+      "to": "gone"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "placeholder",
+      "generation": "newer",
+      "to": "gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "placeholder",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "placeholder",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "placeholder",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "placeholder",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "placeholder",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "placeholder",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "interact",
+      "from": "placeholder",
+      "refusal": "pending"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "placeholder_titled",
+      "generation": "older",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "placeholder_titled",
+      "generation": "same",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "placeholder_titled",
+      "generation": "newer",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "listed",
+      "from": "placeholder_titled",
+      "generation": "older",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "listed",
+      "from": "placeholder_titled",
+      "generation": "same",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "event": "listed",
+      "from": "placeholder_titled",
+      "generation": "newer",
+      "refusal": "names_no_workspace"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "placeholder_titled",
+      "generation": "older",
+      "to": "gone"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "placeholder_titled",
+      "generation": "same",
+      "to": "gone"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "placeholder_titled",
+      "generation": "newer",
+      "to": "gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "placeholder_titled",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "placeholder_titled",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "placeholder_titled",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "placeholder_titled",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "placeholder_titled",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "placeholder_titled",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "interact",
+      "from": "placeholder_titled",
+      "refusal": "pending"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "stale",
+      "generation": "older",
+      "refusal": "stale_connection"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "stale",
+      "generation": "same",
+      "refusal": "unchanged"
+    },
+    {
+      "effects": [
+        "patch_in_place"
+      ],
+      "event": "launch_snapshot",
+      "from": "stale",
+      "generation": "newer",
+      "to": "stale"
+    },
+    {
+      "event": "listed",
+      "from": "stale",
+      "generation": "older",
+      "refusal": "stale_connection"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "listed",
+      "from": "stale",
+      "generation": "same",
+      "to": "live"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "listed",
+      "from": "stale",
+      "generation": "newer",
+      "to": "live"
+    },
+    {
+      "event": "unlisted",
+      "from": "stale",
+      "generation": "older",
+      "refusal": "stale_connection"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "stale",
+      "generation": "same",
+      "to": "gone"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "stale",
+      "generation": "newer",
+      "to": "gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "stale",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "stale",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "stale",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "stale",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "stale",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "stale",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "effects": [
+        "allow"
+      ],
+      "event": "interact",
+      "from": "stale",
+      "to": "stale"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "creating",
+      "generation": "older",
+      "refusal": "awaits_live_list"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "creating",
+      "generation": "same",
+      "refusal": "awaits_live_list"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "creating",
+      "generation": "newer",
+      "refusal": "awaits_live_list"
+    },
+    {
+      "effects": [
+        "patch_in_place",
+        "release_name"
+      ],
+      "event": "listed",
+      "from": "creating",
+      "generation": "older",
+      "to": "live"
+    },
+    {
+      "effects": [
+        "patch_in_place",
+        "release_name"
+      ],
+      "event": "listed",
+      "from": "creating",
+      "generation": "same",
+      "to": "live"
+    },
+    {
+      "effects": [
+        "patch_in_place",
+        "release_name"
+      ],
+      "event": "listed",
+      "from": "creating",
+      "generation": "newer",
+      "to": "live"
+    },
+    {
+      "event": "unlisted",
+      "from": "creating",
+      "generation": "older",
+      "refusal": "awaits_live_list"
+    },
+    {
+      "event": "unlisted",
+      "from": "creating",
+      "generation": "same",
+      "refusal": "awaits_live_list"
+    },
+    {
+      "event": "unlisted",
+      "from": "creating",
+      "generation": "newer",
+      "refusal": "awaits_live_list"
+    },
+    {
+      "event": "create_failed",
+      "from": "creating",
+      "generation": "older",
+      "refusal": "stale_create"
+    },
+    {
+      "effects": [
+        "relayout",
+        "release_name"
+      ],
+      "event": "create_failed",
+      "from": "creating",
+      "generation": "same",
+      "to": "gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "creating",
+      "generation": "newer",
+      "refusal": "stale_create"
+    },
+    {
+      "event": "create_closed",
+      "from": "creating",
+      "generation": "older",
+      "refusal": "stale_create"
+    },
+    {
+      "effects": [
+        "relayout",
+        "release_name"
+      ],
+      "event": "create_closed",
+      "from": "creating",
+      "generation": "same",
+      "to": "gone"
+    },
+    {
+      "event": "create_closed",
+      "from": "creating",
+      "generation": "newer",
+      "refusal": "stale_create"
+    },
+    {
+      "event": "interact",
+      "from": "creating",
+      "refusal": "pending"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "live",
+      "generation": "older",
+      "refusal": "stale_connection"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "live",
+      "generation": "same",
+      "refusal": "stale_connection"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "launch_snapshot",
+      "from": "live",
+      "generation": "newer",
+      "to": "stale"
+    },
+    {
+      "event": "listed",
+      "from": "live",
+      "generation": "older",
+      "refusal": "stale_connection"
+    },
+    {
+      "event": "listed",
+      "from": "live",
+      "generation": "same",
+      "refusal": "unchanged"
+    },
+    {
+      "effects": [
+        "patch_in_place"
+      ],
+      "event": "listed",
+      "from": "live",
+      "generation": "newer",
+      "to": "live"
+    },
+    {
+      "event": "unlisted",
+      "from": "live",
+      "generation": "older",
+      "refusal": "stale_connection"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "live",
+      "generation": "same",
+      "to": "gone"
+    },
+    {
+      "effects": [
+        "relayout"
+      ],
+      "event": "unlisted",
+      "from": "live",
+      "generation": "newer",
+      "to": "gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "live",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "live",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_failed",
+      "from": "live",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "live",
+      "generation": "older",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "live",
+      "generation": "same",
+      "refusal": "not_creating"
+    },
+    {
+      "event": "create_closed",
+      "from": "live",
+      "generation": "newer",
+      "refusal": "not_creating"
+    },
+    {
+      "effects": [
+        "allow"
+      ],
+      "event": "interact",
+      "from": "live",
+      "to": "live"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "gone",
+      "generation": "older",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "gone",
+      "generation": "same",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "launch_snapshot",
+      "from": "gone",
+      "generation": "newer",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "listed",
+      "from": "gone",
+      "generation": "older",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "listed",
+      "from": "gone",
+      "generation": "same",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "listed",
+      "from": "gone",
+      "generation": "newer",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "unlisted",
+      "from": "gone",
+      "generation": "older",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "unlisted",
+      "from": "gone",
+      "generation": "same",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "unlisted",
+      "from": "gone",
+      "generation": "newer",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "gone",
+      "generation": "older",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "gone",
+      "generation": "same",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "create_failed",
+      "from": "gone",
+      "generation": "newer",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "create_closed",
+      "from": "gone",
+      "generation": "older",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "create_closed",
+      "from": "gone",
+      "generation": "same",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "create_closed",
+      "from": "gone",
+      "generation": "newer",
+      "refusal": "row_gone"
+    },
+    {
+      "event": "interact",
+      "from": "gone",
+      "refusal": "row_gone"
+    }
+  ],
+  "version": 1
+}

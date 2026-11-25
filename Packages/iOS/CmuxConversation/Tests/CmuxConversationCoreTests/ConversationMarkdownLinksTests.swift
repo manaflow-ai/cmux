@@ -18,9 +18,20 @@ import Testing
 
     @Test func webAndFileLinksAndPlainTextAreHandled() {
         let result = ConversationMarkdownLinks.extract("See [#1](https://github.com/o/r/pull/1), [notes](file:///tmp/a.md), ![img](https://x/y.png) and [not a link](nope)")
-        #expect(result.text == "See #1, notes, ![img](https://x/y.png) and [not a link](nope)")
-        #expect(result.links.map(\.url.absoluteString) == ["https://github.com/o/r/pull/1", "file:///tmp/a.md"])
+        #expect(result.text == "See #1, notes, img and [not a link](nope)")
+        #expect(result.links.map(\.url.absoluteString) == ["https://github.com/o/r/pull/1", "file:///tmp/a.md", "https://x/y.png"])
         #expect(ConversationMarkdownLinks.extract("no links here").links.isEmpty)
+    }
+
+    /// Lawrence, 2026-11-20: a Chief picture (`![alt](src)`, a screenshot on the Mac) showed as its Markdown. The
+    /// phone cannot draw a Mac's file, so a picture shows its alt text (its file name when it has none), a link
+    /// when the picture is on the web.
+    @Test func picturesShowTheirAltTextNeverTheirSyntax() {
+        let result = ConversationMarkdownLinks.extract("Before: ![before, light](/Users/me/shots/b.png) after: ![](https://x/after.png) done")
+        #expect(result.text == "Before: before, light after: after.png done")
+        #expect(result.links.map(\.url.absoluteString) == ["https://x/after.png"])
+        let ns = result.text as NSString
+        #expect(result.links.first.map { ns.substring(with: $0.range) } == "after.png")
     }
 
     @Test func mentionsMoveWithTheText() {

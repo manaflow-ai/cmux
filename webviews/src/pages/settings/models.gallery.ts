@@ -3,9 +3,30 @@
 // the members policy and the Add a Connection sheet (cmux-tui/docs/model-connections.md).
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { mockModels } from "./mockModels";
-import type { ModelsState } from "./ops";
+import type { AccountsState, ModelsState } from "./ops";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 
 const shown: PageFixtureStep = { selector: '[data-card="models"]', action: "wait" };
+// A host that signs in in place: it lists the sign-in accounts (the rest of Settings > Accounts is
+// not on this page).
+const signInHost: AccountsState = {
+  teams: null,
+  refresh: "Refresh",
+  refreshing: false,
+  cmux: {
+    title: "cmux",
+    detail: null,
+    status: "Signed in",
+    statusKind: "success",
+    busy: false,
+    buttons: [],
+    note: null,
+    error: null,
+  },
+  removeTitle: "Remove",
+  groups: [],
+  signInAccounts: [...ACCOUNT_LISTS.signedOut],
+};
 const variant = (models: ModelsState, note: string, steps: PageFixtureStep[] = [shown]): SettingsPageVariant => ({
   section: "models",
   models,
@@ -47,7 +68,7 @@ export default settingsPageEntry({
     ]),
     "claude-token": variant(
       mockModels.macLogins,
-      "Add a Connection > Claude Code: Open Terminal runs claude setup-token, then paste the token it prints.",
+      "Add a Connection > Claude Code: one Connect Claude button; Paste a token instead stays collapsed.",
       [
         shown,
         { selector: '[data-models-action="add"]', action: "click" },
@@ -62,9 +83,26 @@ export default settingsPageEntry({
         shown,
         { selector: '[data-models-action="add"]', action: "click" },
         { selector: '[data-models-choice="claude"]', action: "click" },
+        { selector: "[data-models-claude-paste] > summary", action: "click" },
         { selector: '[data-models-claude-form] input[type="password"]', action: "input", value: "not a token" },
       ],
     ),
+    // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): on a host that signs
+    // in in place, the Claude login's Sign In Again opens the card under the row.
+    "claude-sign-in-in-place": {
+      ...variant(
+        mockModels.macLogins,
+        "Sign In Again on the Claude Code login, on a host that signs in in place: the card under the row, waiting for the pasted code.",
+        [
+          shown,
+          { selector: '[data-menu="connection-claude-login"]', action: "click" },
+          { selector: '[role="menuitem"][data-value="signInAgain"]', action: "click" },
+          { selector: '[data-connection-sign-in="claude-login"] .signin[data-state="waiting"]', action: "wait" },
+        ],
+      ),
+      accounts: signInHost,
+      signInHold: true,
+    },
     member: variant(mockModels.member, "A member: the organization's connections and the members policy read only."),
   },
 });

@@ -17,6 +17,6 @@ enum CloudNetworkAccessActions {
     /// The same refusal (and key) as the other Cloud machine actions a machine's backend can't do.
     static var unavailable: ActionFailure {
         ActionFailure(message: String(localized: "cloud.operationUnavailable",
-            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage))
     }
 }

@@ -1,0 +1,108 @@
+{
+  "title": "Composer edges: the Goal banner over the composer, one edge color round the stack and on the seam (user 2026-11-20, \"ensure all border colors are the same\"). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/composer-goal-edges.json --mac --display-scale 2",
+  "launch_args": [
+    "--showcase"
+  ],
+  "displayScale": 2,
+  "steps": [
+    {
+      "title": "Open a main workspace",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "Goal edges",
+        "--focus",
+        "--cwd",
+        "/tmp"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Open a chat",
+      "cmux": [
+        "agent",
+        "new-chat",
+        "--cwd",
+        "/tmp"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Wait for the chat page",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "shot": false
+    },
+    {
+      "title": "Start the chat's session (the showcase mock answers)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Fix the security-key prompt"
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A running goal heads the composer",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "seed_rows",
+          "fixture": "goal"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Dark: the Goal banner over the composer",
+      "wait": 0.5
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Light: the Goal banner over the composer",
+      "wait": 0.5
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

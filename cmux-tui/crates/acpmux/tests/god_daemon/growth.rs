@@ -260,6 +260,7 @@ async fn growth_under_mesh_churn_and_short_clients() {
                     read_bytes: 0,
                     longest_line: 0,
                     flood: Flood::default(),
+                    batch_notes: vec![],
                 };
                 counts.clients.fetch_add(1, Ordering::Relaxed);
                 let init = r.call(

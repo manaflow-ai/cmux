@@ -366,6 +366,26 @@ import UniformTypeIdentifiers
         #expect(h.inline.count == 2, "the field's text holds both pictures")
     }
 
+    /// The same picture pasted three times sits three times in the text and goes three times (#50984:
+    /// the second and third Cmd+V of one screenshot showed nothing).
+    @Test func theSamePicturePastedThreeTimesSitsThreeTimesInTheText() async throws {
+        let h = try await home()
+        defer { h.close() }
+        let shot = try Self.png()
+        for _ in 0..<3 {
+            #expect(h.view.handlePaste(Board(items: [.png: shot])))
+            await h.view.attachmentsReady()
+        }
+        h.view.layoutSubtreeIfNeeded()
+        #expect(h.view.transcript.draftAttachments.count == 3, "the draft holds each paste")
+        #expect(h.inline.count == 3, "the field's text holds each paste")
+        #expect(Set(h.inline.map(\.attachment.attachmentID)).count == 3, "each paste is a chip of its own")
+        #expect(h.view.sendDraft() == nil)
+        let sent = try #require(h.controller.store?.state.conversation.messages.last)
+        let pictures = sent.parts.filter { if case .attachment = $0 { true } else { false } }
+        #expect(pictures.count == 3, "the message takes all three")
+    }
+
     /// After a picture the caret sits on the text's line at the bottom of the picture's tall line,
     /// not halfway up the picture (Austin 2026-10-20: the caret floated above the text).
     @Test func theCaretSitsOnTheTextBesideAPicture() async throws {
@@ -376,11 +396,19 @@ import UniformTypeIdentifiers
         h.view.layoutSubtreeIfNeeded()
         let end = (h.field.string as NSString).length
         let caret = try #require(h.field.caretRects(at: [end]).fresh.first ?? nil)
-        let tlm = try #require(h.field.textLayoutManager)
+        // The picture's line, in the field's text container: the field is TextKit 1 since 903bd5ecc345 (a key
+        // costs its line, not its draft), so its line comes from the layout manager, not TextKit 2's fragments.
         var line = CGRect.zero
-        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { f in
-            line = f.layoutFragmentFrame
-            return false
+        if let tlm = h.field.textLayoutManager {
+            tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { f in
+                line = f.layoutFragmentFrame
+                return false
+            }
+        } else {
+            let lm = try #require(h.field.layoutManager, "the field has neither TextKit")
+            let container = try #require(h.field.textContainer)
+            lm.ensureLayout(for: container)
+            line = lm.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
         }
         let bottom = line.maxY + h.field.textContainerOrigin.y
         #expect(line.height > Fixture.lineHeight + 4, "the picture makes the line taller (\(line))")

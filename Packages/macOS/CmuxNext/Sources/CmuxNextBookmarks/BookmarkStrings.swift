@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the bookmark surfaces (Resources/Localizable.xcstrings).
 public nonisolated enum BookmarkStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     public static var barTitle: String { t("root.bar", "Bookmarks Bar") }

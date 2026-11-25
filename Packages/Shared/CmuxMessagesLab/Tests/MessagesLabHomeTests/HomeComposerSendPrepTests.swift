@@ -122,4 +122,38 @@ import Testing
         MorphBubble.drainPrepare()
         #expect(MorphBubble.preparedDraftHash() != key(typed), "an emptied draft still got its send images")
     }
+
+    /// The images of a layer tree that has contents (the flying bubble's text and its blur).
+    private func images(in layer: CALayer) -> [CGImage] {
+        var out: [CGImage] = []
+        func walk(_ l: CALayer) {
+            if let c = l.contents, CFGetTypeID(c as CFTypeRef) == CGImage.typeID { out.append(c as! CGImage) }
+            l.sublayers?.forEach(walk)
+            l.mask.map(walk)
+        }
+        walk(layer)
+        return out
+    }
+
+    /// A send sooner than the rest after the last key (no send images made yet) still flies its bubble with the
+    /// draft's text: the send draws its own images then, as it did before the images waited for the rest.
+    @Test func aSendBeforeTheRestFliesItsBubbleWithItsText() async throws {
+        MessagesLabHomeView.reduceMotionOverride = false
+        defer { MessagesLabHomeView.reduceMotionOverride = nil }
+        let r = try await rig()
+        defer { r.close() }
+        r.type("a quick note \(UUID().uuidString) sent at once")
+        r.type("!")
+        let typed = draft(r)
+        MorphBubble.drainPrepare()
+        try #require(MorphBubble.preparedDraftHash() != key(typed), "the draft rested before the send: not the case under test")
+        let demo = try #require(r.view.controller.demo)
+        let hits = MorphBubble.preparedHits
+        #expect(r.view.projection.send() == nil, "the send was refused")
+        r.frame()
+        let mb = try #require(demo.morphs.values.first, "a send right after the last key flew no bubble")
+        #expect(MorphBubble.preparedHits == hits, "the send used images made for another draft")
+        let drawn = images(in: mb.sharpHolder) + images(in: mb.insideClip)
+        #expect(drawn.contains { $0.width > 0 && $0.height > 0 }, "the flying bubble has no text image")
+    }
 }

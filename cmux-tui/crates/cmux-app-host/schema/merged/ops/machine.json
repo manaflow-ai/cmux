@@ -1,0 +1,15 @@
+{
+  "family": "machine",
+  "ops": {
+    "machine.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "5f4bc38f9f42aa22"
+    },
+    "machine.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "12a9d6eac080338f"
+    }
+  }
+}

@@ -49,6 +49,10 @@ public final class AppSceneHostingView: NSView {
     /// The scene's height when laid out `width` points wide.
     public func preferredHeight(width: CGFloat) -> CGFloat { native.preferredHeight(width: width) }
 
+    /// The scene's natural width, nil before it draws, while it shows a failure, or when it fills
+    /// the width it gets (a titlebar status item sizes to it).
+    public var preferredWidth: CGFloat? { native.preferredWidth }
+
     public override func layout() {
         super.layout()
         native.frame = bounds

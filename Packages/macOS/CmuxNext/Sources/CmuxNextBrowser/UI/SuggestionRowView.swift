@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// One suggestion: 16 pt icon, then "title – detail" on one line with the
-/// detail dimmed ("query - Engine Search"). The one highlighted row
+/// One suggestion: 16 pt icon, then "title – host" on one line with the
+/// host dimmed (``shownDetail(_:)``). The one highlighted row
 /// (keyboard or mouse, the state machine decides) gets a rounded gray fill
 /// concentric with the card (`OmnibarStyle.rowCornerRadius`). The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {
@@ -71,8 +71,11 @@ final class SuggestionRowView: NSView {
     /// Shows `suggestion` in this row, in place (Chromium
     /// `OmniboxResultView::SetMatch`): typing changes the rows' text, it
     /// never tears the card's views down. Touches only what changed.
-    func show(_ suggestion: BrowserSuggestion, force: Bool = false) {
-        guard force || suggestion != self.suggestion else { return }
+    /// - Parameter detail: the dimmed text, as the list decides it (``shownDetails(_:)``); nil: this row's own
+    ///   (``shownDetail(_:)``).
+    func show(_ suggestion: BrowserSuggestion, detail listDetail: String? = nil, force: Bool = false) {
+        let shown = listDetail ?? Self.shownDetail(suggestion)
+        guard force || suggestion != self.suggestion || shown != detail else { return }
         self.suggestion = suggestion
         let kind: IconName = switch suggestion.kind {
         case .navigate: .browser
@@ -104,16 +107,48 @@ final class SuggestionRowView: NSView {
             iconKind = kind
             icon.image = NSImage.icon(kind, size: OmnibarStyle.iconSide)
         }
-        setAccessibilityLabel([suggestion.title, suggestion.detail].filter { !$0.isEmpty }.joined(separator: ", "))
-        guard force || suggestion.title != title || suggestion.detail != detail else { return }
+        setAccessibilityLabel([suggestion.title, shown].filter { !$0.isEmpty }.joined(separator: ", "))
+        guard force || suggestion.title != title || shown != detail else { return }
         title = suggestion.title
-        detail = suggestion.detail
+        detail = shown
         applyColors()
         needsLayout = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The dimmed text after a row's title: a page's host alone, nothing for a search or the typed address (the glyph
+    /// and the title say what they are), and
+    /// an answer's or an extension's own text. A row names what it opens in as few words as it can (Lawrence
+    /// 2026-11-21, "drastically simplify all parts of the UI"): no "Google Search" beside every query, no path.
+    static func shownDetail(_ suggestion: BrowserSuggestion) -> String {
+        switch suggestion.kind {
+        case .search, .navigate: return ""
+        case .history, .bookmark, .switchToTab:
+            // A page with no title shows its address as the title, the host first: no second host after it.
+            let host = BrowserURLDisplay.restingText(for: suggestion.url)
+            return suggestion.title.lowercased().hasPrefix(host.lowercased()) ? "" : host
+        case .answer, .keyword: return suggestion.detail
+        }
+    }
+
+    /// Each row's dimmed text, for the list as a whole: ``shownDetail(_:)``, except that page rows that would read the
+    /// same (one title, one host: a site's pages often share a title) show their address without the scheme, so each
+    /// row still says where it goes.
+    static func shownDetails(_ suggestions: [BrowserSuggestion]) -> [String] {
+        let details = suggestions.map(shownDetail)
+        let lines = zip(suggestions, details).map { "\($0.title)\u{0}\($1)" }
+        let repeated = Dictionary(lines.map { ($0, 1) }, uniquingKeysWith: +).filter { $0.value > 1 }
+        return suggestions.indices.map { index in
+            let suggestion = suggestions[index]
+            guard repeated[lines[index]] != nil, !details[index].isEmpty else { return details[index] }
+            switch suggestion.kind {
+            case .history, .bookmark, .switchToTab: return BrowserURLDisplay.displayText(for: suggestion.url)
+            case .search, .navigate, .answer, .keyword: return details[index]
+            }
+        }
+    }
 
     /// Rows that name a known web page show its site icon: history,
     /// bookmarks and open tabs. The typed address keeps its globe (Chrome
@@ -186,12 +221,12 @@ final class SuggestionRowView: NSView {
             icon.contentTintColor = OmnibarStyle.resultsIcon
             let text = NSMutableAttributedString(string: title, attributes: [
                 .font: OmnibarStyle.font,
-                .foregroundColor: OmnibarStyle.textPrimary,
+                .foregroundColor: Palette.textPrimary,
             ])
             if !detail.isEmpty {
                 text.append(NSAttributedString(string: " – " + detail, attributes: [
                     .font: OmnibarStyle.rowDetailFont,
-                    .foregroundColor: OmnibarStyle.textSecondary,
+                    .foregroundColor: Palette.textSecondary,
                 ]))
             }
             label.attributedStringValue = text
