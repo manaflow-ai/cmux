@@ -224,6 +224,16 @@ test("the mock's one click steps through its phases, and a failure leaves its er
   expect(failed.personal.connections).toHaveLength(0);
 });
 
+test("a cancelled one click is not a save: the sheet stays open with Connect Claude", async () => {
+  const rendered = await render(mockModels.claudeSigningIn);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
+  const form = () => sheet()?.querySelector<HTMLElement>("[data-models-claude-form]");
+  await click(action(form()!, "cancelClaudeToken")!);
+  expect(form()).toBeTruthy();
+  expect(action(form()!, "connectClaudeToken")).toBeTruthy();
+});
+
 test("the mock refuses what acpmux refuses and names new routes as acpmux does", () => {
   const state = structuredClone(mockModels.macLogins);
   expect(() => runMockModels(state, { action: "remove", id: "codex-login" })).toThrow("the CLI's own login");

@@ -34,6 +34,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
+import { cloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
@@ -345,10 +346,10 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    /// What the header says: the chat's title, or a subagent's own pane's
+    /// title and "Subagent of <chat>" (subagents/subagentPanes.ts `paneHeading`).
+    heading: { title: string; of?: string; renamable: boolean };
     titleTrail: readonly string[] | undefined;
-    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
-    /// subagent, never its chat's title and summary.
-    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -999,11 +1000,16 @@ export function drawPaneBody({
                               ...folder,
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
-                              ...cloudSendAgent(
-                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
-                                harness,
-                                model,
-                              ),
+                              // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              ...(() => {
+                                const machine = cloudAgentPick();
+                                const agent = machine?.harness ?? harness;
+                                return cloudSendAgent(
+                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
+                                  agent,
+                                  machine ? machine.model : model,
+                                );
+                              })(),
                             },
                             true,
                           );
@@ -1077,6 +1083,7 @@ export function drawPaneBody({
                   lastAgent={newTab.lastAgent}
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+                  {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
@@ -1322,6 +1329,15 @@ export function drawPaneBody({
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
+                        {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
+                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping").
+                              A subagent's own pane says whose it is there instead (Leo, 2026-11-22: "it is prob ok to
+                              somehow denote the \"subagent of\"... at the top i feel like"). */}
+                        {heading.of && (
+                          <span className="acpmux-subagent-of" data-subagent-of="">
+                            {heading.of}
+                          </span>
+                        )}
                       </span>
                     )}
                   </ChatHeaderStatus>
