@@ -1158,6 +1158,10 @@
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* The chosen run location's one sentence, under its two segments; it wraps rather than truncates. */
+.onb-make-run-in-detail {
+  margin: var(--ds-space-1) 0 0;
+}
 /* A quiet tag, not a second button: the accent's ink on a faint wash of it. */
 .onb-make-badge {
   padding: 0 var(--ds-space-1);

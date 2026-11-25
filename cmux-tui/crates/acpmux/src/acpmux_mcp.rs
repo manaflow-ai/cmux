@@ -5,7 +5,7 @@
 //! engine and its aliases remain available. Behind the `cmux` server its tools
 //! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
 //! session's messages holding some words, `session_search.rs`) and the team mailbox tools
-//! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
+//! (`team_send`, `team_inbox`, `team_ack`, `team_listen`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
 //! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
 //! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
@@ -258,6 +258,21 @@ fn base_tools() -> Value {
             }
         },
         {
+            "name": "team_listen",
+            "description": "Listen on a teammate's agent address (@member/agent) and read what it receives, once its owner granted your user. op open starts a listen (ttlSeconds 60..604800, the hub's default without it), ls lists yours and others' on your addresses, close ends one by id, read pages the messages the address received (newest first; before continues from next).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string", "enum": ["open", "ls", "close", "read"]},
+                    "to": {"type": "string", "description": "The address, @member/agent (open, read)."},
+                    "ttlSeconds": {"type": "integer", "minimum": 60, "maximum": 604800, "description": "How long the listen stays open (open)."},
+                    "id": {"type": "string", "description": "The listen id, lsn_... (close)."},
+                    "before": {"type": "integer", "minimum": 0, "description": "Continue from a previous read's next cursor (read)."}
+                },
+                "required": ["op"]
+            }
+        },
+        {
             "name": "search",
             "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index: use it instead of grepping a transcript. Searches your own session unless name says another (across sessions: `cmux agent search`); role assistant finds what you wrote earlier.",
             "inputSchema": {
@@ -503,6 +518,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         "team_send" => team_send(daemon, &args).await,
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,
+        "team_listen" => team_listen(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
         name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
@@ -576,6 +592,25 @@ async fn team_ack(daemon: &Arc<Client>, args: &Value) -> Value {
         return error_result("id is required".to_owned());
     };
     match daemon.request(method::MUX_TEAM_ACK, json!({"id": id})).await {
+        Ok(result) => ok(team_result_text(&result), result),
+        Err(e) => refusal(e),
+    }
+}
+
+/// `team_listen`: the daemon's `_acpmux/team/listen`, with only the params it takes.
+async fn team_listen(daemon: &Arc<Client>, args: &Value) -> Value {
+    let Some(op) = arg(args, "op") else {
+        return error_result("op is required: open, ls, close or read".to_owned());
+    };
+    let mut params = serde_json::Map::new();
+    params.insert("op".to_owned(), json!(op));
+    for key in ["to", "ttlSeconds", "id", "before"] {
+        if let Some(value) = args.get(key).filter(|value| !value.is_null()) {
+            params.insert(key.to_owned(), value.clone());
+        }
+    }
+    let params = Value::Object(params);
+    match daemon.request(method::MUX_TEAM_LISTEN, params).await {
         Ok(result) => ok(team_result_text(&result), result),
         Err(e) => refusal(e),
     }
