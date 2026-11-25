@@ -349,6 +349,11 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
 
     let (second_tx, second_notice) = tokio::sync::oneshot::channel();
     let second = prompt(&hub, &s, "f1", "first", second_tx);
+    assert!(second_notice.try_recv().is_err(), "duplicate callback fired before first acceptance");
+
+    // The duplicate waits for the first attempt's acceptance before it can hear the receipt.
+    release.send(()).unwrap();
+    let started = tokio::time::timeout(WAIT, first_accepted).await.unwrap().unwrap();
     let notice = tokio::time::timeout(WAIT, second_notice).await.unwrap().unwrap();
     assert_eq!(
         (&notice["duplicate"], &notice["turnId"], &notice["queued"]),
@@ -357,8 +362,6 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
     );
 
     // Once the first copy is accepted, a third copy hears its turn.
-    release.send(()).unwrap();
-    let started = tokio::time::timeout(WAIT, first_accepted).await.unwrap().unwrap();
     let (third_tx, third_notice) = tokio::sync::oneshot::channel();
     let third = prompt(&hub, &s, "f1", "first", third_tx);
     let notice = tokio::time::timeout(WAIT, third_notice).await.unwrap().unwrap();
