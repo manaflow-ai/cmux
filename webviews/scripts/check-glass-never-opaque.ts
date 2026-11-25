@@ -303,6 +303,9 @@ export function fillKind(value: string): Kind {
 export function findOpaqueGlass(srcDir: string = SRC): string[] {
   const found: string[] = [];
   for (const block of glassContextRules(srcDir)) {
+    // A gallery stage (`*.gallery.css`) is not a product surface, as findOpaqueOverlays reckons it:
+    // kit.gallery.css re-declares the theme's opaque --glass-surface base per panel (#46118).
+    if (block.file.endsWith(".gallery.css")) continue;
     // A required surface stays glass even if its old markup has no ui-glass and its CSS no blur.
     const tooltip = TOOLTIP.test(block.selector);
     const glass =
