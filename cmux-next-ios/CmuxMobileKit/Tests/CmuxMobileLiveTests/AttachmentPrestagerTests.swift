@@ -9,19 +9,19 @@ import Testing
 /// links the early copy instead of uploading again.
 @MainActor
 @Suite struct AttachmentPrestagerTests {
-    /// Counts uploads and answers a path per name; `gate` holds them until opened.
+    /// Counts uploads and answers a path per name; `hold()` holds them until opened.
     actor FakeMac {
         var started: [String] = []
-        var gate: CheckedContinuation<Void, Never>?
+        var gates: [CheckedContinuation<Void, Never>] = []
         var open = true
         func upload(_ name: String) async throws -> String {
             started.append(name)
-            if !open { await withCheckedContinuation { gate = $0 } }
+            if !open { await withCheckedContinuation { gates.append($0) } }
             try Task.checkCancellation()
             return "/w/.cmux/attachments/\(name)"
         }
         func hold() { open = false }
-        func release() { open = true; gate?.resume(); gate = nil }
+        func release() { open = true; gates.forEach { $0.resume() }; gates = [] }
     }
 
     func file(_ id: String, _ name: String) -> AgentAttachment {

@@ -4848,6 +4848,137 @@
         }
       }
     },
+    "iphone.status.deviceIDTaken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another account already registered this Mac's iPhone connection, and a new one could not be set up. Turn iPhone connections off and on to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل حساب آخر اتصال iPhone لهذا الـ Mac بالفعل، وتعذّر إعداد اتصال جديد. أوقف اتصالات iPhone ثم شغّلها للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi račun je već registrovao iPhone vezu ovog Maca, a nova se nije mogla postaviti. Isključite i uključite iPhone veze da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En anden konto har allerede registreret denne Macs iPhone-forbindelse, og en ny kunne ikke oprettes. Slå iPhone-forbindelser fra og til for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein anderes Konto hat die iPhone-Verbindung dieses Macs bereits registriert, und eine neue konnte nicht eingerichtet werden. Schalte iPhone-Verbindungen aus und wieder ein, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otra cuenta ya registró la conexión con iPhone de este Mac y no se pudo configurar una nueva. Desactiva y activa las conexiones con iPhone para volver a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un autre compte a déjà enregistré la connexion iPhone de ce Mac, et une nouvelle n’a pas pu être configurée. Désactivez puis réactivez les connexions iPhone pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un altro account ha già registrato la connessione iPhone di questo Mac e non è stato possibile configurarne una nuova. Disattiva e riattiva le connessioni iPhone per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac の iPhone 接続はすでに別のアカウントで登録されており、新しい接続を設定できませんでした。iPhone 接続をオフにしてからオンにして、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គណនីផ្សេងបានចុះឈ្មោះការភ្ជាប់ iPhone របស់ Mac នេះរួចហើយ ហើយមិនអាចរៀបចំការភ្ជាប់ថ្មីបានទេ។ បិទ ហើយបើកការភ្ជាប់ iPhone ឡើងវិញ ដើម្បីសាកល្បងម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 계정이 이미 이 Mac의 iPhone 연결을 등록했으며 새 연결을 설정할 수 없었습니다. iPhone 연결을 껐다가 다시 켜서 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En annen konto har allerede registrert iPhone-tilkoblingen til denne Macen, og en ny kunne ikke settes opp. Slå iPhone-tilkoblinger av og på for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inne konto już zarejestrowało połączenie iPhone’a z tym Makiem, a nowego nie udało się skonfigurować. Wyłącz i włącz połączenia z iPhone’em, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outra conta já registrou a conexão com iPhone deste Mac, e não foi possível configurar uma nova. Desative e ative as conexões com iPhone para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другая учётная запись уже зарегистрировала подключение iPhone к этому Mac, а новое настроить не удалось. Выключите и снова включите подключения iPhone, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บัญชีอื่นได้ลงทะเบียนการเชื่อมต่อ iPhone ของ Mac เครื่องนี้ไว้แล้ว และไม่สามารถตั้งค่าการเชื่อมต่อใหม่ได้ ปิดแล้วเปิดการเชื่อมต่อ iPhone เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir hesap bu Mac’in iPhone bağlantısını zaten kaydetti ve yenisi kurulamadı. Yeniden denemek için iPhone bağlantılarını kapatıp açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інший обліковий запис уже зареєстрував підключення iPhone до цього Mac, а нове налаштувати не вдалося. Вимкніть і знову ввімкніть підключення iPhone, щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tài khoản khác đã đăng ký kết nối iPhone của máy Mac này và không thể thiết lập kết nối mới. Tắt rồi bật lại kết nối iPhone để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一个账户已注册此 Mac 的 iPhone 连接，且无法设置新的连接。请关闭再打开 iPhone 连接以重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另一個帳號已註冊這台 Mac 的 iPhone 連線，且無法設定新的連線。請關閉再開啟 iPhone 連線以重試。"
+          }
+        }
+      }
+    },
     "iphone.status.unavailable": {
       "extractionState": "manual",
       "localizations": {

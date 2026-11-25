@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0. */
+/* cmux-tui mux protocol 12, IR e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008. */
 
 
 import type * as T from "./types.js";
@@ -850,6 +850,7 @@ export interface ConversationInboxOpRequest extends CmuxRequestBase {
   cmd: "conversation-inbox-op";
   "conversation": string;
   "op": (T.JsonValue) | null;
+  "op_id"?: (string) | null;
 }
 export type ConversationInboxOpResult = {
   "conversation": string;
@@ -1340,6 +1341,14 @@ export interface FloatPaneRequest extends CmuxRequestBase {
 }
 export type FloatPaneResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface FlushLaunchSnapshotRequest extends CmuxRequestBase {
+  cmd: "flush-launch-snapshot";
+}
+export type FlushLaunchSnapshotResult = {
+  "flushed": boolean;
+};
+
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
   cmd: "focus-direction";
@@ -1524,6 +1533,8 @@ export type ListClientsResult = Array<T.ClientInfo>;
 export interface ListNotificationsRequest extends CmuxRequestBase {
   cmd: "list-notifications";
   "limit"?: (bigint) | null;
+  /** true: the reply also carries agent_notice_stats. */
+  "stats"?: boolean;
 }
 export type ListNotificationsResult = T.JsonValue;
 
@@ -1582,6 +1593,7 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
+  "since"?: (T.ListWorkspacesSince) | null;
 }
 export type ListWorkspacesResult = T.Tree;
 
@@ -2196,6 +2208,11 @@ export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type ReleaseSurfaceSizeResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface ReleaseWorkspaceNamesRequest extends CmuxRequestBase {
+  cmd: "release-workspace-names";
+}
 
 /** Protocol v6; authority: control. */
 export interface ReloadConfigRequest extends CmuxRequestBase {
@@ -3304,6 +3321,7 @@ export type CmuxRequest =
   | FeedLocalListRequest
   | FeedLocalReadRequest
   | FloatPaneRequest
+  | FlushLaunchSnapshotRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -3389,6 +3407,7 @@ export type CmuxRequest =
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
+  | ReleaseWorkspaceNamesRequest
   | ReloadConfigRequest
   | RemoteHostAppRequest
   | RemoteHostCallRequest
@@ -4473,6 +4492,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "floating-panes-v1";
     stream: null;
   };
+  "flush-launch-snapshot": {
+    request: FlushLaunchSnapshotRequest;
+    result: FlushLaunchSnapshotResult;
+    authority: "control";
+    since: 12;
+    capability: "launch-snapshot-flush-v1";
+    stream: null;
+  };
   "focus-direction": {
     request: FocusDirectionRequest;
     result: T.FocusDirectionResult;
@@ -5150,6 +5177,14 @@ export interface CmuxCommandDefinitionMap {
     result: ReleaseSurfaceSizeResult;
     authority: "control";
     since: 7;
+    capability: null;
+    stream: null;
+  };
+  "release-workspace-names": {
+    request: ReleaseWorkspaceNamesRequest;
+    result: T.ReleaseWorkspaceNamesResult;
+    authority: "control";
+    since: 12;
     capability: null;
     stream: null;
   };

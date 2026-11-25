@@ -40,7 +40,7 @@ pub(super) const TOOLS: [&str; 5] = ["bg_start", "bg_list", "bg_output", "bg_sto
 pub(super) fn tools() -> Vec<Value> {
     let id =
         json!({"type": "string", "description": "The task's id, as bg_start or bg_list gave it."});
-    let description = json!({"type": "string", "description": "A few words: what this call is for. The transcript titles the call with it."});
+    let description = json!({"type": "string", "description": "A few words on what this call is for; titles the call."});
     vec![
         json!({"name": "bg_start", "description": "Start a background command that survives hibernation and restarts. Returns its task id immediately, and not the command or description you just sent (bg_list and bg_output read a stored command back). Use bg_output to read it.",
             "inputSchema": {"type": "object", "properties": {
@@ -49,30 +49,30 @@ pub(super) fn tools() -> Vec<Value> {
                 "description": {"type": "string", "description": "Short task title for listings, output and completion."},
                 "notify": {"type": "boolean", "description": "Send exit status and last lines when it ends (default true); a running turn reads it at its next tool step."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop. A row carries only what you cannot read off it: this chat's session and folder are on the page once, and a field at its default (no exit yet, no signal, no error) is left off.",
+        json!({"name": "bg_list", "description": "Your background tasks (a subagent sees its own), newest 30 first, one line each: id, state, exit code, age, command (cut). The last line says how many more and how to page. Other callers' tasks are counted, not listed, unless all; they are not yours to stop.",
             "inputSchema": {"type": "object", "properties": {"description": description,
-                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "How many tasks to list (default 30)."},
-                "offset": {"type": "integer", "minimum": 0, "description": "How many of the newest to skip first (default 0): the last line's offset lists the next page."},
-                "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only tasks in this state, or with this outcome (ok, failed)."},
-                "full": {"type": "boolean", "description": "Each task's whole command and the tail of its output (default false). bg_output reads one task's output."}}}}),
+                "all": {"type": "boolean", "description": "Every task of this chat, with who started it."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Default 30."},
+                "offset": {"type": "integer", "minimum": 0, "description": "Newest to skip (paging)."},
+                "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only this state or outcome."},
+                "full": {"type": "boolean", "description": "Whole commands and output tails."}}}}),
         json!({"name": "bg_output", "description": "Read the last 64 KiB by default. Pass nextByte as fromByte to continue. skippedBytes counts output lost beyond the newest 8 MiB. Text, no base64 copy.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended. A task another subagent or the lead started is refused, naming who started it.",
+        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to all its processes, SIGKILL to any left after 5 s; returns once it ended (at once for a task that ends on SIGTERM). Another caller's task is refused, naming who started it.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
-                "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
+                "force_other_owner": {"type": "boolean", "description": "Stop another caller's task: only when its owner asked or is gone, never as cleanup."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed, else through one gh watch per pull request or run that every chat on the machine shares. Given a background task's id (bg-...) and timeoutSeconds instead, it blocks until that task ends or the timeout passes (at most 1800 s; a longer one is clamped and the result says so), then answers as bg_output does.",
+        json!({"name": "run_wait", "description": "Wait in the background for a GitHub Actions run or a PR's checks (one shared poller; needs gh) and get one message when done: passed, or failed naming the jobs. Returns a task id at once. With id (bg-...) and timeoutSeconds instead, blocks until that task ends (max 1800 s) and answers as bg_output.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
-                "id": {"type": "string", "description": "Instead of repo: a background task's id (bg-...) to wait for, with timeoutSeconds."},
-                "timeoutSeconds": {"type": "number", "minimum": 0, "description": "With id: how long to block for the task to end (at most 1800). Without it the task is read at once."},
+                "id": {"type": "string", "description": "Instead of repo: a task id (bg-...)."},
+                "timeoutSeconds": {"type": "number", "minimum": 0, "description": "With id: how long to block (max 1800)."},
                 "run": {"type": "integer", "minimum": 1, "description": "The Actions run id to wait for."},
-                "pr": {"type": "integer", "minimum": 1, "description": "The pull request whose checks to wait for (instead of run)."},
-                "sha": {"type": "string", "description": "With pr: the head commit the checks must be for; a pull request whose head is another commit, before or after the wait, fails."},
+                "pr": {"type": "integer", "minimum": 1, "description": "Instead of run: the PR whose checks to wait for."},
+                "sha": {"type": "string", "description": "With pr: the head the checks must be for; another head fails."},
                 "description": description},
                 "required": ["repo"]}}),
     ]
@@ -349,13 +349,19 @@ fn trim_echo(name: &str, structured: &mut Value) {
     // The chat's own id, the same on every answer this chat reads.
     o.remove("sessionId");
     if name == "bg_start" {
-        o.remove("command");
-        o.remove("description");
+        // The caller's own words and folder, and an output that cannot exist yet.
+        for key in ["command", "description", "cwd", "totalBytes"] {
+            o.remove(key);
+        }
     }
-    // `text` is those bytes already; base64 of them costs a third again for nothing.
-    if o.contains_key("text") && o.remove("data").is_some() {
-        o.insert("dataOmitted".into(), json!("the bytes are in text; no base64 copy"));
+    // `text` is those bytes already; base64 of them costs a third again for nothing (the tool's
+    // description says so once, not every answer).
+    if o.contains_key("text") {
+        o.remove("data");
     }
+    // An end that has not happened, no spool error, the lead as starter, no output yet: null and
+    // default fields cost every answer bytes and say nothing (`bg_list::is_default`).
+    o.retain(|k, v| !(super::bg_list::is_default(k, v) || (k == "tail" && v == &json!(""))));
     if let Some(command) = o.get("command").and_then(Value::as_str)
         && command.chars().count() > CMD_KEPT
     {
@@ -465,7 +471,6 @@ mod tests {
             "text": "out\n", "data": "b3V0Cg==", "totalBytes": 4});
         trim_echo("bg_output", &mut r);
         assert_eq!(r.get("data"), None, "text already carries those bytes");
-        assert!(r["dataOmitted"].is_string());
         let kept = r["command"].as_str().unwrap();
         assert!(kept.chars().count() <= CMD_KEPT, "{} chars", kept.chars().count());
         assert!(kept.starts_with("cargo test x") && kept.ends_with('\u{2026}'));
@@ -492,12 +497,14 @@ mod tests {
             json!({"id": "bg-1", "sessionId": "00000000-0000-4000-8000-000000000001",
                 "command": "cargo test -p acpmux", "cwd": "/tmp/checkout",
                 "description": "run the suite", "state": "running", "pid": 1234,
-                "startedAt": 1_795_506_015_665_i64, "notify": true})
+                "startedAt": 1_795_506_015_665_i64, "notify": true, "endedAt": null,
+                "exitCode": null, "signal": null, "outputError": null, "startedBy": null,
+                "keptFromByte": 0, "resultLine": false, "tail": "", "totalBytes": 0})
         };
         let mut start = as_the_daemon_answers();
         trim_echo("bg_start", &mut start);
         let o = start.as_object().unwrap();
-        for key in ["command", "description", "sessionId"] {
+        for key in ["command", "description", "sessionId", "cwd", "notify"] {
             assert!(!o.contains_key(key), "{key} is read back to its own author: {start}");
         }
         for key in ["id", "pid", "state", "startedAt"] {
@@ -511,6 +518,10 @@ mod tests {
         assert_eq!(read["command"], json!("cargo test -p acpmux"));
         assert_eq!(read["description"], json!("run the suite"));
         assert!(read.get("sessionId").is_none(), "still this chat's own id");
+        for key in ["endedAt", "exitCode", "keptFromByte", "resultLine", "tail"] {
+            assert!(read.get(key).is_none(), "{key} carries only its default: {read}");
+        }
+        assert_eq!(read["totalBytes"], json!(0), "a read says how much output there is");
     }
 
     /// A list's outcome counts its tasks by status; the list runs while any task runs.

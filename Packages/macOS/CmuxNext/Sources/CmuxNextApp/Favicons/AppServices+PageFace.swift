@@ -15,7 +15,7 @@ extension AppServices {
         let address = cache.pageRequests.proxiedTabs.appFetchableFavicon(
             live.map { $0.state.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: live)
         let profile = known.map { browserProfiles.engineProfile(for: $0.tab, incognito: $0.incognito) } ?? browserProfiles.engineProfile(forTab: key)
-        return favicons.image(for: address, profile: profile, tab: live)
+        return favicons.face(for: address, profile: profile, tab: live, page: live?.state.url ?? (known?.tab.url ?? machines.local.store.tab(id: key)?.url).flatMap { URL(string: $0) }, persist: !(known?.incognito ?? cache.browserTabs.isIncognitoTab(key)))
     }
 
     /// What the sidebar row of `workspace` shows of its front tab, or a
