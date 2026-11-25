@@ -29,6 +29,17 @@ struct InTreePagesLaunchSwitchTests {
             .contains("CMUX_CEF_RESIZE_FENCE_MS"), "another cmux's override reached this app")
     }
 
+    /// The fence's off switch (`CMUX_CEF_RESIZE_FENCE=0`, `CEFLayerHosting.resizeFenceAllowed`) reaches the app from a
+    /// harness launch too: the strip took it, so a fence-off arm ran with the fence on.
+    @Test func theResizeFenceSwitchSurvivesTheLaunchStrip() {
+        let launch = ["CMUX_CEF_RESIZE_FENCE": "0"]
+        #expect(!LaunchIdentity.inheritedKeys(processEnvironment: launch, bundledEnvironment: [:])
+            .contains("CMUX_CEF_RESIZE_FENCE"), "the launch strip took CMUX_CEF_RESIZE_FENCE")
+        let foreign = launch.merging(["CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]) { a, _ in a }
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: foreign, bundledEnvironment: [:])
+            .contains("CMUX_CEF_RESIZE_FENCE"), "another cmux's switch reached this app")
+    }
+
     /// One that another cmux's terminal passed on is that cmux's, and goes, like every other launch switch.
     @Test func aSwitchAnotherCmuxSetGoes() {
         let foreign = [InTreePages.environmentKey: "1", "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]
