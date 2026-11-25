@@ -56,6 +56,33 @@ import Testing
         #expect(!reporter.noteHang(duration: .seconds(3), addresses: []))
     }
 
+    @Test func memoryPressureEventsCarryFootprintOwnersAndUptimeAtTheSentryBoundary() {
+        let report = MemoryPressureReport(kind: .critical, footprintMegabytes: 4_096,
+                                          topOwners: [
+                                              .init(name: "Chromium Helper", footprintMegabytes: 2_048),
+                                              .init(name: "cmux-tui", footprintMegabytes: 512),
+                                          ], uptimeNanos: 123_456_789)
+        let event = report.event()
+        #expect(event.level == .error)
+        #expect(event.fingerprint == ["memory-pressure", "critical"])
+        #expect(event.tags?["memory_event"] == "critical")
+        #expect(event.extra?["footprint_mb"] as? Int == 4_096)
+        #expect(event.extra?["uptime_nanos"] as? UInt64 == 123_456_789)
+        #expect(event.extra?["top_owners"] as? [String] == ["Chromium Helper:2048", "cmux-tui:512"])
+    }
+
+    @Test func memoryPressureRateLimiterRefillsAfterItsInterval() {
+        var limiter = MemoryPressureRateLimiter(capacity: 1, refillNanos: 10)
+        // A mutating call inside #expect is refused ("cannot use mutating member on immutable value"): each
+        // admit is its own statement.
+        let first = limiter.admit(nowNanos: 0)
+        let early = limiter.admit(nowNanos: 9)
+        let refilled = limiter.admit(nowNanos: 10)
+        #expect(first)
+        #expect(!early)
+        #expect(refilled)
+    }
+
     @Test func everyEventNamesTheTeamMemberCommitAndInstall() {
         let member = CrashReportIdentity.member(userID: "u-1", name: " Leo ", email: "leo@example.com",
                                                 teamIDs: ["other", CrashReportIdentity.cmuxTeamID])
@@ -140,6 +167,41 @@ import Testing
         #expect(event.tags?["stalls_total"] == "13")
         #expect(event.extra?["hangs_sent"] as? Int == 1)
         #expect(event.extra?["stalls_100-250ms"] as? Int == 0)
+    }
+
+    /// hq#18814: `record` read Sentry's `isEnabled` (its hub lock) on the main thread at every stall's end,
+    /// a 3.0 s hang at load 214. With a check that blocks 500 ms, record took over 500 ms; now it never calls
+    /// the check on the calling thread, and a closed window is still sent only while reporting is on.
+    @Test func recordNeverWaitsOnTheEnabledCheck() async {
+        let checks = Box<Int>(0)
+        let sent = Box<Int>(0)
+        let clock = Box<UInt64>(0)
+        let summary = StallSummaryRecorder(summary: StallSummary(), isEnabled: {
+            checks.value.withLock { $0 += 1 }
+            Thread.sleep(forTimeInterval: 0.5)
+            return true
+        }, sink: { _, _ in sent.value.withLock { $0 += 1 } }, uptime: { clock.value.withLock { $0 } })
+        let start = ContinuousClock.now
+        for _ in 0..<100 { summary.record(.stall(nanos: 300 * Self.ms)) }
+        clock.value.withLock { $0 = 2 * 60 * Self.minute }
+        summary.record(.stall(nanos: 300 * Self.ms))  // closes the window: its send is checked off this thread
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed < .milliseconds(100), "101 records took \(elapsed)")
+        for _ in 0..<200 where sent.value.withLock({ $0 }) == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(sent.value.withLock { $0 } == 1)
+        #expect(checks.value.withLock { $0 } == 1, "checked once, by the send")
+    }
+
+    @Test func aClosedWindowIsNotSentWhileReportingIsOff() async {
+        let sent = Box<Int>(0)
+        let clock = Box<UInt64>(0)
+        let summary = StallSummaryRecorder(summary: StallSummary(), isEnabled: { false },
+                                           sink: { _, _ in sent.value.withLock { $0 += 1 } }, uptime: { clock.value.withLock { $0 } })
+        summary.record(.stall(nanos: 300 * Self.ms))
+        clock.value.withLock { $0 = 2 * 60 * Self.minute }
+        summary.record(.stall(nanos: 300 * Self.ms))
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(sent.value.withLock { $0 } == 0)
     }
 
     @Test func lagSpikesFeedTheSummary() {

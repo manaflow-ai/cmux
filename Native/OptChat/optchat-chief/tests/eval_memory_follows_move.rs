@@ -11,8 +11,12 @@
 //! - followed: the server with the owner's route the move carried (`CMUX_AGENT_MEMORY_OWNER`),
 //!   relaying to the owner's index (in-process here; `cmux remote rpc` in the product).
 //!
-//! A task is answered when the answer is in the folder lines matching the agent's query words,
-//! or in the top 3 memory hits for them. Run: `cargo test -p optchat-chief --test
+//! The agent searches memory twice per task, with its whole question and with its keywords, as
+//! an agent does. A task is answered when the answer is in the folder lines matching the
+//! keywords, or in the top 3 memory hits of either search. The hits' snippets mark the words
+//! that matched in `[` `]` (`optchat_host::db::search`); the answer is read without those marks,
+//! as the agent reads it (`docs/[decisions]` is `docs/decisions`). The bench also prints the
+//! first run's way, keywords only and the marks kept, which scored 8/10. Run: `cargo test -p optchat-chief --test
 //! eval_memory_follows_move -- --nocapture`.
 
 use std::path::Path;
@@ -154,6 +158,15 @@ fn search(server: &mut Server, query: &str) -> String {
     answer["result"]["content"].to_string()
 }
 
+/// How the agent asks memory and reads its hits.
+#[derive(Clone, Copy)]
+enum Asking {
+    /// The first run's way: its keywords only, the hit marks kept.
+    Keywords,
+    /// Its whole question and its keywords, the hits read without the marks.
+    QuestionAndKeywords,
+}
+
 fn from_folder(query: &str) -> String {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     FOLDER
@@ -164,12 +177,18 @@ fn from_folder(query: &str) -> String {
 }
 
 /// The tasks answered, and the questions of those missed.
-fn score(mut server: Option<&mut Server>) -> (usize, Vec<&'static str>) {
+fn score(mut server: Option<&mut Server>, asking: Asking) -> (usize, Vec<&'static str>) {
     let mut missed = Vec::new();
     for (task, query, _, answer) in TASKS {
         let mut seen = from_folder(query);
         if let Some(server) = server.as_deref_mut() {
-            seen.push_str(&search(server, query));
+            match asking {
+                Asking::Keywords => seen.push_str(&search(server, query)),
+                Asking::QuestionAndKeywords => {
+                    let hits = search(server, task) + &search(server, query);
+                    seen.push_str(&hits.replace(['[', ']'], ""));
+                }
+            }
         }
         if !seen.contains(answer) {
             missed.push(task);
@@ -190,13 +209,14 @@ fn memory_that_follows_a_moved_chat_answers_what_a_prior_session_saved() {
     // The Cloud machine the chat moved to: an index of its own with nothing in it.
     let cloud_home = short_home();
 
-    let off = score(None);
+    let asking = Asking::QuestionAndKeywords;
+    let off = score(None, asking);
     let mut local = Server {
         index: index(cloud_home.path()),
         remember: true,
         owner: None,
     };
-    let local = score(Some(&mut local));
+    let local = score(Some(&mut local), asking);
     let owner = Server {
         index: owner_index,
         remember: true,
@@ -207,7 +227,8 @@ fn memory_that_follows_a_moved_chat_answers_what_a_prior_session_saved() {
         remember: true,
         owner: Some(Box::new(OwnerLink(owner))),
     };
-    let followed = score(Some(&mut followed));
+    let (first_way, first_missed) = score(Some(&mut followed), Asking::Keywords);
+    let followed = score(Some(&mut followed), asking);
 
     let ((off, _), (local, _), (followed, missed)) = (off, local, followed);
     let n = TASKS.len();
@@ -230,6 +251,10 @@ fn memory_that_follows_a_moved_chat_answers_what_a_prior_session_saved() {
         pct(followed) as i64 - pct(off) as i64
     );
     println!("  missed with memory followed: {missed:?}");
+    println!(
+        "  followed, the first run's way (keywords only, marks kept): {first_way}/{n} = {}%, missed {first_missed:?}",
+        pct(first_way)
+    );
     assert_eq!(
         (off, local),
         (2, 2),
