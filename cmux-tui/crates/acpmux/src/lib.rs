@@ -125,8 +125,8 @@ pub mod github_rest_op;
 pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
-pub mod parked_wait;
 pub mod memory_follow;
+pub mod parked_wait;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
