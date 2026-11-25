@@ -91,7 +91,10 @@ mod tests {
     use serde_json::json;
 
     fn transcript(items: Vec<Item>) -> Transcript {
-        Transcript { items, layout_dirty_from: usize::MAX, ..Transcript::default() }
+        let mut t = Transcript::default();
+        t.items = items;
+        t.layout_dirty_from = usize::MAX;
+        t
     }
 
     fn user(text: &str) -> Item {
