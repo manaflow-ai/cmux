@@ -9,9 +9,10 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { useToolRunLook } from "../toolRunLook";
 import { FailedCount } from "./FailedCount";
-import { ChevronRight, Envelope } from "./icons";
+import { Envelope } from "./icons";
 import { messageRunSummary } from "./messageRuns";
 import { ToolLabel } from "./ToolVerb";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 export function MessageRunLine({
   row,
@@ -47,7 +48,7 @@ export function MessageRunLine({
           </span>
           <FailedCount n={run.failed} />
         </span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${expanded ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={expanded} />
       </button>
     </div>
   );
