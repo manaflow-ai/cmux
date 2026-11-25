@@ -441,9 +441,8 @@ impl PromptOutbox {
     /// the hold instead of being held for good.
     pub fn write_failed(&mut self, id: &str, now: Instant) {
         if let Some(entry) = self.entry_mut(id) {
-            let took = entry
-                .write_started
-                .map_or(Duration::ZERO, |at| now.saturating_duration_since(at));
+            let took =
+                entry.write_started.map_or(Duration::ZERO, |at| now.saturating_duration_since(at));
             let moved = if entry.failures == 0 { now } else { entry.waiting_since + took };
             entry.waiting_since = moved.min(now);
             entry.write_started = None;

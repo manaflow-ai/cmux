@@ -267,7 +267,8 @@ fn written_prompts_wait_for_their_answers_past_the_hold() {
 }
 
 #[test]
-fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_until_a_write_fails_and_a_held_one_from_its_hold() {
+fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_until_a_write_fails_and_a_held_one_from_its_hold()
+ {
     let t0 = Instant::now();
     let mut outbox = outbox();
     // An upload took 3 s: tapped at t0, pushed at t0+3s, link up and nothing ahead: from the tap
