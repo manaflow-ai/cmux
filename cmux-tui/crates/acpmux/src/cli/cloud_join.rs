@@ -807,6 +807,32 @@ pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Con
     authority()?.set(surface, granted)
 }
 
+/// Grants "control for my other signed-in machines" for `account`, the account a control
+/// approval was admitted for (`share_host/approval.rs`: the owner's tap on their own device,
+/// signed by its device key). It holds only for the account this machine is joined as, so an
+/// approval for any other account, or a machine with no join, grants nothing.
+pub(crate) fn grant_signed_in_machines_for(account: &str) -> std::result::Result<(), String> {
+    grant_signed_in_machines_as(account, machine_user_id().as_deref(), |user| {
+        authority()?.set_as(SIGNED_IN_MACHINES, true, Some(user))?;
+        Ok(())
+    })
+}
+
+/// [`grant_signed_in_machines_for`], given the account this machine is joined as and the writer.
+pub(crate) fn grant_signed_in_machines_as(
+    account: &str,
+    joined_as: Option<&str>,
+    write: impl FnOnce(String) -> Result<()>,
+) -> std::result::Result<(), String> {
+    match joined_as {
+        None => Err("this Mac is not joined to an account".into()),
+        Some(joined) if joined != account => {
+            Err("this Mac is joined as another account than the one that allowed it".into())
+        }
+        Some(joined) => write(joined.to_owned()).map_err(|e| e.to_string()),
+    }
+}
+
 /// This machine's consent and the account it is joined as, read now (blocking file reads).
 pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
     let account = machine_user_id();
@@ -877,6 +903,25 @@ mod tests {
     }
 
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
+
+    /// A control approval's grant is written only for the account this machine is joined as.
+    #[test]
+    fn a_carried_control_grant_is_only_for_the_joined_account() {
+        let written = std::cell::RefCell::new(Vec::new());
+        let write = |user: String| {
+            written.borrow_mut().push(user);
+            Ok(())
+        };
+        assert!(super::grant_signed_in_machines_as("user-1", None, write).is_err());
+        assert!(super::grant_signed_in_machines_as("user-1", Some("user-2"), write).is_err());
+        assert!(written.borrow().is_empty(), "nothing written for another account or no join");
+        assert_eq!(super::grant_signed_in_machines_as("user-1", Some("user-1"), write), Ok(()));
+        assert_eq!(*written.borrow(), ["user-1"]);
+        let failed = super::grant_signed_in_machines_as("user-1", Some("user-1"), |_| {
+            Err(anyhow::anyhow!("consent store unavailable"))
+        });
+        assert_eq!(failed.unwrap_err(), "consent store unavailable");
+    }
 
     #[test]
     fn join_token_is_shell_safe_after_shared_line_reader() {
