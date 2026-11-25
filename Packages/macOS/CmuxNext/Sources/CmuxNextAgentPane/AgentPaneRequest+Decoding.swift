@@ -154,6 +154,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.cloudStartQueue":
+            if let text = params?["text"] as? String {
+                self = .cloudStartQueue(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.unsentDraft":
             if let text = params?["text"] as? String {
                 self = .unsentDraft(text)
