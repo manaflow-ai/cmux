@@ -81,8 +81,8 @@ await fs.mkdir(out, { recursive: true });
 let server;
 let browser;
 const results = [];
-// A cold first load's bound (the proof's own timeout in CI is 360 s).
-const COLD_LOAD_MS = 180_000;
+// A cold first load's bound: 142 s on a GCP lane VM on 2026-11-24; the proof's own timeout in CI is 360 s.
+const COLD_LOAD_MS = 240_000;
 let coldLoadMs;
 try {
   const root = path.dirname(ownWebviews);
