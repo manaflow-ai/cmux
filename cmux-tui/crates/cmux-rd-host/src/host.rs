@@ -115,6 +115,19 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// `--window ID`: a window id, decimal or `0x` hex (as `xwininfo` prints an X window id).
+pub(crate) fn parse_window_id(text: &str) -> Result<u32, String> {
+    let t = text.trim();
+    let parsed = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        Some(hex) => u32::from_str_radix(hex, 16),
+        None => t.parse(),
+    };
+    match parsed {
+        Ok(id) if id != 0 => Ok(id),
+        _ => Err(format!("--window {text}: a window id (decimal or 0x hex)")),
+    }
+}
+
 /// The session settings from the options (every mode).
 fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     let display = opts.str_or("display", DEFAULT_DISPLAY);
@@ -128,6 +141,8 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     Ok(SessionCfg {
         display,
         display_pick: opts.get("monitor").map(str::to_owned),
+        // `--window ID`: one X window (decimal or 0x hex, as xwininfo prints it).
+        window: opts.get("window").map(parse_window_id).transpose()?,
         max_fps: encode_profile.stream_fps(max_fps),
         encode_profile,
         start_kbps: opts.num_or("start-kbps", 8000)?,
@@ -149,6 +164,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        rtt_tail_probe: opts.flag("rtt-tail-probe"),
         resolution_ladder: opts.flag("resolution-ladder"),
         max_qp: ladder_max_qp(opts)?,
         max_width: opts
@@ -528,8 +544,14 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
     if crate::desktop::scales_pictures() {
         host_caps.push(caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&cfg.codec) {
+        host_caps.push(caps::H264_BASELINE);
     }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([caps::CLOCK, caps::LEDGER]);
@@ -695,6 +717,14 @@ fn stream_session<S: ViewerStream>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_ids_read_as_decimal_or_hex() {
+        assert_eq!(parse_window_id("0x2a00007"), Ok(0x2a0_0007));
+        assert_eq!(parse_window_id(" 44040199 "), Ok(44_040_199));
+        assert!(parse_window_id("0").is_err());
+        assert!(parse_window_id("main").is_err());
+    }
 
     /// `host::run` and `serve::run` are safe and may run with threads up (the cmux binary
     /// calls `run_cli` too), and `set_var` races every concurrent `getenv`, a C library's

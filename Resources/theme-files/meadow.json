@@ -7,7 +7,7 @@
 
   // Everforest's light terminal theme, with darker text so it reads at 5:1 or better.
   "appearance.theme": "Everforest Light Med",
-  "colors": { "background": "#efebd4", "foreground": "#3f4a50", "selection": "#d6e0b0", "accent": "#43602c" },
+  "colors": { "background": "#efebd4", "foreground": "#3f4a50", "selection": "#e1ecbb", "accent": "#43602c", "12": "#2877a2" },
   "appearance.accent": "theme",
 
   // Solid tonal blocks with rounded panes: no wallpaper and no glass.
@@ -18,7 +18,7 @@
 
   // A sage sidebar and tab bar around cream panes.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#dfe2c4",
+  "appearance.surfaces.sidebar.color": "#e9ecce",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#e5e4ca",
   "appearance.surfaces.tabBar.opacity": 1,

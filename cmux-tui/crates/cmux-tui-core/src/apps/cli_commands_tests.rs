@@ -60,6 +60,7 @@ fn record(enabled: bool) -> Record {
         hidden_access: Default::default(),
         sandboxed: false,
         grants: BTreeSet::new(),
+        settings: Default::default(),
     }
 }
 

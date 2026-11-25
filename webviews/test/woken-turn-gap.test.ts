@@ -70,7 +70,10 @@ async function gapUnderFooter(opensWith: "tool" | "reply") {
   const { client, rows } = await connect(daemon);
   try {
     const view = turnView(rows(), new Set()).filter((row) => row.kind !== "date") as AcpmuxRow[];
-    const first = view.findIndex((row) => row.inBackground === "bg-reclaim");
+    // Its first row: its "Worked for" when its work folds under one (cmux#49592), else its reply.
+    const first = view.findIndex(
+      (row) => row.inBackground === "bg-reclaim" || row.id === "worked-backgroundTurn-bg-reclaim",
+    );
     const layout = layoutConversation(view, 720);
     const gap = layout.tops[first]! - layout.tops[first - 1]! - layout.heights[first - 1]!;
     return { view, first, gap };
@@ -81,13 +84,15 @@ async function gapUnderFooter(opensWith: "tool" | "reply") {
 
 for (const look of [undefined, "line"] as const) {
   const arm = look ?? "default";
-  test(`a woken turn's first tool row under the ended turn's footer stands the block gap, not an empty turn gap (${arm} background look)`, async () => {
+  test(`a woken turn's Worked for under the ended turn's footer stands the block gap, not an empty turn gap (${arm} background look)`, async () => {
     if (look) globalThis.cmuxExperiments = { "background-turn-look": look };
     const { view, first, gap } = await gapUnderFooter("tool");
     // The background command's line draws nothing: its result is on its call.
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    // Right under the ended turn's footer row: its first row is the "Read" call.
-    expect(view[first]?.kind).toBe("activity");
+    // Right under the ended turn's footer row: its first row is the "Worked for" its "Read" call
+    // folds under, once the woken turn ended (cmux#49592).
+    expect(view[first]?.kind).toBe("worked");
+    expect(view.some((row) => row.kind === "activity" && row.inBackground === "bg-reclaim")).toBe(false);
     expect(view[first - 1]?.kind).toBe("turnSummary");
     expect(rowMark(view[first - 1]!)).toBe(MARK_FOOTER_ROW);
     expect(gap).toBe(TRANSCRIPT_BLOCK_GAP);

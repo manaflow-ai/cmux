@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -248,6 +249,38 @@ struct CloudMachineUpdateTargetTests {
         #expect(!gate.contains("vm-2"))
         gate.leave("vm-1")
         #expect(!gate.contains("vm-1"))
+    }
+
+    /// A start whose agent runs holds the machine through its first turn, so the update turned away during the
+    /// start does not restart the daemon under the first reply (prod probe 2026-11-23T19:54Z: 146.8 s after the start).
+    @Test func theStartGateHoldsTheMachineThroughTheFirstTurn() {
+        var clock = ContinuousClock.now
+        let gate = CloudStartGate(now: { clock })
+        gate.enter("vm-1")
+        gate.started("vm-1")
+        gate.leave("vm-1")
+        #expect(gate.contains("vm-1"), "the first turn runs")
+        clock += .seconds(120)
+        #expect(gate.contains("vm-1"), "the update's first busy retry still finds it held")
+        clock += .seconds(61)
+        #expect(!gate.contains("vm-1"), "after the hold the update runs")
+        gate.enter("vm-2")
+        gate.leave("vm-2")
+        #expect(!gate.contains("vm-2"), "a start that failed holds nothing")
+    }
+
+    /// The composer's start (`cloud start-chat`) runs inside the gate and holds the machine after it only when it succeeded.
+    @Test func theComposersStartIsHeldAndHoldsOnlyWhenItSucceeded() async {
+        var clock = ContinuousClock.now
+        let gate = CloudStartGate(now: { clock })
+        let inside = try? await gate.holding("vm-1") { gate.contains("vm-1") }
+        #expect(inside == true, "held while the start runs")
+        #expect(gate.contains("vm-1"), "and through the first turn")
+        clock += CloudStartGate.firstTurnHold
+        #expect(!gate.contains("vm-1"))
+        struct Refused: Error {}
+        _ = try? await gate.holding("vm-2") { throw Refused() }
+        #expect(!gate.contains("vm-2"), "a failed start holds nothing")
     }
 
     /// A refused daemon can't connect, so nothing on it is in use through the app: it goes first,

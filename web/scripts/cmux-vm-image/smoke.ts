@@ -29,6 +29,13 @@
  * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
  * error (daemon-uptime.ts). No agent sign-in
  * (~/.claude/.credentials.json, ~/.codex/auth.json) or daemon identity comes from the image.
+ * With --agent-probe, one more clone is made the way a team in inference gateway mode makes its machines:
+ * with an inline edge rule (coderouter.cmux.internal steered to a platform origin). It must still resolve a
+ * public name and the API host, and its bind agent must reach the dev API (edge-rule-*). Production images
+ * cloud-native-auto-45ed727f-* (the first on Freestyle's new ubuntu-sm base, cmux#50583) passed every other
+ * check here while every gateway-mode create on them never bound (cmux#51612 rolled them back): no clone
+ * here carried a rule. The clone also prints its resolver state, which is the guest's own account of a
+ * failure (INFO edge-rule-guest).
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
  */
@@ -42,12 +49,12 @@ import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
+import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, SELF_UPDATE_OFF } from "./host-agent";
+import { API_ORIGINS, HOST_CLI, HOST_JOURNAL, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -289,6 +296,95 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
       createDoneToReadyMs: ready.code === 0 ? readyMs - createMs : -1,
     },
   };
+}
+
+/** The domain a gateway-mode create steers (cmux-platform CoderouterEdge.ts), and where this smoke steers it. */
+export const EDGE_RULE_DOMAIN = "coderouter.cmux.internal";
+export const EDGE_RULE_DESTINATION = "cmux-platform-development.debussy.workers.dev";
+
+/** The create's rule, shaped as freestyleEdgeRules makes it; the header is a marker, never a credential. */
+export function edgeRuleCreateRules(): CreateTlsRule[] {
+  return [{
+    action: "allow",
+    domain: EDGE_RULE_DOMAIN,
+    source: {},
+    destination: { host: EDGE_RULE_DESTINATION, port: 443 },
+    transform: [{ headers: { "x-cmux-image-smoke": "edge-rule" } }],
+  }];
+}
+
+const API_HOST = new URL(API_ORIGINS.dev).host;
+
+/**
+ * The guest's resolver state on the edge-rule clone, one `key: value` line per fact (multi-line facts are
+ * folded with ` ; `): what it resolves, and what it resolves with. Waits up to 60 s for the provider's
+ * injection of the rule's host (/etc/hosts), which runs after the guest starts.
+ */
+export function edgeRuleGuestCommand(): string {
+  const fold = (cmd: string) => `{ ${cmd}; } 2>&1 | tr '\n' ';' | sed 's/;/ ; /g' | cut -c1-1500`;
+  const fact = (key: string, cmd: string) => `echo "${key}: $(${fold(cmd)})"`;
+  return [
+    `for i in $(seq 1 60); do grep -q ${sq(EDGE_RULE_DOMAIN)} /etc/hosts && break; sleep 1; done; echo "hosts-wait-s: $i"`,
+    fact("resolve-public", "timeout 10 getent hosts github.com || echo FAILED rc=$?"),
+    fact("resolve-api", `timeout 10 getent hosts ${sq(API_HOST)} || echo FAILED rc=$?`),
+    fact("resolve-edge", `timeout 10 getent hosts ${sq(EDGE_RULE_DOMAIN)} || echo FAILED rc=$?`),
+    fact("edge-https", `timeout 15 curl -sS -o /dev/null -w '%{http_code}' https://${EDGE_RULE_DOMAIN}/ || echo FAILED rc=$?`),
+    fact("api-https", `timeout 15 curl -sS -o /dev/null -w '%{http_code}' ${API_ORIGINS.dev}/ || echo FAILED rc=$?`),
+    fact("resolv.conf-link", "readlink -f /etc/resolv.conf"),
+    fact("resolv.conf", "grep -v '^#' /etc/resolv.conf"),
+    fact("resolved.conf.d", "for f in /etc/systemd/resolved.conf.d/* /run/systemd/resolved.conf.d/*; do [ -e \"$f\" ] && echo \"$f\" && grep -v '^#' \"$f\"; done"),
+    fact("resolvectl", "timeout 10 resolvectl status --no-pager | grep -E 'Link|Current DNS|DNS Servers|Fallback|DNSSEC|resolv.conf mode|Protocols'"),
+    fact("hosts", "grep -v '^#' /etc/hosts"),
+    fact("nsswitch-hosts", "grep '^hosts' /etc/nsswitch.conf"),
+    fact("routes", "ip -4 route; ip -6 route | head -5"),
+    fact("ca-store", "ls -la --time-style=+%s /etc/ssl/certs/ca-certificates.crt; ls /usr/local/share/ca-certificates"),
+    fact("resolved-journal", "journalctl -u systemd-resolved --no-pager -o cat -n 25"),
+    fact("networkd-journal", "journalctl -u systemd-networkd --no-pager -o cat -n 15"),
+    fact("host-journal", `${HOST_JOURNAL} -n 25`),
+  ].join("\n");
+}
+
+/** The facts edgeRuleGuestCommand printed, by key. */
+export function edgeRuleFacts(stdout: string): Record<string, string> {
+  const facts: Record<string, string> = {};
+  for (const line of stdout.split("\n")) {
+    const m = /^([a-z][a-z.-]*): ?(.*)$/.exec(line);
+    if (m && !(m[1] in facts)) facts[m[1]] = m[2].trim();
+  }
+  return facts;
+}
+
+/** What is wrong with the edge-rule clone's name resolution: a name that does not resolve. Empty when none. */
+export function edgeRuleResolveProblems(facts: Record<string, string>): string[] {
+  const problems: string[] = [];
+  for (const key of ["resolve-public", "resolve-api"]) {
+    const value = facts[key];
+    if (!value || /FAILED/.test(value) || !/\d+\.\d+\.\d+\.\d+|[0-9a-f]*:[0-9a-f:]+/i.test(value)) problems.push(`${key}: ${value || "no answer"}`);
+  }
+  return problems;
+}
+
+/**
+ * One clone made as a gateway-mode team makes its machines, with an inline edge rule: it must still resolve a
+ * public name and the API host, and its bind agent must reach the dev API. Prints the guest's resolver state.
+ */
+async function edgeRuleChecks(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, tag: string, snapshotId: string, report: Report): Promise<void> {
+  const name = `cmuxnp-dev-vmimg-${tag}-smoke-edge`;
+  const { vm, vmId, t0 } = await createVm(fs, ledger, { name, snapshotId, tlsRules: edgeRuleCreateRules() });
+  try {
+    const firstExecMs = await firstExec(vm, t0);
+    await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}`);
+    const guest = await run(vm, edgeRuleGuestCommand(), 180_000);
+    const facts = edgeRuleFacts(guest.stdout);
+    report.edgeRule = { vmId, firstExecMs, facts };
+    for (const [key, value] of Object.entries(facts)) console.log(`INFO edge-rule-guest ${key}: ${value}`);
+    const problems = edgeRuleResolveProblems(facts);
+    check(report, "edge-rule-resolve", guest.code === 0 && problems.length === 0, problems.join("\n") || `${facts["resolve-public"]} | ${facts["resolve-api"]} | edge ${facts["resolve-edge"]} ${facts["edge-https"]}`);
+    const probe = await agentBindProbe(vm);
+    check(report, "edge-rule-bind-probe", probe.ok, probe.detail);
+  } finally {
+    await deleteVm(vm, vmId, name, ledger);
+  }
 }
 
 /** Replacement clones a smoke may create for ones the provider never finished. */
@@ -577,8 +673,15 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     };
     const phases: Record<string, number> = {};
     const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
+    // The edge-rule clone needs the dev API for its bind probe, as the agent probe does.
+    const edgeRule = async () => {
+      await edgeRuleChecks(fs, ledger, options.tag, options.snapshotId, report).catch((error: unknown) => {
+        check(report, "edge-rule-resolve", false, `edge-rule clone failed: ${String(error).slice(0, 400)}`);
+      });
+    };
     await Promise.all([timed("idleClone1Ms", () => idlePhase(kept[0].vm, report, options.idleSeconds))(), timed("checksClone2Ms", onClone2)(),
-      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : [])]);
+      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : []),
+      ...(options.agentProbe ? [timed("edgeRuleCloneMs", edgeRule)()] : [])]);
     report.phasesMs = phases;
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);

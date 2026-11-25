@@ -326,7 +326,7 @@ def main() -> int:
     daemon = wait_until("the copy's daemon", time.monotonic() + 180, lambda: hot.find_socket(app, cli))
     receipt["daemon_socket"] = daemon
     globals_ = ["--socket", daemon, "--app-socket", control]
-    receipt["readback"] = readback(cli, globals_, out)
+    receipt["readback"] = readback(cli, globals_, out, daemon, control)
     print(f"EXT_RELOAD_NIGHTLY readback {json.dumps(receipt['readback'])[:4000]}", flush=True)
     repaint_json = out / "edit-repaint.json"
     run = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/edit-repaint.py"),

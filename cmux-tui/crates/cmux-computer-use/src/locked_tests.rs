@@ -15,6 +15,8 @@ fn table() -> Vec<(&'static str, Value, Kind)> {
         ("list_machines", json!({}), Kind::Engine),
         ("list_apps", json!({}), Kind::Inventory),
         ("list_windows", json!({}), Kind::Inventory),
+        ("list_alerts", json!({}), Kind::Inventory),
+        ("dismiss_alert", json!({"alert_id": "9", "button": "OK"}), Kind::WindowInput),
         ("screenshot", json!({"window_id": "1"}), Kind::WindowLook),
         ("screenshot", json!({}), Kind::Display),
         ("screenshot", json!({"display": "1"}), Kind::Display),
@@ -34,6 +36,8 @@ fn table() -> Vec<(&'static str, Value, Kind)> {
         ("press_key", json!({"window_id": "1", "delivery": "foreground"}), Kind::Hid),
         ("drag", json!({"window_id": "1"}), Kind::WindowInput),
         ("drag", json!({"window_id": "1", "delivery": "foreground"}), Kind::Hid),
+        ("move_pointer", json!({"window_id": "1", "x": 1, "y": 1}), Kind::WindowInput),
+        ("move_pointer", json!({"window_id": "1", "delivery": "foreground"}), Kind::Hid),
         // An unknown delivery is not taken for background.
         ("click", json!({"window_id": "1", "delivery": "sideways"}), Kind::Hid),
         ("scroll", json!({"window_id": "1"}), Kind::WindowInput),

@@ -11,6 +11,8 @@ Layout under <base> (default /srv/cmux-dev/wrangler, beside hq's classic Docker 
   stacks/<tag>/         src/ (the agent's backend tree), platform/ (optional), front/ (the generated front
                         Worker), state/ (wrangler --persist-to), secrets/ (0700: jwt.jwk, hub.vars, pg.url,
                         mysql.url), logs/wrangler.log, run.sh
+  secrets/              the host's team credentials (0700): tunnel.token (public origins) and turn.json (the
+                        team's Cloudflare TURN key, put by an up from 1Password: every stack's mobile Worker)
   tools/                node and bun, one pinned version each
   routes.json           every routed stack's authorities (host:port) to its tag and wrangler port, for the router
 Units: cmux-wdev@<tag>.service runs stacks/<tag>/run.sh; cmux-wdev-reaper.timer runs `reap` every 5 minutes;
@@ -49,6 +51,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -721,8 +724,9 @@ def render_platform_config(cfg: dict[str, Any], origin: str) -> dict[str, Any]:
 
 def render_mobile_config(cfg: dict[str, Any]) -> dict[str, Any]:
     """The mobile Worker (cmux-next-ios/backend) as its shared dev deployment runs it (env `dev`): its own
-    Durable Objects (local), PS_MYSQL through the stack's Vitess connection string (run.sh), no crons. Its
-    optional secrets (TURN, APNs, Stack server key, Slack) stay unset: no relay ICE or push from a stack."""
+    Durable Objects (local), PS_MYSQL through the stack's Vitess connection string (run.sh), no crons. Its TURN key
+    is the host's (write_dev_vars), so /v1/ice relays as the shared one does; APNs, Stack server key and Slack stay
+    unset: no push or alert from a stack (membership uses the caller's own token)."""
     return flatten_env(cfg, "dev")
 
 
@@ -880,6 +884,17 @@ def write_entry_wrapper(project: Path, cfg: dict[str, Any]) -> dict[str, Any]:
     return {**cfg, "main": "wdev-entry.generated.ts"}
 
 
+def pin_build_cwd(cfg: dict[str, Any], project: Path) -> dict[str, Any]:
+    """A Worker's custom build (`build.command`) run in its own project. wrangler passes build.cwd through as is, so
+    with none the build runs in wrangler's working directory, which for a stack is the stack's directory, not the
+    project's (the API's `bun scripts/gen-chief-vm-source.ts` failed there with Module not found). A relative cwd
+    meant the project, where a deploy runs."""
+    build = cfg.get("build")
+    if isinstance(build, dict) and build.get("command"):
+        cfg["build"] = {**build, "cwd": os.path.normpath(str(project / str(build.get("cwd") or ".")))}
+    return cfg
+
+
 def load_wrangler_config(path: Path) -> dict[str, Any]:
     if path.suffix == ".toml":
         import tomllib
@@ -903,6 +918,7 @@ def cmd_capacity(_args) -> dict[str, Any]:
         "min_mem_gib": MIN_MEM_GIB,
         "min_disk_gib": MIN_DISK_GIB,
         "classic_registered": len(classic_ports()),
+        "turn_key": host_turn() is not None,
     }
 
 
@@ -1159,6 +1175,7 @@ def cmd_wake(args) -> dict[str, Any]:
     try:
         own_log(log)
         log_start = log.stat().st_size
+        write_dev_vars(stack_dir(tag), bool(entry.get("platform")))
         systemctl("reset-failed", unit(tag), check=False)
         systemctl("start", unit(tag))
         (stack_dir(tag) / "heartbeat").touch()
@@ -1413,6 +1430,152 @@ def ensure_hub_keys(d: Path, env: dict[str, str]) -> str:
     return path.read_text()
 
 
+# The team's Cloudflare TURN key (1Password "Cloudflare TURN Server API Key"), one per host for every stack's mobile
+# Worker: without it a stack's /v1/ice is STUN only, and a phone on another network than its Mac never links (live,
+# tag gcp-default-1121, 2026-11-21). An up sends it from 1Password over SSH stdin (put-turn) when turn-status says
+# the host has none or Cloudflare refuses the one it has, as an up makes a database credential when it lapses.
+TURN_KEY_ID_RE = re.compile(r"[0-9a-f]{32}")
+TURN_TOKEN_RE = re.compile(r"[A-Za-z0-9._-]{20,256}")
+TURN_API = "https://rtc.live.cloudflare.com/v1/turn/keys/{}/credentials/generate-ice-servers"
+# The development Stack project's server key, which this host's classic dev backend already keeps
+# (cmuxterm-hq skills/infra/dev-backend: <classic base>/secrets/runtime.json, 0600, this user's). The stack's API
+# needs it to learn a team from Stack: a stack's TeamDO never gets Stack's webhooks, so without it every
+# team-scoped /v1/auth/token is refused as "not a member of this team" (403; 78 of them from one Mac, same run).
+STACK_KEY_RE = re.compile(r"[A-Za-z0-9_-]{16,256}")
+
+
+def turn_path() -> Path:
+    return BASE / "secrets/turn.json"
+
+
+def host_turn() -> dict[str, str] | None:
+    """The host's TURN key as the mobile Worker's two secrets, or None."""
+    try:
+        data = json.loads(turn_path().read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    key_id, token = data.get("key_id"), data.get("api_token")
+    if not (isinstance(key_id, str) and TURN_KEY_ID_RE.fullmatch(key_id) and isinstance(token, str) and TURN_TOKEN_RE.fullmatch(token)):
+        return None
+    return {"TURN_KEY_ID": key_id, "TURN_KEY_API_TOKEN": token}
+
+
+def turn_probe(key_id: str, token: str) -> int | None:
+    """Cloudflare's HTTP status for one short TURN credential request with this key; None when it could not be asked."""
+    # A named User-Agent: Cloudflare answers urllib's default one with error 1010 (403), which reads as a refused key.
+    req = urllib.request.Request(TURN_API.format(key_id), data=b'{"ttl": 300}', method="POST",
+                                 headers={"authorization": f"Bearer {token}", "content-type": "application/json",
+                                          "user-agent": "cmux-wdev-stack/1 (scripts/cmux-next/cloud-dev-stack)"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            return res.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (OSError, ValueError):
+        return None
+
+
+def turn_verdict(status: int | None) -> str:
+    """ok: Cloudflare minted credentials; refused: the key is revoked or rotated (send it again); unverified: Cloudflare
+    could not say (unreachable, 429, 5xx), so the key is kept."""
+    if status is not None and 200 <= status < 300:
+        return "ok"
+    return "refused" if status in (400, 401, 403, 404) else "unverified"
+
+
+def cmd_put_turn(_args) -> dict[str, Any]:
+    """Store the team's TURN key (stdin: the key id, then its API token, one per line) at <base>/secrets/turn.json,
+    mode 0600, after Cloudflare accepts it. Anything else (a failed op pipes nothing) is refused and the key the host
+    has stays. Prints no part of it."""
+    lines = sys.stdin.read().splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if len(lines) != 2:
+        raise Refused(f"expected the TURN key id and its API token, one per line; got {len(lines)} line(s). Nothing stored (is op signed in?)")
+    key_id, token = lines[0].strip(), lines[1].strip()
+    if not TURN_KEY_ID_RE.fullmatch(key_id):
+        raise Refused("the first line is not a TURN key id (32 hex digits). Nothing stored")
+    if not TURN_TOKEN_RE.fullmatch(token):
+        raise Refused("the second line is not a TURN API token. Nothing stored")
+    status = turn_probe(key_id, token)
+    if turn_verdict(status) == "refused":
+        raise Refused(f"Cloudflare refused this TURN key (HTTP {status}). Nothing stored; check the 1Password item")
+    secrets_dir = BASE / "secrets"
+    secrets_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(secrets_dir, 0o700)
+    tmp = secrets_dir / f".turn.{os.getpid()}.tmp"
+    write_private(tmp, json.dumps({"key_id": key_id, "api_token": token, "stored_at": int(time.time())}))
+    os.replace(tmp, turn_path())
+    return {"stored": "turn", "verified": turn_verdict(status) == "ok", "status": status}
+
+
+def cmd_turn_status(_args) -> dict[str, Any]:
+    """Whether an up must send the TURN key again: missing, refused (send), ok or unverified (keep)."""
+    turn = host_turn()
+    if turn is None:
+        return {"state": "missing", "why": "no TURN key on this host"}
+    status = turn_probe(turn["TURN_KEY_ID"], turn["TURN_KEY_API_TOKEN"])
+    state = turn_verdict(status)
+    return {"state": state, "why": f"Cloudflare answered {status}" if status is not None else "Cloudflare not reached"}
+
+
+def classic_runtime() -> dict[str, Any]:
+    try:
+        data = json.loads((CLASSIC_BASE / "secrets/runtime.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def stack_server_key(project_id: str | None) -> str | None:
+    """The Stack server key the classic dev backend keeps, only when it is the key of the project the stack's API
+    runs against."""
+    data = classic_runtime()
+    key = data.get("STACK_SECRET_SERVER_KEY")
+    if not project_id or data.get("NEXT_PUBLIC_STACK_PROJECT_ID") != project_id or not isinstance(key, str) or not STACK_KEY_RE.fullmatch(key):
+        return None
+    return key
+
+
+def host_secret_values() -> list[str]:
+    """The host keys a stack's Workers hold, for redact."""
+    values = [(host_turn() or {}).get("TURN_KEY_API_TOKEN"), classic_runtime().get("STACK_SECRET_SERVER_KEY")]
+    return [x for x in values if isinstance(x, str) and len(x) > 8]
+
+
+def dotenv(values: dict[str, str]) -> str:
+    """dotenv lines; a single-quoted value is literal (a JWK's double quotes stay as they are)."""
+    return "".join(f"{k}='{val}'\n" for k, val in values.items())
+
+
+def write_dev_vars(d: Path, with_platform: bool) -> dict[str, bool]:
+    """Each Worker's .dev.vars (mode 0600, beside its generated config; wrangler dev reads it at start), from the
+    stack's own keys and the host's: the API (and the platform, which verifies the API's install tokens with the same
+    key outside production) JWT_PRIVATE_JWK and, for the API, the Stack server key; the mobile Worker the TURN key;
+    the hub its two keys. Rewritten at every start and wake, so a key the host got or lost since applies."""
+    jwk_path, hub_path = d / "secrets/jwt.jwk", d / "secrets/hub.vars"
+    jwk = jwk_path.read_text() if jwk_path.exists() else None
+    api_dir, mobile_dir, hub_dir = (d / PROJECTS[s][0] for s in ("api", "mobile", "hub"))
+    try:
+        project = json.loads((api_dir / "wrangler.wdev.generated.json").read_text()).get("vars", {}).get("STACK_PROJECT_ID")
+    except (OSError, ValueError, AttributeError):
+        project = None
+    stack_key = stack_server_key(project)
+    turn = host_turn()
+    if api_dir.is_dir():
+        write_private(api_dir / ".dev.vars", dotenv({**({"JWT_PRIVATE_JWK": jwk} if jwk else {}),
+                                                     **({"STACK_SECRET_SERVER_KEY": stack_key} if stack_key else {})}))
+    if with_platform and (d / "platform").is_dir():
+        write_private(d / "platform/.dev.vars", dotenv({"JWT_PRIVATE_JWK": jwk} if jwk else {}))
+    if mobile_dir.is_dir():
+        write_private(mobile_dir / ".dev.vars", dotenv(turn or {}))
+    if hub_dir.is_dir() and hub_path.exists():
+        write_private(hub_dir / ".dev.vars", hub_path.read_text())
+    return {"turn": turn is not None, "stack_teams": stack_key is not None}
+
+
 # Where each Worker of a stack lives in the synced tree, and how its dependencies are installed.
 PROJECTS = {
     "api": ("src/backend/apps/api", "wrangler.jsonc"),
@@ -1490,13 +1653,13 @@ def cmd_start(args) -> dict[str, Any]:
     }
     for svc, (rel, cfg_name) in PROJECTS.items():
         project = d / rel
-        cfg = write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name)))
+        cfg = pin_build_cwd(write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name))), project)
         names[svc] = cfg["name"]
         (project / "wrangler.wdev.generated.json").write_text(json.dumps(cfg, indent=1))
         configs += ["-c", str(project / "wrangler.wdev.generated.json")]
         projects.append(project)
     if with_platform:
-        pcfg = write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"]))
+        pcfg = pin_build_cwd(write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"])), d / "platform")
         (d / "platform/wrangler.wdev.generated.json").write_text(json.dumps(pcfg, indent=1))
         configs += ["-c", str(d / "platform/wrangler.wdev.generated.json")]
         projects.append(d / "platform")
@@ -1506,13 +1669,9 @@ def cmd_start(args) -> dict[str, Any]:
                                 development_client_config())
     (d / "front/wrangler.wdev.generated.json").write_text(json.dumps(front, indent=1))
 
-    jwk = ensure_jwk(d, tag, env)
-    # dotenv: a single-quoted value is literal (the JWK's double quotes stay as they are).
-    # The platform verifies the API's install tokens with the same key outside production (its
-    # CallerAuth.ts), so each Worker of the session reads it from a .dev.vars beside its config.
-    for project in [d / PROJECTS["api"][0]] + ([d / "platform"] if with_platform else []):
-        write_private(project / ".dev.vars", f"JWT_PRIVATE_JWK='{jwk}'\n")
-    write_private(d / PROJECTS["hub"][0] / ".dev.vars", ensure_hub_keys(d, env))
+    ensure_jwk(d, tag, env)
+    ensure_hub_keys(d, env)
+    keys = write_dev_vars(d, with_platform)
     write_public_jwks(d)
     wrangler = newest_wrangler(projects)
     run_sh = render_run_sh(d, path, local, args.commit, wrangler, configs)
@@ -1578,7 +1737,7 @@ def cmd_start(args) -> dict[str, Any]:
         except ValueError:
             health[svc] = body
     return {"tag": tag, "url": origins["api"], "urls": origins, "public_urls": public, "port": port, "health": health,
-            "retain_days": RETAIN_SECS // 86400}
+            "retain_days": RETAIN_SECS // 86400, "keys": keys}
 
 
 def settle_failed_start(entry: dict[str, Any]) -> str:
@@ -1667,6 +1826,8 @@ def redact(text: str, d: Path) -> str:
         for secret in (url, unquote(urlsplit(url).password or ""), urlsplit(url).password or ""):
             if len(secret) > 8:
                 text = text.replace(secret, "<redacted>")
+    for secret in host_secret_values():
+        text = text.replace(secret, "<redacted>")
     return SECRET_URL.sub(r"\1<redacted>@", text)
 
 
@@ -1986,6 +2147,8 @@ def main() -> int:
     s = sub.add_parser("claim-release"); s.add_argument("--tag", required=True)
     s = sub.add_parser("stop"); s.add_argument("--tag", required=True)
     sub.add_parser("put-public")
+    sub.add_parser("put-turn")
+    sub.add_parser("turn-status")
     s = sub.add_parser("wake"); s.add_argument("--tag", required=True); s.add_argument("--wait", type=int, default=150)
     s = sub.add_parser("up-done"); s.add_argument("--tag", required=True); s.add_argument("--token", required=True); s.add_argument("--failed", action="store_true")
     s = sub.add_parser("cred-fresh"); s.add_argument("--tag", required=True); s.add_argument("--kind", required=True); s.add_argument("--mode", required=True)
@@ -1995,7 +2158,8 @@ def main() -> int:
     handlers = {"install": lambda a: install_host(), "capacity": cmd_capacity, "reap": cmd_reap, "status": cmd_status,
                 "prepare": cmd_prepare, "touch": cmd_touch, "forget": cmd_forget, "prune": cmd_prune, "put-cred": cmd_put_cred,
                 "migrate": cmd_migrate, "start": cmd_start, "down": cmd_down, "logs": cmd_logs,
-                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "wake": cmd_wake, "stop": cmd_stop, "put-public": cmd_put_public, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger}
+                "claim-release": cmd_claim_release, "up-done": cmd_up_done, "wake": cmd_wake, "stop": cmd_stop, "put-public": cmd_put_public, "cred-fresh": cmd_cred_fresh, "ledger": cmd_ledger,
+                "put-turn": cmd_put_turn, "turn-status": cmd_turn_status}
     try:
         result = handlers[args.cmd](args)
     except Refused as e:

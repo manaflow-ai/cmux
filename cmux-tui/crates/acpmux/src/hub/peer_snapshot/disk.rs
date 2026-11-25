@@ -128,10 +128,14 @@ pub(super) fn head_fits(len: u64) -> bool {
 pub(super) fn encode(head: &Head, records: &BTreeMap<u64, Value>) -> Vec<u8> {
     let mut out = serde_json::to_vec(head).unwrap_or_default();
     out.push(b'\n');
+    // Each record straight into the copy, with no buffer of its own; one that does not
+    // serialize is cut back out, as it was left out before.
     for r in records.values() {
-        if let Ok(line) = serde_json::to_vec(r) {
-            out.extend_from_slice(&line);
+        let start = out.len();
+        if serde_json::to_writer(&mut out, r).is_ok() {
             out.push(b'\n');
+        } else {
+            out.truncate(start);
         }
     }
     out

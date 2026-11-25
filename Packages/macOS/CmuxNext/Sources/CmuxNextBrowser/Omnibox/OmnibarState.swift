@@ -160,10 +160,13 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     /// The steady-state page URL (Chromium `display_text_`).
     public var displayText: String { steadyText(for: pageURL) }
 
-    /// The text the bar shows for `url` at rest: the host alone (``BrowserURLDisplay/restingText(for:home:)``), or the
-    /// full URL. Focus by a click shows it too, selected; Cmd-L, a caret move or an edit shows the full URL.
+    /// The text the bar shows for `url` at rest: Chrome's compact URL (``BrowserURLDisplay/displayText(for:home:)``: the
+    /// host, then the path, query and fragment, no `https://` or `www.`), or the full URL. Not the host alone: a person
+    /// reads which page a tab is on from the bar, and `github.com` for every pull request read as a wrong link
+    /// (https://github.com/manaflow-ai/cmux/issues/50986). Focus by a click shows it too, selected; Cmd-L, a caret move
+    /// or an edit shows the full URL.
     func steadyText(for url: URL?) -> String {
-        showsFullURLs ? BrowserURLDisplay.editingText(for: url) : BrowserURLDisplay.restingText(for: url)
+        showsFullURLs ? BrowserURLDisplay.editingText(for: url) : BrowserURLDisplay.displayText(for: url)
     }
 
     /// True when focusing may show the elided URL: it differs from the full one.

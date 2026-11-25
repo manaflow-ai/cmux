@@ -153,7 +153,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # spent in the controller deadline. Never fabricate a receipt.
         remaining = WAIT_SECONDS - (time.monotonic() - started)
         if remaining > 0:
-            time.sleep(remaining)
+            time.sleep(remaining)  # sleep-ok: admission's three-minute window is the rule, not a guess
         observation = {"source": "client", "status": "admission-unavailable",
                        "started_at": started_at,
                        "ended_at": dt.datetime.now(dt.timezone.utc).isoformat(),

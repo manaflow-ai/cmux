@@ -113,6 +113,63 @@ struct CmuxToastQuietTests {
         again.dismiss()
     }
 
+    /// A run's working toast the person closed stays closed for the rest of the run, whatever its next
+    /// progress line says (Move to Cloud's step and countdown, Codex review of #39502); the run's result
+    /// still shows, and the next run's working toast shows again.
+    @Test func aClosedWorkingToastStaysClosedUntilItsResult() {
+        let host = RecordingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = Self.window()
+        defer { window.closeAfterTest() }
+        func working(_ message: String) -> CmuxToast {
+            CmuxToast(id: "cloud-move-t1", message: message, duration: CmuxToast.untilClosed, oneWindow: true, working: true)
+        }
+        center.show(working("Moving to Cloud…\n1 of 4 · Connecting to dev · about 35 s left"), in: window)
+        host.closeNewest()
+        let shown = host.serialsShown.count
+        for line in ["1 of 4 · Connecting to dev · about 30 s left", "2 of 4 · Copying the folder · about 25 s left"] {
+            #expect(center.show(working("Moving to Cloud…\n" + line), in: window).isDismissed)
+        }
+        #expect(center.show(working("Updating dev…"), in: window).isDismissed, "a machine update's toast is the same run's")
+        #expect(center.toasts(in: window).isEmpty && host.serialsShown.count == shown, "a closed working toast came back")
+        #expect(center.show(CmuxToast(id: "cloud-move-t2", message: "Moving to Cloud…", duration: CmuxToast.untilClosed, working: true),
+                            in: window).isDismissed == false, "another run's working toast stays")
+        center.close(id: "cloud-move-t2")
+
+        let result = center.show(CmuxToast(id: "cloud-move-t1", message: "Moved to dev", oneWindow: true), in: window)
+        #expect(!result.isDismissed, "the result shows after its working toast was closed")
+        result.dismiss()
+        let next = center.show(working("Moving to Cloud…"), in: window)
+        #expect(!next.isDismissed, "the next run's working toast shows, even with the same headline")
+        next.dismiss()
+    }
+
+    /// A failure with Retry is a result too; a run ended by code (`close(id:)`) ends the quiet as well,
+    /// and a working toast ended by code or its window closing quiets nothing.
+    @Test func aWorkingToastsQuietEndsWithItsRun() {
+        let host = RecordingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = Self.window()
+        defer { window.closeAfterTest() }
+        let working = CmuxToast(id: "cloud-bring-back-t1", message: "Bringing back…", duration: CmuxToast.untilClosed, working: true)
+        center.show(working, in: window)
+        host.closeNewest()
+        let failure = center.show(CmuxToast(id: "cloud-bring-back-t1", message: "Couldn't copy the folder", action: CmuxToast.Action(title: "Retry"),
+                                            duration: .seconds(60)), in: window)
+        #expect(!failure.isDismissed)
+        failure.dismiss()
+        #expect(!center.isQuieted(working))
+
+        center.show(working, in: window)
+        host.closeNewest()
+        #expect(center.isQuieted(working))
+        center.close(id: "cloud-bring-back-t1")
+        #expect(!center.isQuieted(working))
+
+        center.show(working, in: window).dismiss()
+        #expect(!center.isQuieted(working), "only the person's close quiets")
+    }
+
     /// A zero cooldown turns the quiet off.
     @Test func aZeroCooldownNeverQuiets() {
         let host = RecordingToastHost()

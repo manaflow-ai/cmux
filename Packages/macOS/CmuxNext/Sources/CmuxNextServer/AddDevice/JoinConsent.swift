@@ -1,6 +1,8 @@
 public import Foundation
 public import Observation
+public import CmuxNextCloud
 public import CmuxNextPages
+import CryptoKit
 import os
 
 /// What a joined machine's team may do on this Mac only after the person allows it here (the one-line
@@ -28,18 +30,24 @@ public nonisolated struct JoinStatus: Equatable, Sendable, Decodable {
     /// The machine's name in the team; else the page shows ``machineId``.
     public var name: String?
     public var revoked: Bool
+    /// The person who joined this machine (`user_…`, the platform id), as the hub last named them.
+    public var userId: String?
+    /// The hub answered this read of the credential (its 401 reads as ``revoked``).
+    public var hubReachable: Bool
 
     public init(credentialPresent: Bool, machineId: String? = nil, teamId: String? = nil, teamName: String? = nil,
-                name: String? = nil, revoked: Bool = false) {
+                name: String? = nil, revoked: Bool = false, userId: String? = nil, hubReachable: Bool = false) {
         self.credentialPresent = credentialPresent
         self.machineId = machineId
         self.teamId = teamId
         self.teamName = teamName
         self.name = name
         self.revoked = revoked
+        self.userId = userId
+        self.hubReachable = hubReachable
     }
 
-    private enum Keys: String, CodingKey { case credentialPresent, machineId, teamId, teamName, name, revoked }
+    private enum Keys: String, CodingKey { case credentialPresent, machineId, teamId, teamName, name, revoked, userId, hubReachable }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -49,6 +57,29 @@ public nonisolated struct JoinStatus: Equatable, Sendable, Decodable {
         teamName = try c.decodeIfPresent(String.self, forKey: .teamName)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         revoked = try c.decodeIfPresent(Bool.self, forKey: .revoked) ?? false
+        userId = try c.decodeIfPresent(String.self, forKey: .userId)
+        hubReachable = try c.decodeIfPresent(Bool.self, forKey: .hubReachable) ?? false
+    }
+
+    /// This Mac is joined to `person`'s own account: a credential the hub answered for on this read and did
+    /// not revoke, joined by `person` into their personal team (`personalTeam`, the API's
+    /// `personalTeamIdFor`), so not a shared team and not another person's. Share This Mac takes it as the
+    /// person's yes (cmuxterm-hq remote-screen-share-zero-touch, Z4). The credential is acpmux's and the hub
+    /// checks it, so a file an agent writes can't make one.
+    public func isOwn(person: String, personalTeam: String) -> Bool {
+        credentialPresent && !revoked && hubReachable && !person.isEmpty && userId == person && teamId == personalTeam
+    }
+
+    /// ``isOwn(person:personalTeam:)`` for the person signed in to `auth` (its platform user id, the id
+    /// acpmux's join names), false when nobody is signed in.
+    @MainActor public func isOwn(signedIn auth: CloudAuth?) -> Bool {
+        guard let auth, auth.isSignedIn, let person = auth.platformUserID else { return false }
+        return isOwn(person: person, personalTeam: Self.personalTeam(user: person))
+    }
+
+    /// The person's personal team id (`domains/user.ts::personalTeamIdFor`, as `GitHubConnections.personalTeam`).
+    public static func personalTeam(user: String) -> String {
+        "team_" + SHA256.hash(data: Data("personal:\(user)".utf8)).prefix(10).map { String(format: "%02x", $0) }.joined()
     }
 
     public static func parse(_ data: Data) -> JoinStatus? { try? JSONDecoder().decode(JoinStatus.self, from: data) }
@@ -320,6 +351,9 @@ public struct JoinConsentServices {
 @MainActor @Observable
 public final class JoinConsentModel {
     public private(set) var status: JoinStatus?
+    /// The join status Share This Mac's join default reads (Z4), whatever the Labs switch: the last
+    /// ``readJoinForShare()`` or the page's last read. Nil under a capture fixture.
+    public private(set) var shareJoin: JoinStatus?
     /// acpmux's record, as the switches show it; nil before the first read, when the read failed, or when
     /// acpmux has no record. After a write whose own read failed, the record acpmux answered the write with.
     public private(set) var consent: JoinConsentRecord?
@@ -397,6 +431,21 @@ public final class JoinConsentModel {
         _ = await read()
     }
 
+    /// Reads this Mac's join status now for Share This Mac's join default, with the Labs switch on or off;
+    /// what the page shows is unchanged. Nil when not joined, the read failed, or a capture fixture stands
+    /// in for the join (SECURITY: a fixture never shares a live screen).
+    public func readJoinForShare() async -> JoinStatus? {
+        let read = await services.status()
+        shareJoin = fixtureActive() ? nil : read
+        return shareJoin
+    }
+
+    /// Share This Mac's join default (Z4): whether the last join read is to `auth`'s person's own account.
+    public func ownsJoin(_ auth: CloudAuth?) -> Bool { shareJoin?.isOwn(signedIn: auth) ?? false }
+
+    /// ``ownsJoin(_:)`` after reading the join again (``readJoinForShare()``).
+    public func readOwnJoin(_ auth: CloudAuth?) async -> Bool { await readJoinForShare()?.isOwn(signedIn: auth) ?? false }
+
     /// The Labs switch turned on or off: what was read before no longer counts, then it reads.
     public func featureChanged() async {
         featureSwitched()
@@ -462,6 +511,7 @@ public final class JoinConsentModel {
 
     private func apply(_ reading: Reading) {
         status = reading.status
+        if let joined = reading.status { shareJoin = fixtureActive() ? nil : joined }
         consent = reading.consent
         verified = reading.gating
         consentSupported = reading.supported

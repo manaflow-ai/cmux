@@ -178,6 +178,61 @@ fn per_turn_reads(turns: u64, print: bool) -> Vec<String> {
     over
 }
 
+/// A start's reads back to a chat's newest turn boundary (`restore_rate_hold`, a completed turn
+/// or a hold; `restore_auto_resume`, a turn start or result) read the log's copies, not the log:
+/// on a chat with no boundary near its end (a watched chat, a long streamed turn) each read the
+/// whole log back from its end at every daemon start, one thread's CPU for seconds on a god chat
+/// (ask-5136ca7948: "that shit i was saying about startup time and whatnot").
+#[test]
+fn a_starts_reads_back_to_the_newest_turn_never_read_a_long_chats_whole_log() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    let root = std::env::temp_dir().join(format!("acpmux-long-boundless-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let last = {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        // Turns with no `turn_started` or `turn_result`: a prompt and its answer's chunks.
+        let mut log = long_log(400);
+        log.retain(|r| r.kind != "turn_started" && r.kind != "turn_result");
+        for (i, rec) in log.iter_mut().enumerate() {
+            rec.seq = i as u64 + 1;
+            writer.append("c", rec).unwrap();
+        }
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "c", "name": "long chat", "harness": "fake",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        meta.last_seq = log.len() as u64;
+        meta.event_count = log.len() as u64;
+        writer.save(&meta).unwrap();
+        writer.flush().unwrap();
+        meta.last_seq
+    };
+    let log_bytes: u64 = std::fs::read_dir(sessions.join("c").join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    // The first load makes the copies of the indexed kinds; a later daemon's start reads them.
+    let first = hub_over(&sessions);
+    first.load_session_log(&first.resolve("c").unwrap());
+    let later = hub_over(&sessions);
+    let s = later.resolve("c").unwrap();
+    later.load_session_log(&s);
+    // The first load may close the unfinished turns it found (records past `last`).
+    assert!(s.meta().last_seq >= last, "{} < {last}", s.meta().last_seq);
+    let measure = |what: &str, read: &dyn Fn()| {
+        let before = read_bytes();
+        read();
+        let bytes = read_bytes() - before;
+        assert!(bytes <= log_bytes / 10, "{what} read {bytes} bytes of a {log_bytes}-byte log");
+    };
+    measure("restore_rate_hold", &|| later.restore_rate_hold(&s));
+    measure("restore_auto_resume", &|| later.restore_auto_resume(&s));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Session Info of a fork of a long chat keeps its history a reference: the saved fold is written
 /// at the fork's folder path, which copies none of the chat's records into the fork (review of
 /// #39975, F1: `session_dir` would write the whole history into the fork first).

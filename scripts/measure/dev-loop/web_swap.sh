@@ -58,6 +58,7 @@ fi
 cap=$((600 + 60 * n))
 node "$here/web_swap/measure.mjs" "${args[@]}" &
 pid=$!
+# sleep-ok: the watchdog's cap itself, a backstop for a hung page
 ( sleep "$cap"; kill -TERM "$pid" 2>/dev/null ) >/dev/null 2>&1 &
 watchdog=$!
 wait "$pid"

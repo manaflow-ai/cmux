@@ -291,7 +291,7 @@ class GitHub:
         if completed.returncode != 0 and re.search(
                 r"HTTP 5\d\d|unexpected end of JSON input|TLS handshake timeout|connection reset|i/o timeout",
                 completed.stderr):
-            time.sleep(10)  # a gateway or network timeout; once
+            time.sleep(10)  # sleep-ok: backoff before the one retry of a gateway or network timeout
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
@@ -398,20 +398,24 @@ GRAPHQL_TOKEN = re.compile(r"^[A-Za-z0-9_=+/-]+$")
 DETAILS: dict[tuple[str, str], tuple[list[str], list[tuple[str, str, str]]]] = {}
 
 
-def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
-    """One query for up to DETAIL_PAGE PRs: (node id, want files, contexts cursor).
-    A cursor of "" asks for the first contexts page, None for none."""
+def detail_query(items: list[tuple[int, bool, str | None]]) -> str:
+    """One query for up to DETAIL_PAGE PRs: (PR number, want files, contexts cursor).
+    A cursor of "" asks for the first contexts page, None for none. Each PR is read
+    under the repository by number, not by a root node(id:): the lane broker refuses
+    a root node read (it can reach any repository), so `next_batch.py select` failed
+    on every lane VM."""
     parts = []
-    for index, (node_id, files, cursor) in enumerate(items):
-        if not GRAPHQL_TOKEN.match(node_id) or (cursor and not GRAPHQL_TOKEN.match(cursor)):
-            raise ValueError(f"unexpected GraphQL id or cursor {node_id!r} {cursor!r}")
+    for index, (number, files, cursor) in enumerate(items):
+        if type(number) is not int or number <= 0 or (cursor and not GRAPHQL_TOKEN.match(cursor)):
+            raise ValueError(f"unexpected PR number or cursor {number!r} {cursor!r}")
         fields = "files(first: 100) { nodes { path } }" if files else ""
         if cursor is not None:
             after = f', after: "{cursor}"' if cursor else ""
             fields += (" commits(last: 1) { nodes { commit { statusCheckRollup { "
                        + CONTEXTS.format(after=after) + " } } } }")
-        parts.append(f'p{index}: node(id: "{node_id}") {{ ... on PullRequest {{ {fields} }} }}')
-    return "query {\n" + "\n".join(parts) + "\n}"
+        parts.append(f"p{index}: pullRequest(number: {number}) {{ {fields} }}")
+    return ("query($owner: String!, $name: String!) {\nrepository(owner: $owner, name: $name) {\n"
+            + "\n".join(parts) + "\n}\n}")
 
 
 def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
@@ -460,33 +464,35 @@ def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str,
     return checks
 
 
-def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str, tuple[list[str], list]]:
-    """Files and every check context for (node id, want files, want checks)."""
-    files: dict[str, list[str]] = {node_id: [] for node_id, _, _ in wanted}
-    checks: dict[str, list] = {node_id: [] for node_id, _, _ in wanted}
-    # node id -> (want files still, contexts cursor or None when done)
-    todo = {node_id: (want_files, "" if want_checks else None) for node_id, want_files, want_checks in wanted
+def fetch_details(gh: GitHub, wanted: list[tuple[int, bool, bool]]) -> dict[int, tuple[list[str], list]]:
+    """Files and every check context for (PR number, want files, want checks)."""
+    files: dict[int, list[str]] = {number: [] for number, _, _ in wanted}
+    checks: dict[int, list] = {number: [] for number, _, _ in wanted}
+    # PR number -> (want files still, contexts cursor or None when done)
+    todo = {number: (want_files, "" if want_checks else None) for number, want_files, want_checks in wanted
             if want_files or want_checks}
     while todo:
         batch = list(todo.items())[:DETAIL_PAGE]
-        data = gh.graphql(detail_query([(node_id, want, cursor) for node_id, (want, cursor) in batch]))
-        for index, (node_id, (want_files, cursor)) in enumerate(batch):
+        owner, name = gh.repo.split("/")
+        data = gh.graphql(detail_query([(number, want, cursor) for number, (want, cursor) in batch]),
+                          owner=owner, name=name)["repository"] or {}
+        for index, (number, (want_files, cursor)) in enumerate(batch):
             node = data.get(f"p{index}") or {}
             if want_files:
-                files[node_id] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
+                files[number] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
             following = None
             if cursor is not None:
                 commit = ((node.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}
                 connection = (commit.get("statusCheckRollup") or {}).get("contexts") or {}
-                checks[node_id] += parse_contexts(connection.get("nodes") or [])
+                checks[number] += parse_contexts(connection.get("nodes") or [])
                 info = connection.get("pageInfo") or {}
                 if info.get("hasNextPage") and info.get("endCursor"):
                     following = info["endCursor"]
             if following is None:
-                del todo[node_id]
+                del todo[number]
             else:
-                todo[node_id] = (False, following)
-    return {node_id: (files[node_id], newest_checks(checks[node_id])) for node_id, _, _ in wanted}
+                todo[number] = (False, following)
+    return {number: (files[number], newest_checks(checks[number])) for number, _, _ in wanted}
 
 
 def rollup_failing(rollup: dict) -> bool:
@@ -536,21 +542,21 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
         if ineligible_reason(pr, at) is not None:
             continue
         key = (pr.sha, json.dumps(rollup, sort_keys=True))
-        keys[node["id"]] = key
+        keys[node["number"]] = key
         cached = None if fresh else DETAILS.get(key)
         if cached is None:
-            wanted.append((node["id"], True, rollup_failing(rollup)))
+            wanted.append((node["number"], True, rollup_failing(rollup)))
         else:
             found[key] = cached
     if wanted:
-        fetched = {keys[node_id]: details for node_id, details in fetch_details(gh, wanted).items()}
+        fetched = {keys[number]: details for number, details in fetch_details(gh, wanted).items()}
         found.update(fetched)
         if len(DETAILS) > 5000:
             DETAILS.clear()
         DETAILS.update(fetched)
     for pr, node in prs:
-        if node["id"] in keys:
-            pr.files, pr.checks = found[keys[node["id"]]]
+        if node["number"] in keys:
+            pr.files, pr.checks = found[keys[node["number"]]]
     return [pr for pr, _ in prs]
 
 
@@ -831,7 +837,7 @@ def cmd_debounce(args: argparse.Namespace) -> int:
     first = first_trigger_since_dispatch(runs, at)
     wait = debounce_wait(at, first)
     log(f"first event since the last batch at {first.isoformat()}; waiting {wait}s for quiet")
-    time.sleep(wait)
+    time.sleep(wait)  # sleep-ok: the debounce window; quiet for this long is the condition
     if superseded(gh.runs(WORKFLOW, "per_page=60"), me, args.repo):
         log("an event arrived during the wait; its run dispatches instead")
         return 0
@@ -1346,6 +1352,23 @@ class Controller:
             if time.monotonic() > deadline:
                 raise RuntimeError(f"{workflow} never started on {branch}")
 
+    def wait_rerun_shown(self, run_id: int, before: dict, timeout: int = 300) -> bool:
+        """Until GitHub shows the rerun of RUN_ID: a newer attempt than BEFORE's, or the run no longer completed.
+        Until then wait_run would read the finished first attempt and return at once."""
+        attempt = before.get("run_attempt") or 1
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                run = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}")
+                if run.get("status") != "completed" or (run.get("run_attempt") or 1) > attempt:
+                    return True
+            except (RuntimeError, TypeError, AttributeError) as error:
+                log(f"run {run_id}: could not read the rerun ({error})")
+            if time.monotonic() > deadline:
+                log(f"run {run_id}: its rerun never showed (no new attempt, still completed) in {timeout} s")
+                return False
+            time.sleep(10)
+
     def wait_run(self, run_id: int, timeout: int) -> dict:
         deadline = time.monotonic() + timeout
         while True:
@@ -1543,7 +1566,7 @@ class Controller:
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
-                time.sleep(30)
+                self.wait_rerun_shown(heavy["id"], run)
                 if self.wait_run(heavy["id"], timeout=120 * 60)["status"] != "completed":
                     # The first attempt's list still holds its flakes: record nothing (push-run fallback).
                     log("base probe: its rerun did not finish; no result")
@@ -1803,7 +1826,7 @@ class Controller:
             # One rerun of the failed jobs before blaming a PR: flakes are not culprits.
             validation.rerun = True
             self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
-            time.sleep(30)
+            self.wait_rerun_shown(heavy["id"], run)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
             failed = self.failed_jobs(heavy["id"], detail=True, base=False)
         inherited = self.failing_on_base(base_sha) if failed else set()

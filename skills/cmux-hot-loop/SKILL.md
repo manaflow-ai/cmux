@@ -57,6 +57,8 @@ copy of APP, then writes before and after screenshots (light and dark), a click-
 
 Your code layers: `cmux customize library status` (what is on, one line), `library refresh` (pull each layer's
 newest build in place; a fork's new code only through `use` again), `library off --all` (every code layer off; cmux serves its own pages).
+`cmux customize doctor` lists every layer left on, and every customization file that does not load, is skipped,
+overrides another or sits in the wrong folder, with its fix (`doctor fix ID off|remove`); the app shows the same notice.
 
 ## Examples
 
@@ -99,6 +101,20 @@ instead (docs/cmux-next/live-code.md).
 Known limit: a tree build (your own `cargo build`) is not Team-signed, so hot-applying its Rust into a Developer
 ID NIGHTLY is held back for now. Published per-commit builds, side copies (`scripts/cmux-next/try-pr.sh`) and
 DEV builds take it.
+
+## Signed in, without an "authenticated dev build"
+
+A signed-in build to drive comes from a copy of a signed-in app, not from a new build:
+
+| You want | Run | Signed in as |
+|---|---|---|
+| A PR or commit in your own NIGHTLY (Mac) | `cmux app try <PR\|sha>`, back with `cmux app try undo` | your production account, already signed in |
+| A PR in a side copy of your app (Mac) | `scripts/cmux-next/try-pr.sh N` | signed out at first (own data); sign in once, production for a NIGHTLY copy |
+| An agent, off a Mac (Linux, lane VM) | `cmux-ci hot-verify N --look` (a copy of the published NIGHTLY on a fleet display Mac) | none needed for a look |
+| An agent step that needs a signed-in app | `cmux-ci run ... --sign-in agent` | the shared agent account, a session made for that step and revoked after it |
+| A Swift change, a build handed to a person | `cmux-ci build cmux --ref SHA --tag T --workspace W --for-person` | the person's own cmux.com account (production Cloud) |
+
+Never copy a person's own login file into a build or a step; the rows above are the supported routes.
 
 ## Where it runs
 

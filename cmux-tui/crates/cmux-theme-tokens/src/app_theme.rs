@@ -411,6 +411,23 @@ pub fn oklch(c: Rgb) -> Oklch {
     Oklch { l: lightness, c: a.hypot(bb), h: if hue < 0.0 { hue + 360.0 } else { hue } }
 }
 
+/// CSS `color-mix(in oklab, a, b fraction)`: `fraction` 0 is `a`, 1 is `b`
+/// (opaque; out-of-gamut channels clamp, as a browser draws them). The chat's
+/// link blue is such a mix (webviews `--agent-link`).
+pub fn mix_oklab(a: Rgb, b: Rgb, fraction: f64) -> Rgb {
+    let lab = |c: Rgb| {
+        let v = oklch(c);
+        let radians = v.h * std::f64::consts::PI / 180.0;
+        (v.l, v.c * radians.cos(), v.c * radians.sin())
+    };
+    let (x, y, t) = (lab(a), lab(b), fraction.clamp(0.0, 1.0));
+    let (l, aa, bb) = (x.0 + (y.0 - x.0) * t, x.1 + (y.1 - x.1) * t, x.2 + (y.2 - x.2) * t);
+    let hue = bb.atan2(aa) * 180.0 / std::f64::consts::PI;
+    let (r, g, b) = to_linear(Oklch { l, c: aa.hypot(bb), h: hue });
+    let channel = |c: f64| gamma(c.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    Rgb::new(channel(r), channel(g), channel(b), 1.0)
+}
+
 fn to_linear(v: Oklch) -> (f64, f64, f64) {
     let radians = v.h * std::f64::consts::PI / 180.0;
     let (a, b) = (v.c * radians.cos(), v.c * radians.sin());

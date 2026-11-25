@@ -29,8 +29,9 @@ extension ActionRegistry {
         let menu = NSMenu()
         menu.autoenablesItems = true
         let shown = entries ?? contextMenuEntries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
-        menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
-                  machineID: machineID, menu: context).forEach(menu.addItem)
+        let items = menuItems(shown, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels,
+                              machineID: machineID, menu: context)
+        (contextMenuStyleV2 ? styleV2(items) : items).forEach(menu.addItem)
         if customize ?? (entries == nil) { appendCustomizeItem(to: menu, for: context, target: target) }
         return menu
     }
@@ -90,14 +91,7 @@ extension ActionRegistry {
     /// Focus facts a right-click implies (right-clicking a page means a
     /// browser is the target even if a terminal has focus).
     nonisolated static func impliedContext(for context: ActionMenuContext) -> ActionContext {
-        switch context {
-        case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
-        case .terminalSelection: .terminalFocused
-        case .agentChat, .priorityRow: .agentPaneFocused
-        // A right-clicked row is the explorer's even while another view has the keyboard.
-        case .fileExplorerRow: .fileExplorerFocused
-        default: []
-        }
+        MenuChoiceRules.impliedContext(for: context)
     }
 
     private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
@@ -171,6 +165,44 @@ extension ActionRegistry {
 }
 
 extension ActionRegistry {
+    /// `experiments.menuStyleV2`'s content rules for a right-click menu (the NSMenu stays native;
+    /// Lawrence 2026-10-23: nothing custom besides the icons). Per separator group, icons are all or
+    /// none: a group that mixes drops its icons, since a row without an icon has no symbol to fill
+    /// with and the titles then share one column. Destructive rows (`isDestructive`) end the menu in
+    /// their own group with a red title. Submenu rows stay where they are; their menus get the same
+    /// rules. One pass over the rows.
+    func styleV2(_ items: [NSMenuItem]) -> [NSMenuItem] {
+        var groups: [[NSMenuItem]] = [[]]
+        var destructive: [NSMenuItem] = []
+        for item in items {
+            if item.isSeparatorItem { groups.append([]); continue }
+            // A choices submenu that fills itself as it opens (a delegate) keeps its rows as they are.
+            if let submenu = item.submenu, submenu.delegate == nil {
+                let rows = styleV2(submenu.items)
+                submenu.removeAllItems()
+                rows.forEach(submenu.addItem)
+            }
+            if let payload = item.representedObject as? ActionMenuPayload, descriptor(for: payload.id)?.isDestructive == true {
+                item.attributedTitle = NSAttributedString(string: item.title, attributes: [
+                    .foregroundColor: NSColor.systemRed, .font: NSFont.menuFont(ofSize: 0),
+                ])
+                destructive.append(item)
+            } else {
+                groups[groups.count - 1].append(item)
+            }
+        }
+        groups.append(destructive)
+        var result: [NSMenuItem] = []
+        for group in groups where !group.isEmpty {
+            if group.contains(where: { $0.image != nil }), group.contains(where: { $0.image == nil }) {
+                group.forEach { $0.image = nil }
+            }
+            if !result.isEmpty { result.append(.separator()) }
+            result += group
+        }
+        return result
+    }
+
     /// Gives every run in `item` and its submenus the machine that owns their target.
     func scope(_ item: NSMenuItem, toMachine machineID: String) {
         (item.representedObject as? ActionMenuPayload)?.targetMachineID = machineID

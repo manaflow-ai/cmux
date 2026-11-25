@@ -1,5 +1,9 @@
 import CmuxConversationGeometry
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// Expected values were read from MobileSMS (iOS 26.5, iPhone 17 Pro Max,

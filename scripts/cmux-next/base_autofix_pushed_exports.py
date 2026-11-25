@@ -157,6 +157,7 @@ class Api:
         return self.deadline - time.monotonic()
 
     def sleep(self, seconds: float) -> None:
+        # sleep-ok: the poll interval of the callers' deadline-bounded loops (tests replace it), capped by the deadline.
         time.sleep(max(0.0, min(seconds, self.left())))
 
     def json(self, path: str) -> dict:

@@ -191,7 +191,14 @@ pub fn start_gateway(openclaw: &Path, home: &Path, log: &dyn Fn(String)) -> io::
         crate::brain_gateway::Spec {
             name: "openclaw",
             program: openclaw,
-            args: &["gateway", "run", "--bind", "loopback", "--port", port.trim()],
+            args: &[
+                "gateway",
+                "run",
+                "--bind",
+                "loopback",
+                "--port",
+                port.trim(),
+            ],
             marker: "openclaw",
             env: [
                 ("OPENCLAW_HOME", home.as_os_str().to_owned()),

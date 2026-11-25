@@ -2,7 +2,9 @@
 //! a cut snaps, a pan is smooth with bounded speed and acceleration, the
 //! person's manual crop holds until a tap hands it back.
 
-use cmux_follow_cam::{Camera, Config, Event, Mode, Rect, STEP_US, Signal, path, read_trace};
+use cmux_follow_cam::{
+    Camera, Config, Event, Frame, Mode, Rect, STEP_US, Signal, path, read_trace,
+};
 
 const SCREEN: (f64, f64) = (2560.0, 1440.0);
 
@@ -290,4 +292,97 @@ fn the_live_default_still_pans_to_typing_long_after_a_cut() {
     });
     let r = camera.advance(1_510_000);
     assert!((r.x + r.w / 2.0 - 2004.5).abs() > 100.0, "snapped long after the cut: {r:?}");
+}
+
+fn caret(t_us: u64, x: f64) -> Event {
+    Event { t_us, signal: Signal::Caret { x, y: 700.0, w: 9.0, h: 18.0 } }
+}
+
+/// Two seconds of typing on the left, then typing far to the right: long
+/// enough before the jump for a second of lookahead.
+fn long_jump() -> Vec<Event> {
+    let mut events = vec![Event {
+        t_us: 0,
+        signal: Signal::Window { id: 1, x: 0.0, y: 0.0, w: 2560.0, h: 1440.0 },
+    }];
+    let (mut t, mut x) = (50_000, 500.0);
+    while t < 2_000_000 {
+        events.push(caret(t, x));
+        (t, x) = (t + 120_000, x + 9.0);
+    }
+    let (mut t, mut x) = (2_000_000, 2000.0);
+    while t <= 3_500_000 {
+        events.push(caret(t, x));
+        (t, x) = (t + 120_000, x + 9.0);
+    }
+    events
+}
+
+/// A cut's path with one frame per motion step.
+fn steps(config: Config, events: &[Event]) -> Vec<(u64, Rect)> {
+    path(config, SCREEN.0, SCREEN.1, events, 1e6 / STEP_US as f64)
+        .into_iter()
+        .map(|Frame { t_us, rect }| (t_us, rect))
+        .collect()
+}
+
+#[test]
+fn lookahead_lands_the_pan_on_a_far_caret_as_its_typing_starts() {
+    let config = Config { lookahead_us: 1_000_000, ..Config::default() };
+    let frames = steps(config, &long_jump());
+    // A second ahead, the crop is still on the old typing.
+    let before = frames.iter().rev().find(|(t, _)| *t < 950_000).unwrap().1;
+    assert!((center_x(&before) - 504.5).abs() < 0.01, "left the old typing early: {before:?}");
+    // When the new typing starts, the crop is already on it.
+    let at = frames.iter().find(|(t, _)| *t >= 2_000_000).unwrap().1;
+    assert!((center_x(&at) - 2004.5).abs() < 1.0, "not on the new typing yet: {at:?}");
+    // Still a pan, with bounded speed and acceleration, that stops on the goal.
+    let pan: Vec<_> = frames.iter().copied().filter(|(t, _)| *t >= 900_000).collect();
+    assert_smooth(&pan, &config);
+    let goal_x = 2004.5 - pan[0].1.w / 2.0;
+    let overshoot = pan.iter().map(|(_, r)| r.x - goal_x).fold(f64::MIN, f64::max);
+    assert!(overshoot <= 1.0, "ran {overshoot} px past the goal");
+}
+
+#[test]
+fn without_lookahead_the_cutter_path_is_the_live_camera_frame_for_frame() {
+    for name in ["far_jump", "window_switch", "damage_only", "terminal_typing"] {
+        let events = trace(name);
+        let config = Config { lookahead_us: 0, ..Config::default() };
+        let frames = path(config, SCREEN.0, SCREEN.1, &events, 30.0);
+        let mut camera = Camera::new(config, SCREEN.0, SCREEN.1);
+        let mut next = events.iter().peekable();
+        for frame in &frames {
+            while let Some(event) = next.next_if(|e| e.t_us <= frame.t_us) {
+                camera.push(*event);
+            }
+            assert_eq!(camera.advance(frame.t_us), frame.rect, "{name} differs at {}", frame.t_us);
+        }
+    }
+}
+
+#[test]
+fn lookahead_leaves_what_the_dead_zone_holds_alone() {
+    let ahead = Config { lookahead_us: 1_000_000, ..Config::default() };
+    // Damage is not intent: lookahead changes nothing on a damage-only trace.
+    let events = trace("damage_only");
+    assert_eq!(steps(ahead, &events), steps(Config::default(), &events));
+    // Typing on one line holds one shot from the first frame on.
+    let frames = steps(ahead, &trace("terminal_typing"));
+    let first = frames[0].1;
+    assert!((center_x(&first) - 1004.5).abs() < 0.01, "opens on the caret: {first:?}");
+    for (t, rect) in &frames {
+        assert_eq!(rect.x, first.x, "camera moved at {t} while the caret stayed in the dead zone");
+    }
+}
+
+#[test]
+fn lookahead_never_shows_a_window_before_the_switch_to_it() {
+    let config = Config { lookahead_us: 1_000_000, ..Config::default() };
+    let frames = steps(config, &trace("window_switch"));
+    for (t, rect) in frames.iter().filter(|(t, _)| *t < 1_000_000) {
+        assert!(center_x(rect) < 1000.0, "showed window 2 at {t}: {rect:?}");
+    }
+    let at = frames.iter().find(|(t, _)| *t >= 1_000_000).unwrap().1;
+    assert!((center_x(&at) - 1904.5).abs() < 0.01, "the switch lands on window 2's caret: {at:?}");
 }
