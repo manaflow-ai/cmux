@@ -1688,7 +1688,7 @@ impl ServerAuthenticator for PeerKeys {
     }
 }
 
-struct Incoming {
+pub(crate) struct Incoming {
     carrier: Arc<HubCarrier>,
     websocket: SocketAddr,
     allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
