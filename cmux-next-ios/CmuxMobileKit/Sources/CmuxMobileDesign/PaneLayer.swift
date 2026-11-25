@@ -78,7 +78,19 @@ final class PaneLayerController: UIViewController {
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
         watchGestures()
+        if parent != nil, !observesPaths {
+            observesPaths = true
+            NotificationCenter.default.addObserver(self, selector: #selector(navigationWillChange),
+                                                   name: PaneLayerNotes.navigationWillChange, object: nil)
+        }
     }
+
+    @objc private func navigationWillChange() {
+        guard view.window != nil else { return }
+        startTracking()
+    }
+
+    private var observesPaths = false
 
     /// The interactive pops start transitions without an appearance callback
     /// here until UIKit has begun them: follow their starts too.
@@ -232,31 +244,30 @@ final class PaneLayerController: UIViewController {
     /// button) draw through a backdrop that the bar's mask does not clip: each is shown only
     /// while it lies wholly inside `visible`, fading in over its last points there, so it is
     /// never drawn over the page that hides the bar (no doubled bars).
-    private var fadedGlass: [(view: UIView, alpha: CGFloat, set: CGFloat)] = []
+    /// The glass views this transition fades, with the opacity each had before it.
+    private var fadedGlass: [ObjectIdentifier: (view: UIView, alpha: CGFloat)] = [:]
 
     private func fadeGlass(in bar: UINavigationBar, to visible: ClosedRange<CGFloat>, barMinX: CGFloat) {
-        if fadedGlass.isEmpty || fadedGlass.contains(where: { $0.view.superview == nil || !$0.view.isDescendant(of: bar) }) {
-            unfadeGlass()
-            fadedGlass = PaneLayerGeometry.glassGroups(in: bar).map { ($0, $0.alpha, $0.alpha) }
-        }
-        for index in fadedGlass.indices {
-            let view = fadedGlass[index].view
+        // Every frame: UIKit builds the bar's transition container (and its glass) anew for
+        // each transition.
+        for view in PaneLayerGeometry.glassGroups(in: bar) {
+            let id = ObjectIdentifier(view)
+            if fadedGlass[id] == nil { fadedGlass[id] = (view, view.alpha) }
             let span = view.convert(view.bounds, to: bar)
             let minX = barMinX + span.minX
             let maxX = barMinX + span.maxX
             let room = min(minX - visible.lowerBound, visible.upperBound - maxX)
-            let alpha = fadedGlass[index].alpha * max(0, min(1, room / 24))
+            let alpha = (fadedGlass[id]?.alpha ?? 1) * max(0, min(1, room / 24))
             // UIKit's own bar animation in the transition (paused under a swipe) would draw its
             // opacity over ours: this transition's opacity is ours.
             if view.layer.animation(forKey: "opacity") != nil { view.layer.removeAnimation(forKey: "opacity") }
             if abs(view.alpha - alpha) >= 0.002 { view.alpha = alpha }
-            fadedGlass[index].set = alpha
         }
     }
 
     private func unfadeGlass() {
-        for entry in fadedGlass { entry.view.alpha = entry.alpha }
-        fadedGlass = []
+        for entry in fadedGlass.values { entry.view.alpha = entry.alpha }
+        fadedGlass = [:]
     }
 
     deinit {
@@ -264,7 +275,7 @@ final class PaneLayerController: UIViewController {
             link?.invalidate()
             maskedBar?.layer.mask = nil
             shiftedBar?.transform = .identity
-            for entry in fadedGlass { entry.view.alpha = entry.alpha }
+            for entry in fadedGlass.values { entry.view.alpha = entry.alpha }
         }
     }
 }
@@ -335,6 +346,12 @@ enum PaneLayerGeometry {
 /// swiping back animation has tons of bullshit overlap and weird looking zones esp near composer
 /// bar when there's a background it all doesn't move properly"). DEBUG `-CmuxMobileSwipeBackLegacy`
 /// turns the whole-page behavior off, for before-and-after recordings (SwipeBackWholePageUITests).
+/// Notes the app posts for its panes.
+public enum PaneLayerNotes {
+    /// A navigation path is about to change (a push or pop that no gesture started).
+    public static let navigationWillChange = Notification.Name("CmuxMobilePaneLayer.navigationWillChange")
+}
+
 public enum SwipeBackWholePage {
     #if DEBUG
     public static let legacy = CommandLine.arguments.contains("-CmuxMobileSwipeBackLegacy")

@@ -50,6 +50,7 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
         var hidden = false
         var moving: ((Bool) -> Void)?
         private var following = false
+        private var lookedAgain = false
         private var watched: [ObjectIdentifier] = []
 
         override func loadView() {
@@ -137,10 +138,19 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
             guard let tabs = tabBarController, let selected = tabs.selectedViewController,
                   isDescendant(of: selected) else { return }
             // Shown again only once the page that hid it has left (Back, or a swipe let go).
-            if !hidden, !SwipeBackWholePage.legacy, tabs.isTabBarHidden, stack?.transitionCoordinator != nil {
-                follow(later: true)
-                return
+            if !hidden, !SwipeBackWholePage.legacy, tabs.isTabBarHidden {
+                if stack?.transitionCoordinator != nil {
+                    follow(later: true)
+                    return
+                }
+                // A path emptied by Back pops a beat later, in the same turn: look again then.
+                if !lookedAgain {
+                    lookedAgain = true
+                    DispatchQueue.main.async { [weak self] in self?.apply(animated: animated) }
+                    return
+                }
             }
+            lookedAgain = false
             let bar = tabs.tabBar
             guard tabs.isTabBarHidden != hidden || bar.accessibilityElementsHidden != hidden
                 || bar.isUserInteractionEnabled == hidden else { return }

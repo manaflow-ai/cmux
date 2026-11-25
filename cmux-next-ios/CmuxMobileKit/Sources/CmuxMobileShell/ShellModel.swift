@@ -775,6 +775,9 @@ final class ShellModel {
     /// The drawer pan only opens from a tab root (stack depth 1).
     private func updateInteractiveOpen() {
         sidebar.allowsInteractiveOpen = depth(of: tab) == 0
+        // A path change pushes or pops (Back, a link, a tab re-tap): panes follow the
+        // transition it starts, which no appearance callback reaches them for.
+        NotificationCenter.default.post(name: PaneLayerNotes.navigationWillChange, object: nil)
     }
 
     /// A team switch (a tap or a follow): screens that show the old team's Macs close (an
