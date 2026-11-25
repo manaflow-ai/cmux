@@ -28,6 +28,19 @@ export function newChatRunLocation(
   return newChatsIn === "cloud" ? "cloud" : (picked ?? folderDefault);
 }
 
+/// The folder whose history sets a new chat's default place: the first folder the chat showed, kept
+/// for that chat (`chat`: its session or New Tab adoption). A folder picked after it never moves the
+/// chat between This Mac and Cloud (cmux#47677: the folder, the place and the model are each their
+/// own pick); a new chat reads its own first folder again.
+export function defaultFolderFor(
+  kept: { chat: string; folder: string } | undefined,
+  chat: string,
+  folder: string | undefined,
+): { chat: string; folder: string } | undefined {
+  if (kept?.chat === chat) return kept;
+  return folder ? { chat, folder } : undefined;
+}
+
 /// The machine's folders for copied folders (CloudMoveSetup `workRoots`), in the app's order.
 export const CLOUD_WORK_ROOTS = ["/home/cmux/work", "/root/work"] as const;
 

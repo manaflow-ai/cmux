@@ -128,20 +128,12 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reposScope == nil)
     }
 
-    /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
-    /// `integration.list` first unless it holds a flow of its own for the team.
-    @MainActor @Test func aPendingConnectionHoldsAnotherConnect() async {
-        let pending = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"gmail","status":"pending"},{"provider":"github","status":"pending"}],"providers":[]}}"#)
-        let active = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"github","status":"active"},{"provider":"gmail","status":"pending"}],"providers":[]}}"#)
-        #expect(CloudGitHubConnects.pending(status: 200, body: pending) == true)
-        #expect(CloudGitHubConnects.pending(status: 200, body: active) == false)
-        #expect(CloudGitHubConnects.pending(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#)) == nil)
-        #expect(CloudGitHubConnects.pending(status: 500, body: pending) == nil)
-        let connects = CloudGitHubConnects(newKey: { "key" })
-        #expect(!connects.resumable(team: "team_a"))
-        _ = await connects.page(team: "team_a", now: Date()) { _ in .noAnswer }
-        #expect(connects.resumable(team: "team_a"))
-        #expect(!connects.resumable(team: "team_b"))
+    /// A pending connection never blocks Connect (#46018): one from another launch, or one whose return failed, can't
+    /// be finished here, so a click asks `integration.connect` again (it expires on its own after 30 minutes).
+    @Test func aPendingConnectionStillConnects() {
+        let linking = Self.body(#"{"configured":true,"app_slug":"cmux","connection":{"status":"pending"}}"#)
+        #expect(CloudGitHubApp(status: 200, body: linking) == .linking)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: linking) == nil, "nil: the picker asks integration.connect")
     }
 
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
@@ -223,6 +215,32 @@ struct CloudGitHubReposTests {
         #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
         #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
         #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    @Test func aRefusedCompletionKeepsTheAPIsReasonUnlessItIsTheExpiredState() {
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.state_invalid","message":"state expired"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden","message":" Only an owner of acme can connect GitHub. "}}"#))
+                == "Only an owner of acme can connect GitHub.")
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body(#"{"error":{"code":"integration.forbidden"}}"#)) == nil)
+        #expect(CloudOwnerAPIClient.refusalReason(body: Self.body("not json")) == nil)
+    }
+
+    @MainActor @Test func theLastAnswerStaysOnTheChangesUntilTheNextOneOrANewConnect() {
+        let changes = CloudGitHubChanges()
+        changes.record(.refused, reason: nil)
+        #expect(changes.refusal == CloudGitHubChanges.Refusal(reason: nil))
+        #expect(changes.count == 1)
+        changes.record(.refused, reason: "Only an owner can connect.")
+        #expect(changes.refusal?.reason == "Only an owner can connect.")
+        changes.forgetRefusal()
+        #expect(changes.refusal == nil)
+        changes.record(.refused, reason: nil)
+        changes.record(.connected, reason: nil)
+        #expect(changes.refusal == nil, "a connection clears the last refusal")
+        changes.record(.refused, reason: nil)
+        changes.record(.noAnswer, reason: nil)
+        #expect(changes.refusal == nil, "a lost answer proves nothing, and the person is told nothing wrong")
+        #expect(changes.count == 6)
     }
 
     static let statePayload = "eyJ0ZWFtIjoidGVhbV8wMTIzNDU2Nzg5YWJjZGVmMDEyMyIsInJldCI6ImNtdXgtZGV2LXg6Ly9pbnRlZ3JhdGlvbi9jb21wbGV0ZSJ9"

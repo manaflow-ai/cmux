@@ -75,13 +75,11 @@ enum RoomHandlers {
         }
         for color in GroupColor.allCases {
             bind(ActionID(rawValue: "space.color.\(color.rawValue)")) { invocation in
-                let room = try context.room(invocation)
-                update(room.id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
+                try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .set(color.rawValue)) }
             }
         }
         bind("space.clearColor") { invocation in
-            let room = try context.room(invocation)
-            update(room.id, context) { try await $0.updateProfile($1, color: .clear) }
+            try update(context.room(invocation).id, context) { try await $0.updateProfile($1, color: .clear) }
         }
         bind("space.setIcon") { invocation in
             let room = try context.room(invocation)
@@ -120,12 +118,12 @@ enum RoomHandlers {
                 return
             }
             let patch = try RoomDefaultsArguments.patch(invocation)
-            context.services.roomDefaults.apply(patch, to: room.id, context)
+            context.services.roomDefaults.apply(to: room.id, on: context.services.machines.local) { patch.applied(to: $0) }
         }
         // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
         bind("space.clearDefaults") { invocation in
             let room = try context.room(invocation)
-            context.services.roomDefaults.apply(.clear, to: room.id, context)
+            context.services.roomDefaults.apply(to: room.id, on: context.services.machines.local) { RoomDefaultsArguments.Patch.clear.applied(to: $0) }
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
@@ -171,6 +169,7 @@ enum RoomHandlers {
             context.services.windows.switchProfile(room.id, in: window.state)
         }
         RoomMoveHandlers.bind(bind, context: context)
+        registry.installSpacesGate(reason: RoomStrings.spacesOff) { context.services.windows.spacesOn } // #48355: off by default
     }
 
     /// A new space with the next free color and its own first workspace.
@@ -213,7 +212,7 @@ enum RoomHandlers {
                     enter(id, state)
                 } else {
                     try await startNewSpace(id, from: inNewWindow ? nil : active?.id, windows: services.windows,
-                                            newTabPage: inNewWindow && invocation.origin == .user)
+                                            newTabPage: invocation.origin == .user) // a person's: a chat (David Beyer, 2026-11-20)
                 }
                 return nil
             } catch {
@@ -222,7 +221,7 @@ enum RoomHandlers {
         })
     }
 
-    /// Gives the new, empty space `profile` its first workspace. A run that
+    /// Gives the new, empty space `profile` its first workspace (a chat with `newTabPage`, else a terminal). A run that
     /// may change the view shows the space in window `windowID`
     /// (`switchProfile`, which creates the workspace there). Any other run
     /// (a script, the CLI without `focus`) files the workspace, pinned to
@@ -233,9 +232,9 @@ enum RoomHandlers {
     private static func startNewSpace(_ profile: ProfileID, from windowID: String?, windows: WindowManager, newTabPage: Bool = false) async throws {
         if let windowID, let state = windows.states[windowID], windows.registry.value.window(windowID)?.isOpen == true {
             if ActionRunScope.viewChangeAllowed() {
-                windows.switchProfile(profile, in: state)
+                windows.switchProfile(profile, in: state, opensNewTabPage: newTabPage)
             } else {
-                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: windowID)
+                _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile, newTabPage: newTabPage), into: windowID)
             }
             return
         }
@@ -278,47 +277,5 @@ enum RoomHandlers {
     static func update(_ id: ProfileID, _ context: AppActionContext,
                        _ body: @escaping @Sendable (DaemonConnection, ProfileID) async throws -> Void) {
         context.services.machines.local.send("update-profile") { try await body($0, id) }
-    }
-}
-
-/// Set and Clear Space Terminal Defaults… for one space, one at a time, each merging its named fields
-/// into the defaults the daemon holds when it runs (`list-personal`), never into the app's mirror,
-/// which lags a reply: two quick partial runs (`--cwd /a`, then `--env '{"X":"1"}'`) would both read
-/// the old mirror, and the second's whole-object write would drop the first's field. One per app
-/// (``AppServices/roomDefaults``).
-@MainActor
-final class RoomDefaultsUpdates {
-    /// The newest run per space; the next run waits for it. Each entry ends with its run and is then
-    /// removed, unless a newer run replaced it.
-    private var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
-
-    /// Ends its stream when the command's body has run, or when the body is dropped unrun (no daemon
-    /// connection): the body holds the only reference, so the next run never waits forever.
-    private final class Finish: Sendable {
-        let signal: AsyncStream<Void>.Continuation
-        init(_ signal: AsyncStream<Void>.Continuation) { self.signal = signal }
-        nonisolated deinit { signal.finish() }
-    }
-
-    /// Whether a run for `id` has not finished yet (its write may not have reached the mirror).
-    func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
-
-    func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
-        let previous = tails[id]?.done
-        // Nothing is ever yielded; the stream only ends, so one slot is plenty.
-        let (finished, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let finish = Finish(signal)
-        let token = UUID()
-        tails[id] = (token, Task { @MainActor [weak self] in
-            for await _ in finished {}
-            if self?.tails[id]?.token == token { self?.tails[id] = nil }
-        })
-        context.services.machines.local.send("update-profile") { connection in
-            defer { finish.signal.finish() }
-            await previous?.value
-            let current = try await connection.listPersonal().profiles.first(where: { $0.id == id })?.defaults
-            let defaults = patch.applied(to: current)
-            try await connection.updateProfile(id, defaults: defaults.isEmpty ? .clear : .set(defaults))
-        }
     }
 }

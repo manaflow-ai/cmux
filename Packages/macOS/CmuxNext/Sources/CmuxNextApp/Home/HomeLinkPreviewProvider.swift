@@ -175,9 +175,9 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
 /// The card's own words. Keys live in Resources/Localizable.xcstrings.
 enum HomeLinkPreviewStrings {
-    static var open: String { String(localized: "home.linkPreview.open", defaultValue: "Open", bundle: .module) }
-    static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module) }
+    static var open: String { String(localized: "home.linkPreview.open", defaultValue: "Open", bundle: .module.inAppLanguage) }
+    static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module.inAppLanguage) }
     static func tabCount(_ count: Int) -> String {
-        String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module), count)
+        String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module.inAppLanguage), count)
     }
 }

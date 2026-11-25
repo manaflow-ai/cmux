@@ -27,6 +27,19 @@ fn none() -> BTreeSet<String> {
     BTreeSet::new()
 }
 
+/// A theme written for an older cmux: a key that was removed is left out
+/// with a notice, not refused as unknown (schemas/settings/retired-keys.json).
+#[test]
+fn a_theme_file_names_a_removed_key_and_still_reads_clean() {
+    let file =
+        overlay(r##"{ "appearance.tabBarBackground": "#000000", "appearance.borders": "none" }"##);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.borders".to_string()]);
+    assert_eq!(file.notices.len(), 1);
+    assert_eq!(file.notices[0].from, "appearance.tabBarBackground");
+    assert_eq!(file.notices[0].kind, crate::migrations::NoticeKind::Removed);
+}
+
 #[test]
 fn a_theme_file_sets_look_settings_nested_or_dotted() {
     let file = overlay(
@@ -185,6 +198,198 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// The sidebar's rows are part of a look: density, text size, status icons,
+/// grouping and the row's own elements, so one file restyles the sidebar. A
+/// per-kind row override and what the sidebar holds (chats) stay out.
+#[test]
+fn a_theme_file_sets_how_the_sidebar_rows_draw() {
+    let file = overlay(
+        r#"{
+          "sidebar.density": "compact", "sidebar.textSize": "large", "sidebar.detailedStatusIcons": true,
+          "sidebar.showColors": false, "sidebar.groupBy": "none", "workspaceColors.indicatorStyle": "dot",
+          "sidebar.workspaceRow.icon": false, "sidebar.workspaceRow.working": true,
+          "sidebar.workspaceRow.secondLineOrder": ["branch"],
+          "sidebar.workspaceRow.agent.icon": true, "sidebar.showChats": false
+        }"#,
+    );
+    assert_eq!(
+        file.keys(),
+        [
+            "sidebar.density",
+            "sidebar.detailedStatusIcons",
+            "sidebar.groupBy",
+            "sidebar.showColors",
+            "sidebar.textSize",
+            "sidebar.workspaceRow.icon",
+            "sidebar.workspaceRow.secondLineOrder",
+            "sidebar.workspaceRow.working",
+            "workspaceColors.indicatorStyle",
+        ]
+    );
+    let mut refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    refused.sort();
+    assert_eq!(refused, ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"]);
+}
+
+/// The app's copy of the look lists (Swift `ThemeFileOverlay`) is this one:
+/// a key one reader takes and the other refuses would apply in the app and
+/// not in the CLI's `cmux theme check`, or the other way round.
+#[test]
+fn the_look_lists_match_the_apps() {
+    let swift =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ThemeFileOverlay.swift",
+        ))
+        .expect("ThemeFileOverlay.swift");
+    // The quoted strings of the Swift `static let NAME ... = [ ... ]` literal.
+    let literal = |name: &str| -> BTreeSet<String> {
+        let start = swift.find(&format!("static let {name}")).expect(name);
+        let body = &swift[start..];
+        let body = &body[body.find('[').expect("[") + 1..body.find(']').expect("]")];
+        // `joined(separator: ".")` is the one quoted string that is no key.
+        body.split('"').skip(1).step_by(2).filter(|s| *s != ".").map(str::to_owned).collect()
+    };
+    let set = |list: &[&str]| list.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>();
+    assert_eq!(literal("lookKeys"), set(&LOOK_KEYS));
+    assert_eq!(literal("lookPrefixes"), set(&LOOK_PREFIXES));
+    // Swift names the theme file's own key and its exceptions key through their settings' `configPath`.
+    let named: Vec<&str> = EXCLUDED_KEYS
+        .iter()
+        .copied()
+        .filter(|key| ![SETTING_KEY, EXCEPTIONS_KEY].contains(key))
+        .collect();
+    assert_eq!(literal("excludedKeys"), set(&named));
+    assert!(
+        swift.contains("ThemeFileSetting.configPath")
+            && swift.contains("ThemeFileExceptionsSetting.configPath")
+    );
+    assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
+}
+
+/// The shipped Minimal sessions file sets every key it writes, each to the
+/// value it writes, with no refusal: read through the same reader the app's
+/// copy uses, applied over an empty root, every value reads back.
+#[test]
+fn the_minimal_sessions_file_applies_every_value_it_writes() {
+    let text = shipped("minimal-sessions").expect("minimal-sessions ships");
+    let file = ThemeFile::read(
+        "minimal-sessions",
+        Some(Ok(text)),
+        &json!({}),
+        None,
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.is_loaded);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let Value::Object(written) = crate::jsonc::parse(text).expect("the file is JSONC") else {
+        panic!("the file is no object");
+    };
+    let written: Vec<(&String, &Value)> =
+        written.iter().filter(|(key, _)| !RESERVED_KEYS.contains(&key.as_str())).collect();
+    // It restyles the sidebar as a whole: every row element, the status and the grouping.
+    assert!(written.len() >= 20, "the file writes only {} keys", written.len());
+    let mut keys: Vec<String> = written.iter().map(|(key, _)| (*key).clone()).collect();
+    keys.sort();
+    assert_eq!(file.keys(), keys, "every key it writes is taken, none twice");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &written {
+        assert_eq!(at(&root, key), Some(*value), "{key}");
+    }
+    // The ones that make it a minimal session list.
+    assert_eq!(at(&root, "sidebar.workspaceRow.statusPlacement"), Some(&json!("leading")));
+    assert_eq!(at(&root, "appearance.statusIndicator.iconSet"), Some(&json!("symbols")));
+    assert_eq!(at(&root, "sidebar.workspaceRow.icon"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.density"), Some(&json!("compact")));
+    // A managed key keeps the managed value.
+    let managed: BTreeSet<String> = ["sidebar.workspaceRow".to_string()].into();
+    let kept = file.applied(&json!({"sidebar": {"workspaceRow": {"icon": true}}}), &managed);
+    assert_eq!(at(&kept, "sidebar.workspaceRow.icon"), Some(&json!(true)));
+    assert_eq!(at(&kept, "sidebar.workspaceRow.statusPlacement"), None);
+}
+
+/// A theme file of 5,000 keys, nearly all junk (per-kind row overrides, row
+/// names no schema has, keys of no setting), still loads: every junk key is
+/// refused by name, the valid ones apply, and nothing else is taken.
+#[test]
+fn a_theme_file_of_five_thousand_junk_keys_still_applies_its_valid_ones() {
+    let valid: [(&str, Value); 6] = [
+        ("sidebar.density", json!("compact")),
+        ("sidebar.groupBy", json!("none")),
+        ("sidebar.workspaceRow.statusPlacement", json!("leading")),
+        ("sidebar.workspaceRow.icon", json!(false)),
+        ("sidebar.showColors", json!(false)),
+        ("appearance.statusIndicator.iconSet", json!("symbols")),
+    ];
+    let kinds = ["terminal", "agent", "browser", "mixed"];
+    let mut junk: Vec<String> = Vec::new();
+    for index in 0..(5_000 - valid.len()) {
+        junk.push(match index % 3 {
+            0 => format!("sidebar.workspaceRow.{}.j{index}", kinds[index % kinds.len()]),
+            1 => format!("sidebar.workspaceRow.j{index}"),
+            _ => format!("nope.j{index}"),
+        });
+    }
+    let mut members: Vec<String> = junk.iter().map(|key| format!("  \"{key}\": true")).collect();
+    for (offset, (key, value)) in valid.iter().enumerate() {
+        // Spread the valid keys through the junk.
+        members.insert(offset * 800, format!("  \"{key}\": {value}"));
+    }
+    let text = format!("{{\n{}\n}}", members.join(",\n"));
+    assert!(text.len() <= MAXIMUM_BYTES, "{} bytes", text.len());
+    let started = std::time::Instant::now();
+    let file = overlay(&text);
+    let elapsed = started.elapsed();
+    assert!(file.is_loaded);
+    let mut want: Vec<String> = valid.iter().map(|(key, _)| (*key).to_string()).collect();
+    want.sort();
+    assert_eq!(file.keys(), want);
+    let refused: BTreeSet<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    for key in &junk {
+        assert!(refused.contains(key.as_str()), "{key} was not refused");
+    }
+    for (key, _) in &valid {
+        assert!(!refused.contains(key), "{key} was refused");
+    }
+    assert_eq!(file.diagnostics.len(), junk.len(), "one refusal per junk key");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &valid {
+        assert_eq!(at(&root, key), Some(value), "{key}");
+    }
+    // Each refusal looks up its line in the text: keep that from going quadratic.
+    assert!(elapsed.as_secs_f64() < 5.0, "reading 5,000 keys took {elapsed:?}");
+}
+
+/// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
+/// deeper too. prob likewise the session info and the top right buttons as
+/// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
+/// buttons, and carries its own density (the app reads it), which the
+/// schema checks.
+#[test]
+fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
+    let file = overlay(
+        r#"{ "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false, "agentPane.display.sessionInfo.placement": "overlay", "density": { "basedOn": "compact", "tokens": { "tabCornerRadius": 2 } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.sessionInfo.placement",
+            "sidebar.showSearchButton",
+            "tabs.toolbarButtons",
+            "window.titlebarButtons"
+        ]
+    );
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator
+            .is_valid(&json!({"density": {"basedOn": "cozy", "tokens": {"sidebarWidth": 250}}}))
+    );
+    assert!(!validator.is_valid(&json!({"density": {"basedOn": "huge"}})));
+    assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
@@ -228,7 +433,18 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] {
+    for look in [
+        "harbor",
+        "classic-desktop",
+        "phosphor",
+        "claude-desktop",
+        "charcoal",
+        "teal",
+        "moss",
+        "meadow",
+        "lily-pond",
+        "minimal-sessions",
+    ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
@@ -243,6 +459,12 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         );
         assert!(file.is_loaded, "{name}");
         assert!(file.diagnostics.is_empty(), "{name}: {:?}", file.diagnostics);
+        // A look that names a terminal theme takes the window with it, over the person's own
+        // App Theme (else a dark look sits in a light window).
+        let value = crate::jsonc::parse(&text).expect("jsonc");
+        if value.get("appearance.theme").is_some() {
+            assert_eq!(value["appearance.appTheme"], json!("followTerminal"), "{name}");
+        }
     }
 }
 
@@ -407,6 +629,89 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+/// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
+/// and its tokens apply, and a tokens object with an unknown token is refused with its key.
+#[test]
+fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
+    let file = overlay(
+        r#"{ "agentPane.display.transcriptLook": "studio",
+             "agentPane.display.transcriptTokens": { "userMessage.radius": 20, "timestamps": "always" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "agentPane.display.transcriptLook"), Some(&json!("studio")));
+    assert_eq!(
+        at(&root, "agentPane.display.transcriptTokens"),
+        Some(&json!({"userMessage.radius": 20, "timestamps": "always"}))
+    );
+    let bad = overlay(r#"{ "agentPane.display.transcriptTokens": { "avatar": "on" } }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
+}
+
+#[test]
+fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_themes_folder() {
+    let folder = Path::new("/tmp/cmux-config/themes");
+    let text = r#"{
+        "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
+        "agentPane.display.font.proseFamily": "Pack Serif",
+        "agentPane.display.code.family": "Pack Mono",
+        "agentPane.display.code.scale": 0.8,
+        "agentPane.display.font.faces": {
+            "Pack Sans": "file:../fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }
+    }"#;
+    let file = ThemeFile::read(
+        "pack",
+        Some(Ok(text)),
+        &json!({}),
+        Some(folder),
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.code.family",
+            "agentPane.display.code.scale",
+            "agentPane.display.font.faces",
+            "agentPane.display.font.proseFamily",
+            "agentPane.display.font.uiFamily",
+        ]
+    );
+    let applied = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&applied, "agentPane.display.font.faces"),
+        Some(&json!({
+            "Pack Sans": "file:/tmp/cmux-config/fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }))
+    );
+    // Missing files: the check names each face; the read never stats them.
+    let faces = file.face_diagnostics();
+    assert_eq!(
+        faces.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        [
+            "agentPane.display.font.faces.Pack Sans",
+            "agentPane.display.font.faces.Pack Serif:italic"
+        ]
+    );
+    assert!(faces[0].display().starts_with("themes/pack.json: "), "{}", faces[0].display());
+}
+
+#[test]
+fn a_theme_file_still_refuses_chat_keys_that_are_no_look() {
+    let file =
+        overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);
+    assert_eq!(file.keys(), ["agentPane.display.font.size"]);
+    assert_eq!(
+        file.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["agentPane.display.minimap"]
+    );
+}
+
 /// #44894: a key the person changed in Settings while the theme file sets it
 /// (`appearance.themeFileExceptions`) keeps the person's value; the file still
 /// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.
@@ -445,4 +750,56 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     let file = overlay(r#"{ "appearance.themeFileExceptions": ["appearance.accent"] }"#);
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
+/// (`theme_file::two_tone`), and a value outside the list is refused.
+#[test]
+fn a_theme_file_sets_the_two_tone_toggle() {
+    let row =
+        Schema::embedded().row(two_tone::SETTING_KEY).expect("the schema has appearance.twoTone");
+    assert!(is_look(row));
+    let file = overlay(r#"{ "appearance": { "twoTone": "inkSakura" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, two_tone::SETTING_KEY), Some(&json!("inkSakura")));
+    let refused = overlay(r#"{ "appearance.twoTone": "neon" }"#);
+    assert_eq!(refused.diagnostics.len(), 1, "{:?}", refused.diagnostics);
+}
+
+/// `appearance.cornerFlush` (Leo, 2026-11-18: the gooey look "we have as a
+/// toggle maybe"): a theme file picks the corner treatment and keeps it; a
+/// value that is no corner is refused with the choices.
+#[test]
+fn a_theme_file_keeps_the_corner_treatment() {
+    let row = Schema::embedded().row("appearance.cornerFlush").expect("the cornerFlush row");
+    assert!(is_look(row), "appearance.cornerFlush is a look setting");
+    assert_eq!(row.default, Some(json!("flush")), "no goo by default");
+    let file = overlay(r#"{ "appearance": { "cornerFlush": "flush-goo" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.cornerFlush"]);
+    let root = file.applied(&json!({"appearance": {"cornerFlush": "off"}}), &none());
+    assert_eq!(at(&root, "appearance.cornerFlush"), Some(&json!("flush-goo")));
+    let bad = overlay(r#"{ "appearance.cornerFlush": "goo" }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
+        && d.message.starts_with("expected one of")));
+}
+
+/// `appearance.tabShape` (block, rounded) is a look a theme file sets (the gooey look is `appearance.cornerFlush`); any other value is refused by the
+/// schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_tab_shape() {
+    for shape in ["block", "rounded"] {
+        let file = overlay(&format!(r#"{{ "appearance.tabShape": "{shape}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{shape}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.tabShape"), Some(&json!(shape)));
+    }
+    // "gooey" is the corner treatment's `flush-goo`, not a tab shape.
+    let wobbly = overlay(r#"{ "appearance.tabShape": "gooey" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused =
+        wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }

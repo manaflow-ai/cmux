@@ -138,12 +138,12 @@ fn read_host_orphan_grace() -> Option<Duration> {
 
 /// Since when this host process (one terminal per process) has had no
 /// client stream, as the accept loop last saw it.
-static ORPHAN_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+static ORPHAN_SINCE: Mutex<Option<OrphanSince>> = Mutex::new(None);
 /// The host ended its terminal because its owner was gone: its exit record
 /// says [`crate::terminal_end::EXIT_OWNER_GONE`].
 static OWNER_GONE: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_orphan_since(since: Option<Instant>) {
+pub(crate) fn set_orphan_since(since: Option<OrphanSince>) {
     *ORPHAN_SINCE.lock().recover_poison() = since;
 }
 
@@ -151,6 +151,38 @@ pub(crate) fn set_orphan_since(since: Option<Instant>) {
 pub(crate) fn orphaned_for(min: Duration) -> bool {
     ORPHAN_SINCE.lock().recover_poison().is_some_and(|since| since.elapsed() >= min)
 }
+
+/// When an orphan wait began, by two clocks. `Instant` is the awake clock on
+/// a Mac (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so a laptop
+/// that sleeps every night took weeks to count [`ABANDONED_HOST_GRACE`],
+/// and abandoned hosts 8 to 11 days old were still running on Leo's Mac
+/// (cmuxterm-hq#8377, 2026-11-21). The wall clock counts sleep; a wall clock
+/// set back counts nothing, and the awake time still does.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OrphanSince {
+    awake: Instant,
+    wall: std::time::SystemTime,
+}
+
+impl OrphanSince {
+    pub(crate) fn now() -> Self {
+        Self { awake: Instant::now(), wall: std::time::SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time since the wait began.
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.elapsed_at(Instant::now(), std::time::SystemTime::now())
+    }
+
+    pub(crate) fn elapsed_at(&self, awake: Instant, wall: std::time::SystemTime) -> Duration {
+        let awake = awake.saturating_duration_since(self.awake);
+        awake.max(wall.duration_since(self.wall).unwrap_or_default())
+    }
+}
+
+/// The longest one orphan wait blocks: a sleep the awake clock never counts
+/// is seen by the wall clock within this long of waking.
+pub(crate) const ORPHAN_RECHECK: Duration = Duration::from_secs(60 * 60);
 
 /// Record that the terminal is ended because the owner is gone.
 pub(crate) fn mark_owner_gone() {
@@ -323,7 +355,28 @@ pub(crate) struct HostTap {
     pub(crate) queued_output_bytes: Arc<AtomicUsize>,
     pub(crate) shutdown: Arc<HostStream>,
     pub(crate) max_queued_bytes: usize,
+    /// Set for the daemon's own mirror (the owner's smart admin
+    /// connection): the PTY reader waits for room in this tap's output queue
+    /// ([`SmartStreamState::wait_for_owner_room`]) instead of cutting it off
+    /// 8 MiB behind. `None` for every other client, which keeps the cutoff.
+    pub(crate) room: Option<Arc<TapRoom>>,
 }
+
+/// Wakes a PTY reader that waits for room in a backpressured tap: its
+/// writer notifies after every write it releases.
+#[derive(Default)]
+pub(crate) struct TapRoom {
+    pub(crate) lock: Mutex<()>,
+    pub(crate) freed: Condvar,
+}
+
+/// The longest the PTY reader waits for the daemon's mirror to make room in
+/// its 8 MiB output queue. A mirror that drains (about 100-140 MB/s under a
+/// flood, 8 MiB in under 100 ms) never comes near it; one that stops for
+/// longer is cut off and resyncs from a snapshot, as every client was before.
+pub(crate) const OWNER_BACKPRESSURE_MAX_WAIT: Duration = Duration::from_secs(1);
+/// One slice of that wait: a tap that left the map stops the wait within it.
+const OWNER_BACKPRESSURE_SLICE: Duration = Duration::from_millis(5);
 
 impl HostTap {
     pub(crate) fn new(
@@ -337,7 +390,20 @@ impl HostTap {
             queued_output_bytes: Arc::new(AtomicUsize::new(0)),
             shutdown,
             max_queued_bytes,
+            room: None,
         }
+    }
+
+    /// This tap backpressures the PTY reader instead of being cut off.
+    pub(crate) fn with_backpressure(mut self) -> Self {
+        self.room = Some(Arc::new(TapRoom::default()));
+        self
+    }
+
+    /// True when `retained` more output bytes would not fit the output queue.
+    fn output_full(&self, retained: usize) -> bool {
+        self.queued_output_bytes.load(Ordering::Acquire).saturating_add(retained)
+            > MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES
     }
 
     pub(crate) fn try_reserve(counter: &AtomicUsize, retained: usize, limit: usize) -> bool {
@@ -399,6 +465,12 @@ impl HostTap {
         self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
         if frame.kind == MessageKind::Output {
             self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
+            if let Some(room) = &self.room {
+                // Under the lock, so a reader between its check and its wait
+                // cannot miss this wake.
+                let _room = room.lock.lock().recover_poison();
+                room.freed.notify_all();
+            }
         }
     }
 
@@ -474,6 +546,40 @@ impl SmartStreamState {
         self.retained.lock().recover_poison().push(frame.clone());
         self.taps.lock().recover_poison().retain(|_, tap| tap.try_send(frame.clone()));
         (cursor, frame)
+    }
+
+    /// Called by the PTY reader before it publishes `retained` bytes of
+    /// Output, holding no lock: waits until every backpressured tap (the
+    /// daemon's mirror) has room for them, so the reader drains the PTY at
+    /// the mirror's pace instead of cutting the mirror off 8 MiB behind and
+    /// losing the bytes in between. Each such tap then holds at most
+    /// `MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES` of output, as before. The wait
+    /// ends after [`OWNER_BACKPRESSURE_MAX_WAIT`]; the publish that follows
+    /// then cuts the tap off as it does every other client. Only the PTY
+    /// reader publishes Output, so the room it waited for is still there.
+    pub(crate) fn wait_for_owner_room(&self, retained: usize) {
+        self.wait_for_owner_room_until(retained, Instant::now() + OWNER_BACKPRESSURE_MAX_WAIT);
+    }
+
+    pub(crate) fn wait_for_owner_room_until(&self, retained: usize, deadline: Instant) {
+        loop {
+            let full = self.taps.lock().recover_poison().values().find_map(|tap| {
+                tap.room
+                    .as_ref()
+                    .filter(|_| tap.output_full(retained))
+                    .map(|room| (tap.clone(), room.clone()))
+            });
+            let Some((tap, room)) = full else { return };
+            let now = Instant::now();
+            if now >= deadline {
+                return;
+            }
+            let slice = deadline.saturating_duration_since(now).min(OWNER_BACKPRESSURE_SLICE);
+            let guard = room.lock.lock().recover_poison();
+            if tap.output_full(retained) {
+                let _ = room.freed.wait_timeout(guard, slice).recover_poison();
+            }
+        }
     }
 
     pub(crate) fn publish_after_targeted(
@@ -818,33 +924,5 @@ pub(crate) fn snapshot_cwd(
 }
 
 #[cfg(test)]
-mod orphan_grace_tests {
-    use super::*;
-
-    #[test]
-    fn a_normal_install_ends_an_abandoned_host_after_a_week() {
-        assert_eq!(orphan_grace_in_force(None, false), ABANDONED_HOST_GRACE);
-        assert_eq!(ABANDONED_HOST_GRACE, Duration::from_secs(7 * 24 * 60 * 60));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn hosts_and_holders_end_abandoned_terminals_after_the_same_grace() {
-        assert_eq!(ABANDONED_HOST_GRACE, cmux_holder::ABANDONED_GRACE);
-    }
-
-    #[test]
-    fn a_build_grace_and_a_removed_record_directory_only_shorten_it() {
-        assert_eq!(
-            orphan_grace_in_force(Some(DEV_HOST_ORPHAN_GRACE), false),
-            DEV_HOST_ORPHAN_GRACE
-        );
-        let month = Duration::from_secs(30 * 24 * 60 * 60);
-        assert_eq!(orphan_grace_in_force(Some(month), false), ABANDONED_HOST_GRACE);
-        assert_eq!(orphan_grace_in_force(None, true), RECORD_ROOT_REMOVED_ORPHAN_GRACE);
-        assert_eq!(
-            orphan_grace_in_force(Some(Duration::from_secs(1)), true),
-            Duration::from_secs(1)
-        );
-    }
-}
+#[path = "host_state_orphan_grace_tests.rs"]
+mod orphan_grace_tests;

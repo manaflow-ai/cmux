@@ -211,7 +211,7 @@
   cursor: default;
 }
 .acpmux-plan-builds-actions > button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-plan-builds-actions > button:disabled {
   opacity: 0.5;

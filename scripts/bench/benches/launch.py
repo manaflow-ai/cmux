@@ -121,7 +121,7 @@ class Launch(Bench):
         timeout."""
         build = ctx.build
         args = [f"runs={ctx.arg('runs', '5')}"]
-        for key in ("profile", "state", "prerun", "engines"):
+        for key in ("profile", "state", "prerun", "engines", "session", "workspaces", "windows"):
             value = extra.get(key, ctx.arg(key))
             if value:
                 args.append(f"{key}={value}")

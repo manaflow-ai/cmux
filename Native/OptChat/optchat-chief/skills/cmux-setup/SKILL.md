@@ -99,14 +99,15 @@ confirm an invite's address before you send it.
   the `fix` for each one that needs it.
 - MCP: `cmux setup mcp [claude|codex ...]` reports whether Claude Code and
   Codex started in cmux (its terminals, agent chats) get the cmux MCP server;
-  it writes nothing. cmux gives the server only through the launch, once the
-  person turned on `agents.cmuxMcp`; it never writes an agent's own config.
+  it writes nothing. cmux gives the server only through the launch, unless the
+  person turned `agents.cmuxMcp` off (it is on by default); it never writes an
+  agent's own config.
   For agents started elsewhere, show the person the report's `manual` lines
   to run themselves; never run them. The only cmux commands that write an
   agent's own config are `cmux acp desktop link` and `cmux acp bridge
   connect`, and only when the person runs them.
-  `needs_user` with `user_action.kind` `setting` means the person answers
-  the question (`agents.cmuxMcp`) or turns `"mcp": {"enabled": false}` off in
+  `needs_user` with `user_action.kind` `setting` means the person turns
+  `agents.cmuxMcp` back on or turns `"mcp": {"enabled": false}` off in
   the settings file the text names; hand them that line, do not edit the
   file. With neither installed it is `ok`.
   A client row's `leftover` is a `cmux` entry in that agent's own settings,

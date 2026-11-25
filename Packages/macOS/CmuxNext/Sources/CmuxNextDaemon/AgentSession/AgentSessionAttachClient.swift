@@ -132,6 +132,8 @@ public actor AgentSessionAttachClient {
         var side = false
         /// `agent-session-presence-v1`.
         var presence = false
+        /// `agent-session-attention-v1`.
+        var attention = false
         /// `agent-session-folders-v1`.
         var folders = false
         /// `agent-session-settings-v1`.
@@ -150,6 +152,8 @@ public actor AgentSessionAttachClient {
         var queueDecision = false
         /// `agent-session-btw-v1`.
         var btw = false
+        /// `agent-session-page-bytes-v1`.
+        var pageBytes = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -172,14 +176,16 @@ public actor AgentSessionAttachClient {
     }
 
     /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
-    public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
+    /// `maxBytes`: the page's byte budget, sent only to a daemon that serves
+    /// `agent-session-page-bytes-v1` (an older one would refuse the field).
+    public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?, maxBytes: Int? = nil,
                        events: @escaping EventHandler) async throws -> Data {
         // One attach at a time: the daemon refuses a second attach of the tab while the first still
         // connects (its slot is reserved: `agent_session.limit`, "too many attached agent tabs"), and
         // the remote wire asks two at once (the page's session list and its attach, sent together
         // since #27755). The later one waits and is then a page of the live attachment.
         let previous = attachTail
-        let command = mode.command, params = page(afterSeq, beforeSeq, limit, kinds)
+        let command = mode.command
         // task-owner: this attach; the next attach waits on it, and the caller's cancel cancels it
         let task = Task {
             await previous?.value
@@ -187,14 +193,19 @@ public actor AgentSessionAttachClient {
             // handler: the earlier attach's pushes still go to its own.
             try Task.checkCancellation()
             self.handler.set(events)
-            return try await self.call(command, params)
+            let (transport, served) = try await self.liveConnection()
+            return try await self.call(command, self.page(afterSeq, beforeSeq, limit, kinds,
+                                                          maxBytes: served.pageBytes ? maxBytes : nil), on: transport)
         }
         attachTail = Task { _ = await task.result }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
-    public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
-        try await call("agent-session-events", page(afterSeq, beforeSeq, limit, kinds))
+    public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
+                       maxBytes: Int? = nil) async throws -> Data {
+        let (transport, served) = try await liveConnection()
+        return try await call("agent-session-events", page(afterSeq, beforeSeq, limit, kinds,
+                                                           maxBytes: served.pageBytes ? maxBytes : nil), on: transport)
     }
 
     /// `agent-session-start` (`agent-session-start-v1`): the daemon starts a new chat for the tab
@@ -627,11 +638,18 @@ public actor AgentSessionAttachClient {
     }
 
     /// `agent-session-view` (`agent-session-presence-v1`): whether the person's window shows the
-    /// attached chat now. A daemon without the verb keeps counting the attach as shown.
-    public func view(_ visible: Bool) async throws {
+    /// attached chat now. A daemon without the verb keeps counting the attach as shown. Newer
+    /// daemons also accept `attending` and `seenSeq` (`agent-session-attention-v1`) so a shown chat
+    /// left while the person is away keeps the person's read cutover.
+    public func view(_ visible: Bool, attending: Bool? = nil, seenSeq: UInt64? = nil) async throws {
         _ = try await liveTransport()
         guard served.presence else { return }
-        _ = try await call("agent-session-view", ["visible": visible])
+        var params: [String: any Sendable] = ["visible": visible]
+        if served.attention {
+            if let attending { params["attending"] = attending }
+            if let seenSeq { params["seen_seq"] = seenSeq }
+        }
+        _ = try await call("agent-session-view", params)
     }
 
     /// The code the setting verbs throw for a daemon without `agent-session-settings-v1`.
@@ -804,12 +822,14 @@ public actor AgentSessionAttachClient {
 
     // MARK: Private
 
-    private func page(_ after: UInt64?, _ before: UInt64?, _ limit: Int?, _ kinds: [String]?) -> [String: any Sendable] {
+    private func page(_ after: UInt64?, _ before: UInt64?, _ limit: Int?, _ kinds: [String]?,
+                      maxBytes: Int?) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let after { params["after_seq"] = after }
         if let before { params["before_seq"] = before }
         if let limit { params["limit"] = limit }
         if let kinds { params["kinds"] = kinds }
+        if let maxBytes, maxBytes > 0 { params["max_bytes"] = maxBytes }
         return params
     }
 
@@ -947,6 +967,7 @@ public actor AgentSessionAttachClient {
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
                             side: identity.supports(DaemonCapability.agentSessionSide.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
+                            attention: identity.supports(DaemonCapability.agentSessionAttention.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
@@ -955,7 +976,8 @@ public actor AgentSessionAttachClient {
                             context: identity.supports(DaemonCapability.agentSessionContext.rawValue),
                             steer: identity.supports(DaemonCapability.agentSessionSteer.rawValue),
                             queueDecision: identity.supports(DaemonCapability.agentSessionQueueDecision.rawValue),
-                            btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue))
+                            btw: identity.supports(DaemonCapability.agentSessionBtw.rawValue),
+                            pageBytes: identity.supports(DaemonCapability.agentSessionPageBytes.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

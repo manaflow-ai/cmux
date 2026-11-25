@@ -97,11 +97,13 @@ def title(tab):
     return str(rpc("browser.page.eval", {"script": "document.title", "tab": tab}, timeout=5).get("value"))
 
 
-def open_tab(url):
+def open_tab(url, page_title):
     tab = (rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True}, timeout=60)
            .get("created") or [None])[0]
     quiet_wait(lambda: rpc("debug.browser.page_status", {"tab": tab}).get("gone") is not None, 20)
-    time.sleep(2)
+    # The page loaded: its document's title is the fixture's own.
+    if tab and not quiet_wait(lambda: title(tab) == page_title, 20):
+        print(f"{url}: the title is {title(tab)!r}, not {page_title!r}, after 20 s", flush=True)
     return tab
 
 
@@ -116,7 +118,7 @@ for name, html in PAGES.items():
     path = os.path.join(scratch, f"{name}.html")
     with open(path, "w") as f:
         f.write(html)
-    tabs[name] = open_tab("file://" + path)
+    tabs[name] = open_tab("file://" + path, html.split("<title>", 1)[1].split("</title>", 1)[0])
     check(bool(tabs[name]), f"{name}: a Chromium tab opens")
     if name in ("top", "frame") and tabs[name]:
         reply = rpc("debug.mouse", {"target": "page"})
@@ -126,6 +128,8 @@ for name, html in PAGES.items():
 
 control = quiet_wait(lambda: tabs["control"] in (hibernation().get("hibernated") or []), 60)
 check(bool(control), f"control: the silent hidden page hibernates ({hibernation()})")
+# sleep-ok: an observation window past the trigger that hibernated the control page: the audio pages
+# (hidden longer) must still be loaded at its end.
 time.sleep(5)
 state = hibernation()
 for name in ("top", "frame"):

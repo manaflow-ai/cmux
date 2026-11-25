@@ -215,7 +215,7 @@ extension AppOnboardingServices {
             // The hosts still connecting, waited for together (each within its connect limit).
             let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
             let waits = waiting.compactMap { destination in
-                hosts[destination].map { daemon in Task { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
+                hosts[destination].map { daemon in Task<(String, Bool), Never> { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
             }
             for wait in waits {
                 let (destination, up) = await wait.value
@@ -265,7 +265,7 @@ extension AppOnboardingServices {
     fileprivate func makeClassicWorkspace(_ saved: ClassicSessionWorkspace, window index: Int, run: ClassicMigrationRunState) async throws {
         defer { run.handled() }
         let window = run.plan.windows[index]
-        let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
+        let frame = index == 0 ? nil : window.frame(onScreens: NSScreen.screens.map(\.visibleFrame))
         let client = run.client
         try await client.record(.workspace(key: saved.key, stage: .pending))
         var made: String?
@@ -394,11 +394,6 @@ extension AppOnboardingServices {
         } catch {
             services.daemon.logger.error("classic workspace look not kept: \(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// `frame` when some screen shows most of it, else nil (the window opens at the default place).
-    private static func onScreen(_ frame: CGRect) -> CGRect? {
-        NSScreen.screens.contains { $0.visibleFrame.intersection(frame).width >= min(200, frame.width) } ? frame : nil
     }
 }
 

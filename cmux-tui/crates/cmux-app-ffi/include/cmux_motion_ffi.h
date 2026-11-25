@@ -17,6 +17,82 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define CMUX_GOO_OUTLINE_POINTS 24      /* cubic segments per outline */
+#define CMUX_GOO_KEYFRAMES_MAX 120
+
+typedef enum { CmuxGooLevelOff = 0, CmuxGooLevelSubtle = 1, CmuxGooLevelFull = 2 } CmuxGooLevel;
+typedef enum { CmuxGooEventSelect = 0, CmuxGooEventOpen = 1, CmuxGooEventClose = 2, CmuxGooEventCloseLast = 3,
+               CmuxGooEventReorder = 4, CmuxGooEventSnap = 5, CmuxGooEventAbsorb = 6 } CmuxGooEvent;
+
+/*
+ A goo spring: response (s) and damping fraction (1 is critical; under 1 overshoots).
+ */
+typedef struct {
+    double response;
+    double damping_fraction;
+} CmuxGooSpring;
+
+/*
+ A level's goo: the events' springs, the wobble's, and the goo amounts
+ (`GooTuning::for_level`).
+ */
+typedef struct {
+    CmuxGooSpring select;
+    CmuxGooSpring open;
+    CmuxGooSpring close;
+    CmuxGooSpring reorder;
+    CmuxGooSpring snap;
+    CmuxGooSpring absorb;
+    CmuxGooSpring wobble;
+    double stretch;
+    double lean;
+    double feet_scale;
+    double k;
+    double break_distance;
+    double capture_distance;
+    double wobble_amplitude;
+} CmuxGooTuning;
+
+/*
+ One edge or scalar in flight: closed-form spring from (x0, v0) toward target, started at `start` (media time).
+ */
+typedef struct {
+    double x0;
+    double v0;
+    double target;
+    double start;
+    CmuxGooSpring spring;
+} CmuxGooTrack;
+
+/*
+ The blob's geometry in the strip's layer coordinates (flipped: baseline is the card's top, y grows down).
+ */
+typedef struct {
+    double left;
+    double right;
+    double top;
+    double baseline;
+    double corner_radius;
+    double feet_radius;
+    bool skips_leading;
+} CmuxGooBlob;
+
+/*
+ A point of an outline.
+ */
+typedef struct {
+    double x;
+    double y;
+} CmuxGooPoint;
+
+/*
+ 1 + 3*N points (N = CMUX_GOO_OUTLINE_POINTS, 24): a closed path of N cubics (move-to p0, then (c1, c2, p) per
+ segment).
+ */
+typedef struct {
+    CmuxGooPoint p[73];
+} CmuxGooOutline;
+
 /*
  Every hover timing token, nanoseconds.
  */
@@ -219,6 +295,50 @@ typedef struct {
 } CmuxMotionTabStripGeometry;
 
 /*
+ A wallpaper's light field (cmux-motion `LightField`, `appearance.wallpaperLighting`):
+ colors are straight sRGB 0..=1, positions 0..=1 of the picture from its top
+ left. The first `dominant_count` of `dominant` and `dominant_weight` are set.
+ */
+typedef struct {
+    double ambient[3];
+    double ambient_luminance;
+    double key[3];
+    double key_x;
+    double key_y;
+    double key_strength;
+    double key_spread;
+    double dominant[4][3];
+    double dominant_weight[4];
+    uint32_t dominant_count;
+    double rim[3];
+    double bloom[3];
+    double tint[3];
+} CmuxLightField;
+
+/*
+ cmux-motion `LightRim`: a rectangle's radial rim gradient toward the key
+ light, in the rectangle's unit space, and its peak opacity.
+ */
+typedef struct {
+    double center_x;
+    double center_y;
+    double radius_x;
+    double radius_y;
+    double alpha;
+} CmuxLightRim;
+
+/*
+ cmux-motion `LightStyle`: what a page's glass draws from the light.
+ */
+typedef struct {
+    double dx;
+    double dy;
+    double rim_alpha;
+    double bloom_alpha;
+    double tint_share;
+} CmuxLightStyle;
+
+/*
  One terminal view's selection override and first-use hint.
  `selection_press`: the left press held now went as an Option selection.
  `hint_armed`: a plain press went to the program; its first drag shows the
@@ -229,6 +349,103 @@ typedef struct {
     bool hint_armed;
     bool hint_shown;
 } CmuxTerminalSelection;
+
+/*
+ The level's tuning (`GooTuning::for_level`); an unknown level is off.
+ */
+CmuxGooTuning cmux_goo_tuning_for_level(CmuxGooLevel level);
+
+/*
+ x and velocity of `track` at `t` (media time). Nothing for a null `track`; a null `x` or `v` is skipped.
+
+ # Safety
+ `track` is null or readable; `x` and `v` are each null or writable.
+ */
+void cmux_goo_track_state(const CmuxGooTrack *track, double t, double *x, double *v);
+
+/*
+ The track restarted at `t` from its state there toward `target`, velocity kept (interruption). A null `track`
+ gives a track at rest on `target`.
+
+ # Safety
+ `track` is null or readable.
+ */
+CmuxGooTrack cmux_goo_track_retarget(const CmuxGooTrack *track, double t, double target, CmuxGooSpring spring);
+
+/*
+ Seconds from start until |x-target| and |v| fall under epsilon. 0 for a null `track`.
+
+ # Safety
+ `track` is null or readable.
+ */
+double cmux_goo_track_rest_time(const CmuxGooTrack *track, double epsilon);
+
+/*
+ The blob's outline at rest (equals TabCell.folderPath's shape to < 0.5 px). Nothing for a null pointer.
+
+ # Safety
+ `blob` is null or readable; `out` is null or writable.
+ */
+void cmux_goo_blob_outline(const CmuxGooBlob *blob, CmuxGooOutline *out);
+
+/*
+ An event's keyframes: the blob's edges from `left`/`right` tracks (plus lean and wobble from `tuning`), sampled
+ at `hz` from max(left.start, right.start); writes at most `capacity` (and at most CMUX_GOO_KEYFRAMES_MAX)
+ outlines and their key times (0...1), and returns the count and the duration in seconds (`duration` may be
+ null). reduce_motion: 1 keyframe (the end) and duration 0. The last keyframe is exactly `rest_to` at rest.
+ 0 for a null blob, track, `outlines` or `key_times`; a null `tuning` is full's.
+
+ # Safety
+ The blob and track pointers are null or readable; `tuning` is null or readable; `outlines` and `key_times`
+ are null or point to `capacity` writable elements each; `duration` is null or writable.
+ */
+size_t cmux_goo_plan(CmuxGooEvent event,
+                     const CmuxGooBlob *rest_from,
+                     const CmuxGooBlob *rest_to,
+                     const CmuxGooTrack *left,
+                     const CmuxGooTrack *right,
+                     const CmuxGooTuning *tuning,
+                     double hz,
+                     bool reduce_motion,
+                     CmuxGooOutline *outlines,
+                     double *key_times,
+                     size_t capacity,
+                     double *duration);
+
+/*
+ The drag neck: `slot` is the dragged tab's blob in the strip, `tab_*` the lifted tab's rect (same coordinates).
+ attached = whether the neck holds; outline = the slot's blob merged with the neck (or the slot alone, detached).
+ `was_attached` gives the hysteresis (break_distance out, capture_distance back). Nothing for a null `slot` or
+ `out`; a null `tuning` is full's; `attached` may be null.
+
+ # Safety
+ `slot` and `tuning` are null or readable; `out` and `attached` are null or writable.
+ */
+void cmux_goo_drag_neck(const CmuxGooBlob *slot,
+                        double tab_x,
+                        double tab_y,
+                        double tab_w,
+                        double tab_h,
+                        bool was_attached,
+                        const CmuxGooTuning *tuning,
+                        CmuxGooOutline *out,
+                        bool *attached);
+
+/*
+ A neighbour's smooth union with the blob (full only): the blob merged with a rounded rect within k. Nothing
+ for a null `blob` or `out`; a null `tuning` is full's.
+
+ # Safety
+ `blob` and `tuning` are null or readable; `out` is null or writable.
+ */
+void cmux_goo_neck(const CmuxGooBlob *blob,
+                   double x,
+                   double y,
+                   double w,
+                   double h,
+                   double radius,
+                   const CmuxGooTuning *tuning,
+                   CmuxGooOutline *out);
 
 /*
  Writes every hover timing token (nanoseconds) to `out`. False for a null `out`.
@@ -477,6 +694,75 @@ bool cmux_motion_mix_rgba(const double *from, const double *to, double t, uint8_
  `out` is null or points to a writable `CmuxMotionTabStripGeometry`.
  */
 bool cmux_motion_tab_strip_geometry(uint8_t density, CmuxMotionTabStripGeometry *out);
+
+/*
+ The light field of a small RGBA8 picture with premultiplied alpha (a
+ `CGContext` with `premultipliedLast`), rows top first, `bytes_per_row`
+ apart, `len` bytes in all. Read once per wallpaper, never per frame. False
+ for a null pointer, an empty, too large (over 128 by 128) or fully
+ transparent picture, or a buffer shorter than its size.
+
+ # Safety
+ `pixels` is null or points to `len` readable bytes; `out` is null or points
+ to a writable `CmuxLightField`.
+ */
+bool cmux_motion_light_field(const uint8_t *pixels,
+                             size_t len,
+                             uint32_t width,
+                             uint32_t height,
+                             uint32_t bytes_per_row,
+                             CmuxLightField *out);
+
+/*
+ Where `field`'s key light falls on a `width` by `height` container that a
+ picture of `picture_aspect` (width over height) fills, aspect fill and
+ centered, in points from the container's top left (`out_xy[0]`, `[1]`).
+ False for a null pointer.
+
+ # Safety
+ `field` is null or points to a readable `CmuxLightField`; `out_xy` is null
+ or points to 2 writable doubles.
+ */
+bool cmux_motion_light_point(const CmuxLightField *field,
+                             double picture_aspect,
+                             double width,
+                             double height,
+                             double *out_xy);
+
+/*
+ The rim light of `rect` (x, y, width, height) in a container `diagonal`
+ points across whose key light sits at `light_x, light_y` (from
+ `cmux_motion_light_point`). False for a null pointer or a degenerate
+ rectangle.
+
+ # Safety
+ `field` is null or points to a readable `CmuxLightField`; `rect` is null or
+ points to 4 readable doubles; `out` is null or points to a writable
+ `CmuxLightRim`.
+ */
+bool cmux_motion_light_rim(const CmuxLightField *field,
+                           double light_x,
+                           double light_y,
+                           const double *rect,
+                           double diagonal,
+                           CmuxLightRim *out);
+
+/*
+ The light style of `rect` (x, y, width, height; a window) with the same
+ inputs as `cmux_motion_light_rim`. False for a null pointer or a
+ degenerate rectangle.
+
+ # Safety
+ `field` is null or points to a readable `CmuxLightField`; `rect` is null or
+ points to 4 readable doubles; `out` is null or points to a writable
+ `CmuxLightStyle`.
+ */
+bool cmux_motion_light_style(const CmuxLightField *field,
+                             double light_x,
+                             double light_y,
+                             const double *rect,
+                             double diagonal,
+                             CmuxLightStyle *out);
 
 /*
  Whether a left press with `keys` needs to know if the program has the

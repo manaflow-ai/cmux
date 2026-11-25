@@ -37,6 +37,11 @@ pub const TRUST_FOR: Duration = Duration::from_millis(6_500);
 pub const RECOVERY_FIRST: Duration = Duration::from_secs(3);
 /// ...and the gap doubles up to this.
 pub const RECOVERY_CAP: Duration = Duration::from_secs(60);
+/// A path's recovery backoff starts over only once it stayed up this long (the link's own
+/// `stable_after`). A path that answers one probe and drops again (a flapping relay circuit,
+/// a tunnel the remote cuts) keeps doubling to [`RECOVERY_CAP`] instead of being redialed
+/// every [`RECOVERY_FIRST`] for as long as it flaps.
+pub const RECOVERY_STABLE: Duration = Duration::from_secs(60);
 /// Relay first: probe answers in a row a direct path needs before it takes the session from
 /// the hub relay (doubled each time it was dropped back to the relay).
 pub const UPGRADE_AFTER: u8 = 2;
@@ -90,6 +95,10 @@ pub enum Via {
     Wireguard,
     /// The configured `ws://` or `wss://` URL.
     Url,
+    /// The peer's listener at its tailnet address, through the user's own Tailscale
+    /// (`tailnet_carrier.rs`, opt-in). Offered only when the setting is on and the tailnet path
+    /// measures as direct (or any tailnet path under `on`).
+    Tailnet,
     /// `ssh -W` to the configured `ssh://` URL.
     Ssh,
     /// The hub relay: the hub carrier's stream with the `hub-carrier` feature, else mailbox
@@ -100,7 +109,7 @@ pub enum Via {
 impl Via {
     pub fn carrier(self) -> Carrier {
         match self {
-            Self::Link | Self::Wireguard | Self::Url => Carrier::Direct,
+            Self::Link | Self::Wireguard | Self::Url | Self::Tailnet => Carrier::Direct,
             Self::Ssh => Carrier::Ssh,
             Self::Hub => Carrier::Hub,
         }
@@ -111,13 +120,14 @@ impl Via {
             Self::Link => "link",
             Self::Wireguard => "wireguard",
             Self::Url => "url",
+            Self::Tailnet => "tailnet",
             Self::Ssh => "ssh",
             Self::Hub => "hub",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Link, Self::Wireguard, Self::Url, Self::Ssh, Self::Hub]
+        [Self::Link, Self::Wireguard, Self::Url, Self::Tailnet, Self::Ssh, Self::Hub]
             .into_iter()
             .find(|via| via.as_str() == text)
     }
@@ -171,10 +181,24 @@ struct Path {
     last_pong: Option<u64>,
     /// When it was found dead, while it is.
     dead_at: Option<u64>,
-    /// Recovery probes since it died.
+    /// Recovery probes since it last stayed up [`RECOVERY_STABLE`].
     recoveries: u32,
+    /// When it last came up (a pong or an open after it was dead or untried), while it is up.
+    up_since: Option<u64>,
     /// When the next recovery probe of a dead path is due.
     recover_at: Option<u64>,
+}
+
+impl Path {
+    /// It answers (a pong, or the link opened on it): no longer dead, and up from now unless
+    /// it already was. Its recovery count stays until it has been up [`RECOVERY_STABLE`].
+    fn up(&mut self, now: u64) {
+        if self.dead_at.is_some() || self.up_since.is_none() {
+            self.up_since = Some(now);
+        }
+        self.dead_at = None;
+        self.recover_at = None;
+    }
 }
 
 /// The paths of one peer and the one that carries its session.
@@ -189,6 +213,8 @@ pub struct Paths {
     stats: LinkStats,
     /// Relay first: the hub relay streams, so a cold connect opens on it at once.
     relay_first: bool,
+    /// The most ids handed to the selector so far (it never reuses a retired one).
+    ids: u16,
 }
 
 /// The selector's rules with this file's clock: a path is reported lost once, when its trust
@@ -221,11 +247,13 @@ impl Paths {
                     last_pong: None,
                     dead_at: None,
                     recoveries: 0,
+                    up_since: None,
                     recover_at: None,
                 });
             }
         }
-        Self { selector, paths, remembered: None, stats: LinkStats::default(), relay_first }
+        let ids = paths.iter().map(|path: &Path| path.id.0).max().unwrap_or(0);
+        Self { selector, paths, remembered: None, stats: LinkStats::default(), relay_first, ids }
     }
 
     /// Whether a cold connect opens on the hub relay at once (see the module rules).
@@ -259,9 +287,7 @@ impl Paths {
         }
         let path = self.find_mut(via)?;
         path.last_pong = Some(now);
-        path.dead_at = None;
-        path.recoveries = 0;
-        path.recover_at = None;
+        path.up(now);
         let id = path.id;
         let switch = self.selector.on_opened(id).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
@@ -274,21 +300,76 @@ impl Paths {
         if self.find(via).is_some() {
             return false;
         }
-        let next =
-            self.paths.iter().map(|path| path.id.0).max().map_or(Some(0), |id| id.checked_add(1));
-        let Some(next) = next else { return false };
-        let id = PathId(next);
+        let Some(id) = self.next_id() else { return false };
         if self.selector.add_path(id, via.kind()).is_err() {
             return false;
         }
+        self.ids = id.0;
         self.paths.push(Path {
             via,
             id,
             last_pong: None,
             dead_at: None,
             recoveries: 0,
+            up_since: None,
             recover_at: None,
         });
+        true
+    }
+
+    fn next_id(&self) -> Option<PathId> {
+        if self.paths.is_empty() && self.ids == 0 {
+            return Some(PathId(0));
+        }
+        self.ids.checked_add(1).map(PathId)
+    }
+
+    /// Whether `via` is one of these paths.
+    pub fn has(&self, via: Via) -> bool {
+        self.find(via).is_some()
+    }
+
+    /// Take `via` out of the live set (a tailnet path whose hint is no longer offered). The
+    /// selector retires its id; adding it again takes a fresh one. True when it was there.
+    pub fn remove(&mut self, via: Via) -> Option<Option<Via>> {
+        let at = self.paths.iter().position(|path| path.via == via)?;
+        let path = self.paths.remove(at);
+        if self.remembered == Some(via) {
+            self.remembered = None;
+        }
+        let switch = self.selector.remove_path(path.id).ok().flatten();
+        Some(switch.and_then(|switch| switch.to.and_then(|id| self.via_of(id))))
+    }
+
+    /// Set the tailnet path's class: direct (a Direct hint: ranked with the other direct paths,
+    /// so the round trip picks) or relayed (DERP or a peer relay, `on` only: it competes with
+    /// the hub relay and never beats a direct path). Returns whether the class changed (the
+    /// path is replaced then: its health starts over); false when it was right already or
+    /// there is no tailnet path.
+    pub fn set_tailnet_relayed(&mut self, relayed: bool) -> bool {
+        let Some(path) = self.find(Via::Tailnet) else { return false };
+        let kind = if relayed { PathKind::TurnRelay } else { PathKind::DirectLan };
+        if self.selector.path(path.id).is_some_and(|view| view.kind == kind) {
+            return false;
+        }
+        let old = path.id;
+        let Some(id) = self.next_id() else { return false };
+        if self.selector.add_path(id, kind).is_err() {
+            return false;
+        }
+        self.ids = id.0;
+        let _ = self.selector.remove_path(old);
+        if let Some(path) = self.find_mut(Via::Tailnet) {
+            *path = Path {
+                via: Via::Tailnet,
+                id,
+                last_pong: None,
+                dead_at: None,
+                recoveries: 0,
+                up_since: None,
+                recover_at: None,
+            };
+        }
         true
     }
 
@@ -337,9 +418,7 @@ impl Paths {
         self.stats.pong(via, rtt_us, answering);
         let path = self.find_mut(via)?;
         path.last_pong = Some(now);
-        path.dead_at = None;
-        path.recoveries = 0;
-        path.recover_at = None;
+        path.up(now);
         let id = path.id;
         let switch = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us }).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
@@ -355,7 +434,12 @@ impl Paths {
         let id = path.id;
         if path.dead_at.is_none() {
             path.dead_at = Some(now);
-            path.recoveries = 0;
+            // Up long enough to count as recovered: its backoff starts over. One that dropped
+            // soon after it came back keeps the backoff it had (`RECOVERY_STABLE`).
+            if path.up_since.is_some_and(|at| now.saturating_sub(at) >= millis(RECOVERY_STABLE)) {
+                path.recoveries = 0;
+            }
+            path.up_since = None;
         }
         path.recover_at = Some(now.saturating_add(recovery_gap(path.recoveries)));
         let switch = self.selector.on_probe(id, ProbeOutcome::Lost).ok()??;
