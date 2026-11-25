@@ -117,8 +117,8 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
     }
 
     /// The host resized: the page takes its whole-point frame (never AppKit's autoresized half points).
-    override func resizeWithOldSuperviewSize(_ oldSize: NSSize) {
-        guard let superview else { return super.resizeWithOldSuperviewSize(oldSize) }
+    override func resize(withOldSuperviewSize oldSize: NSSize) {
+        guard let superview else { return super.resize(withOldSuperviewSize: oldSize) }
         let fitted = Self.wholePointFrame(in: superview.bounds, flipped: superview.isFlipped)
         if frame != fitted { frame = fitted }
     }
