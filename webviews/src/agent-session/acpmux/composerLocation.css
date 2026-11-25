@@ -532,10 +532,10 @@
 :is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:focus-visible {
   background: var(--acpmux-row-hover);
 }
-/* Its hover is the mic's pill (the quiet controls' rule below). A press keeps it. */
+/* Its hover is the mic's pill (the quiet controls' rule below). A press keeps the pill; it changes the
+   background only, the ink staying the hover's. */
 :is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:not(:disabled):active {
   background: var(--acpmux-row-hover);
-  color: var(--agent-text);
   transition-duration: 0s;
 }
 /* Interrupt (or Steer) and Plan: the chips' inset and radius. */
