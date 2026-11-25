@@ -836,19 +836,26 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // task-owner: this prompt's delivery; every send of its id awaits it, the first to finish removes it
             let task = Task { [weak self] () async throws -> Data in
                 let until = ContinuousClock.now + Self.unansweredPromptPatience
-                var attempt = 0
-                while true {
-                    attempt += 1
+                // Spaced 1 s, then 2 s, up to 8 s: a machine that stays away is asked a few times, not every second.
+                var backoff = Backoff(initial: Self.unansweredPromptRetry, maximum: .seconds(8), jitter: 0.2)
+                var attempt = 1
+                var last: (any Error)?
+                // Ends on the daemon's answer, a refusal of the prompt, the wire closing, a cancel or the deadline.
+                while last == nil || ContinuousClock.now < until {
+                    if let last {
+                        guard let self, !self.state.withLock({ $0.closed }) else { throw last }
+                        attempt += 1
+                        Self.logger.info("prompt not answered yet; sending it again (try \(attempt, privacy: .public))")
+                    }
                     do {
                         return try await send()
                     } catch {
-                        guard let self, Self.unanswered(error), !Task.isCancelled, !self.state.withLock({ $0.closed }),
-                              ContinuousClock.now + Self.unansweredPromptRetry < until else { throw error }
-                        Self.logger.info("prompt not answered yet; sending it again (try \(attempt, privacy: .public))")
-                        do { try await Task.sleep(for: Self.unansweredPromptRetry) } catch { throw error }
-                        guard !self.state.withLock({ $0.closed }) else { throw error }
+                        guard Self.unanswered(error), !Task.isCancelled else { throw error }
+                        last = error
+                        do { try await backoff.wait(owner: "RemoteAcpmuxWire.promptResend") } catch { throw last ?? error }
                     }
                 }
+                throw last ?? CancellationError()
             }
             state.deliveries[promptID] = task
             return task
