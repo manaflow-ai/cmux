@@ -25,6 +25,8 @@ mod host_state;
 mod input;
 mod local_output;
 mod metadata;
+mod mirror_park;
+pub(crate) use mirror_park::TerminalMirror;
 mod mouse_input;
 mod options;
 mod pending_bells;
@@ -121,6 +123,8 @@ mod host_frames;
 mod hosted_callbacks;
 #[cfg(any(unix, windows))]
 mod hosted_reader;
+#[cfg(unix)]
+mod idle_links;
 #[cfg(any(unix, windows))]
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(any(unix, windows))]
@@ -363,6 +367,11 @@ const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const VT_REPLAY_MAX_BYTES: usize =
     ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
+/// The most replay bytes a respawned terminal is seeded with: the replay
+/// budget less room for the respawn's mode reset and marker line. Every
+/// replay on the restore path (snapshot, tail rebuild, full-mode rebuild,
+/// exit snapshot) is bounded by it, so none is too large to seed.
+pub(crate) const SEED_REPLAY_MAX_BYTES: usize = VT_REPLAY_MAX_BYTES - 64 * 1024;
 const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;
 const VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
 const _: () = assert!(
@@ -856,7 +865,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: TerminalMirror::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),

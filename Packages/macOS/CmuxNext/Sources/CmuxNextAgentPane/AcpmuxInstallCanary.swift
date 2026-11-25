@@ -1,3 +1,4 @@
+import CmuxEgress
 import Foundation
 import Network
 
@@ -12,8 +13,10 @@ public nonisolated struct AcpmuxInstallCanary {
     public enum Outcome: Equatable, Sendable {
         /// The relay took the hello and the daemon answered it.
         case passed
-        /// The relay or the daemon refused the hello; the refusal as a chat would see it.
-        case refused(String)
+        /// The relay or the daemon refused the hello; the refusal as a chat would see it, and whether
+        /// the daemon marked it retryable (`data.retryable`, e.g. `connection.busy`). Whether a
+        /// retryable refusal counts is cmux-install-check's decision.
+        case refused(String, retryable: Bool)
         /// No answer either way: no daemon, a closed connection or the deadline.
         case inconclusive(String)
     }
@@ -49,10 +52,10 @@ public nonisolated struct AcpmuxInstallCanary {
 
     /// The canary against the daemon at `socketPath`: the relay's check, then the hello.
     @concurrent public static func run(socketPath: String, deadline: Duration = .seconds(20)) async -> Outcome {
-        if let refusal = relayRefusal() { return .refused(refusal) }
+        if let refusal = relayRefusal() { return .refused(refusal, retryable: false) }
         let connection: NWConnection
         do {
-            connection = NWConnection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp)
+            connection = CmuxEgress.connection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxInstallCanary")
         } catch {
             return .inconclusive(String(describing: error))
         }
@@ -68,7 +71,8 @@ public nonisolated struct AcpmuxInstallCanary {
     }
 
     /// Sends the page's hello on `transport` and reads the reply to it. A JSON-RPC error is a
-    /// refusal; a close before any reply says nothing (a daemon that exits for a version handoff).
+    /// refusal, carrying its `data.retryable`; a close before any reply says nothing (a daemon that
+    /// exits for a version handoff).
     static func hello(on transport: any AcpmuxRPCTransport) async throws -> Outcome {
         try await transport.start()
         try await transport.send(Data(pageInitialize.utf8) + Data([0x0A]))
@@ -82,10 +86,17 @@ public nonisolated struct AcpmuxInstallCanary {
                 do {
                     if try AcpmuxStatusClient.detailedReply(to: 1, in: line) != nil { return .passed }
                 } catch let refusal as AcpmuxRPCError {
-                    return .refused(refusal.name.map { "\($0): \(refusal.message)" } ?? refusal.message)
+                    return .refused(refusal.name.map { "\($0): \(refusal.message)" } ?? refusal.message, retryable: retryable(line))
                 }
             }
             if buffer.count > 1 << 20 { return .inconclusive("reply too large") }
         }
+    }
+
+    /// The error reply's `data.retryable` (acpmux `RpcError` data), false when absent.
+    static func retryable(_ line: Data) -> Bool {
+        let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
+        let data = (object?["error"] as? [String: Any])?["data"] as? [String: Any]
+        return data?["retryable"] as? Bool ?? false
     }
 }

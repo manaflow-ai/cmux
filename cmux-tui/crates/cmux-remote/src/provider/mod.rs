@@ -17,6 +17,7 @@ mod relay;
 pub(crate) mod socks;
 mod ssh;
 mod stream;
+pub mod tailnet;
 #[cfg(unix)]
 mod unix;
 mod websocket;
@@ -37,7 +38,7 @@ use crate::observability::TransportSnapshot;
 pub use dial::WireGuardDialer;
 pub use dial::{
     DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, PER_ADDRESS_CONNECT_TIMEOUT,
-    SocksDialer, resolve_dial_target,
+    SocksDialer, TailnetDialer, resolve_dial_target,
 };
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
@@ -62,6 +63,7 @@ pub use ssh::{
     SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
+pub use tailnet::{NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints, add_candidates};
 #[cfg(unix)]
 pub use unix::UnixProvider;
 pub(crate) use websocket::DisplaySeconds;

@@ -36,7 +36,7 @@ mod validate;
 
 use serde::Serialize;
 
-pub use brief::brief;
+pub use brief::{SURFACE_KEYS, brief};
 pub use engine::Customize;
 pub use paths::{Roots, STATE_OVERRIDE};
 pub use redact::Reader;

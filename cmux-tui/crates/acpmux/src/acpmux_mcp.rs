@@ -12,7 +12,9 @@
 //! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
 //! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
 //! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
-//! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`). `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
+//! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`), and waits on or stops another session's turn,
+//! any session, not only its own sub-sessions (`wait`, `cancel`, `acpmux_mcp_control.rs`).
+//! `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
@@ -62,8 +64,18 @@ const MAX_LAST: u64 = 20;
 const LS_DEFAULT_LIMIT: usize = 100;
 const LS_MAX_LIMIT: usize = 500;
 /// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest.
-const LS_FIELDS: &[&str] =
-    &["name", "status", "title", "peer", "sessionId", "harness", "cwd", "updatedAt"];
+const LS_FIELDS: &[&str] = &[
+    "name",
+    "status",
+    "title",
+    "peer",
+    "sessionId",
+    "harness",
+    "cwd",
+    "updatedAt",
+    "asOfMs",
+    "via",
+];
 
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
@@ -78,9 +90,15 @@ mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
 #[path = "acpmux_mcp_pr.rs"]
-mod pr;
+pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
 pub(crate) use pr::pr_state;
+#[path = "acpmux_mcp_control.rs"]
+mod control;
+#[path = "acpmux_mcp_machine.rs"]
+mod machine;
+#[path = "acpmux_mcp_race.rs"]
+mod race;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -104,7 +122,10 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
+        list.extend(race::tools());
         list.push(send_status::tool());
+        list.extend(control::tools());
+        list.extend(machine::tools());
         for tool in list.iter_mut() {
             let named = tool.get("name").and_then(Value::as_str);
             if named.is_some_and(|n| ALWAYS_LOADED.contains(&n)) {
@@ -137,15 +158,15 @@ fn base_tools() -> Value {
     let mut all = json!([
         {
             "name": "inbox_read",
-            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "description": "List inbox threads with unread counts. Pass thread to read its messages newest first and mark them read. Notices arrive at the next tool step and can wait.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
+                "properties": {"thread": {"type": "string", "description": "threadId from a notice or the thread list."}}
             }
         },
         {
             "name": "inbox_reply",
-            "description": "Answer in an inbox thread: the message goes to the thread's newest sender, into their inbox under the same thread, and takes no turn of theirs.",
+            "description": "Reply to the thread's newest sender in their inbox without starting a turn.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -417,6 +438,9 @@ fn served_with(
                 if name == "machine_info" {
                     return machine_info(&daemon, &session).await;
                 }
+                if control::TOOLS.contains(&name) {
+                    return control::call(&daemon, &session, name, &args).await;
+                }
                 call_as(&daemon, &params, sub.as_ref()).await
             }
         },
@@ -463,6 +487,8 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
+        name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
+        name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
@@ -487,11 +513,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
             };
-            let id = match crate::cli::run::resolve_id(daemon, name).await {
-                Ok(id) => id,
-                Err(e) => return refusal(e),
-            };
-            match daemon.request(method::MUX_INFO, json!({"sessionId": id})).await {
+            match crate::cli::run::session_info(daemon, name, false).await {
                 Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
                 Err(e) => refusal(e),
             }
@@ -609,7 +631,17 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
                 return error_result("thread and text are required".to_owned());
             };
             let params = json!({"sessionId": session, "threadId": thread, "text": text});
-            daemon.request(method::MUX_INBOX_REPLY, params).await
+            match daemon.request(method::MUX_INBOX_REPLY, params).await {
+                Err(e) if format!("{e:#}").contains("inbox.no_sender") => {
+                    return reply_by_name(daemon, session, thread, text, e).await;
+                }
+                answered => answered,
+            }
+        }
+        // A reply that names whom it answers (`to`) rather than a thread is a send to them.
+        ("inbox_reply", None) if arg(args, "to").is_some() && arg(args, "text").is_some() => {
+            let result = send::send(daemon, args, None).await;
+            return said(result, "inbox_reply named no thread; sent with send to `to`");
         }
         ("inbox_reply", None) => return error_result("thread and text are required".to_owned()),
         (_, Some(thread)) => {
@@ -619,9 +651,125 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
         (_, None) => daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await,
     };
     match reply {
-        Ok(v) => ok(crate::cli::session_inbox::describe(&v), v),
+        Ok(mut v) => {
+            // The text line is written from the whole answer, then the answer drops what it said.
+            let text = crate::cli::session_inbox::describe(&v);
+            trim_threads(&mut v);
+            ok(text, v)
+        }
         Err(e) => refusal(e),
     }
+}
+
+/// What a thread listing says twice, dropped before the reader pays for it. The daemon's
+/// `_acpmux/inbox_threads` answers the chat pane too, and the pane reads the whole sender record
+/// (`laneNoticeBatches.ts`, `InboxNoticeCard.tsx`); an agent reading `inbox_read` has the sender's
+/// shown name in `from` already, replies by `threadId`, and the thread's own read carries each
+/// message's sender when it needs more. Measured over 38 real `inbox_read` answers in this host's
+/// transcripts: `key` repeats `threadId`, and `threads[].sender` is 13 fields of which most are
+/// null — together with this chat's own `sessionId` and the rows left at their default, an answer
+/// of 8,470 B becomes 6,344 B, a 25.1% cut (`scripts/measure/inbox-listing-bytes.py`).
+fn trim_threads(answer: &mut Value) {
+    let Some(o) = answer.as_object_mut() else { return };
+    // Not a listing: a thread's own messages keep every sender they name.
+    if !o.contains_key("threads") {
+        return;
+    }
+    o.remove("sessionId");
+    for row in o.get_mut("threads").and_then(Value::as_array_mut).into_iter().flatten() {
+        let Some(row) = row.as_object_mut() else { continue };
+        if row.get("key") == row.get("threadId") {
+            row.remove("key");
+        }
+        row.remove("sender");
+        // A flag that is off, a count that is none: absence says it, in no bytes.
+        row.retain(|k, v| match (k.as_str(), v) {
+            ("surgeHeld" | "needYou", v) => v.as_bool() != Some(false),
+            ("new" | "unread", v) => v.as_u64() != Some(0),
+            _ => true,
+        });
+    }
+}
+
+/// The names an inbox thread's newest sender goes by, newest message first: its relayed
+/// `HOST/NAME`, its shown name (`from`), then the name in the thread key (`from:NAME[/pr:N]`,
+/// `declared:NAME`). `thread` is `_acpmux/inbox_thread`'s answer.
+fn thread_sender_names(thread_key: &str, thread: &Value) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut add = |name: Option<&str>| {
+        let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else { return };
+        if !names.iter().any(|n| n == name) {
+            names.push(name.to_owned());
+        }
+    };
+    for m in thread.get("messages").and_then(Value::as_array).into_iter().flatten() {
+        let relay = m.pointer("/sender/relay");
+        let machine = relay.and_then(|r| r.get("machine")).and_then(Value::as_str);
+        let session = relay.and_then(|r| r.get("session")).and_then(Value::as_str);
+        if let (Some(machine), Some(session)) = (machine, session) {
+            add(Some(&format!("{machine}/{session}")));
+        }
+        // `from` is the shown sender (`hub/inbox.rs` `shown_sender`): a relayed `HOST/NAME`, a
+        // declared label or the session's name.
+        add(m.get("from").and_then(Value::as_str));
+    }
+    let key = thread_key.strip_prefix("from:").or_else(|| thread_key.strip_prefix("declared:"));
+    add(key.map(|k| k.rsplit_once("/pr:").map_or(k, |(name, _)| name)));
+    names
+}
+
+/// `inbox_reply` to a thread whose messages name no session here (`inbox.no_sender`: a sender
+/// on another machine, or one that declared only its name): the thread's sender is read from
+/// the thread and the answer goes to it as `send` sends, and the result says so. The census of
+/// 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md) counted 49 such
+/// refusals in 48 h on one VM, 86% of inbox_reply's calls. Leo, 2026-11-21: "when you guys
+/// encounter errors or whatnot, the tool itself should be improved and/or your thing should
+/// also be acceptable input or rewritten to make stuff good".
+async fn reply_by_name(
+    daemon: &Arc<Client>,
+    session: &str,
+    thread: &str,
+    text: &str,
+    refused: anyhow::Error,
+) -> Value {
+    let params = json!({"sessionId": session, "threadId": thread, "markRead": false});
+    let read = daemon.request(method::MUX_INBOX_THREAD, params).await.unwrap_or(Value::Null);
+    let mut tried = Vec::new();
+    for name in thread_sender_names(thread, &read).into_iter().take(3) {
+        let result = send::send(daemon, &json!({"to": name, "text": text}), None).await;
+        if result.get("isError") != Some(&Value::Bool(true)) {
+            let why = format!(
+                "no message in thread {thread} names a session here, so the answer went to its sender {name} as send sends it"
+            );
+            return said(result, &why);
+        }
+        tried.push(format!("{name}: {}", first_text(&result)));
+    }
+    match tried.is_empty() {
+        true => refusal(refused),
+        false => error_result(format!(
+            "{refused:#}; sending to the thread's sender by name failed too ({})",
+            tried.join("; ")
+        )),
+    }
+}
+
+/// A tool result's first text.
+fn first_text(result: &Value) -> &str {
+    result.pointer("/content/0/text").and_then(Value::as_str).unwrap_or_default()
+}
+
+/// `result` with `why` as its first line and its `rewritten` field: what the call was read as.
+fn said(mut result: Value, why: &str) -> Value {
+    if let Some(first) = result.pointer_mut("/content/0/text")
+        && let Some(text) = first.as_str()
+    {
+        *first = json!(format!("({why})\n{text}"));
+    }
+    if let Some(structured) = result.get_mut("structuredContent").and_then(Value::as_object_mut) {
+        structured.insert("rewritten".to_owned(), json!(why));
+    }
+    result
 }
 
 /// `send`'s `class` (`prompt_class.rs`), checked here too, so a wrong one is this call's error and
@@ -654,42 +802,36 @@ pub(crate) async fn ls_via(
     let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
     // The closed rows are of the whole view, which holds no other machine's closed row: v1 while
     // one is listed (decision 213).
-    let remote_closed = closed
-        && list_read::closed_remote_listed(
-            daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
-        );
-    let source = if remote_closed { Ok(None) } else { via.open(daemon).await };
-    let source = match source {
-        Ok(source) => source,
-        Err(e) => return refusal(e),
-    };
-    let listed = match source {
-        Some(mut source) => {
-            let view = if closed {
-                acpmux_client::wire::ListView::All
-            } else {
-                acpmux_client::wire::ListView::Live
-            };
-            let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
-            source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
-        }
-        None => daemon.whole_list(method::MUX_SESSIONS, params).await,
-    };
-    match listed {
-        Ok(mut all) => {
-            // The other machines' sessions a host with no peer to them lists through its send
-            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does: by the far budget, else
-            // the last good listing's rows, marked stale (`cli/ls_far.rs`).
-            let far = crate::cli::ls_far::relay_rows().await;
-            if !far.is_empty()
-                && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
-            {
-                crate::cli::send_relay::merge_rows(rows, far);
+    let local = async {
+        let remote_closed = closed
+            && list_read::closed_remote_listed(
+                daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
+            );
+        let source = if remote_closed { None } else { via.open(daemon).await? };
+        match source {
+            Some(mut source) => {
+                let view = if closed {
+                    acpmux_client::wire::ListView::All
+                } else {
+                    acpmux_client::wire::ListView::Live
+                };
+                let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
+                source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
             }
-            ls_result(&all, args)
+            None => daemon.whole_list(method::MUX_SESSIONS, params).await,
         }
-        Err(e) => refusal(e),
+    };
+    let (mut all, far) =
+        match tokio::try_join!(local, async { Ok(crate::cli::ls_far::relay_rows().await) }) {
+            Ok(rows) => rows,
+            Err(e) => return refusal(e),
+        };
+    if !far.is_empty()
+        && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
+    {
+        crate::cli::send_relay::merge_rows(rows, far);
     }
+    ls_result(&all, args)
 }
 
 /// What `ls` answers for the daemon's whole list: the sessions `status` and `query` keep (closed

@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxDeviceHub
+import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxScreenKit
 import CmuxScreenKitUI
@@ -285,6 +286,8 @@ struct ScreenSharingViewerScreen: View {
         Group {
             if let screen = viewer.screen {
                 ScreenSessionView(session: screen, features: Self.features, close: close)
+            } else if let model = viewer.rdScreen {
+                MacScreenRdView(model: model, title: viewer.hostName, control: viewer.rdControl, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
             }
@@ -304,6 +307,7 @@ struct ScreenSharingViewerScreen: View {
         case .idle, .requesting, .approved:
             EmptyState(symbol: "desktopcomputer", title: "Connecting to \(viewer.hostName)…",
                        secondaryTitle: "Cancel", secondary: close)
+                .placeholderBound("screenSharing.connecting", .milliseconds(2000))
         case .waitingForApproval:
             EmptyState(symbol: "hand.raised", title: "Waiting for \(viewer.hostName)",
                        message: "Allow this iPhone on the Mac to start sharing.", secondaryTitle: "Cancel", secondary: close)
