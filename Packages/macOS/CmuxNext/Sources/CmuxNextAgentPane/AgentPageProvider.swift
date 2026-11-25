@@ -1,3 +1,4 @@
+import CmuxNextApps
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -17,7 +18,7 @@ public extension PageDescriptor {
     /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``), and the chart and diagram
     /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
-        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
+        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace, CustomizeChatPage.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
@@ -38,7 +39,7 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.launchSettle", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.launchSettle", "pane.inputEchoed", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
             "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "editors.list", "file.open", "browser.open",
             "project.list", "project.icon", "folder.complete", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "chat.attach.external", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",

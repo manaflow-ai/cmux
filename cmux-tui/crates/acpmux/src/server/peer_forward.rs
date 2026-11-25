@@ -110,6 +110,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
     method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
@@ -751,6 +753,15 @@ async fn forward_inner(
         if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
+        // Every other method a peer feature gates (`peer::PEER_FEATURES`) goes only to a peer
+        // that listed one of its features; a link that is down lists none, so it is unreachable.
+        let features = crate::peer::features_gating(m);
+        if !features.is_empty() && !features.iter().any(|f| peer.lists(f)) {
+            if !peer.ready() {
+                return Err(peer.unreachable_error());
+            }
+            return Err(peer_feature_unsupported(&peer, m, &features));
         }
         // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
         // forwarded, whatever the peer serves this link as, one entry there would stand for
@@ -1620,6 +1631,17 @@ mod message_identity_tests {
 #[cfg(test)]
 #[path = "row_read_tests.rs"]
 mod row_read_tests;
+
+/// A method `features` gate, for a peer that listed none of them: its build does not serve it.
+fn peer_feature_unsupported(peer: &crate::peer::Peer, m: &str, features: &[&str]) -> RpcError {
+    RpcError::method_not_found(&format!(
+        "{m} (peer {} runs acpmux build {}, which lists none of {features:?}; run `acpmux machine update {}`)",
+        peer.name,
+        peer.remote_build().unwrap_or_else(|| "unknown".into()),
+        peer.name
+    ))
+    .with_data(json!({"reason": "peerFeature.unsupported", "peer": peer.name, "features": features}))
+}
 
 #[cfg(test)]
 #[path = "prompt_link_wait_tests.rs"]
