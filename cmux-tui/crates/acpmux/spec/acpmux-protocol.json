@@ -1117,6 +1117,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_move",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/auto_session/leftover",
       "params": true,
       "result": true
