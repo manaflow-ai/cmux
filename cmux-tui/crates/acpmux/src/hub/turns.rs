@@ -533,7 +533,7 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        if matches!(unanswered, Unanswered::Defer(_)) {
+        if matches!(unanswered, Unanswered::Defer(_) | Unanswered::Guarded(_)) {
             admission.listen();
         }
         tokio::select! {
@@ -551,6 +551,10 @@ impl Hub {
         admission.release();
         match unanswered {
             Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+            Unanswered::Guarded(guard) => {
+                guard()?;
+                Err(super::auto_resume::retry_turn::busy())
+            }
             Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
             Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
         }
