@@ -744,12 +744,14 @@ struct AgentChatLoadingState: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(Self.text(store)))
         .accessibilityIdentifier("agentChat.loadingHistory")
+        .loadProbePlaceholder()
     }
 }
 
-/// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
-/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// Kept rows show while the chat is away from the Mac or catches up with it, and nothing floats
+/// over the composer: its kind (connecting) does not paint (``ConnectionChip/Kind/paints``;
+/// Leo, 2026-11-24: "all the connecting... indicators ... nah let's not do that"). The view stays
+/// so the store's line keeps one place to land if a state that paints is ever routed here. An overlay, never
 /// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
 /// not be pushing up the text ... a symbol or short thing, not a sentence. stop
 /// layout shifting").
@@ -759,7 +761,7 @@ struct AgentChatConnectionLine: View {
     var body: some View {
         Group {
             if let line = store.connectionLine {
-                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
+                ConnectionChip(.init(.connecting, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
@@ -828,8 +830,6 @@ public struct AgentChatBottomStack: View {
     /// progress, queued prompts) and their spacing.
     @State private var composerOffset: CGFloat = 0
     nonisolated private static let stackSpace = "AgentChatBottomStack"
-    /// The composer field's focus (a UITextView that follows it both ways).
-    @State private var composerFocused = false
     /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
     /// composer rises in. Typing works throughout; the motion is render only.
     @State private var composerSettled: Bool
@@ -906,7 +906,7 @@ public struct AgentChatBottomStack: View {
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
                     let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
-                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: store.hasTurns,
+                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $surface.composerFocused, collapsible: store.hasTurns,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
@@ -924,7 +924,7 @@ public struct AgentChatBottomStack: View {
                         // and the built in keyboard"). The band runs on under the keyboard, which
                         // covers it, so it never shows an edge while the keyboard moves.
                         .background(alignment: .top) {
-                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
+                            KeyboardSkirt(shown: surface.composerFocused && GCKeyboard.coalesced == nil)
                         }
                         // After the geometry reader: the entrance is render only, so the stack's
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
@@ -982,7 +982,7 @@ public struct AgentChatBottomStack: View {
             // drags that start above it).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { composerFocused = false }
+                if surface.composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
             })
         }
         .padding(.bottom, bottomPadding)
@@ -992,18 +992,12 @@ public struct AgentChatBottomStack: View {
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.
-            let drafting = composerFocused || !surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !surface.attachments.isEmpty
+            let drafting = surface.composerFocused || !surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !surface.attachments.isEmpty
             surface.permissionDeferred = new != nil && drafting
         }
-        .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }
-        .task {
-            // Opened focused (a new chat): the field exists once this appears.
-            if surface.composerFocused, !composerFocused { composerFocused = true }
-        }
-        .onChange(of: composerFocused) { _, focused in
-            if surface.composerFocused != focused { surface.composerFocused = focused }
+        .onChange(of: surface.permissionBarHidden ? surface.composerFocused : nil) { previous, focused in
             // Leaving "Reply instead" without typing brings the permission choices back.
-            if !focused, surface.permissionBarHidden, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
+            if previous == true, focused == false, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
                 withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
@@ -1164,7 +1158,7 @@ extension UserBubble {
     @ViewBuilder var bubbleText: some View {
         if prompt.isEmpty {
             // An attachment-only message has no word to hold.
-            MessageActionsButton(rows: menuRows)
+            MessageActionsControl(rows: menuRows)
         } else if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
                 SelectableText(split.quote, color: .secondaryLabel, lineSpacing: 4)
@@ -1174,6 +1168,23 @@ extension UserBubble {
             }
         } else {
             SelectableText(prompt, color: .cmuxMobileChatBubbleText, lineSpacing: 4)
+        }
+    }
+}
+
+/// The actions button of an attachment-only prompt; in a still (`chatStill`) its glyph as plain
+/// SwiftUI, since `ImageRenderer` draws the UIKit button as its yellow placeholder.
+private struct MessageActionsControl: View {
+    let rows: @MainActor (UIView) -> [UIMenuElement]
+    @Environment(\.chatStill) private var still
+
+    var body: some View {
+        if still {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(.tint)
+                .accessibilityLabel(String(localized: "Message actions"))
+        } else {
+            MessageActionsButton(rows: rows)
         }
     }
 }
@@ -1212,6 +1223,9 @@ struct SentAttachments: View {
     @State private var fetched: [String: Data] = [:]
     /// Thumbnails decoded off the main thread, by picture id (never decoded in a body).
     @State private var decoded: [String: UIImage] = [:]
+    /// Pictures whose bytes could not be read or decoded: their tile shows what they are (name,
+    /// size), not the waiting fill forever.
+    @State private var unreadable: Set<String> = []
     private let thumbnails = SentAttachmentThumbnails.shared
     @Environment(\.attachmentLoader) private var loader
 
@@ -1272,6 +1286,13 @@ struct SentAttachments: View {
         preview = FilePreviewRequest(artifacts: artifacts, source: source, start: ordered.firstIndex { $0.id == attachment.id } ?? 0)
     }
 
+    /// What a sent picture whose bytes cannot be read shows: its name, and its size when known.
+    static func lastKnown(_ attachment: AgentAttachment) -> String {
+        let name = attachment.name.isEmpty ? String(localized: "Photo") : attachment.name
+        guard let bytes = attachment.byteCount, bytes > 0 else { return name }
+        return "\(name)\n\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
+    }
+
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         let side = SentAttachmentThumbnails.side(size)
@@ -1283,6 +1304,21 @@ struct SentAttachments: View {
             if let picture, let image = decoded[picture.id]
                 ?? (picture.data ?? fetched[picture.id]).flatMap({ thumbnails.image(picture, data: $0, side: side) }) {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if let picture, unreadable.contains(picture.id) {
+                // Its bytes are not to be had: the last known of it (its name and size), never a
+                // waiting state.
+                Color.cmuxMobileFill.overlay {
+                    VStack(spacing: 4) {
+                        Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3)
+                        Text(SentAttachments.lastKnown(attachment))
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                }
             } else {
                 Color.cmuxMobileFill.overlay {
                     Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3).foregroundStyle(.secondary)
@@ -1302,8 +1338,14 @@ struct SentAttachments: View {
                 fetched[picture.id] = loaded
                 data = loaded
             }
-            guard let data, decoded[picture.id] == nil else { return }
-            if let image = await thumbnails.decode(picture, data: data, side: side) { decoded[picture.id] = image }
+            guard !Task.isCancelled else { return }
+            guard let data else { unreadable.insert(picture.id); return }
+            guard decoded[picture.id] == nil else { return }
+            if let image = await thumbnails.decode(picture, data: data, side: side) {
+                decoded[picture.id] = image
+            } else if !Task.isCancelled {
+                unreadable.insert(picture.id)
+            }
         }
         .accessibilityElement()
         .accessibilityLabel(Text(attachment.video.map { "Video, \(attachment.name), \(AgentVideo.length($0.durationMs))" }
@@ -1466,7 +1508,7 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+            .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
             if still {

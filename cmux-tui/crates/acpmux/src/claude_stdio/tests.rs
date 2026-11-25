@@ -778,3 +778,39 @@ fn the_translator_starts_in_the_mode_the_process_runs_in() {
     let skips = profile(json!(["claude", "--dangerously-skip-permissions"]));
     assert_eq!(spawn_mode(&skips, "bypassPermissions"), "bypassPermissions");
 }
+
+/// A Stop hook that blocks the stop: Claude Code writes its reason as a synthetic user line
+/// (`Stop hook feedback:\n<reason>`). It becomes one `stop_hook_feedback` update with the reason;
+/// a subagent's own, or a synthetic line with another head, is none.
+#[tokio::test]
+async fn a_stop_hook_block_is_one_update_with_its_reason() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let kinds = |msgs: &[Message]| -> Vec<Value> {
+        msgs.iter()
+            .filter_map(|m| match m {
+                Message::Notification { params, .. } => {
+                    params.as_ref().and_then(|p| p.get("update")).cloned()
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let hook = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\n[~/.claude/hooks/check.sh]: 2 tests still fail."}]}});
+    let updates = kinds(&t.inbound(&hook).await);
+    assert_eq!(
+        updates,
+        [
+            json!({"sessionUpdate": "stop_hook_feedback", "text": "[~/.claude/hooks/check.sh]: 2 tests still fail."})
+        ]
+    );
+    let mut child = hook.clone();
+    child["parent_tool_use_id"] = json!("toolu_1");
+    assert!(
+        !kinds(&t.inbound(&child).await).iter().any(|u| u["sessionUpdate"] == "stop_hook_feedback"),
+        "a subagent's hook is its own"
+    );
+    let other = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": "hook text"}});
+    assert!(kinds(&t.inbound(&other).await).is_empty());
+}
