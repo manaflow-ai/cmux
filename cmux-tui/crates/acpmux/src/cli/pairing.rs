@@ -454,6 +454,12 @@ mod tests {
         )
     }
 
+    /// Puts the recording cmux in `bin` as `cmux`.
+    #[cfg(unix)]
+    fn recording_cmux_on_path(dir: &std::path::Path, bin: &std::path::Path) {
+        executable(&bin.join("cmux"), &recording_cmux(dir));
+    }
+
     #[cfg(unix)]
     fn executable(path: &std::path::Path, text: &str) {
         crate::test_exec::write_executable(path, text);
@@ -539,7 +545,7 @@ mod tests {
         let bin = dir.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&home).unwrap();
-        executable(&bin.join("cmux"), &recording_cmux(dir.path()));
+        recording_cmux_on_path(dir.path(), &bin);
         let ran = dir.path().join("ran");
         let script_path = dir.path().join("install.sh");
         std::fs::write(&script_path, format!("touch '{}'\n", ran.display())).unwrap();
@@ -590,7 +596,7 @@ mod tests {
         let dir = Dir::new("join-line");
         let bin = dir.path().join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        executable(&bin.join("cmux"), &recording_cmux(dir.path()));
+        recording_cmux_on_path(dir.path(), &bin);
         let line = format!("{} --advertise 'wss://new.example/acp'", join_line("cmux", "", TICKET));
         let (argv, stdin) = run_line(&dir, &line, dir.path());
         assert_eq!(argv, "host join --advertise wss://new.example/acp\n", "{line}");
