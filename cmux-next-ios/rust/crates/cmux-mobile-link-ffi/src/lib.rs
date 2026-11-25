@@ -25,6 +25,7 @@ mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
 mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
