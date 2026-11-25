@@ -96,7 +96,8 @@ function revealFrame(now: number): void {
   fadeMs = freshFadeMs();
   try {
     // A row that throws leaves the clock (as its own loop stopped before); the rows after it stay on it.
-    for (const tick of [...clock.rows]) {
+    // A snapshot: a row added during this frame starts on the next one.
+    for (const tick of Array.from(clock.rows)) {
       if (!clock.rows.has(tick)) continue;
       let more = false;
       try {

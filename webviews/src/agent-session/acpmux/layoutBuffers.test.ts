@@ -42,7 +42,19 @@ test("a layout into kept arrays reads what a layout into new arrays reads, updat
   let kept: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   let fresh: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   const step = (next: AcpmuxRow[]) => {
-    const a = layoutConversation(next, 720, undefined, undefined, knownKept, kept, "s", undefined, undefined, buffers);
+    const a = layoutConversation(
+      next,
+      720,
+      undefined,
+      undefined,
+      knownKept,
+      kept,
+      "s",
+      undefined,
+      undefined,
+      undefined,
+      buffers,
+    );
     const b = layoutConversation(next, 720, undefined, undefined, knownFresh, fresh, "s");
     expect(arrays(a)).toEqual(arrays(b));
     // The layout before keeps its own values: the next one writes into another set.
@@ -80,12 +92,36 @@ test("a streamed token writes into kept arrays: none sized by the chat's rows is
   for (let turn = 0; turn < 2_000; turn += 1) rows.push(prompt(turn), footer(turn));
   let last = {
     rows: rows as readonly AcpmuxRow[],
-    layout: layoutConversation(rows, 720, undefined, undefined, known, undefined, "s", undefined, undefined, buffers),
+    layout: layoutConversation(
+      rows,
+      720,
+      undefined,
+      undefined,
+      known,
+      undefined,
+      "s",
+      undefined,
+      undefined,
+      undefined,
+      buffers,
+    ),
   };
   const seen = new Set<ArrayBufferLike>();
   for (let token = 0; token < 30; token += 1) {
     const next = [...rows, reply(9_999, `${"word ".repeat(token + 1)}`, token + 1)];
-    const layout = layoutConversation(next, 720, undefined, undefined, known, last, "s", undefined, undefined, buffers);
+    const layout = layoutConversation(
+      next,
+      720,
+      undefined,
+      undefined,
+      known,
+      last,
+      "s",
+      undefined,
+      undefined,
+      undefined,
+      buffers,
+    );
     seen.add(layout.tops.buffer);
     last = { rows: next, layout };
   }
@@ -104,7 +140,19 @@ test("a layout the transcript still holds keeps its values however many estimate
   for (let turn = 0; turn < 20; turn += 1) rows.push(prompt(turn), reply(turn, `Answer ${turn}.`), footer(turn));
   let last = {
     rows: rows as readonly AcpmuxRow[],
-    layout: layoutConversation(rows, 720, undefined, undefined, known, undefined, "s", undefined, undefined, buffers),
+    layout: layoutConversation(
+      rows,
+      720,
+      undefined,
+      undefined,
+      known,
+      undefined,
+      "s",
+      undefined,
+      undefined,
+      undefined,
+      buffers,
+    ),
   };
   const held = last.layout;
   const values = arrays(held);
@@ -115,7 +163,19 @@ test("a layout the transcript still holds keeps its values however many estimate
     const next = rows.map((row, index) =>
       index === 4 ? reply(1, `${"word ".repeat((token + 1) * 40)}`, token + 2) : row,
     );
-    const layout = layoutConversation(next, 720, undefined, undefined, known, last, "s", undefined, undefined, buffers);
+    const layout = layoutConversation(
+      next,
+      720,
+      undefined,
+      undefined,
+      known,
+      last,
+      "s",
+      undefined,
+      undefined,
+      undefined,
+      buffers,
+    );
     last = { rows: next, layout };
   }
   expect(arrays(held)).toEqual(values);
