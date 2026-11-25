@@ -99,7 +99,7 @@ import type { ManagedBy } from "../managedBy";
 import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
-import type { HatPillPlace } from "../hatPillPlace.experiment";
+import { hatPillInMiddle, hatPillQuiet, type HatPillPlace } from "../hatPillPlace.experiment";
 import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
@@ -265,6 +265,8 @@ export type PaneComposerDeps = {
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
+  /// Return during a Cloud start queues the message for the started chat ("just go"); false: it waits.
+  onCloudStartQueue?: (text: string) => boolean;
   composerDrawn: AcpmuxSnapshot;
   guestsHere: boolean;
   composerSnapshot: AcpmuxSnapshot;
@@ -522,6 +524,7 @@ export function drawPaneComposer({
   changesPillNode,
   openImage,
   cloudStarting,
+  onCloudStartQueue,
   composerDrawn,
   guestsHere,
   composerSnapshot,
@@ -974,7 +977,7 @@ export function drawPaneComposer({
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
-              quiet={hatPillArm === "quiet" && hatHandle !== trayHandle}
+              quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
           ) : (
             trayNode
@@ -993,6 +996,7 @@ export function drawPaneComposer({
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
+            {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}

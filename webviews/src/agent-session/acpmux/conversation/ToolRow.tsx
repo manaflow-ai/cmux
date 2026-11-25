@@ -51,9 +51,9 @@ import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
@@ -282,7 +282,7 @@ export const ToolRow = memo(function ToolRow({
             onClick={fold.toggle}
           >
             {content}
-            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+            <DisclosureChevron open={open} />
           </button>
         ) : (
           <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
