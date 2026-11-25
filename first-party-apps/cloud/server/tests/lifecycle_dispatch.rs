@@ -189,7 +189,7 @@ fn a_pending_key_cannot_cross_backend_team_target_or_operation() {
             "machine" => {
                 retry = Request::new("vm.pause", json!({"machine":"vm_other"}))
                     .key("key")
-                    .origin(Origin::User)
+                    .origin(Origin::User);
             }
             "op" => retry = request("vm.delete", "key"),
             _ => unreachable!(),
