@@ -9,9 +9,13 @@ import Sentry
 /// ``record(_:)`` runs where the watchdog calls it (the main thread for a
 /// finished stall, the watchdog thread for a hang): a lock over a few
 /// integers, and for the first record after a window ended a detached
-/// utility task that sends the report. ``close()`` sends the open window at
-/// quit and waits up to a second for it to leave. Does nothing while crash
-/// reporting is off.
+/// utility task that checks crash reporting is on and sends the report. The
+/// check never runs on the calling thread: Sentry's `isEnabled` takes its
+/// hub lock, which a Sentry thread can hold for seconds on a loaded Mac
+/// (a 3.0 s hang at load 214, hq#18814); the callers (`LagSpikeReporter`,
+/// `MainThreadHangReporter`) already count only while crash reporting runs.
+/// ``close()`` sends the open window at quit and waits up to a second for it
+/// to leave. Sends nothing while crash reporting is off.
 ///
 /// ```swift
 /// let lag = LagSpikeReporter(reporter: reporter)  // counts into reporter.stallSummary
@@ -65,11 +69,11 @@ public final class StallSummaryRecorder: Sendable {
 
     /// Counts one stall, hang or sent spike; sends the previous window when this closed it.
     public func record(_ kind: StallSummary.Kind) {
-        guard isEnabled() else { return }
         let now = uptime()
         guard let closed = state.withLock({ $0.record(kind, nowNanos: now) }) else { return }
+        let isEnabled = self.isEnabled
         // task-owner: none; one bounded send (and descriptor count) off the recording thread, which may be main
-        Task.detached(priority: .utility) { [self] in sink(counted(closed), false) }
+        Task.detached(priority: .utility) { [self] in if isEnabled() { sink(counted(closed), false) } }
     }
 
     /// Sends the open window now (quit), on the calling thread.
