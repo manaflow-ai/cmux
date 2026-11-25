@@ -7,7 +7,7 @@ import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } fro
 import { mockTeamAdminTokensState, mockTokensState } from "./mockTokens";
 
 const shown: PageFixtureStep = { selector: '[data-card="developerTokens"]', action: "wait" };
-const rows: PageFixtureStep = { selector: "[data-tokens-group]", action: "wait" };
+const rows: PageFixtureStep = { selector: '[data-tokens-group="me"]', action: "wait" };
 const variant = (patch: Partial<SettingsPageVariant> & { note: string }): SettingsPageVariant => ({
   section: "developer",
   steps: [shown, rows],
