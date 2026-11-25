@@ -33,7 +33,7 @@ struct CloudDaemonPlanRequiredTests {
         #expect(request["auth"] as? String == "owner")
         #expect(request["credential"] as? String == "access")
         #expect((request["args"] as? [String: Any])?["id"] as? String == "vm_aaaaaaaaaaaaaaaaaaaa")
-        api.daemonCall = { _, _ in Data(#"{"ok":true,"body":{"ok":true}}"#.utf8) }
+        api.daemon.daemonCall = { _, _ in Data(#"{"ok":true,"body":{"ok":true}}"#.utf8) }
         try await api.setupDesktop("vm_aaaaaaaaaaaaaaaaaaaa")
     }
 
