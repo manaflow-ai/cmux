@@ -279,10 +279,18 @@ async function main(): Promise<number> {
     // Mint.
     stage = "mint";
     const m0 = Date.now();
-    const minted = await http("POST", `${platform}/v1/runnable-links`, {
+    const mint = () => http("POST", `${platform}/v1/runnable-links`, {
       machine: parent, clientKey: `${tag}-mint`, ttlSeconds: 3600, note: "hq#23807 experiment",
       manifest: { repo: PROJECT_REPO, ref: PROJECT_REF, head, sessions: session ? [session] : [], smoke: "mocha test/app.js", service: { port: SERVICE_PORT, path: "/" } },
     }, ph(), 180_000, true);
+    let minted = await mint();
+    // A new machine is private; the platform asks its creator to share it with the team first (link.machine_private,
+    // run 45605879435). Do what a person would: share it, then mint again. The share is part of the mint's time.
+    if (minted.status === 403 && minted.body?.code === "link.machine_private") {
+      const shared = await http("PUT", `${platform}/v1/machines/${parent}/visibility`, { visibility: "team" }, ph(), 60_000, true);
+      meta.shared_with_team = shared.status;
+      if (shared.status === 200) minted = await mint();
+    }
     if (minted.status === 200 || minted.status === 201) {
       link = minted.body;
       snapshot = link.snapshotId;
