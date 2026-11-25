@@ -376,6 +376,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         history_from: None,
         history_kept_through: None,
         fork_requests: Default::default(),
+        fork_start: None,
         fork_parent_verified: None,
         agent_info: None,
         agent_capabilities: None,

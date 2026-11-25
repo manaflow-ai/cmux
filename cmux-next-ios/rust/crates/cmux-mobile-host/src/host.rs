@@ -705,6 +705,11 @@ async fn answer_session(
         // video while it works (media_session.rs; CMUX_MOBILE_WEBRTC_MEDIA=0 turns
         // it off).
         webrtc_media: std::env::var("CMUX_MOBILE_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
+        // The reliable link (per-channel seq/ack/replay; a dropped carrier
+        // resumes): off unless CMUX_MOBILE_RELIABLE=1, and on only when the
+        // phone offers it too.
+        reliable: reliable_link(),
+        resume_registry: reliable_link().then(|| resume_registry(&peer.device_id)),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
@@ -714,6 +719,12 @@ async fn answer_session(
             return;
         }
     };
+    if connected.resumed {
+        // A new carrier under a link this phone already has: its channels
+        // and services run on, served where it was first answered.
+        tracing::info!(session_id, ?kind, phone = peer.device_id, timings = %timeline.summary(), "link resumed");
+        return;
+    }
     let path = *connected.path.borrow();
     peer.route =
         Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
@@ -864,3 +875,18 @@ impl Drop for AbortTask {
 #[cfg(test)]
 #[path = "host_recovery_tests.rs"]
 mod recovery_tests;
+
+/// Whether this Mac accepts the reliable link (CMUX_MOBILE_RELIABLE=1).
+fn reliable_link() -> bool {
+    std::env::var("CMUX_MOBILE_RELIABLE").is_ok_and(|v| v == "1")
+}
+
+/// The resume registry of one paired phone: its links wait there for its
+/// resume, and no other device's carrier can resume them.
+fn resume_registry(device_id: &str) -> Arc<cmux_mobile_link::ResumeRegistry> {
+    static REGISTRIES: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<cmux_mobile_link::ResumeRegistry>>>,
+    > = std::sync::LazyLock::new(Default::default);
+    let mut registries = REGISTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    Arc::clone(registries.entry(device_id.to_lowercase()).or_default())
+}
