@@ -799,6 +799,37 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file.
+    CloudUsageCurrentOp {
+        name: "cloud.usage.current",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudUsageCurrentParams,
+        result: CloudUsageCurrent,
+        error: CloudUsageCurrentError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudUsageCurrentParams {}
+
+wire_errors! {
+    /// The error codes cloud.usage.current declares.
+    CloudUsageCurrentError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmAttentionEmitOp {
         name: "cloud.vm.attention.emit",
@@ -867,31 +898,4 @@ wire_op! {
         result: CloudVmEventEmitResult,
         error: CloudVmEventEmitError,
     }
-}
-
-wire_enum! {
-    CloudVmEventEmitParamsKind {
-        AgentStarted = "agent.started",
-        AgentFinished = "agent.finished",
-        AgentNeedsInput = "agent.needs_input",
-        Notification = "notification",
-        BrowserLeaseChanged = "browser.lease.changed",
-        CuaSessionStarted = "cua.session.started",
-        CuaSessionEnded = "cua.session.ended",
-        ServicePortOpened = "service.port.opened",
-        ServicePortClosed = "service.port.closed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmEventEmitParams {
-    pub machine: MachineId,
-    pub kind: CloudVmEventEmitParamsKind,
-    pub at: i64,
-    pub data: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmEventEmitResult {
-    pub delivered: bool,
 }

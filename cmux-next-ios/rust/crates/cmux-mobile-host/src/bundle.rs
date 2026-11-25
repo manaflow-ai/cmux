@@ -21,7 +21,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use bytes::Bytes;
 use cmux_mobile_link::bundle_link::cmux_bundle::store::DirStore;
 use cmux_mobile_link::bundle_link::cmux_bundle::sync::{BATCH_BYTES, Receiver, Sender};
 use cmux_mobile_link::bundle_link::cmux_bundle::{self, Kind, PairKey};
@@ -32,6 +31,12 @@ use tokio::io::AsyncReadExt;
 
 use crate::config::ServiceConfig;
 use crate::services::{Peer, Refusal};
+
+/// A sync message's type byte for chunks (`cmux_bundle::sync`: `[1][type][root]`).
+const CHUNKS: u8 = 3;
+/// The most chunks messages a bundle sends: [`bundle_link::MAX_BUNDLE_BYTES`] in batches of
+/// [`BATCH_BYTES`], with room for the batches' overshoot.
+const MAX_SKIPPED: usize = 2 * (bundle_link::MAX_BUNDLE_BYTES as usize / BATCH_BYTES) + 2;
 
 /// The derivation context of a phone's bundle secret.
 const SECRET_CONTEXT: &str = "cmux-bundle v1 pair secret";
@@ -72,9 +77,9 @@ pub fn pair_secret(config: &ServiceConfig, peer: &Peer) -> [u8; 32] {
 fn process_secret() -> &'static [u8; 32] {
     static SECRET: OnceLock<[u8; 32]> = OnceLock::new();
     SECRET.get_or_init(|| {
-        crate::seal::random_secret().map(|key| key.to_bytes().into()).unwrap_or_else(|_| {
-            *blake3::hash(uuid::Uuid::new_v4().as_bytes()).as_bytes()
-        })
+        crate::seal::random_secret()
+            .map(|key| key.to_bytes().into())
+            .unwrap_or_else(|_| *blake3::hash(uuid::Uuid::new_v4().as_bytes()).as_bytes())
     })
 }
 
@@ -126,19 +131,26 @@ async fn put(
     let key = PairKey::derive(&secret);
     send(sender, &bundle_link::key_message(&secret)).await?;
     let mut reader = MessageReader::new(receiver);
-    // A phone with a stale cached key offers under it before it reads ours, then offers again.
-    let mut incoming = None;
-    for attempt in 0..2 {
-        match Receiver::on_offer(&key, &next_message(&mut reader).await?) {
-            Ok(r) => {
-                incoming = Some(r);
-                break;
+    // A phone with a stale cached key offers under it (and may send that bundle's chunks at once)
+    // before it reads ours, then offers again: past one offer that does not open, its chunks
+    // messages are skipped, up to the most a bundle has.
+    let mut stale = false;
+    let mut skipped = 0usize;
+    let incoming = loop {
+        let msg = next_message(&mut reader).await?;
+        if stale && msg.get(1) == Some(&CHUNKS) {
+            skipped += 1;
+            if skipped > MAX_SKIPPED {
+                return Err(Refusal::new("bad_request", "too many chunks under a stale key"));
             }
-            Err(cmux_bundle::Error::Seal) if attempt == 0 => continue,
+            continue;
+        }
+        match Receiver::on_offer(&key, &msg) {
+            Ok(r) => break r,
+            Err(cmux_bundle::Error::Seal) if !stale => stale = true,
             Err(e) => return Err(bad(e)),
         }
-    }
-    let incoming = incoming.ok_or_else(|| Refusal::new("bad_request", "no offer under this pair's key"))?;
+    };
     if incoming.manifest().total != size {
         return Err(Refusal::new("bad_request", "the offer's size is not the declared size"));
     }

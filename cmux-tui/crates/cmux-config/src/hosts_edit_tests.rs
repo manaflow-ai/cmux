@@ -16,7 +16,7 @@ impl Scratch {
         Scratch(dir)
     }
 
-    fn path(&self) -> &std::path::Path {
+    fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -35,7 +35,7 @@ fn add(label: &str, endpoints: &[&str]) -> HostEdit {
     }
 }
 
-fn items(value: serde_json::Value) -> Vec<Value> {
+fn items(value: Value) -> Vec<Value> {
     value.as_array().cloned().unwrap()
 }
 

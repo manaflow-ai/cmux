@@ -358,7 +358,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         let text = performWithTheme { Palette.textPrimary }
         list.neutralSelectionFill = text.withAlphaComponent(0.07)
         layer?.backgroundColor = fill.cgColor
-        let glass = HomeSidebarGlass(surface: fill, dark: themeTokens.isDark)
+        // What already covers the desktop under the panel: the window's tint, then the column's fill.
+        let windowTint = performWithTheme { WindowBackdrop.currentTint(themeTokens) }
+        let cover = 1 - (1 - windowTint) * (1 - Double(fill.alphaComponent))
+        let glass = HomeSidebarGlass(surface: performWithTheme { Palette.windowBackground }, cover: cover, dark: themeTokens.isDark)
         panel.layer?.backgroundColor = glass.tint.cgColor
         self.glass = glass
         layoutWash()
@@ -636,8 +639,9 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
     /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
-    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, filterLook: Int? = nil) -> [String: Any]? {
+    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, filterLook: Int? = nil, selectPinned: Int? = nil) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
+        if let selectPinned, !model.pinned.indices.contains(selectPinned) { return nil }
         let before = [compose, unreadToggle, searchButton].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
         // used then and sees now (a stale header under the lights shows here).
@@ -651,6 +655,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         if let select {
             onSelect(model.rows[select].id)
             self.select(model.rows[select].id)
+        }
+        if let selectPinned {
+            onSelect(model.pinned[selectPinned].id)
+            self.select(model.pinned[selectPinned].id)
         }
         if let filterLook, let look = HomeFilterLook(rawValue: filterLook) { debugFilterLook = look }
         if let unread { unreadOnly = unread }

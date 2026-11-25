@@ -18,7 +18,7 @@ use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_link::SignalingClient;
 use cmux_mobile_link::bundle_link;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
-use cmux_mobile_link_ffi::{ChannelMessage, ConnectRequest, LinkHandle, Transport, connect_inner};
+use cmux_mobile_link_ffi::{ChannelMessage, ConnectRequest, LinkHandle, Transport, WarmPool};
 use sha2::{Digest, Sha256};
 
 struct Rig {
@@ -52,44 +52,50 @@ async fn rig_with(old_host: bool) -> Rig {
         agent_tab_host: None,
         uploads_dir: dirs.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     if old_host {
         tokio::spawn(serve_old_host(mac, dirs.path().join("old-uploads")));
     } else {
-    tokio::spawn(serve_signaling(
-        mac,
-        AnswerContext {
-            owner_user_id: "alice".into(),
-            services: Arc::new(services),
-            ice: IceSource::Fixed(Vec::new()),
-            include_loopback: true,
-            exclude_cgnat: false,
-            mailbox: None,
-            session_exposure: None,
-        },
-    ));
+        tokio::spawn(serve_signaling(
+            mac,
+            AnswerContext {
+                owner_user_id: "alice".into(),
+                services: Arc::new(services),
+                ice: IceSource::Fixed(Vec::new()),
+                include_loopback: true,
+                exclude_cgnat: false,
+                mailbox: None,
+                session_exposure: None,
+            },
+        ));
     }
-    let handle = connect_inner(
-        ConnectRequest {
-            base_url: server.base_url.clone(),
-            token: "user:alice".into(),
-            team_id: "team".into(),
-            device_id: uuid::Uuid::new_v4().to_string(),
-            mac_device_id: mac_id,
-            transport: Transport::WireGuard,
-            include_loopback: true,
-            relay_only: false,
-            block_udp: false,
-            video_lane: false,
-            webrtc_media: false,
-            ultra: cmux_mobile_link::UltraSetting::Off,
-        },
-        None,
-    )
-    .await
-    .expect("connect");
+    // A pool of its own (as tests/ffi.rs), so no test dials on another test's warm socket.
+    let handle = WarmPool::new()
+        .connect(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                token: "user:alice".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: mac_id,
+                transport: Transport::WireGuard,
+                include_loopback: true,
+                relay_only: false,
+                block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
+                video_lane: false,
+                webrtc_media: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
+                force_relay: false,
+            },
+            None,
+        )
+        .await
+        .expect("connect");
     Rig { _server: server, _dirs: dirs, root, handle }
 }
 
@@ -109,7 +115,9 @@ async fn serve_old_host(signaling: SignalingClient, uploads: PathBuf) {
         };
         let options = DialOptions { include_loopback: true, ..DialOptions::default() };
         let connected =
-            dial::answer(&signaling, first, events, &options, cmux_mobile_link::LinkConfig::default()).await.unwrap();
+            dial::answer(&signaling, first, events, &options, cmux_mobile_link::LinkConfig::default())
+                .await
+                .unwrap();
         let uploads = uploads.clone();
         tokio::spawn(async move {
             let _keep = &connected;
@@ -125,7 +133,9 @@ async fn serve_old_host(signaling: SignalingClient, uploads: PathBuf) {
                     let mut bytes = Vec::new();
                     while (bytes.len() as u64) < size {
                         match receiver.recv().await {
-                            Some(cmux_mobile_link::ChannelEvent::Data(data)) => bytes.extend_from_slice(&data),
+                            Some(cmux_mobile_link::ChannelEvent::Data(data)) => {
+                                bytes.extend_from_slice(&data);
+                            }
                             _ => return,
                         }
                     }
@@ -150,7 +160,12 @@ async fn a_new_phone_falls_back_to_upload_on_an_old_mac() {
     for _ in 0..2 {
         let sent = rig
             .handle
-            .upload_file_bundle(source.to_str().unwrap().into(), "old.png".into(), String::new(), store.clone())
+            .upload_file_bundle(
+                source.to_str().unwrap().into(),
+                "old.png".into(),
+                String::new(),
+                store.clone(),
+            )
             .await
             .unwrap();
         assert!(!sent.bundle, "{sent:?}");
@@ -185,18 +200,23 @@ async fn a_resent_attachment_moves_under_4_kb_and_lands_identical() {
     let source = phone.path().join("shot.png");
     std::fs::write(&source, photo(SIZE, 7)).unwrap();
     let store = phone.path().join("bundles/mac");
-    let (src, st, cwd) =
-        (source.to_str().unwrap().to_owned(), store.to_str().unwrap().to_owned(), rig.root.to_str().unwrap().to_owned());
+    let (src, st, cwd) = (
+        source.to_str().unwrap().to_owned(),
+        store.to_str().unwrap().to_owned(),
+        rig.root.to_str().unwrap().to_owned(),
+    );
 
     let started = Instant::now();
-    let first = rig.handle.upload_file_bundle(src.clone(), "shot.png".into(), cwd.clone(), st.clone()).await.unwrap();
+    let first =
+        rig.handle.upload_file_bundle(src.clone(), "shot.png".into(), cwd.clone(), st.clone()).await.unwrap();
     let first_ms = started.elapsed().as_millis();
     assert!(first.bundle, "{first:?}");
     assert!(first.sent_bytes >= SIZE as u64, "the first send carries the file: {first:?}");
     assert_eq!(sha(Path::new(&first.path)), sha(&source));
 
     let started = Instant::now();
-    let again = rig.handle.upload_file_bundle(src.clone(), "shot.png".into(), cwd.clone(), st.clone()).await.unwrap();
+    let again =
+        rig.handle.upload_file_bundle(src.clone(), "shot.png".into(), cwd.clone(), st.clone()).await.unwrap();
     let again_ms = started.elapsed().as_millis();
     assert!(again.bundle);
     assert!(again.sent_bytes < 4096, "a re-sent attachment sent {} bytes", again.sent_bytes);
@@ -217,7 +237,8 @@ async fn a_resent_attachment_moves_under_4_kb_and_lands_identical() {
 /// What an old phone does (`LinkUpload`): `upload` args, the bytes, the reply. Returns bytes sent.
 async fn upload_plain(rig: &Rig, source: &Path, name: &str) -> u64 {
     let bytes = std::fs::read(source).unwrap();
-    let args = serde_json::json!({"name": name, "size": bytes.len().to_string(), "cwd": rig.root.to_str().unwrap()});
+    let args =
+        serde_json::json!({"name": name, "size": bytes.len().to_string(), "cwd": rig.root.to_str().unwrap()});
     let channel = rig.handle.open_channel("upload".into(), args.to_string()).await.unwrap();
     for chunk in bytes.chunks(192 << 10) {
         channel.send(chunk.to_vec()).await.unwrap();
@@ -259,14 +280,22 @@ async fn opening_a_file_the_phone_holds_moves_under_4_kb() {
     std::fs::write(&source, photo(SIZE, 11)).unwrap();
     let sent = rig
         .handle
-        .upload_file_bundle(source.to_str().unwrap().into(), "clip.mov".into(), rig.root.to_str().unwrap().into(), store.clone())
+        .upload_file_bundle(
+            source.to_str().unwrap().into(),
+            "clip.mov".into(),
+            rig.root.to_str().unwrap().into(),
+            store.clone(),
+        )
         .await
         .unwrap();
 
     let started = Instant::now();
     let dest = phone.path().join("opened/clip.mov");
-    let opened =
-        rig.handle.open_file_bundle(sent.path.clone(), dest.to_str().unwrap().into(), store.clone()).await.unwrap();
+    let opened = rig
+        .handle
+        .open_file_bundle(sent.path.clone(), dest.to_str().unwrap().into(), store.clone())
+        .await
+        .unwrap();
     let open_ms = started.elapsed().as_millis();
     assert!(opened.bundle);
     assert_eq!(sha(&dest), sha(&source));
@@ -290,8 +319,11 @@ async fn opening_a_file_the_phone_holds_moves_under_4_kb() {
 
     // The old `file`, the same file.
     let plain_started = Instant::now();
-    let channel =
-        rig.handle.open_channel("file".into(), serde_json::json!({"path": sent.path}).to_string()).await.unwrap();
+    let channel = rig
+        .handle
+        .open_channel("file".into(), serde_json::json!({"path": sent.path}).to_string())
+        .await
+        .unwrap();
     let mut plain = 0u64;
     loop {
         match channel.recv().await {
@@ -326,7 +358,10 @@ async fn a_get_outside_the_shared_roots_is_refused() {
 }
 
 /// Reads the bundle channel's next length-prefixed message off raw `recv`s.
-async fn read_msg(channel: &cmux_mobile_link_ffi::ChannelHandle, buf: &mut Vec<u8>) -> Result<Vec<u8>, String> {
+async fn read_msg(
+    channel: &cmux_mobile_link_ffi::ChannelHandle,
+    buf: &mut Vec<u8>,
+) -> Result<Vec<u8>, String> {
     loop {
         if buf.len() >= 4 {
             let len = u32::from_be_bytes(buf[..4].try_into().unwrap()) as usize;
@@ -412,7 +447,10 @@ async fn a_forged_or_oversized_message_is_refused() {
     forged.extend_from_slice(honest.root());
     let swapped = swap.manifest().chunks[0].id;
     let sealed = store.get_sealed(&swapped);
-    bundle_link::cmux_bundle::sync::encode_records([(&honest.manifest().chunks[0].id, sealed.as_slice())], &mut forged);
+    bundle_link::cmux_bundle::sync::encode_records(
+        [(&honest.manifest().chunks[0].id, sealed.as_slice())],
+        &mut forged,
+    );
     channel.send(bundle_link::frame(&forged).to_vec()).await.unwrap();
     assert_eq!(close_code(&channel).await, "bad_request");
     let attachments = rig.root.join(".cmux/attachments");

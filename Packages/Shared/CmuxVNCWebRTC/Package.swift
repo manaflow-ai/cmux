@@ -24,6 +24,7 @@ let package = Package(
         .executable(name: "cmux-vnc-host", targets: ["cmux-vnc-host"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxVNC"),
     ],
     targets: [
@@ -32,13 +33,17 @@ let package = Package(
             url: "https://github.com/stasel/WebRTC/releases/download/154.0.0/WebRTC-M154.xcframework.zip",
             checksum: "a2bcdda93578c82452ceb6e49d54a2746e1bcb4caf7c2fa601ffac8028b58c16"
         ),
-        .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
+        .target(name: "CmuxVNCWebRTC", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), "WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
                 swiftSettings: swiftSettings),
         .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
                           swiftSettings: swiftSettings),
         .testTarget(name: "CmuxVNCWebRTCTests",
-                    dependencies: ["CmuxVNCWebRTC", "WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
-                                   .product(name: "CmuxVNCDemoServer", package: "CmuxVNC")],
+                    dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                        "CmuxVNCWebRTC",
+                        "WebRTC",
+                        .product(name: "CmuxVNC", package: "CmuxVNC"),
+                        .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
+                    ],
                     swiftSettings: swiftSettings),
     ]
 )

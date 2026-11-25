@@ -36,3 +36,14 @@ fn accept_readiness_does_not_block_and_detects_truncated_close() {
     drop(writer);
     assert_eq!(listener.try_accept().unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
 }
+
+#[test]
+fn a_node_configs_debug_never_shows_its_auth_key() {
+    let mut config = NodeConfig::new("/tmp/state", "mac");
+    config.auth_key = Some("tskey-auth-kSECRETVALUE-1234".into());
+    config.control_url = Some("https://hs.example.com".into());
+    config.advertise_tags = vec!["tag:cmux".into()];
+    let shown = format!("{config:?} {config:#?}");
+    assert!(!shown.contains("SECRETVALUE"), "{shown}");
+    assert!(shown.contains("<redacted>") && shown.contains("tag:cmux"), "{shown}");
+}

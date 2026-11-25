@@ -40,12 +40,14 @@ fn parse(msg: &[u8], want_kind: u8) -> Result<(ChunkId, &[u8])> {
     if version != VERSION {
         return Err(Error::Version(version));
     }
-    if msg.len() < HEAD || msg[1] != want_kind {
-        return Err(Error::Malformed("bundle message"));
+    let bad = || Error::Malformed("bundle message");
+    let (head, rest) = msg.split_at_checked(HEAD).ok_or_else(bad)?;
+    let (&[_, kind], root) = head.split_first_chunk::<2>().ok_or_else(bad)?;
+    if kind != want_kind {
+        return Err(bad());
     }
-    let mut root = [0u8; 32];
-    root.copy_from_slice(&msg[2..HEAD]);
-    Ok((root, &msg[HEAD..]))
+    let root: ChunkId = root.try_into().map_err(|_| bad())?;
+    Ok((root, rest))
 }
 
 /// Encodes chunk records `[id][u32 BE len][sealed]` (the relay cache's batch body).
@@ -64,17 +66,16 @@ pub fn encode_records<'a>(
 pub fn decode_records(mut body: &[u8]) -> Result<Vec<(ChunkId, &[u8])>> {
     let mut out = Vec::new();
     while !body.is_empty() {
-        if body.len() < 36 {
-            return Err(Error::Malformed("chunk record"));
+        let bad = || Error::Malformed("chunk record");
+        let (id, rest) = body.split_first_chunk::<32>().ok_or_else(bad)?;
+        let (len, rest) = rest.split_first_chunk::<4>().ok_or_else(bad)?;
+        let len = u32::from_be_bytes(*len) as usize;
+        if len > seal::MAX_SEALED {
+            return Err(bad());
         }
-        let mut id = [0u8; 32];
-        id.copy_from_slice(&body[..32]);
-        let len = u32::from_be_bytes([body[32], body[33], body[34], body[35]]) as usize;
-        if len > seal::MAX_SEALED || body.len() - 36 < len {
-            return Err(Error::Malformed("chunk record"));
-        }
-        out.push((id, &body[36..36 + len]));
-        body = &body[36 + len..];
+        let (sealed, rest) = rest.split_at_checked(len).ok_or_else(bad)?;
+        out.push((*id, sealed));
+        body = rest;
     }
     Ok(out)
 }
@@ -128,7 +129,8 @@ impl Sender {
         let mut out = Vec::new();
         let mut cur = head(CHUNKS, &self.root, 0);
         for (i, c) in self.manifest.chunks.iter().enumerate() {
-            if bits[i / 8] & (1 << (i % 8)) == 0 || !sent.insert(c.id) {
+            let wanted = bits.get(i / 8).is_some_and(|b| b & (1 << (i % 8)) != 0);
+            if !wanted || !sent.insert(c.id) {
                 continue;
             }
             let sealed = store.get(&c.id)?.ok_or(Error::Missing(c.id))?;
@@ -179,8 +181,8 @@ impl Receiver {
         let n = self.manifest.chunks.len();
         let mut bits = vec![0u8; n.div_ceil(8)];
         for (i, c) in self.manifest.chunks.iter().enumerate() {
-            if !store.has(&c.id) {
-                bits[i / 8] |= 1 << (i % 8);
+            if let (false, Some(b)) = (store.has(&c.id), bits.get_mut(i / 8)) {
+                *b |= 1 << (i % 8);
             }
         }
         let mut out = head(WANT, &self.root, bits.len());

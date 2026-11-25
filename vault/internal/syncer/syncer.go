@@ -43,6 +43,10 @@ type Engine struct {
 	Client  *api.Client
 	TempDir string
 	Out     Printer
+	// Redact, when set, masks known secret shapes in every transcript before it is
+	// compressed and uploaded. The digest and size sent are those of the masked bytes.
+	// Nil uploads transcripts as they are (cmux-vault sync --no-redact).
+	Redact *Redactor
 }
 
 type candidate struct {
@@ -203,7 +207,7 @@ func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
 func (e *Engine) prepareBatch(batch []candidate) ([]candidate, error) {
 	prepared := make([]candidate, 0, len(batch))
 	for _, c := range batch {
-		result, err := compressFile(c.session, e.TempDir)
+		result, err := compressFile(c.session, e.TempDir, e.Redact)
 		if err != nil {
 			e.cleanup(prepared)
 			return nil, err
@@ -324,7 +328,7 @@ type compressResult struct {
 	plainSize      int64
 }
 
-func compressFile(session agentdirs.Session, tempDir string) (compressResult, error) {
+func compressFile(session agentdirs.Session, tempDir string, redact *Redactor) (compressResult, error) {
 	var result compressResult
 	if strings.TrimSpace(tempDir) == "" {
 		tempDir = os.TempDir()
@@ -352,7 +356,21 @@ func compressFile(session agentdirs.Session, tempDir string) (compressResult, er
 	// Hash the plaintext while compressing so the digest always matches the
 	// exact bytes inside the uploaded snapshot.
 	hash := sha256.New()
-	plainSize, copyErr := io.Copy(encoder, io.TeeReader(in, hash))
+	var src io.Reader = in
+	var redactWait func() error
+	var copyErr error
+	if redact != nil {
+		src, redactWait, copyErr = redact.Filter(context.Background(), in)
+	}
+	var plainSize int64
+	if copyErr == nil {
+		plainSize, copyErr = io.Copy(encoder, io.TeeReader(src, hash))
+		if redactWait != nil {
+			if waitErr := redactWait(); copyErr == nil {
+				copyErr = waitErr
+			}
+		}
+	}
 	closeErr := encoder.Close()
 	fileCloseErr := tmp.Close()
 	if copyErr != nil || closeErr != nil || fileCloseErr != nil {

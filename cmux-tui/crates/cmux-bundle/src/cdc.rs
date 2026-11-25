@@ -33,6 +33,7 @@ const fn mask(bits: u32) -> u64 {
 /// ends must cut the same boundaries for ids to match. Never change them; a new table is a new version.
 const GEAR: [u64; 256] = gear();
 
+#[allow(clippy::indexing_slicing, reason = "const fn (no get_mut); i < 256 by the loop bound")]
 const fn gear() -> [u64; 256] {
     let mut table = [0u64; 256];
     let mut state: u64 = 0x636d_7578_2d62_6e64; // "cmux-bnd"
@@ -57,20 +58,13 @@ pub fn cut(data: &[u8]) -> usize {
     let end = n.min(MAX);
     let normal = end.min(AVG);
     let mut hash = 0u64;
-    let mut i = MIN;
-    while i < normal {
-        hash = (hash << 1).wrapping_add(GEAR[usize::from(data[i])]);
-        if hash & MASK_SMALL == 0 {
+    for (i, &b) in data.iter().enumerate().take(end).skip(MIN) {
+        // A u8 always indexes the 256-word table; `get` keeps the hot loop free of panics.
+        hash = (hash << 1).wrapping_add(GEAR.get(usize::from(b)).copied().unwrap_or(0));
+        let mask = if i < normal { MASK_SMALL } else { MASK_LARGE };
+        if hash & mask == 0 {
             return i + 1;
         }
-        i += 1;
-    }
-    while i < end {
-        hash = (hash << 1).wrapping_add(GEAR[usize::from(data[i])]);
-        if hash & MASK_LARGE == 0 {
-            return i + 1;
-        }
-        i += 1;
     }
     end
 }

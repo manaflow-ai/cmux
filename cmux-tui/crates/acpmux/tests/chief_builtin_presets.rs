@@ -522,7 +522,18 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
                 .unwrap();
             let names: Vec<_> = allowed["value"].as_str().unwrap().split(',').collect();
             assert_eq!(names, acpmux::agent_tools::CHIEF_TURN_TOOLS.split(',').collect::<Vec<_>>());
-            for tool in ["send", "send_status", "ls", "last", "info", "inbox_read", "inbox_reply"] {
+            for tool in [
+                "send",
+                "send_status",
+                "ls",
+                "last",
+                "info",
+                "inbox_read",
+                "inbox_reply",
+                "watch_add",
+                "watch_ls",
+                "watch_rm",
+            ] {
                 assert!(names.contains(&format!("acpmux_{tool}").as_str()), "{names:?}");
             }
             assert!(!names.iter().any(|name| name.starts_with("acpmux_bg_")));

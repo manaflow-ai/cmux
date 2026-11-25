@@ -80,7 +80,16 @@ jobs:
           python3 cmux-tui/build-support/notices/browser-host/test_linux_release_notices.py
 
       - name: Restore the crate source cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-notices
+          key: cmux-browser-host-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock') }}
+          restore-keys: cmux-browser-host-notices-v1-
+
+      - name: Restore the crate source cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux-notices
           key: cmux-browser-host-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock') }}

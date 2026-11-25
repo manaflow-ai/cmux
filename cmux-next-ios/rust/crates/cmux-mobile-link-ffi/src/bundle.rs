@@ -11,8 +11,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-use cmux_mobile_link::bundle_link::cmux_bundle::store::DirStore;
+use cmux_mobile_link::bundle_link::cmux_bundle::store::{DirStore, MemStore, Store};
 use cmux_mobile_link::bundle_link::cmux_bundle::sync::{BATCH_BYTES, Receiver, Sender};
+use cmux_mobile_link::bundle_link::cmux_bundle::{self, ChunkId};
 use cmux_mobile_link::bundle_link::cmux_bundle::{Kind, PairKey};
 use cmux_mobile_link::bundle_link::{self, MessageReader, Read};
 use cmux_mobile_link::link::ChannelSender;
@@ -37,7 +38,7 @@ pub struct FileTransfer {
 
 /// How the bundle path ended. `Fallback`: it gave up before anything was published, so the file goes
 /// the old way; `true` when the Mac has no `bundle` at all (remembered for the link).
-pub(crate) enum Outcome {
+pub enum Outcome {
     Done(FileTransfer),
     Fallback(bool),
 }
@@ -115,14 +116,64 @@ fn save_key(store_dir: &Path, secret: &[u8; 32]) {
     let _ = std::fs::write(store_dir.join("pair-key"), bundle_link::cmux_bundle::hex(secret));
 }
 
-/// Chunks and seals `data` into the phone's store (off the async workers).
-async fn build_sender(secret: [u8; 32], data: std::sync::Arc<Vec<u8>>, chunks: PathBuf) -> Result<Sender, CmuxMobileError> {
+/// A store that notes whether any chunk was new to it.
+struct Noting<'a> {
+    inner: &'a mut DirStore,
+    fresh: bool,
+}
+
+impl Store for Noting<'_> {
+    fn has(&self, id: &ChunkId) -> bool {
+        self.inner.has(id)
+    }
+    fn get(&self, id: &ChunkId) -> cmux_bundle::Result<Option<Vec<u8>>> {
+        self.inner.get(id)
+    }
+    fn put(&mut self, id: &ChunkId, sealed: &[u8]) -> cmux_bundle::Result<()> {
+        if !self.inner.has(id) {
+            self.fresh = true;
+        }
+        self.inner.put(id, sealed)
+    }
+}
+
+/// Chunks and seals `data` into the phone's store (off the async workers). `true` with it when a
+/// chunk was new to the phone: content it never sent nor opened, which the Mac most likely lacks too.
+async fn build_sender(
+    secret: [u8; 32],
+    data: std::sync::Arc<Vec<u8>>,
+    chunks: PathBuf,
+) -> Result<(Sender, bool), CmuxMobileError> {
     tokio::task::spawn_blocking(move || {
-        Sender::new(&PairKey::derive(&secret), Kind::Attachment, &data, &mut DirStore::new(chunks))
+        let mut store = DirStore::new(chunks);
+        let mut noting = Noting { inner: &mut store, fresh: false };
+        let sender = Sender::new(&PairKey::derive(&secret), Kind::Attachment, &data, &mut noting)?;
+        Ok((sender, noting.fresh))
     })
     .await
     .map_err(io)?
-    .map_err(io)
+    .map_err(|e: cmux_bundle::Error| io(e))
+}
+
+/// Offers `sender`'s bundle; for new content also sends every chunk at once, without waiting for
+/// the Mac's want (it takes any chunk its offer names), so a first send costs no round trip more
+/// than `upload`.
+async fn offer(
+    wire: &mut Wire,
+    key: &PairKey,
+    sender: &Sender,
+    fresh: bool,
+    chunks: &Path,
+) -> Result<(), CmuxMobileError> {
+    let offer = sender.offer();
+    wire.send(&offer).await;
+    if fresh {
+        let all = Receiver::on_offer(key, &offer).map_err(io)?.want(&MemStore::default());
+        for msg in sender.on_want(&all, &DirStore::new(chunks), BATCH_BYTES).map_err(io)? {
+            wire.send(&msg).await;
+        }
+    }
+    Ok(())
 }
 
 async fn settle(chunks: PathBuf, ids: Vec<bundle_link::cmux_bundle::ChunkId>) {
@@ -133,7 +184,7 @@ async fn settle(chunks: PathBuf, ids: Vec<bundle_link::cmux_bundle::ChunkId>) {
     .await;
 }
 
-pub(crate) async fn upload_bundle(
+pub async fn upload_bundle(
     link: &Link,
     path: &Path,
     name: &str,
@@ -154,25 +205,27 @@ pub(crate) async fn upload_bundle(
     // With the key from last time the offer goes with the open: one round trip in all.
     let mut offered = None;
     if let Some(secret) = cached_key(store_dir) {
-        let sender = build_sender(secret, data.clone(), chunks.clone()).await?;
-        wire.send(&sender.offer()).await;
-        offered = Some((secret, sender));
+        let (sender, fresh) = build_sender(secret, data.clone(), chunks.clone()).await?;
+        offer(&mut wire, &PairKey::derive(&secret), &sender, fresh, &chunks).await?;
+        offered = Some((secret, sender, fresh));
     }
     let first = or_fallback!(wire.next().await);
     let secret = bundle_link::parse_key_message(&first).ok_or_else(|| io("the Mac sent no bundle key"))?;
-    let sender = match offered {
-        Some((cached, sender)) if cached == secret => sender,
+    let (sender, pushed) = match offered {
+        Some((cached, sender, fresh)) if cached == secret => (sender, fresh),
         _ => {
             save_key(store_dir, &secret);
-            let sender = build_sender(secret, data.clone(), chunks.clone()).await?;
-            wire.send(&sender.offer()).await;
-            sender
+            let (sender, fresh) = build_sender(secret, data.clone(), chunks.clone()).await?;
+            offer(&mut wire, &PairKey::derive(&secret), &sender, fresh, &chunks).await?;
+            (sender, fresh)
         }
     };
     let want = or_fallback!(wire.next().await);
-    let store = DirStore::new(&chunks);
-    for msg in sender.on_want(&want, &store, BATCH_BYTES).map_err(io)? {
-        wire.send(&msg).await;
+    if !pushed {
+        let store = DirStore::new(&chunks);
+        for msg in sender.on_want(&want, &store, BATCH_BYTES).map_err(io)? {
+            wire.send(&msg).await;
+        }
     }
     let reply = or_fallback!(wire.next().await);
     let reply: serde_json::Value = serde_json::from_slice(&reply).map_err(io)?;
@@ -188,7 +241,7 @@ pub(crate) async fn upload_bundle(
     Ok(Outcome::Done(transfer))
 }
 
-pub(crate) async fn open_bundle(
+pub async fn open_bundle(
     link: &Link,
     path: &str,
     dest: &Path,
@@ -248,7 +301,12 @@ async fn write_file(dest: &Path, bytes: &[u8]) -> Result<(), CmuxMobileError> {
 }
 
 /// The old `upload`: the args, then the file's bytes, then the Mac's `{path, size}`.
-async fn upload_plain(link: &Link, path: &Path, name: &str, cwd: &str) -> Result<FileTransfer, CmuxMobileError> {
+pub async fn upload_plain(
+    link: &Link,
+    path: &Path,
+    name: &str,
+    cwd: &str,
+) -> Result<FileTransfer, CmuxMobileError> {
     use tokio::io::AsyncReadExt;
     let size = std::fs::metadata(path).map_err(io)?.len();
     let mut args = serde_json::json!({"name": name, "size": size.to_string()});
@@ -283,11 +341,17 @@ async fn upload_plain(link: &Link, path: &Path, name: &str, cwd: &str) -> Result
         return Err(refused(&code, message));
     }
     let path = value.get("path").and_then(|p| p.as_str()).ok_or_else(|| io("no path in the reply"))?;
-    Ok(FileTransfer { path: path.to_owned(), size, bundle: false, sent_bytes: sent, received_bytes: received })
+    Ok(FileTransfer {
+        path: path.to_owned(),
+        size,
+        bundle: false,
+        sent_bytes: sent,
+        received_bytes: received,
+    })
 }
 
 /// The old `file`: the file's bytes until the Mac closes with `eof`.
-async fn open_plain(link: &Link, path: &str, dest: &Path) -> Result<FileTransfer, CmuxMobileError> {
+pub async fn open_plain(link: &Link, path: &str, dest: &Path) -> Result<FileTransfer, CmuxMobileError> {
     let channel = link.open_on("file", serde_json::json!({"path": path}), Lane::Bulk).await?;
     let (_sender, mut receiver) = channel.split();
     let mut bytes = Vec::new();
@@ -301,7 +365,13 @@ async fn open_plain(link: &Link, path: &str, dest: &Path) -> Result<FileTransfer
     }
     write_file(dest, &bytes).await?;
     let size = bytes.len() as u64;
-    Ok(FileTransfer { path: dest.to_string_lossy().into_owned(), size, bundle: false, sent_bytes: 0, received_bytes: size })
+    Ok(FileTransfer {
+        path: dest.to_string_lossy().into_owned(),
+        size,
+        bundle: false,
+        sent_bytes: 0,
+        received_bytes: size,
+    })
 }
 
 #[uniffi::export]

@@ -109,24 +109,19 @@ impl Manifest {
         if version != VERSION {
             return Err(Error::Version(version));
         }
-        if bytes.len() < HEADER {
-            return Err(Error::Malformed("manifest"));
-        }
-        let kind = Kind::from_byte(bytes[1]);
-        let total =
-            u64::from_be_bytes(bytes[2..10].try_into().map_err(|_| Error::Malformed("manifest"))?);
-        let count =
-            u32::from_be_bytes(bytes[10..14].try_into().map_err(|_| Error::Malformed("manifest"))?)
-                as usize;
+        let [kind] = field::<1>(bytes, 1)?;
+        let kind = Kind::from_byte(kind);
+        let total = u64::from_be_bytes(field(bytes, 2)?);
+        let count = u32::from_be_bytes(field(bytes, 10)?) as usize;
         if count > MAX_CHUNKS || bytes.len() != HEADER + count * ENTRY {
             return Err(Error::Malformed("manifest length"));
         }
         let mut chunks = Vec::with_capacity(count);
         let mut sum = 0u64;
-        for entry in bytes[HEADER..].chunks_exact(ENTRY) {
-            let mut id = [0u8; 32];
-            id.copy_from_slice(&entry[..32]);
-            let len = u32::from_be_bytes([entry[32], entry[33], entry[34], entry[35]]);
+        let entries = bytes.get(HEADER..).ok_or(Error::Malformed("manifest"))?;
+        for entry in entries.chunks_exact(ENTRY) {
+            let id: ChunkId = field(entry, 0)?;
+            let len = u32::from_be_bytes(field(entry, 32)?);
             if len == 0 || len as usize > cdc::MAX {
                 return Err(Error::Malformed("chunk length"));
             }
@@ -172,6 +167,13 @@ impl Manifest {
     }
 }
 
+/// The `N` bytes of `bytes` at `at`, or a malformed-manifest error when they run short.
+fn field<const N: usize>(bytes: &[u8], at: usize) -> Result<[u8; N]> {
+    bytes
+        .get(at..at.saturating_add(N))
+        .and_then(|s| s.try_into().ok())
+        .ok_or(Error::Malformed("manifest"))
+}
 #[cfg(test)]
 mod tests {
     use super::*;

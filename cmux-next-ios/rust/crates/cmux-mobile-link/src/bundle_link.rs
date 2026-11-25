@@ -181,8 +181,10 @@ mod tests {
             store.put(id, &[0u8; 1000]).unwrap();
             let name = cmux_bundle::hex(id);
             let file = std::fs::File::options().write(true).open(dir.join(&name[..2]).join(&name)).unwrap();
-            file.set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(i as u64 * 10))
-                .unwrap();
+            file.set_modified(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(i as u64 * 10),
+            )
+            .unwrap();
         }
         evict(&dir, 2500);
         assert!(!store.has(&ids[0]) && !store.has(&ids[1]));

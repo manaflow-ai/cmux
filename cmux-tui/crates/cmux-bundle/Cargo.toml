@@ -16,6 +16,7 @@ chacha20poly1305 = "0.10"
 zstd.workspace = true
 
 [dev-dependencies]
-zstd.workspace = true
+zstd = { workspace = true, features = ["zdict_builder"] }
+flate2.workspace = true
 cmux-fault = { path = "../cmux-fault" }
 tokio = { workspace = true, features = ["net", "io-util", "sync", "time", "rt-multi-thread", "macros"] }

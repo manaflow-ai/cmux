@@ -119,7 +119,7 @@ fn an_unread_mount_ends_its_git_processes_and_drops_its_recent_blobs() {
     let (_dir, git_dir, commit) = repo();
     let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
     let readme = projection.manifest.resolve("README.md").unwrap();
-    let blobs = GitBlobs::new(&git_dir, projection.sources.clone());
+    let blobs = GitBlobs::new(&git_dir, projection.sources);
     assert_eq!(blobs.read(readme, 0, 100).unwrap(), b"hello\n");
     assert_eq!(blobs.pooled(), 1, "a read leaves its git cat-file in the pool");
 
@@ -172,16 +172,10 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
     let owner = unsafe { (libc::getuid(), libc::getgid()) };
     let index = index_bytes(&projection.index, owner.0, owner.1).unwrap();
     Worktree::write(&git_dir, "projected", &at, &commit, &index, &projection.real_dirs).unwrap();
-    let blobs = std::sync::Arc::new(GitBlobs::new(&git_dir, projection.sources));
+    let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
     let state = dir.path().join("state");
-    let overlay = std::sync::Arc::new(
-        crate::overlay::Overlay::open(
-            std::sync::Arc::new(projection.manifest),
-            &state,
-            blobs,
-            owner,
-        )
-        .unwrap(),
+    let overlay = Arc::new(
+        crate::overlay::Overlay::open(Arc::new(projection.manifest), &state, blobs, owner).unwrap(),
     );
     let mounted = crate::mount::mount(overlay, &at).unwrap();
     assert_eq!(std::fs::read_to_string(at.join("crate/src/main.rs")).unwrap(), "fn main() {}\n");
@@ -201,7 +195,7 @@ fn registering_the_same_checkout_again_leaves_head_untouched() {
     let at = dir.path().join("mnt");
     let first = Worktree::write(&git_dir, "projected", &at, &commit, b"index", &[]).unwrap();
     let head = first.admin.join("HEAD");
-    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+    let old = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
     std::fs::File::options().write(true).open(&head).unwrap().set_modified(old).unwrap();
     Worktree::write(&git_dir, "projected", &at, &commit, b"index", &[]).unwrap();
     assert_eq!(

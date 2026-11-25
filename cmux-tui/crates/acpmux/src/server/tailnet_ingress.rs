@@ -25,7 +25,10 @@ use crate::hub::Hub;
 use crate::pairing::{DeviceAuth, Role, TICKET_HEADER};
 
 const HANDSHAKE_BOUND: Duration = Duration::from_secs(10);
-const MAX_CONNECTIONS: usize = 64;
+/// The most connections being admitted at once (LocalAPI status, whois and certificate on a
+/// blocking thread); an admitted one gives its place back.
+/// Measured: one of tokio's 512 blocking threads each for up to HANDSHAKE_BOUND (10 s).
+const MAX_ADMITTING: usize = 64;
 
 /// Serves this node's TCP 443 until `stop` is true or its sender is dropped.
 /// Each accepted stream is owner-admitted before application bytes are read.
@@ -56,7 +59,7 @@ pub async fn serve(
         },
     };
     let mut listener = tokio::io::unix::AsyncFd::new(listener)?;
-    let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let slots = Arc::new(Semaphore::new(MAX_ADMITTING));
     let mut connections = JoinSet::new();
     let (close, closing) = watch::channel(false);
     let result = loop {
@@ -106,7 +109,8 @@ pub async fn serve(
                         _ = stopped(&mut stop) => return,
                         result = tokio::time::timeout(HANDSHAKE_BOUND, prepare) => result,
                     };
-                    let Ok(Ok(Ok((tls, fqdn, _slot)))) = prepared else { return };
+                    let Ok(Ok(Ok((tls, fqdn, slot)))) = prepared else { return };
+                    drop(slot);
                     if stream.set_nonblocking(true).is_err() { return }
                     let Ok(stream) = tokio::net::UnixStream::from_std(stream) else { return };
                     let _ = connection(hub, stream, tls, &fqdn, stop, restart).await;

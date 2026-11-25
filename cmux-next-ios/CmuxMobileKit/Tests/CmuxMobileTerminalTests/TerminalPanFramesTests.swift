@@ -65,6 +65,24 @@ import Testing
         #expect(!String(decoding: line, as: UTF8.self).contains("\n"), "one line")
     }
 
+    @Test func paintedFramesGoAsBytesAndTheirAgeAtSend() throws {
+        var tally = TerminalPanFrameTally()
+        let now = ProcessInfo.processInfo.systemUptime
+        tally.painted(100, at: now - 0.050)
+        tally.painted(300, at: now - 0.010)
+        var pan = tally.take(.scrollback)
+        #expect(pan.paintedAt.map { $0.bytes } == [100, 300])
+        #expect(tally.take(.scrollback).paintedAt.isEmpty, "the next pan starts clean")
+        pan.intervalsMs = [16.67, 16.67, 16.67, 16.67]
+        pan.expectedMs = 16.67
+        let line = try #require(pan.line())
+        let object = try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        let painted = try #require(object["painted"] as? [[Double]])
+        #expect(painted.map { $0[0] } == [100, 300])
+        #expect(painted[0][1] >= 50 && painted[0][1] < 5000)
+        #expect(painted[1][1] >= 10 && painted[1][1] < painted[0][1])
+    }
+
     @Test func tooShortOrRatelessPansSendNothing() {
         #expect(TerminalPanFrames(kind: .tui, expectedMs: 8.33, intervalsMs: [8.33, 8.33]).line() == nil)
         #expect(TerminalPanFrames(kind: .tui, expectedMs: 0, intervalsMs: Array(repeating: 8.33, count: 10)).line() == nil)
