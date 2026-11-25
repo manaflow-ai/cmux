@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "backdrop.collection.live": {
+      "comment": "The wallpaper picker's group of live wallpapers: programs that move and follow the pointer.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات حية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žive pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergründe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live wallpapers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos animados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds d’écran animés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi animati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងរូបភាពផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapety na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papéis de parede animados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живые обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพื้นหลังแบบเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıtları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живі шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片"
+          }
+        }
+      }
+    },
+    "backdrop.live.attribution": {
+      "comment": "Below a live wallpaper's thumbnail when its manifest has no description.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية حية: تتحرك وتتبع المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Živa pozadina: kreće se i prati pokazivač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende baggrund: bevæger sig og følger markøren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergrund: bewegt sich und folgt dem Zeiger"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live wallpaper: moves, and follows the pointer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo animado: se mueve y sigue al puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fond d’écran animé : il bouge et suit le pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondo animato: si muove e segue il puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙：動き、ポインタに反応します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងរូបភាពផ្ទាល់៖ ផ្លាស់ទី និងតាមព្រួញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면: 움직이며 포인터를 따라갑니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende bakgrunn: beveger seg og følger pekeren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapeta na żywo: porusza się i podąża za wskaźnikiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papel de parede animado: se move e segue o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живые обои: движутся и следуют за указателем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพื้นหลังแบบเคลื่อนไหว: เคลื่อนไหวและตามตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıdı: hareket eder ve imleci izler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живі шпалери: рухаються й стежать за вказівником"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền động: chuyển động và đi theo con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸：会动，并跟随指针"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片：會動，並跟隨指標"
+          }
+        }
+      }
+    },
     "backdrop.collection.eastAsian": {"extractionState": "manual", "localizations": {"ar": {"stringUnit": {"state": "translated", "value": "الرسم الشرق آسيوي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Istočnoazijsko slikarstvo"}}, "da": {"stringUnit": {"state": "translated", "value": "Østasiatisk maleri"}}, "de": {"stringUnit": {"state": "translated", "value": "Ostasiatische Malerei"}}, "en": {"stringUnit": {"state": "translated", "value": "East Asian Painting"}}, "es": {"stringUnit": {"state": "translated", "value": "Pintura de Asia oriental"}}, "fr": {"stringUnit": {"state": "translated", "value": "Peinture d'Asie de l'Est"}}, "it": {"stringUnit": {"state": "translated", "value": "Pittura dell'Asia orientale"}}, "ja": {"stringUnit": {"state": "translated", "value": "東アジアの絵画"}}, "km": {"stringUnit": {"state": "translated", "value": "គំនូរអាស៊ីបូព៌ា"}}, "ko": {"stringUnit": {"state": "translated", "value": "동아시아 회화"}}, "nb": {"stringUnit": {"state": "translated", "value": "Østasiatisk maleri"}}, "pl": {"stringUnit": {"state": "translated", "value": "Malarstwo wschodnioazjatyckie"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Pintura do Leste Asiático"}}, "ru": {"stringUnit": {"state": "translated", "value": "Живопись Восточной Азии"}}, "th": {"stringUnit": {"state": "translated", "value": "จิตรกรรมเอเชียตะวันออก"}}, "tr": {"stringUnit": {"state": "translated", "value": "Doğu Asya Resmi"}}, "uk": {"stringUnit": {"state": "translated", "value": "Живопис Східної Азії"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hội họa Đông Á"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "东亚绘画"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "東亞繪畫"}}}},
     "backdrop.hokusai-red-fuji.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Fine Wind, Clear Morning (Red Fuji)"}}, "de": {"stringUnit": {"state": "translated", "value": "Südwind bei klarem Himmel (Roter Fuji)"}}, "fr": {"stringUnit": {"state": "translated", "value": "Vent du sud, ciel clair (Fuji rouge)"}}, "ar": {"stringUnit": {"state": "translated", "value": "ريح جنوبية وسماء صافية (فوجي الأحمر)"}}, "es": {"stringUnit": {"state": "translated", "value": "Viento del sur, cielo despejado (Fuji rojo)"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "凱風快晴（赤富士）"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "凯风快晴（赤富士）"}}, "ko": {"stringUnit": {"state": "translated", "value": "개풍쾌청 (붉은 후지)"}}, "ja": {"stringUnit": {"state": "translated", "value": "凱風快晴（赤富士）"}}, "bs": {"stringUnit": {"state": "translated", "value": "Južni vjetar, vedro jutro (Crveni Fuji)"}}, "da": {"stringUnit": {"state": "translated", "value": "Sydenvind, klar morgen (Rød Fuji)"}}, "it": {"stringUnit": {"state": "translated", "value": "Vento del sud, cielo sereno (Fuji rosso)"}}, "km": {"stringUnit": {"state": "translated", "value": "ខ្យល់ត្បូង មេឃស្រឡះ (ភ្នំហ្វូជីក្រហម)"}}, "nb": {"stringUnit": {"state": "translated", "value": "Sønnavind, klar morgen (Rød Fuji)"}}, "pl": {"stringUnit": {"state": "translated", "value": "Południowy wiatr, pogodny poranek (Czerwona Fuji)"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Vento Sul, Céu Limpo (Fuji Vermelho)"}}, "ru": {"stringUnit": {"state": "translated", "value": "Южный ветер, ясный день (Красная Фудзи)"}}, "th": {"stringUnit": {"state": "translated", "value": "ลมใต้ ฟ้าใส (ฟูจิแดง)"}}, "tr": {"stringUnit": {"state": "translated", "value": "Güney Rüzgârı, Açık Sabah (Kızıl Fuji)"}}, "uk": {"stringUnit": {"state": "translated", "value": "Південний вітер, ясна днина (Червона Фудзі)"}}, "vi": {"stringUnit": {"state": "translated", "value": "Gió nam, trời quang (Phú Sĩ đỏ)"}}}},
     "backdrop.hokusai-storm-below-fuji.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Thunderstorm beneath the Summit"}}, "de": {"stringUnit": {"state": "translated", "value": "Gewitter unterhalb des Gipfels"}}, "fr": {"stringUnit": {"state": "translated", "value": "Orage sous le sommet"}}, "ar": {"stringUnit": {"state": "translated", "value": "عاصفة رعدية تحت القمة"}}, "es": {"stringUnit": {"state": "translated", "value": "Tormenta bajo la cumbre"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "山下白雨"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "山下白雨"}}, "ko": {"stringUnit": {"state": "translated", "value": "산하백우"}}, "ja": {"stringUnit": {"state": "translated", "value": "山下白雨"}}, "bs": {"stringUnit": {"state": "translated", "value": "Oluja pod vrhom"}}, "da": {"stringUnit": {"state": "translated", "value": "Tordenvejr under tinden"}}, "it": {"stringUnit": {"state": "translated", "value": "Temporale sotto la vetta"}}, "km": {"stringUnit": {"state": "translated", "value": "ព្យុះផ្គររន្ទះក្រោមកំពូលភ្នំ"}}, "nb": {"stringUnit": {"state": "translated", "value": "Tordenvær under toppen"}}, "pl": {"stringUnit": {"state": "translated", "value": "Burza pod szczytem"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Tempestade abaixo do Cume"}}, "ru": {"stringUnit": {"state": "translated", "value": "Гроза под вершиной"}}, "th": {"stringUnit": {"state": "translated", "value": "พายุฝนฟ้าคะนองใต้ยอดเขา"}}, "tr": {"stringUnit": {"state": "translated", "value": "Zirvenin Altında Fırtına"}}, "uk": {"stringUnit": {"state": "translated", "value": "Гроза під вершиною"}}, "vi": {"stringUnit": {"state": "translated", "value": "Giông bão dưới đỉnh núi"}}}},
