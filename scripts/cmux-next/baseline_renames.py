@@ -19,6 +19,10 @@ import subprocess
 MOVED_BASELINE_PATHS = {
     "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs":
         "cmux-tui/crates/cmux-remote/src/identity.rs",
+    # The CodeRouter rip-out keeps coderouter_usage.rs's machine identity reader, minus its spend poller, as
+    # machine_identity.rs: too little of the file is left for git to call it a rename.
+    "cmux-tui/crates/cmux-tui/src/machine_identity.rs":
+        "cmux-tui/crates/cmux-tui/src/coderouter_usage.rs",
 }
 
 
