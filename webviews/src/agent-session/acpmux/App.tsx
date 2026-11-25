@@ -67,7 +67,7 @@ import { hasNativeHost, postNative } from "./native";
 import { reportToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
-import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
+import { useChatCloudEnvironment } from "./chatCloudEnvironment";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
