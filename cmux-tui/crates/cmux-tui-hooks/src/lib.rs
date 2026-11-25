@@ -55,9 +55,9 @@ mod status_conflict;
 #[cfg(unix)]
 use codex_trust::{
     CODEX_CONFIG_FILE, codex_owned_entry_keys, codex_present_expected_trust_entries,
-    codex_state_key_hooks_path, read_codex_config_text,
+    read_codex_config_text,
 };
-use codex_trust::{codex_event_state_label, codex_trust_hash};
+use codex_trust::{codex_event_state_label, codex_state_key_hooks_path, codex_trust_hash};
 use codex_trust::{
     codex_trust_state_verified, commit_codex_trust_state_or_rollback, prepare_codex_trust_state,
     snapshot_file,

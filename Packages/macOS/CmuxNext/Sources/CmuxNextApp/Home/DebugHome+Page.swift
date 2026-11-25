@@ -13,12 +13,6 @@ extension DebugHome {
                  "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
     }
 
-    /// Contacts the user has no direct conversation with.
-    static func teammatesWithoutDM(rows: [InboxRow], contacts: [HomeContact]) -> Int {
-        let peers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
-        return contacts.filter { !peers.contains($0.id) }.count
-    }
-
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
@@ -56,7 +50,7 @@ extension DebugHome {
                 return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)), "last_seq": lastSeq])
             } ?? .null,
             // Teammates with no DM yet (the search's Teammates section draws from these).
-            "teammates_without_dm": .number(Double(Self.teammatesWithoutDM(rows: store.rows, contacts: home.contacts()))),
+            "teammates_without_dm": .number(Double(HomeContact.withoutDM(home.contacts(), rows: store.rows))),
             // The open sheet (New Message, Invite, New Chief): its window number for debug.window_snapshot.
             "sheet": view?.window?.attachedSheet.map { JSONValue($0.windowNumber) } ?? .null,
             "lines": .array(lines),

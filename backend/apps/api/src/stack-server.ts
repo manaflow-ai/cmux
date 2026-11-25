@@ -26,9 +26,11 @@ export interface StackServer {
    * inference-plans.ts), null when absent or not a string. `vm_plan` is its operator Cloud grant
    * (client_read_only_metadata.cmuxVmPlan and cmuxNextVmPlan combined, readCloudVmGrant), read for Cloud machine limits only.
    * `next_plan` is its client_read_only_metadata.cmuxNextPlan (nextPlanId), reported to the Cloud service
-   * only: it never makes a team paid.
+   * only: it never makes a team paid. `chief_addon` is its client_read_only_metadata.cmuxChiefAddon (chiefAddonId),
+   * the same way, and so are `next_plan_started_at` and `next_plan_ends_at` (cmuxNextPlanStartedAt and
+   * cmuxNextPlanEndsAt, planTime).
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; next_plan?: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean; vm_personal_tenant_visible?: boolean } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; next_plan?: string | null; chief_addon?: string | null; next_plan_started_at?: string | null; next_plan_ends_at?: string | null; vm_plan?: string | null; vm_personal_tenant?: boolean; vm_personal_tenant_visible?: boolean } | null>
   /**
    * Marks a cmux VM personal tenant (server_metadata.cmuxVmPersonalTenant) for clients too: its
    * client_read_only_metadata gains cmuxVmPersonalTenant: true, every other key kept. A sign-in client lists the
@@ -44,9 +46,11 @@ export interface StackServer {
   getUserPlan(userId: string): Promise<string | null | "user_gone">
   /**
    * getUserPlan's `plan` and, from the same record read, `next_plan` (client_read_only_metadata.cmuxNextPlan,
-   * nextPlanId). Optional: a server without it is read with getUserPlan and has no next_plan.
+   * nextPlanId), `chief_addon` (client_read_only_metadata.cmuxChiefAddon, chiefAddonId) and the NEXT plan's term,
+   * `next_plan_started_at` and `next_plan_ends_at` (cmuxNextPlanStartedAt and cmuxNextPlanEndsAt, planTime). Optional:
+   * a server without it is read with getUserPlan and has none of them.
    */
-  getUserPlans?(userId: string): Promise<{ readonly plan: string | null; readonly next_plan: string | null } | "user_gone">
+  getUserPlans?(userId: string): Promise<{ readonly plan: string | null; readonly next_plan: string | null; readonly chief_addon?: string | null; readonly next_plan_started_at?: string | null; readonly next_plan_ends_at?: string | null } | "user_gone">
   /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan and cmuxNextVmPlan combined, readCloudVmGrant), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
   getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
@@ -91,10 +95,31 @@ const readOnlyPlan = (metadata: unknown): string | null => {
   return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
 }
 
-/** The cmux NEXT plan ids a `cmuxNextPlan` may carry; any other value is no NEXT plan. */
-const NEXT_PLAN_IDS: ReadonlySet<string> = new Set(["next_plus", "next_pro", "next_max"])
-/** A cmux NEXT plan id ("next_plus", "next_pro" or "next_max") exactly, else null. */
-export const nextPlanId = (value: unknown): string | null => (typeof value === "string" && NEXT_PLAN_IDS.has(value) ? value : null)
+/** The paid cmux NEXT plan ids: the only NEXT ids an operator grant (`cmuxNextVmPlan`) may carry. */
+const NEXT_PAID_PLAN_IDS: ReadonlySet<string> = new Set(["next_plus", "next_pro", "next_max"])
+/**
+ * The cmux NEXT entry plans (RFD 0052): `next_intro` (the 30-day pass) and `next_taste` (the free week). A record holds
+ * one in `cmuxNextPlan` with its term (cmuxNextPlanStartedAt, cmuxNextPlanEndsAt); the Cloud service enforces the term.
+ * They are never paid, never change the model router's limits, never a grant, and rank below every paid plan
+ * (cloud-vm-plan.ts grantRank answers 0).
+ */
+const NEXT_ENTRY_PLAN_IDS: ReadonlySet<string> = new Set(["next_intro", "next_taste"])
+/** A paid cmux NEXT plan id ("next_plus", "next_pro" or "next_max") exactly, else null. */
+export const nextPaidPlanId = (value: unknown): string | null => (typeof value === "string" && NEXT_PAID_PLAN_IDS.has(value) ? value : null)
+/** A cmux NEXT plan id a `cmuxNextPlan` may carry (a paid one, or an entry plan: "next_intro", "next_taste") exactly, else null. */
+export const nextPlanId = (value: unknown): string | null => (typeof value === "string" && (NEXT_PAID_PLAN_IDS.has(value) || NEXT_ENTRY_PLAN_IDS.has(value)) ? value : null)
+
+/** An ISO 8601 time with a date, hours and minutes, and a zone (Z or an offset); other formats are not read. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/
+/**
+ * A NEXT plan's start or end (cmuxNextPlanStartedAt, cmuxNextPlanEndsAt) as written, when it is a parseable ISO time
+ * with a zone; anything else (absent, not a string, another format, an out-of-range month or hour) is null. Only checked here:
+ * the Cloud service enforces the term (no valid start: an entry plan grants nothing).
+ */
+export const planTime = (value: unknown): string | null => {
+  if (typeof value !== "string" || value.length > 40 || !ISO_TIME.test(value)) return null
+  return Number.isFinite(Date.parse(value)) ? value : null
+}
 
 /**
  * `cmuxNextPlan` from client_read_only_metadata only (as readOnlyPlan): the record's cmux NEXT plan, for
@@ -103,6 +128,40 @@ export const nextPlanId = (value: unknown): string | null => (typeof value === "
 const readOnlyNextPlan = (metadata: unknown): string | null => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
   return nextPlanId((metadata as Record<string, unknown>).cmuxNextPlan)
+}
+
+/**
+ * The Cloud Chief add-on sizes a `cmuxChiefAddon` may carry (cmuxterm-hq docs/rfd/0037-cloud-chief-pricing.md):
+ * M, L or XL. The Cloud service reads it as is (cmux-platform Plan.ts chiefSizeOf); no add-on is the included Chief.
+ */
+const CHIEF_ADDON_IDS: ReadonlySet<string> = new Set(["M", "L", "XL"])
+/**
+ * A Chief add-on ("M", "L" or "XL"), read as the Cloud service reads it: trimmed, any case, an optional `chief_` or
+ * `chief-` prefix; any other value is no add-on (null), never a size.
+ */
+export const chiefAddonId = (value: unknown): string | null => {
+  if (typeof value !== "string") return null
+  const name = value.trim().toUpperCase().replace(/^CHIEF[_-]/, "")
+  return CHIEF_ADDON_IDS.has(name) ? name : null
+}
+
+/**
+ * `cmuxChiefAddon` from client_read_only_metadata only (as readOnlyNextPlan): the record's Cloud Chief add-on, for
+ * the Cloud service. It never feeds `paid` or the model router's limits.
+ */
+const readOnlyChiefAddon = (metadata: unknown): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  return chiefAddonId((metadata as Record<string, unknown>).cmuxChiefAddon)
+}
+
+/**
+ * The NEXT plan's term from client_read_only_metadata only (as readOnlyNextPlan): `next_plan_started_at`
+ * (cmuxNextPlanStartedAt) and `next_plan_ends_at` (cmuxNextPlanEndsAt), each planTime. For the Cloud service only.
+ */
+const readOnlyNextPlanTerm = (metadata: unknown): { next_plan_started_at: string | null; next_plan_ends_at: string | null } => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return { next_plan_started_at: null, next_plan_ends_at: null }
+  const m = metadata as Record<string, unknown>
+  return { next_plan_started_at: planTime(m.cmuxNextPlanStartedAt), next_plan_ends_at: planTime(m.cmuxNextPlanEndsAt) }
 }
 
 /**
@@ -126,7 +185,8 @@ export const readVmPlanOverride = (metadata: unknown): string | null => {
 const readNextVmPlanOverride = (metadata: unknown): string | null => {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
   const value = (metadata as Record<string, unknown>).cmuxNextVmPlan
-  return typeof value === "string" ? nextPlanId(value.trim().toLowerCase()) : null
+  // A paid NEXT id only: an entry plan is never a grant (it would read as a restriction, grantRank 0).
+  return typeof value === "string" ? nextPaidPlanId(value.trim().toLowerCase()) : null
 }
 
 /**
@@ -234,7 +294,7 @@ export const stackServer = (
       // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
       const meta = r.server_metadata
       const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
-      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), next_plan: readOnlyNextPlan(r.client_read_only_metadata), vm_plan: readCloudVmGrant(r.client_read_only_metadata), vm_personal_tenant, vm_personal_tenant_visible: vmTenantVisible(r.client_read_only_metadata) }
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), next_plan: readOnlyNextPlan(r.client_read_only_metadata), chief_addon: readOnlyChiefAddon(r.client_read_only_metadata), ...readOnlyNextPlanTerm(r.client_read_only_metadata), vm_plan: readCloudVmGrant(r.client_read_only_metadata), vm_personal_tenant, vm_personal_tenant_visible: vmTenantVisible(r.client_read_only_metadata) }
     },
     markVmPersonalTenantVisible: async (teamId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown; server_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
@@ -253,7 +313,7 @@ export const stackServer = (
     },
     getUserPlans: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
-      return isGone(r) ? "user_gone" : { plan: readOnlyPlan(r.client_read_only_metadata), next_plan: readOnlyNextPlan(r.client_read_only_metadata) }
+      return isGone(r) ? "user_gone" : { plan: readOnlyPlan(r.client_read_only_metadata), next_plan: readOnlyNextPlan(r.client_read_only_metadata), chief_addon: readOnlyChiefAddon(r.client_read_only_metadata), ...readOnlyNextPlanTerm(r.client_read_only_metadata) }
     },
     getUserVmPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])

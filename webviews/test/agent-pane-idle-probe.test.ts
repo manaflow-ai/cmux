@@ -57,7 +57,7 @@ test("a probe counts host pushes by method and puts the transport's receive back
   const frame = (update: string) =>
     JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: update } } });
   transport.receive({ connection: 1, frames: [frame("usage_update"), frame("usage_update"), '{"id":3,"result":{}}'] });
-  const result = (await running) as { pushes: { site: string; count: number }[] };
+  const result = (await running) as { pushes: { site: string; count: number; sample: string }[] };
   expect(result.pushes).toEqual([
     { site: "session/update usage_update", count: 2, sample: "" },
     { site: "reply", count: 1, sample: "" },

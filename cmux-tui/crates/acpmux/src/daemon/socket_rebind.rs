@@ -46,6 +46,10 @@ pub(super) async fn serve(
 ) -> anyhow::Result<()> {
     let mut serving =
         tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
+    // The accept loop ends with this task: a daemon that handed its listener over aborts this
+    // task to stop accepting (`daemon/listener_handover.rs`), and an accept loop left running
+    // would take connects from the queue the next daemon serves and close them unanswered.
+    let mut _accepting = super::stop_causes::AbortOnDrop(serving.abort_handle());
     loop {
         tokio::select! {
             served = &mut serving => return served?,
@@ -54,6 +58,7 @@ pub(super) async fn serve(
                     serving.abort();
                     let _ = (&mut serving).await;
                     serving = tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
+                    _accepting = super::stop_causes::AbortOnDrop(serving.abort_handle());
                 }
                 None => return serving.await?,
             },

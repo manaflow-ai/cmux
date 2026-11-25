@@ -179,8 +179,13 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       "agent-tools-browser-program-cmux-browser-host",
       "agent-tools-display-wm-apt-fetch",
       "agent-tools-display-wm-apt-install",
+      "agent-tools-browser-path",
       "agent-tools-browser-lists",
     ]);
+    // An agent's `chromium --headless` finds the baked Chrome on PATH.
+    const browserPath = phases.find((p) => p.name === "agent-tools-browser-path")!.command;
+    for (const name of ["chromium", "chromium-browser", "google-chrome"]) expect(browserPath).toContain(`/usr/local/bin/${name}`);
+    expect(browserPath).toContain(rolesManifest(lock).roles.browser!.env.CMUX_BROWSER_HOST_CHROMIUM!);
     // The desktop session's closure, pinned from the lock like the browser's: each .deb by its locked sha256.
     const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-fetch")!.command;
     for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(lock.apt.ubuntu.debs[`${name}=${version}`]!.sha256);
@@ -318,6 +323,16 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const catalog = ["status", "list_machines", "list_apps", "list_windows", "screenshot", "get_ui_tree", "click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait", "batch", "launch_app", "request_permission"];
     expect(videoToolProblems(catalog)).toEqual([]);
     expect(videoToolProblems([...catalog, "install_ffmpeg", "start_recording", "screen_video"])).toEqual(["lists install_ffmpeg", "lists start_recording", "lists screen_video"]);
+  });
+
+  test("probe: the record tool (#50070) passes only when a call to it was refused for want of an H.264 encoder", () => {
+    const tools = ["status", "screenshot", "record"];
+    expect(videoToolProblems(tools)).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: this desktop has no H.264 encoder, so it cannot record the screen yet" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: the host has no H.264 encoder for recordings" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: false, text: '{"path":"/tmp/r.mp4"}' })).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "screen is locked" })).toEqual(["lists record"]);
+    expect(videoToolProblems([...tools, "start_recording"], { isError: true, text: "unsupported: no H.264 encoder" })).toEqual(["lists start_recording"]);
   });
 
   test("probe: the worker check parses and reads the worker by its hidden mode, never its own pgrep line", async () => {
@@ -990,5 +1005,17 @@ describe("refusedFirstUsePackages", () => {
     expect(refused).not.toContain("xterm");
     expect(refused).toContain("ffmpeg");
     expect(refused).toEqual(all.filter((name) => !(name in closures.browser) && !(name in closures["display-wm"])));
+  });
+});
+
+describe("image tools (bc, browser on PATH)", () => {
+  test("the profile exports the baked browser and the bake links and runs it headless", async () => {
+    const m = await import("../scripts/cmux-vm-image/agent-tools");
+    expect(m.agentToolsProfileScript("/opt/x/chrome")).toContain("export CHROME_BIN=/opt/x/chrome");
+    expect(m.agentToolsProfileScript()).not.toContain("CHROME_BIN");
+    const cmd = m.browserLinkCommand("/opt/x/chrome");
+    for (const l of m.BROWSER_LINKS) expect(cmd).toContain(l);
+    expect(cmd).toContain("--headless=new");
+    expect(m.imageToolsSmokeCommand()).toContain("bc");
   });
 });

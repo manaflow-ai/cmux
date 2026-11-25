@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 import CmuxNextDaemonService
 import CmuxNextPages
@@ -111,8 +112,14 @@ final class ChiefViewsPageProvider: PageProvider {
 
     /// The dashboard's address: the environment's, else the one the person set.
     var fleetURL: URL? {
-        if let text = host.environment[Self.fleetURLEnvironment], let url = ChiefViewsFeeds.validFleetURL(text) { return url }
-        return host.defaults.string(forKey: Self.fleetURLKey).flatMap(ChiefViewsFeeds.validFleetURL)
+        let url: URL?
+        if let text = host.environment[Self.fleetURLEnvironment], let valid = ChiefViewsFeeds.validFleetURL(text) {
+            url = valid
+        } else {
+            url = host.defaults.string(forKey: Self.fleetURLKey).flatMap(ChiefViewsFeeds.validFleetURL)
+        }
+        CmuxEgress.allowNamed(url)   // the dashboard address the person set
+        return url
     }
 
     private func fleet() async throws -> JSONValue {
@@ -206,7 +213,7 @@ final class ChiefViewsPageProvider: PageProvider {
         if url.host == "api.github.com" {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextChiefViews.ChiefViewsPageProvider").data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }

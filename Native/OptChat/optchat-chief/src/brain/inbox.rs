@@ -56,6 +56,9 @@ impl Brain {
                         }
                         self.state.awaiting.clear();
                         self.state.stopped_reply = None;
+                        // The guard counts per conversation (budget_hold.rs).
+                        self.guard_rows.clear();
+                        self.state.budget_hold = false;
                     }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
@@ -268,6 +271,7 @@ impl Brain {
         if message.author == self.settings.membership.participant {
             self.mux_messages.insert(message.id.clone());
         }
+        self.guard_row(&message);
         if self.daemon.is_none() || message.seq <= self.handled {
             return;
         }
@@ -320,6 +324,11 @@ impl Brain {
                 }
                 self.summary = Some(summary);
                 self.handled = from;
+                // The guard's count from what the snapshot holds (a host that
+                // starts with the guard closed holds at once, budget_hold.rs).
+                for m in messages.iter().chain(pending.iter()) {
+                    self.guard_row(m);
+                }
                 // A deletion made while the brain was not listening (a restart,
                 // a lost connection): the newest page's retracted messages go
                 // through the live path, which writes each one once.

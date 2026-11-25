@@ -80,7 +80,7 @@ final class SettingsWindowService: InternalPageProvider {
             }
             return
         }
-        let route = pageRoute ?? Self.route(section: target, setting: setting)
+        let route = pageRoute ?? SettingsDeepLink.route(section: target, setting: setting)
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
         if focus, let window = services.windows.active { revealSettingsTab(of: window) }
@@ -146,19 +146,6 @@ final class SettingsWindowService: InternalPageProvider {
         TopPages.show(pageRoute, services: services, in: window.state)
         if let route, let page = (window.topPages.views[pageRoute] as? InternalPageView)?.content as? PageWebView,
            page.route != route { page.open(route: route) }
-    }
-
-    /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
-    /// anchor opens its section.
-    /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
-    /// it opens Settings on the default page (the page hides the category the same way).
-    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isEnabled) -> String? {
-        if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
-            guard descriptor.section != .development || devBuild else { return nil }
-            return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
-        }
-        guard let section, section != .development || devBuild else { return nil }
-        return "#/settings/\(section.rawValue)"
     }
 
     // MARK: InternalPageProvider

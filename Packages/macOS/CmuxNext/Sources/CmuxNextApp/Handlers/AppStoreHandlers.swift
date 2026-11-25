@@ -11,6 +11,7 @@ enum AppStoreHandlers {
         let services = context.services
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
+        CustomizeTryOnPage.bindRevert(into: registry, cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, window: { [weak services] in services?.windows.active?.window })
         // Hidden until it is ready (`showsAppStore`, Labs): off in the palette, menus, keys, CLI and MCP.
         registry.addSettingOffReason(["appStore.show", "appStore.showInstalled"]) { [weak services] in services?.settings?.snapshot.showsAppStore == true ? nil : CmuxConfigSnapshot.appStoreHiddenReason }
         // `category` (cmux's features) is still accepted and ignored: those are Settings now.
@@ -18,9 +19,7 @@ enum AppStoreHandlers {
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
             services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreTab.init(argument:)), focus: invocation.allowsViewChange)
         })
-        registry.bind("appStore.showInstalled", invoke: { invocation in
-            services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
-        })
+        registry.bind("appStore.showInstalled", invoke: { invocation in services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange) })
         // Hide and unhide (V9): apps-set hidden with the invocation's origin (the supervisor decides); the app keeps running.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
             registry.bind(id, run: { invocation in

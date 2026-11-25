@@ -944,8 +944,26 @@ async fn a_scripts_claude_chat_starts_cold_without_suggestions_and_leaves_the_wa
             .map(|v| v == "true")
             .collect::<Vec<_>>()
     };
+    // `session/new` returns before the harness's `initialize` (a deferred start): its line is
+    // waited for, bounded, never read once at once (an empty read was this test's red).
+    let settled = |pid: i64| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let got = asked(pid);
+            if !got.is_empty() || std::time::Instant::now() > deadline {
+                let log = std::fs::read_to_string(&init_log).unwrap_or_default();
+                return (got, log);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
     let script_pid = harness_pid(&scripts);
-    assert_eq!(asked(script_pid), [false], "the script's Claude Code asked for suggestions");
+    let (got, log) = settled(script_pid);
+    assert_eq!(
+        got,
+        [false],
+        "the script's Claude Code asked for suggestions (pid {script_pid}; log {log:?})"
+    );
 
     // The person's chat takes the warm one, which asked for them.
     let mut person = daemon.rpc().await;
@@ -953,7 +971,13 @@ async fn a_scripts_claude_chat_starts_cold_without_suggestions_and_leaves_the_wa
     let (persons, _) = new_session(&mut person, &home, "fakeb").await;
     assert!(taken(&daemon, &persons), "the person's chat started cold");
     assert_runs_on_pooled_host(&daemon, &persons, &pooled);
-    assert_eq!(asked(harness_pid(&persons)), [true], "the person's Claude Code had no suggestions");
+    let person_pid = harness_pid(&persons);
+    let (got, log) = settled(person_pid);
+    assert_eq!(
+        got,
+        [true],
+        "the person's Claude Code had no suggestions (pid {person_pid}; log {log:?})"
+    );
     let _ = std::fs::remove_file(&init_log);
 }
 
@@ -1935,6 +1959,69 @@ async fn a_spare_whose_agent_died_is_replaced() {
         assert!(Instant::now() < deadline, "the dead spare was not replaced: {pids:?}");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// `with_spare` on a daemon that holds the person key: a connection that proves it is the
+/// person's (`Rpc::prove`), an unproven one is a script's.
+impl Daemon {
+    fn with_spare_proven(tag: &str) -> Self {
+        Self::with_all(tag, 0, &profile("b"), None, true, true)
+    }
+}
+
+/// The pool's entries with the spare role (`_acpmux/status` `pool`).
+async fn spare_entries(rpc: &mut Rpc) -> Vec<Value> {
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    status["pool"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["roles"].as_array().is_some_and(|r| r.iter().any(|r| r == "spare")))
+        .cloned()
+        .collect()
+}
+
+/// A spare gone while the person was away (idled out after `pool.spareIdleMinutes`, or drained,
+/// here by a config reload) starts again on the person's next request, never on a script's, and
+/// is never wanted twice while it warms or is ready.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spare_gone_while_the_person_was_away_starts_again_when_they_are_back() {
+    let daemon = Daemon::with_spare_proven("sprp");
+    let home = daemon.home.clone();
+    let mut script = daemon.rpc().await;
+    new_session(&mut script, &home, "fakeb").await;
+    wait_spare_ready(&mut script, "fakeb").await;
+    // Every pooled entry ends at a config reload, the spare too, as at its idle exit.
+    script.call("_acpmux/reload_config", json!({})).await;
+    assert!(spare_entries(&mut script).await.is_empty(), "the reload drained the spare");
+
+    // A script's requests are no person: nothing starts.
+    for _ in 0..5 {
+        script.call("_acpmux/status", json!({})).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(spare_entries(&mut script).await.is_empty(), "a script's request starts no spare");
+
+    // The person's first request wants it again; a burst while it warms wants it once.
+    let mut person = daemon.rpc().await;
+    person.prove().await;
+    for _ in 0..20 {
+        person.call("_acpmux/status", json!({})).await;
+    }
+    let status = wait_spare_ready(&mut person, "fakeb").await;
+    let spares = spare_entries(&mut person).await;
+    assert_eq!(spares.len(), 1, "one spare: {status}");
+    for _ in 0..20 {
+        person.call("_acpmux/status", json!({})).await;
+    }
+    tokio::time::sleep(Duration::from_millis(INIT_MS + NEW_MS)).await;
+    assert_eq!(spare_entries(&mut person).await.len(), 1, "a ready spare is not wanted again");
+    assert_eq!(daemon.pool_records().len(), 1, "one pooled host: {:?}", daemon.pool_records());
+    // The spare has the shape of the session that made it (the script's here, as in
+    // `a_restarted_daemon_starts_a_spare_for_a_harness_it_used`): a session of that shape takes it.
+    let (next, _) = new_session(&mut script, &home, "fakeb").await;
+    assert!(taken(&daemon, &next), "the next session of its shape took the re-wanted spare");
 }
 
 #[tokio::test(flavor = "multi_thread")]

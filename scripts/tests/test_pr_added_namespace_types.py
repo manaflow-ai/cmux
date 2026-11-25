@@ -12,14 +12,18 @@ SCRIPT = ROOT / 'scripts/ci/pr_added_namespace_types.py'
 spec = importlib.util.spec_from_file_location('pr_added_namespace_types', SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location('git_fixture_env', ROOT / 'tests' / 'git_fixture_env.py')
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ENUM = 'public enum Stages {\n    public static let a = 1\n}\n'
 STRUCT = 'public struct Stages {\n    public init() {}\n    public static let a = 1\n}\n'
 
 
 def git(cwd, *args):
-    env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t',
-               GIT_COMMITTER_EMAIL='t@t')
+    env = git_fixture_env.fixture_env(dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t',
+               GIT_COMMITTER_EMAIL='t@t'))
     return subprocess.run(('git', *args), cwd=cwd, check=True, capture_output=True, text=True, env=env).stdout
 
 
@@ -29,7 +33,7 @@ class Repo:
     def __init__(self, base_files, pr_files, rewrite):
         self.dir = tempfile.TemporaryDirectory()
         d = self.path = self.dir.name
-        git(d, 'init', '-q', '-b', 'base')
+        git_fixture_env.init_repo(d, '-b', 'base')
         self.write({'Packages/README': 'x\n', **base_files})
         git(d, 'add', '-A')
         git(d, 'commit', '-q', '-m', 'base')

@@ -190,6 +190,7 @@ impl Brain {
                 let Ok(Some(start)) = start.recv() else {
                     return;
                 };
+                let engine = start.engine_override.clone().unwrap_or(engine);
                 let outcome = match &engine {
                     Engine::Acpmux => {
                         let progress = |session_id: &str, after: u64| {
@@ -384,6 +385,7 @@ impl Brain {
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
+        self.turn_from_automation = items.iter().any(super::automations::is_automation_note);
         // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
@@ -397,7 +399,21 @@ impl Brain {
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.harness_presets(&engine.harness, family);
+        let engine_override = self.gateway.as_ref().and_then(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+            .then(|| self.fallback_engine.clone())
+            .flatten()
+        });
+        self.turn_gateway_fallback = engine_override.is_some();
+        let (cached, plain_preset) = if engine_override.is_some() {
+            (None, None)
+        } else {
+            self.harness_presets(&engine.harness, family)
+        };
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
@@ -582,6 +598,24 @@ impl Brain {
         // every turn, so a file saved in the last turn holds in this one.
         // In another person's turn, only the open loops.
         let (memory, memory_seen) = self.turn_memory_block();
+        // The Cloud computer the owner attached (engine.json `computer`, read
+        // now like the turn's engine): one line, never in the cached prompt.
+        let computer = self
+            .settings
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .as_ref()
+            .and_then(crate::engine::computer_line);
+        // What to check at this turn's start and end (chief_kernel::TURN_CHECKS)
+        // and the user's turn-start digest (`chief.turnStart`, turn_start.rs,
+        // bounded at 8 s): last, after the delta, so the cached prefix is unchanged
+        // and the checks are the newest words the turn reads.
+        let checks = Some(format!(
+            "<turn-checks>\n{}\n</turn-checks>",
+            chief_kernel::TURN_CHECKS.trim()
+        ));
+        let turn_start = crate::turn_start::block();
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = now
             .iter()
@@ -589,8 +623,11 @@ impl Brain {
             .chain(at_work.iter())
             .chain(open_items.iter())
             .chain(held_news.iter())
+            .chain(computer.iter())
             .chain(home.iter())
             .chain(resumes.iter())
+            .chain(turn_start.iter())
+            .chain(checks.iter())
             .cloned()
             .collect();
         // Spec 5a: the frozen view and the delta after it (this turn's new
@@ -772,6 +809,9 @@ impl Brain {
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
+        if let Some(line) = &computer {
+            layout["computer"] = serde_json::json!(line);
+        }
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
         }
@@ -847,6 +887,8 @@ impl Brain {
             keep,
             retire,
             permission_mode: permission_mode.map(str::to_owned),
+            gateway: self.gateway.clone(),
+            engine_override,
         })
     }
 
@@ -993,6 +1035,9 @@ impl Brain {
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
         self.taint_approval(items);
+        if items.iter().any(super::automations::is_automation_note) {
+            self.turn_from_automation = true;
+        }
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -1481,6 +1526,25 @@ impl Brain {
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
         self.price_unpriced(&mut outcome);
+        let claude_turn = self
+            .turn_engine
+            .as_ref()
+            .is_some_and(|engine| self.family_of(&engine.harness) == crate::acpmux::Family::Claude);
+        if claude_turn
+            && !self.turn_gateway_fallback
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::gateway::is_refusal)
+            && let Some(gateway) = &self.gateway
+        {
+            let _ = gateway.record_refusal(key, outcome.error.as_deref().unwrap_or_default());
+        }
+        if let Some(gateway) = &self.gateway
+            && let Some(text) = gateway.take_notice()
+        {
+            self.notice("gateway-wide".into(), text);
+        }
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.

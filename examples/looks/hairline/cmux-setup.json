@@ -7,6 +7,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/hairline",
+  "screenshots": ["screenshots/hairline-dark.png", "screenshots/hairline-light.png"],
 
   "cmuxProfile": 1,
   "settings": {

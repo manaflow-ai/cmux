@@ -601,7 +601,7 @@ final class TranscriptDocumentView: NSView {
     }
     override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: hostPoint(event))) }
 }
 
 /// The overlay scroller over a paged history: knob position and length come

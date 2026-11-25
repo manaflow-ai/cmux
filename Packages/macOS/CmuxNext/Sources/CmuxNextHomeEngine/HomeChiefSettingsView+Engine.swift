@@ -15,6 +15,8 @@ extension HomeChiefSettingsView {
         let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
+            // The automations come in their own read, so a slow engine read never holds them.
+            self?.refreshAutomations()
             // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
             if let self, source.isLocal { listedHarnesses = await listHarnesses() }
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
@@ -94,6 +96,8 @@ extension HomeChiefSettingsView {
     /// The card closed: a note about a change is said and seen, so the next open starts clear. A
     /// picture's note, set after its open panel closed the card, waits for the next open.
     func cardClosed() {
+        vault.close()
+        connections.close()
         guard changeFailed else { return }
         hideNote(resize: false)
     }
@@ -120,6 +124,7 @@ extension HomeChiefSettingsView {
              defaultTitle: HomeEngineStrings.defaultValue)
         if let row = speed.superview, row.isHidden == shown.offersFast { row.isHidden = !shown.offersFast }
         reactionRows.show(snapshot)
+        showComputer(snapshot.computer)
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""
@@ -182,7 +187,7 @@ extension HomeChiefSettingsView {
     }
 
     /// The pickers, in the card's order.
-    var pickers: [NSPopUpButton] { [harness, model, effort, speed] }
+    var pickers: [NSPopUpButton] { [harness, model, effort, speed, computerPicker] }
 
     /// The rows' items for `snapshot`, with this harness's recent models.
     func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {
