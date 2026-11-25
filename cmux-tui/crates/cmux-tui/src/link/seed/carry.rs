@@ -67,11 +67,8 @@ fn pack_with_filter(
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("cannot run git: {error}"))?;
     let input = format!("--shallow {base}\n{base}\n");
-    let wrote = child
-        .stdin
-        .take()
-        .map(|mut stdin| stdin.write_all(input.as_bytes()))
-        .unwrap_or(Ok(()));
+    let wrote =
+        child.stdin.take().map(|mut stdin| stdin.write_all(input.as_bytes())).unwrap_or(Ok(()));
     let done = child.wait_with_output().map_err(|error| format!("cannot run git: {error}"))?;
     if !done.status.success() || wrote.is_err() {
         let _ = std::fs::remove_file(out);
