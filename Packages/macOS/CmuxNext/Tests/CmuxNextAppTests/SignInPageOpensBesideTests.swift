@@ -89,6 +89,10 @@ struct SignInPageOpensBesideTests {
             let other = try #require(codePane.pane.tabs.first { !ProvisionalTab.isProvisional(surface: $0.surface) })
             // A closed loopback port: the page never loads, and nothing leaves the machine.
             let code = try await connection.newFrontendBrowserTab(url: "http://127.0.0.1:9/accounts", engine: .webkit, in: codePane.pane.handle, activate: true)
+            // The daemon's reply does not select the tab here (fleet Mac, 2026-11-25: listed, never selected), so the
+            // test picks it, as a person on the code's page has.
+            try await PinnedPageTests.until({ codePane.pane.tabs.contains { $0.surface == code.surface } }, report: { "the code's page is not listed: " + Self.describe(content) })
+            if let listed = codePane.pane.tabs.first(where: { $0.surface == code.surface }) { codePane.select(TabID(listed.id)) }
             try await PinnedPageTests.until({ codePane.selectedTab?.surface == code.surface }, report: { "the code's page is not shown: " + Self.describe(content) })
             PaneHandlers.focus(codePane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === codePane })
