@@ -44,7 +44,7 @@ final class ErrorJournalService {
         if appAcpmux.standardizedFileURL != chiefAcpmuxLog?.standardizedFileURL {
             sources.append(LogFileErrorSource(url: appAcpmux, source: "acpmux-app"))
         }
-        return ErrorJournalService(journal: ErrorJournal(directory: directory(bundleID: environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")),
+        return ErrorJournalService(journal: ErrorJournal(directory: directory(bundleID: environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next")),
                                    sources: sources)
     }
 }
