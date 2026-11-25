@@ -1,0 +1,212 @@
+//! Chrome trace (Perfetto) output for the daemon's spans: set `CMUX_TRACE_FILE=<path>` and each
+//! closed `tracing` span becomes one complete event (`"ph":"X"`) in a JSON array that
+//! ui.perfetto.dev and chrome://tracing open. A span's `trace_id` field (one id per user action,
+//! carried from the phone or the Mac through the hub into acpmux) is kept in `args`, and a child
+//! span without one inherits its parent's, so one action's steps line up end to end.
+//! Off when the variable is unset: no layer, no cost.
+
+use std::io::Write;
+use std::sync::Mutex;
+use std::time::Instant;
+
+use tracing::span::{Attributes, Id, Record};
+use tracing::Subscriber;
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::Layer;
+
+/// Writes one JSON event per closed span. Perfetto reads the array without its closing `]`,
+/// so a killed daemon still leaves a readable trace.
+pub struct PerfTraceLayer<W: Write + Send + 'static> {
+    out: Mutex<W>,
+    start: Instant,
+    pid: u32,
+}
+
+struct Timing {
+    opened: Instant,
+    args: serde_json::Map<String, serde_json::Value>,
+}
+
+struct Fields<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
+
+impl tracing::field::Visit for Fields<'_> {
+    fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+        self.0.insert(f.name().into(), format!("{v:?}").into());
+    }
+    fn record_str(&mut self, f: &tracing::field::Field, v: &str) {
+        self.0.insert(f.name().into(), v.into());
+    }
+    fn record_u64(&mut self, f: &tracing::field::Field, v: u64) {
+        self.0.insert(f.name().into(), v.into());
+    }
+    fn record_i64(&mut self, f: &tracing::field::Field, v: i64) {
+        self.0.insert(f.name().into(), v.into());
+    }
+}
+
+impl<W: Write + Send + 'static> PerfTraceLayer<W> {
+    pub fn new(mut out: W) -> Self {
+        let _ = out.write_all(b"[\n");
+        Self { out: Mutex::new(out), start: Instant::now(), pid: std::process::id() }
+    }
+}
+
+/// The trace file, shared by the span layer and the tool-call events (`note_tool_record`).
+#[derive(Clone)]
+pub struct SharedFile(std::sync::Arc<Mutex<std::io::BufWriter<std::fs::File>>>);
+
+impl Write for SharedFile {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().map_err(|_| std::io::ErrorKind::Other)?.write(b)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.lock().map_err(|_| std::io::ErrorKind::Other)?.flush()
+    }
+}
+
+/// Set once when tracing is on: where tool-call events go, and the trace's time zero.
+static TOOL_SINK: std::sync::OnceLock<(Mutex<Box<dyn Write + Send>>, Instant)> =
+    std::sync::OnceLock::new();
+
+/// The layer for `CMUX_TRACE_FILE`, or None when it is unset or cannot be created.
+pub fn from_env() -> Option<PerfTraceLayer<SharedFile>> {
+    let path = std::env::var_os("CMUX_TRACE_FILE")?;
+    let file = std::fs::File::create(path).ok()?;
+    let shared = SharedFile(std::sync::Arc::new(Mutex::new(std::io::BufWriter::new(file))));
+    let layer = PerfTraceLayer::new(shared.clone());
+    let _ = TOOL_SINK.set((Mutex::new(Box::new(shared)), layer.start));
+    Some(layer)
+}
+
+/// Open tool calls by (session, toolCallId): when each started, and its kind and title.
+static OPEN_TOOLS: std::sync::LazyLock<
+    Mutex<std::collections::HashMap<(String, String), (Instant, String, String)>>,
+> = std::sync::LazyLock::new(Default::default);
+
+fn field<'a>(msg: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    msg.get(key)
+        .or_else(|| msg.pointer(&format!("/params/{key}")))
+        .or_else(|| msg.pointer(&format!("/params/update/{key}")))
+        .or_else(|| msg.pointer(&format!("/update/{key}")))
+}
+
+/// One journal record of a session: a `tool_call` opens a timer, its terminal
+/// `tool_call_update` closes it and writes one `tool` event (kind, title, status, session) to the
+/// trace. Nothing at all when tracing is off. This is how long each tool call took as acpmux saw
+/// it, the baseline for owning the tool transport (batching, caching, collapsing calls).
+pub fn note_tool_record(session: &str, kind: &str, msg: &serde_json::Value) {
+    let Some((sink, zero)) = TOOL_SINK.get() else { return };
+    note_tool_record_into(sink, *zero, session, kind, msg);
+}
+
+fn note_tool_record_into(
+    sink: &Mutex<Box<dyn Write + Send>>,
+    zero: Instant,
+    session: &str,
+    kind: &str,
+    msg: &serde_json::Value,
+) {
+    let Some(id) = field(msg, "toolCallId").and_then(|v| v.as_str()) else { return };
+    let key = (session.to_owned(), id.to_owned());
+    let text = |k: &str| field(msg, k).and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+    let status = text("status");
+    let terminal = matches!(
+        status.as_str(),
+        "completed" | "failed" | "cancelled" | "canceled" | "done"
+    );
+    let Ok(mut open) = OPEN_TOOLS.lock() else { return };
+    if kind == "tool_call" && !terminal {
+        open.entry(key).or_insert_with(|| (Instant::now(), text("kind"), text("title")));
+        return;
+    }
+    if kind != "tool_call_update" && kind != "tool_call" || !terminal {
+        return;
+    }
+    let Some((started, tool_kind, title)) = open.remove(&key) else { return };
+    drop(open);
+    let event = serde_json::json!({
+        "name": format!("tool:{}", if tool_kind.is_empty() { "other" } else { &tool_kind }),
+        "cat": "tool",
+        "ph": "X",
+        "ts": started.saturating_duration_since(zero).as_micros() as u64,
+        "dur": started.elapsed().as_micros() as u64,
+        "pid": std::process::id(),
+        "tid": 0,
+        "args": { "session": session, "toolCallId": id, "title": title, "status": status },
+    });
+    if let Ok(mut out) = sink.lock() {
+        let _ = writeln!(out, "{event},");
+        let _ = out.flush();
+    }
+}
+
+/// The caller's end-to-end id on a request: `params._meta.traceId` (the Mac and the phone mint
+/// one per user action and send it on every request that action makes).
+pub fn trace_id_of(params: Option<&serde_json::Value>) -> Option<&str> {
+    params?.get("_meta")?.get("traceId")?.as_str().filter(|t| !t.is_empty() && t.len() <= 128)
+}
+
+/// The span one RPC request runs in; its `trace_id` is empty when the caller sent none.
+pub fn request_span(method: &str, params: Option<&serde_json::Value>) -> tracing::Span {
+    tracing::info_span!("rpc", method = method, trace_id = trace_id_of(params).unwrap_or(""))
+}
+
+fn thread_id() -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    std::thread::current().id().hash(&mut h);
+    h.finish() % 100_000
+}
+
+impl<S, W> Layer<S> for PerfTraceLayer<W>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    W: Write + Send + 'static,
+{
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else { return };
+        let mut args = serde_json::Map::new();
+        attrs.record(&mut Fields(&mut args));
+        if !args.contains_key("trace_id") {
+            if let Some(parent) = span.parent() {
+                if let Some(v) = parent.extensions().get::<Timing>().and_then(|t| t.args.get("trace_id")) {
+                    args.insert("trace_id".into(), v.clone());
+                }
+            }
+        }
+        span.extensions_mut().insert(Timing { opened: Instant::now(), args });
+    }
+
+    fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
+        if let Some(span) = ctx.span(id) {
+            if let Some(t) = span.extensions_mut().get_mut::<Timing>() {
+                values.record(&mut Fields(&mut t.args));
+            }
+        }
+    }
+
+    fn on_close(&self, id: Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(&id) else { return };
+        let ext = span.extensions();
+        let Some(t) = ext.get::<Timing>() else { return };
+        let event = serde_json::json!({
+            "name": span.name(),
+            "cat": span.metadata().target(),
+            "ph": "X",
+            "ts": t.opened.saturating_duration_since(self.start).as_micros() as u64,
+            "dur": t.opened.elapsed().as_micros() as u64,
+            "pid": self.pid,
+            "tid": thread_id(),
+            "args": t.args,
+        });
+        if let Ok(mut out) = self.out.lock() {
+            let _ = writeln!(out, "{event},");
+            let _ = out.flush();
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "perf_trace_tests.rs"]
+mod tests;

@@ -2362,6 +2362,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                         return;
                     }
+                    // One span per request, with the caller's end-to-end trace id
+                    // (`params._meta.traceId`), for the Perfetto trace (`perf_trace.rs`).
+                    let rpc_span = crate::perf_trace::request_span(&m, params.as_ref());
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -2373,6 +2376,7 @@ async fn serve_connection_from(
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
+                    let serve = tracing::Instrument::instrument(serve, rpc_span);
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
                     let served = crate::request_cancel::until_either(cancel, also, serve).await;
