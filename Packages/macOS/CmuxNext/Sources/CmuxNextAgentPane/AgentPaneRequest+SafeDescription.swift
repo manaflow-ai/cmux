@@ -106,6 +106,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .copyText: "copyText"
         case .tabRowToolsSet: "tabRowToolsSet"
         case .tabRowToolsOpenMenu: "tabRowToolsOpenMenu"
+        case .customizationsMenu: "customizationsMenu"
         case .btwInline: "btwInline"
         case .sideChat: "sideChat"
         case .chatTab: "chatTab"

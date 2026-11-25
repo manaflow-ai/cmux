@@ -20,7 +20,7 @@
 //!   `vm_stat` Swapouts, Linux `/proc/vmstat` pswpout).
 //!
 //! The formula's defaults are built in. An optional file, `$ACPMUX_HOST_BUDGET`
-//! or else `~/.config/cmux/host-budget.json`, overrides them: `{"enforce",
+//! or else `~/.config/cmux/host-budget.json` (`cmux-next` on macOS), overrides them: `{"enforce",
 //! "formula": {..}, "hosts": {"<host>": {..}}}`, the same keys as leo-workspace
 //! `machines/host-budget.json`, which lane-place reads. `enforce` is reported,
 //! not acted on: nothing is refused, queued or held.
@@ -135,11 +135,15 @@ fn apply_key(f: &mut Formula, key: &str, value: &Value) {
     };
 }
 
-/// The override file's path: `$ACPMUX_HOST_BUDGET`, else `~/.config/cmux/host-budget.json`.
+/// The override file's path: `$ACPMUX_HOST_BUDGET`, else `~/.config/cmux/host-budget.json`
+/// (`~/.config/cmux-next/` on macOS, where `cmux` is cmux Classic's).
 pub fn override_path() -> Option<PathBuf> {
     match std::env::var_os(OVERRIDE_ENV).filter(|v| !v.is_empty()) {
         Some(path) => Some(PathBuf::from(path)),
-        None => dirs::home_dir().map(|h| h.join(".config/cmux/host-budget.json")),
+        None => {
+            let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+            dirs::home_dir().map(|h| h.join(".config").join(dir).join("host-budget.json"))
+        }
     }
 }
 

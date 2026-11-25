@@ -3,7 +3,10 @@
 # clone read by `cmux migrate plan DIR` (devcontainer, compose or Nix), then `cmux migrate apply DIR --headless`,
 # which runs `cloud journey --repo` on staging with the model stub: create the machine, clone the repo, apply
 # the machine config, start an agent in the checkout, reply. The create-to-reply time is the project's time
-# to its first working chat; CMUX_MIGRATE_JOURNEY_DELETE=1 deletes each machine after it is measured.
+# to its first working chat. CMUX_MIGRATE_JOURNEY_DELETE=1 drops `--keep`, so the journey deletes each machine
+# after it is measured, pass or fail: CI leaves no machines behind. Debugging a red needs no live machine: the
+# journey's own journey.json and the apply logs below are the record (set CMUX_MIGRATE_JOURNEY_DELETE=0 on a
+# manual run to keep the machines, then `cmux migrate undo SOURCE_ID --yes` or `cmux vm rm ID`).
 # Then one server over SSH (`cmux migrate plan ssh:HOST`; MIGRATE_SSH_HOST, the workflow's throwaway sshd).
 # A failed apply runs once more (the ledger resumes it: nothing made twice). Writes a table of
 # repo, source, result and ms to the job summary and $out/results.json.
@@ -23,7 +26,7 @@ if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD
   exit 1
 fi
 export CMUX_MIGRATE_MODEL_STUB="$here/../../tests/fixtures/model-stub/model_stub.py"
-export CMUX_MIGRATE_JOURNEY_DELETE=1
+export CMUX_MIGRATE_JOURNEY_DELETE="${CMUX_MIGRATE_JOURNEY_DELETE:-1}"
 # Small public repos, one per reader. Override with MIGRATE_REPOS="url url".
 repos=(${MIGRATE_REPOS:-https://github.com/microsoft/vscode-remote-try-node https://github.com/docker/getting-started-app https://github.com/microsoft/vscode-remote-try-python})
 status=0
@@ -77,6 +80,54 @@ for url in "${repos[@]}"; do
   git clone --depth 1 --quiet "$url" "$dir"
   run_case "$url" "$dir" "$name"
 done
+# A T3 Code workspace (cmuxterm-hq#23822, the switch kit; CMUX_SWITCH_KIT=1 turns the source on): a T3 home
+# whose statev2.sqlite lists one project (a public checkout) and one thread run in a git worktree of it, with
+# the thread's Claude Code transcript where T3 leaves it. `cmux migrate plan t3code:DIR` reads it read-only;
+# apply makes a machine per project and per thread worktree. A canary in the auth table and a script command
+# must never reach the plan.
+t3_url="${MIGRATE_T3_REPO:-https://github.com/microsoft/vscode-remote-try-node}"
+runner_home=$HOME
+export HOME="$out/home-t3code"
+mkdir -p "$HOME"
+t3_repo="$HOME/code/$(basename "$t3_url")"
+git clone --depth 1 --quiet "$t3_url" "$t3_repo"
+t3_wt="$HOME/.t3/worktrees/$(basename "$t3_url")/t3-docs"
+git -C "$t3_repo" worktree add --quiet -b t3/docs "$t3_wt"
+python3 -I - "$HOME" "$t3_repo" "$t3_wt" <<'PY'
+import json, os, re, sqlite3, sys
+home, repo, wt = sys.argv[1:4]
+os.makedirs(f"{home}/.t3/userdata", exist_ok=True)
+db = sqlite3.connect(f"{home}/.t3/userdata/statev2.sqlite")
+db.executescript('''
+CREATE TABLE projection_projects (project_id TEXT PRIMARY KEY, title TEXT, workspace_root TEXT,
+  scripts_json TEXT, deleted_at TEXT, archived_at TEXT);
+CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT PRIMARY KEY, project_id TEXT, title TEXT,
+  active_provider_thread_id TEXT, archived_at TEXT, deleted_at TEXT, payload_json TEXT);
+CREATE TABLE orchestration_v2_projection_provider_threads (provider_thread_id TEXT PRIMARY KEY,
+  thread_id TEXT, payload_json TEXT);
+CREATE TABLE auth_sessions (id TEXT, token TEXT);
+''')
+native = "5b1c0f6e-0000-4000-8000-000000023822"
+db.execute("INSERT INTO projection_projects VALUES ('p1', 'try-node', ?, ?, NULL, NULL)",
+           (repo, json.dumps([{"name": "dev", "command": "SECRET=CANARY23822 npm start"}])))
+db.execute("INSERT INTO orchestration_v2_projection_threads VALUES ('t1', 'p1', 'docs pass', 'pt1', NULL, NULL, ?)",
+           (json.dumps({"branch": "t3/docs", "worktreePath": wt, "modelSelection": {"model": "claude-sonnet-5-5"}}),))
+db.execute("INSERT INTO orchestration_v2_projection_provider_threads VALUES ('pt1', 't1', ?)",
+           (json.dumps({"nativeThreadRef": {"driver": "claudeAgent", "nativeId": native}}),))
+db.execute("INSERT INTO auth_sessions VALUES ('s', 'CANARY23822')")
+db.commit()
+slug = re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(wt))
+os.makedirs(f"{home}/.claude/projects/{slug}", exist_ok=True)
+open(f"{home}/.claude/projects/{slug}/{native}.jsonl", "w").write('{"type":"user","message":{"role":"user","content":"docs pass"}}\n')
+PY
+export CMUX_SWITCH_KIT=1
+run_case "t3code ($t3_url)" "t3code:$HOME/.t3" t3code
+if grep -q CANARY23822 "$out/t3code.plan.json"; then
+  echo "::error title=Switch kit leaked a canary::the t3code plan carries the auth or script canary"
+  status=1
+fi
+unset CMUX_SWITCH_KIT
+export HOME="$runner_home"   # later cases start from the runner's HOME, not the T3 fixture's
 # An existing server over SSH: the workflow starts a throwaway sshd on 127.0.0.1 whose own HOME holds one
 # checkout and dotfiles, and names it in MIGRATE_SSH_HOST (an ~/.ssh/config alias) and MIGRATE_SSH_HOME (the
 # migrating HOME that alias is written into). `cmux migrate plan ssh:HOST` runs the read-only probe there.

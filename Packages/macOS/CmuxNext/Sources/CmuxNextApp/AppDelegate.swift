@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
-        self.services = services
+        self.services = services; services.launchReveal.pages.bind(firstFrame) { DebugTimings.markLaunch($0) } // no page view before the first frame (startup-tti)
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
@@ -356,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next"
         settings.writeManagedStatus(
             to: ManagedStatusReport.defaultURL(bundleID: bundleID),
             context: ManagedStatusReport.Context(

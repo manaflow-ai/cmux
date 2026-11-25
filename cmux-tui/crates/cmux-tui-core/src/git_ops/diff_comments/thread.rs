@@ -260,6 +260,7 @@ pub(super) fn render(
     let mut carried = Vec::new();
     let mut sections = Vec::new();
     let mut files = Vec::new();
+    let mut places = false;
     for comment in file.sorted() {
         let Some(id) = comment.get("id").and_then(Value::as_str) else { continue };
         if !ids.iter().any(|named| named == id) {
@@ -269,7 +270,13 @@ pub(super) fn render(
         if unread.is_empty() {
             continue;
         }
-        let path = comment.get("filePath").and_then(Value::as_str).unwrap_or("(no file)");
+        let path = match surface(comment) {
+            Some(surface) => {
+                places = true;
+                surface
+            }
+            None => comment.get("filePath").and_then(Value::as_str).unwrap_or("(no file)"),
+        };
         if !files.contains(&path) {
             files.push(path);
         }
@@ -279,10 +286,12 @@ pub(super) fn render(
     if carried.is_empty() {
         return None;
     }
+    // A browser or terminal thread is a place, not a file.
+    let noun = if places { "place" } else { "file" };
     let root_arg = shell_quote(root);
     let threads = carried.len();
     let mut text = format!(
-        "Code review of {root}: {threads} thread{} across {} file{}.\n\n\
+        "Code review of {root}: {threads} thread{} across {} {noun}{}.\n\n\
          Answer each thread in that thread, not only here, with\n\
          `cmux git comments reply <thread id> --root {root_arg} --text '<your answer>'`\n\
          and resolve a thread you finished with\n\
@@ -310,7 +319,14 @@ fn section(comment: &Map<String, Value>, id: &str, unread: &Unread) -> String {
         (None, None) => "the file".to_owned(),
     };
     let version = if text("side") == "deletions" { "old version" } else { "new version" };
-    let mut out = format!("## Thread {id}: {} {place} ({version})\n", text("filePath"));
+    let mut out = match surface(comment) {
+        // A browser or terminal comment: where it is, as the surface named it.
+        Some(surface) => match comment.get("place").and_then(Value::as_str).map(one_line) {
+            Some(place) if !place.is_empty() => format!("## Thread {id}: {surface} {place}\n"),
+            _ => format!("## Thread {id}: {surface}\n"),
+        },
+        None => format!("## Thread {id}: {} {place} ({version})\n", text("filePath")),
+    };
     if unread.comment {
         match comment.get("submissionText").and_then(Value::as_str).map(str::trim) {
             Some(block) if !block.is_empty() => out.push_str(&format!("\n{block}\n")),
@@ -360,6 +376,16 @@ fn section(comment: &Map<String, Value>, id: &str, unread: &Unread) -> String {
         None => {}
     }
     out
+}
+
+/// The surface a comment not on a diff came from (`surface`: browser or
+/// terminal), as the prompt names it; `None` for a diff comment.
+fn surface(comment: &Map<String, Value>) -> Option<&'static str> {
+    match comment.get("surface").and_then(Value::as_str) {
+        Some("browser") => Some("browser page"),
+        Some("terminal") => Some("terminal"),
+        _ => None,
+    }
 }
 
 /// One line of a reply, for a thread's history.

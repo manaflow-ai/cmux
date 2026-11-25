@@ -56,6 +56,7 @@ use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod app_build;
 mod copy;
+pub(in crate::cli) mod cu_upgrade;
 mod daemon_updates;
 mod helper;
 mod live;
@@ -1114,6 +1115,7 @@ fn same_team(path: &Path) -> Result<(), String> {
 
 /// Fetches and checks every file and the Screen Sharing helper, then swaps them
 /// in: nothing in the app changes before every byte is here and checked.
+#[cfg(test)]
 fn try_live(
     app: &Path,
     files: &[Wanted],

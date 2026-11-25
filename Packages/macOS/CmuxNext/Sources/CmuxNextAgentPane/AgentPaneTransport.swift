@@ -183,6 +183,10 @@ import CmuxNextCompat
     public var gestureRoots: @MainActor () -> [String] = { [] }
     /// The pane's workspace root, the cwd of a `session/new` that names none.
     public var primaryRoot: @MainActor () -> String? = { nil }
+    /// The folders the host itself handed the page (handshake, tab, workspace, store start folder):
+    /// a `session/new` cwd that is one of them and no longer exists was never the person's pick, so
+    /// the relay re-resolves it (``AcpmuxPathPolicy/Scope/inheritedCwds``).
+    public var inheritedFolders: @MainActor () -> [String] = { [] }
     /// The workspace's agent-home folder: a root once it exists, and the cwd of a `session/new`
     /// that names none when there is no ``primaryRoot`` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     public var agentHome: @MainActor () -> AgentHomeFill? = { nil }

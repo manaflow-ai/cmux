@@ -23,7 +23,13 @@ public final class AgentSessionDirectory {
         #if DEBUG
         if DeveloperOptions.mockContentEnabled {
             // Tabs made on the phone ("New session") start empty.
-            return MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
+            let mock = MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
+            // `CMUX_MOBILE_MOCK_LINK`: the history comes as late as over that link.
+            if let link = MockLinkProfile.current {
+                var random = SystemRandomNumberGenerator()
+                return DelayedHistorySource(inner: mock, delay: link.historyDelay(using: &random))
+            }
+            return mock
         }
         #endif
         return DisconnectedAgentSource(summary: summary)

@@ -202,7 +202,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -1543,6 +1543,14 @@ export class SettingsStore {
 
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
+  }
+
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
   }
 
   /**

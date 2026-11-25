@@ -108,7 +108,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
     /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
     case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
-                   repo: String? = nil, returnTo: String? = nil)
+                   repo: String? = nil, returnTo: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil)
     /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
     case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
@@ -285,6 +286,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `customizations.menu {point}`: the chat's Customize button under the composer
+    /// (experiments.composerCustomizer) pops the app's Customizations menu at `point`, CSS px.
+    case customizationsMenu(x: Double, y: Double)
     /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
     case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
