@@ -1,0 +1,49 @@
+{
+  "title": "Header Path (taste prototype): the chat header's title as one monospace slash path, repo / branch / title, opt-in with agentPane.display.headerBreadcrumb",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {
+      "title": "A git folder on a branch for the chat to run in",
+      "cmux": [
+        "workspace", "new", "--name", "header-path", "--cwd", "/tmp",
+        "--shell", "mkdir -p /tmp/acme-web && cd /tmp/acme-web && git init -q -b fix/login-redirect; printf ready; sleep 600"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "A chat",
+      "cmux": [
+        "agents", "chat", "new", "--workspace", "name:header-path", "--harness", "fake", "--cwd", "/tmp/acme-web", "--name", "header-path-demo", "--",
+        "Title: Fix the login redirect\nFind where the login redirect drops the return path and outline the fix."
+      ],
+      "wait": 4,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Show the chat's workspace, so the shots are of this chat",
+      "cmux": ["workspace", "name:header-path", "focus"],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Tabs at the bottom, so the chat draws its own header row (with tabs on top the pane's tab names the chat)",
+      "cmux": ["settings", "set", "tabs.barPosition", "bottom"],
+      "wait": 2,
+      "shot": false
+    },
+    {"title": "Off (the default): the header shows the plain title", "wait": 2},
+    {
+      "title": "Header Path on",
+      "cmux": ["settings", "set", "agentPane.display.headerBreadcrumb", "true"],
+      "wait": 2
+    },
+    {"title": "On: repo / branch / title as one monospace path, the slashes fainter", "wait": 3},
+    {
+      "title": "Off again: today's header exactly",
+      "cmux": ["settings", "set", "agentPane.display.headerBreadcrumb", "false"],
+      "wait": 2
+    },
+    {"title": "Tabs back on top", "cmux": ["settings", "set", "tabs.barPosition", "top"], "wait": 1, "shot": false}
+  ]
+}

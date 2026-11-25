@@ -167,3 +167,89 @@ fn carry_is_refused_on_a_delta_and_a_clone_only_start() {
     clone["carry"] = json!(world.home.join("x.pack"));
     assert_eq!(start(&world.service(), &clone).unwrap_err().code, "seed.bad_request");
 }
+
+/// The way back from a carried folder (cmuxterm-hq RFD 0155 goal 4): the folder is shallow at the
+/// base, and its export must still be a bundle the Mac can verify and fetch, holding only what
+/// changed since the seed. Then the offline-laptop case: the Mac does not take that export, the
+/// machine keeps working, and the export the Mac finally takes, still from the seed it last
+/// had, holds both rounds; taking the same state again gives the same commits (applied once).
+#[test]
+fn a_carried_folder_exports_back_and_an_offline_mac_gets_everything_later() {
+    let world = World::new("carry-export");
+    dirty_branch(&world);
+    let first = world.snapshot("one", &[&world.base]);
+    let pack = carry_pack(&world, &world.base, "carry");
+    std::fs::remove_dir_all(&world.remote).unwrap();
+    let folder = world.home.join("project");
+    let mut params = world.start_params(&folder, &first);
+    params["carry"] = json!(pack);
+    assert_eq!(seed(&world, &params)["state"], "done");
+    assert_eq!(shallow(&folder), world.base);
+
+    let service = world.service();
+    let export = |since: &Snapshot, name: &str| {
+        let bundle = world.home.join(name);
+        let params = json!({
+            "folder": folder, "since_work": since.work, "since_head": since.head, "bundle": bundle,
+        });
+        let answer = service.call("git.seed.export", &params).unwrap();
+        (wait(&service, answer["job"].as_str().unwrap()), bundle)
+    };
+    // The Mac's side, as its quarantine does: verify, then fetch `refs/cmux-back/*` by name.
+    let mirror = world.home.join("mac-mirror.git");
+    git(
+        &world.home.path,
+        &["clone", "-q", "--mirror", world.mac.to_str().unwrap(), mirror.to_str().unwrap()],
+    );
+    let take = |bundle: &Path| {
+        git(&mirror, &["bundle", "verify", "-q", bundle.to_str().unwrap()]);
+        git(
+            &mirror,
+            &[
+                "-c",
+                "transfer.fsckObjects=true",
+                "fetch",
+                "-q",
+                bundle.to_str().unwrap(),
+                "+refs/cmux-back/*:refs/cmux-back/*",
+            ],
+        );
+    };
+
+    // Round one: a commit and an edit, exported but never taken (the laptop is closed).
+    write(&folder.join("b"), "b\ncommitted on the carried folder\n");
+    git(&folder, &["commit", "-q", "-a", "-m", "round one"]);
+    let (one, _unused) = export(&first, "one.bundle");
+    assert_eq!(one["state"], "done", "{one}");
+    assert_eq!(one["unchanged"], false);
+
+    // Round two: more work while the Mac is still away.
+    write(&folder.join("a"), "a\nedited on the carried folder\n");
+    write(&folder.join("made.txt"), "made while the laptop slept\n");
+    git(&folder, &["commit", "-q", "-am", "round two"]);
+    write(&folder.join("uncommitted.txt"), "not committed\n");
+
+    // The Mac comes back, still on the seed it sent.
+    let (two, bundle) = export(&first, "two.bundle");
+    assert_eq!(two["state"], "done", "{two}");
+    take(&bundle);
+    let work = two["work"].as_str().unwrap();
+    let head = two["head"].as_str().unwrap();
+    assert_eq!(head, git(&folder, &["rev-parse", "HEAD"]));
+    assert_eq!(git(&mirror, &["show", &format!("{head}:b")]), "b\ncommitted on the carried folder");
+    assert_eq!(git(&mirror, &["show", &format!("{work}:a")]), "a\nedited on the carried folder");
+    assert_eq!(git(&mirror, &["show", &format!("{work}:uncommitted.txt")]), "not committed");
+    // Both rounds' commits, back to the seed's HEAD, and nothing of the base's own history.
+    let log = git(&mirror, &["log", "--format=%s", &format!("{}..{head}", first.head)]);
+    assert_eq!(log, "round two\nround one");
+    git(&mirror, &["fsck", "--connectivity-only", "--no-dangling"]);
+
+    // The same state again: the same commits, so a second delivery changes nothing.
+    let (again, bundle_again) = export(&first, "again.bundle");
+    assert_eq!(
+        (again["work"].clone(), again["head"].clone()),
+        (two["work"].clone(), two["head"].clone())
+    );
+    take(&bundle_again);
+    assert_eq!(git(&mirror, &["rev-parse", "refs/cmux-back/work"]), work);
+}

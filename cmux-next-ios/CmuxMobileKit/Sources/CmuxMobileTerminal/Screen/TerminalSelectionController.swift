@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import UIKit
 
 /// Text selection over the terminal's rows, scrollback included (G-14,
@@ -244,7 +245,7 @@ final class TerminalSelectionController: NSObject, @MainActor UIEditMenuInteract
             pressedLink = openLink == nil ? nil : linkAt(cell)
             showsHandles = true
             selection = TerminalTextSelection.word(at: cell, line: rowText(cell.row) ?? "", columns: columns())
-            UISelectionFeedbackGenerator().selectionChanged()
+            CmuxMobileTheme.standard.haptics.selectionChanged()
         case .changed:
             // Moving after the press extends the selection, like a drag-select.
             guard var current = selection, let cell = cellAt(point) else { return }
