@@ -68,9 +68,12 @@ jobs:
       # (1,000 requests an hour shared by every workflow; run 43989794349 failed on "API rate limit
       # exceeded for installation"). github.token stays the fallback: for a failed mint, a
       # refused read, and every write (hq docs/compendium/ci-quotas.md, cmux#35264).
+      # A same-repository pull request mints too: its run already holds this repository's secrets,
+      # and on github.token alone it went red on that rate limit (job 138835881733, PR #51718). A fork
+      # pull request holds no secret and stays on github.token.
       - name: Mint the cmux-bot token for this job's reads
         id: read-token
-        if: vars.CMUX_BOT_APP_ID != '' && github.event_name != 'pull_request'
+        if: vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
