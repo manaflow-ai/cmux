@@ -448,7 +448,7 @@ mod region_lockstep_tests {
         let with = join(Some("weur"));
         let wire = serde_json::to_value(&with).unwrap();
         assert_eq!(wire["region"], "weur");
-        // Old claims decoding ignores the extra key (no deny_unknown_fields anywhere in this crate).
+        // Old claims decoding ignores the extra key: no decoder in this crate refuses unknown fields.
         let old: OldClaims = serde_json::from_value(wire).unwrap();
         assert_eq!(old.slot, "slot-a");
         assert_eq!(old.generation, Some(3));
