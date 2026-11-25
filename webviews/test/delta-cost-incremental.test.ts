@@ -214,12 +214,7 @@ function mixedHistory(count: number): AcpmuxRow[] {
       case 0:
         return row(`u${index}`, { kind: "user", at, text: `prompt ${index}` });
       case 1:
-        return row(`p${index}`, {
-          kind: "plan",
-          at,
-          turnEnded: true,
-          plan: [{ content: "step", status: index % 24 === 1 ? "pending" : "completed" }],
-        } as Partial<AcpmuxRow>);
+        return row(`p${index}`, { kind: "notice", at, text: `note ${index}` } as Partial<AcpmuxRow>);
       case 2:
         return row(`g${index}`, {
           kind: "subagents",
@@ -276,10 +271,7 @@ function readsOnlyTheTail<T>(
     [row("live", { text: "x" })],
     [row("live", { text: "x y" })],
     [row("live", { text: "x y" }), row("call", { kind: "activity", text: undefined, items: [] } as Partial<AcpmuxRow>)],
-    [
-      row("u-new", { kind: "user", text: "next" }),
-      row("p-new", { kind: "plan", plan: [{ content: "a", status: "pending" }] } as Partial<AcpmuxRow>),
-    ],
+    [row("u-new", { kind: "user", text: "next" }), row("p-new", { kind: "notice", text: "a" } as Partial<AcpmuxRow>)],
   ];
   pass([...history.rows, ...tails[0]!]);
   history.reads.count = 0;
@@ -302,7 +294,6 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
   const { pendingToolCalls } = await import("../src/agent-session/acpmux/summary/subagentStatusListModel");
   const { heldPairs } = await import("../src/agent-session/acpmux/needsYou/model");
   const { failedRuns } = await import("../src/agent-session/acpmux/sendFailure");
-  const { liveTurnPlan, earlierTurnPlan } = await import("../src/agent-session/acpmux/conversation/turns");
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
   const { searchablePendingRows } = await import("../src/agent-session/acpmux/conversation/pendingMessages");
   const { firstReplyCompleted } = await import("../src/agent-session/acpmux/share/shareNudgeModel");
@@ -329,8 +320,6 @@ test("the pane's per-snapshot passes read only the rows an update changed", asyn
     0,
     (runs) => [...runs].map(([id, run]) => [id, run.rowIds]),
   );
-  readsOnlyTheTail("liveTurnPlan", liveTurnPlan, 0, (plan) => plan?.id);
-  readsOnlyTheTail("earlierTurnPlan", earlierTurnPlan, 0, (plan) => plan?.id);
   readsOnlyTheTail("flattenInboxRows", flattenInboxRows, 0, ids);
   readsOnlyTheTail("searchablePendingRows", (rows) => searchablePendingRows(rows, []), 0, ids);
   // Up to the second ended turn, the history's first 22 rows, whatever the chat's length.
