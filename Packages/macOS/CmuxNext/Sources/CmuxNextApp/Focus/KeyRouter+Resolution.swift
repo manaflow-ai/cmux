@@ -36,7 +36,7 @@ extension KeyRouter {
         let table = RegistryKeyBindings(registry).table
         let bits = context.bits
         let accepts = Self.acceptsEntry(ghostty: ghostty, codeEditor: bits.contains(.codeEditorFocused), editsText: context.editsText)
-        for shortcut in ActionRegistry.shortcuts(for: event) {
+        for shortcut in registry.shortcuts(for: event) {
             if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) },
                                           accepts: accepts).winner {
                 return winner
@@ -96,7 +96,7 @@ extension KeyRouter {
     /// recorder's note), whatever the focus: the routed action.
     func ghosttyBinding(for event: NSEvent) -> ActionID? {
         let entries = RegistryKeyBindings(registry).table.entries
-        for shortcut in ActionRegistry.shortcuts(for: event) {
+        for shortcut in registry.shortcuts(for: event) {
             if let entry = entries.last(where: { $0.source.isGhostty && $0.keys == [shortcut] }) { return entry.command }
         }
         return nil

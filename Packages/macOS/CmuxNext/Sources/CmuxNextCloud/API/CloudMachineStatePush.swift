@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CMUXAuthCore
 public import CmuxNextDaemon
 public import Foundation
@@ -153,7 +154,7 @@ public final class CloudMachineStatePush {
         // A misconfigured dev build opens no socket (its refusal is CMUXBuildSpaceError).
         guard let request = try? Self.upgradeRequest(url: url, token: token, team: team, buildSpace: buildSpace) else { return false }
         guard watches[machine] != nil, !Task.isCancelled else { return false }
-        let task = session.webSocketTask(with: request)
+        let task = CmuxEgress.websocket(session, with: request, site: "CmuxNextCloud.CloudMachineStatePush")
         watches[machine]?.task = task
         watches[machine]?.socket = nextSocket()
         task.resume()

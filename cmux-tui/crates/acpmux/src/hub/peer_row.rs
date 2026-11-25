@@ -21,6 +21,7 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    ComposerStatus,
     /// `timeBreakdown`, which a census row leaves out (`views::CENSUS_LEAVES_OUT`).
     TimeBreakdown,
 }
@@ -34,6 +35,7 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            "composerStatus" => Self::ComposerStatus,
             super::views::CENSUS_LEAVES_OUT => Self::TimeBreakdown,
             _ => return None,
         })
@@ -47,6 +49,7 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::ComposerStatus => "composerStatus",
             Self::TimeBreakdown => super::views::CENSUS_LEAVES_OUT,
         }
     }
@@ -75,6 +78,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Neither a side chat nor started by another chat's agent
+    /// (`session_order::top_level_summary`): what `topLevelOnly` keeps, read with no parse.
+    top_level: bool,
     /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
     /// (`usage_answer.rs`), read with no parse of the rest.
     usage_stats: Option<Box<str>>,
@@ -113,6 +119,7 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            top_level: crate::session_order::top_level_summary(summary),
             usage_stats: summary
                 .get("usageStats")
                 .filter(|stats| !stats.is_null())
@@ -144,6 +151,9 @@ pub struct PeerRow {
     apart: Arc<[(Apart, Box<str>)]>,
     /// The title a list without tools shows (`views::without_summary_tools`), when it is cut.
     short_title: Option<Box<str>>,
+    /// The `composerStatus` a list without tools shows (`composer_status::census`): None when it
+    /// shows none.
+    census_status: Option<Box<str>>,
     hot: Hot,
     /// A stale mark not yet written into the text (`PeerRow::stale_announced`): `Some(last_seen)`
     /// reads as `peer_cache::mark_stale` would write the row. Only a hub event holds one, so an
@@ -162,6 +172,14 @@ impl From<Value> for PeerRow {
     fn from(summary: Value) -> Self {
         Self::new(&summary)
     }
+}
+
+/// A whole `composerStatus` as a census row carries it (`composer_status::census`); None when a
+/// census row carries none.
+fn census_text(value: &Value) -> Option<Box<str>> {
+    use crate::protocol::composer_status::{ComposerStatus, census};
+    let status = <ComposerStatus as serde::Deserialize>::deserialize(value).ok()?;
+    census(status).map(|status| json_text(&status).into())
 }
 
 /// JSON text of `value`, compact.
@@ -185,6 +203,7 @@ impl PeerRow {
         base.push(b'{');
         let mut apart = Vec::new();
         let mut short_title = None;
+        let mut census_status = None;
         for (key, value) in map {
             if let Some(which) = Apart::of(key) {
                 if let (Apart::Title, Value::String(title)) = (which, value) {
@@ -192,6 +211,9 @@ impl PeerRow {
                     if short != *title {
                         short_title = Some(json_text(&short).into());
                     }
+                }
+                if which == Apart::ComposerStatus {
+                    census_status = census_text(value);
                 }
                 apart.push((which, json_text(value).into()));
                 continue;
@@ -205,7 +227,7 @@ impl PeerRow {
         }
         base.push(b'}');
         let base = String::from_utf8(base).unwrap_or_default();
-        Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
+        Self { base: base.into(), apart: apart.into(), short_title, census_status, hot, mark: None }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
@@ -242,6 +264,10 @@ impl PeerRow {
                 Apart::PeerState if peer_state.is_some() => continue,
                 Apart::Tools | Apart::ToolsMutable | Apart::TimeBreakdown if !tools => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
+                Apart::ComposerStatus if !tools => match &self.census_status {
+                    Some(census) => census,
+                    None => continue,
+                },
                 _ => value,
             };
             member(&mut out, which.key(), value);
@@ -292,6 +318,23 @@ impl PeerRow {
             .iter()
             .filter(|(which, _)| matches!(which, Apart::Tools | Apart::ToolsMutable))
             .filter_map(|(which, text)| Some((which.key(), serde_json::from_str(text).ok()?)))
+    }
+
+    /// This row with `previous`'s `timeBreakdown` when it carries none: a change row carries the
+    /// chart once a turn (`time_breakdown::State::row_snapshot`) and a census row never, so the
+    /// copy kept here would lose the chart it had at the next row. No parse.
+    pub(super) fn keeping_time_breakdown(mut self, previous: Option<&Self>) -> Self {
+        let chart = |row: &Self| {
+            row.apart.iter().find(|(which, _)| *which == Apart::TimeBreakdown).cloned()
+        };
+        if self.mark.is_none()
+            && self.base.ends_with('}')
+            && chart(&self).is_none()
+            && let Some(kept) = previous.and_then(chart)
+        {
+            self.apart = self.apart.iter().cloned().chain([kept]).collect();
+        }
+        self
     }
 
     /// Marks it last-known (`peer_cache::mark_stale`): whether it changed.
@@ -386,6 +429,11 @@ impl PeerRow {
         self.hot.stale
     }
 
+    /// Whether a chat list shows it on its own (`_acpmux/sessions {topLevelOnly}`).
+    pub fn top_level(&self) -> bool {
+        self.hot.top_level
+    }
+
     /// Its `(mux.parent, mux.handle)` tags.
     /// Whether its pair tag (`pair`) is the same as `other`'s, with no copy.
     pub fn same_pair(&self, other: &PeerRow) -> bool {
@@ -436,6 +484,16 @@ mod tests {
         assert_eq!(row.listed(None, true).matches("\"stale\"").count(), 1);
         assert_eq!(row.listed(Some("x"), true).matches("\"peerState\"").count(), 1);
         assert_eq!(serde_json::to_value(&row).unwrap(), summary);
+        // A row with no chart keeps the one the row before it had; one with a chart keeps its own.
+        let bare = PeerRow::new(&json!({"sessionId": "s1", "status": "running"}));
+        let kept = bare.clone().keeping_time_breakdown(Some(&row));
+        assert_eq!(kept.value()["timeBreakdown"], summary["timeBreakdown"]);
+        assert_eq!(kept.value()["status"], "running");
+        assert!(kept.changed_text(false).find("timeBreakdown").is_none());
+        let own = PeerRow::new(&json!({"sessionId": "s1", "timeBreakdown": {"totalMs": 1}}));
+        assert_eq!(own.clone().keeping_time_breakdown(Some(&row)), own);
+        assert_eq!(bare.clone().keeping_time_breakdown(Some(&bare)), bare);
+        assert_eq!(bare.clone().keeping_time_breakdown(None), bare);
     }
 
     #[test]

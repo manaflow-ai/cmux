@@ -51,6 +51,15 @@ async fn a_move_whose_target_is_known_deleted_is_given_back_with_no_offer() {
                        "to": {"socket": "/tmp/acpmux-deleted-target.sock"}});
     let bundle = hub.transfer_request("_acpmux/transfer_begin", &begin).await.unwrap();
     let transfer_id = bundle["transferId"].as_str().unwrap().to_owned();
+    // The target read the whole bundle before it was deleted: a move whose bundle was never
+    // read whole ends as `stalled` before any ask (`end_stalled_move`), so only a fully read
+    // one reaches the question the hub answers with "deleted".
+    let dir = transfers_dir().join(&transfer_id);
+    let folder = std::fs::read_dir(&dir).unwrap().flatten().find(|e| e.path().is_dir());
+    for (path, _) in bundle_files(&folder.expect("the move's bundle").path()).unwrap() {
+        note_activity(&dir, Some(&path));
+    }
+    assert_eq!(fully_read(&dir), Some(true));
     test_seam::set(&transfer_id, TargetSays::Deleted);
     hub.set_transfer_lease(Duration::from_secs(1));
 

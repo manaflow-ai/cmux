@@ -3,6 +3,12 @@
 // virtual clock, built with script.ts. `longRun` makes a chat as long as asked (10k+ rows, hours).
 import { sim, type SimBuilder, type SimScenario } from "./script";
 
+const compaction = (state: string) => ({
+  jsonrpc: "2.0",
+  method: "session/update",
+  params: { sessionId: "agent-1", update: { sessionUpdate: "compaction", state } },
+});
+
 const PARAGRAPH =
   "I read the retry helper and the test that covers it. The loop allows one attempt too many, and the first retry waits zero milliseconds, so the test that counts calls sees four instead of three. ";
 
@@ -196,6 +202,30 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // A chat forked from a subagent (Fork with <model>… on its composer chips, SubagentForkChips.tsx):
+  // the subagent's own history by reference, the `forked` line naming the subagent and its chat, then
+  // the fork's first turn on the model it was forked onto.
+  "subagent-fork": () => {
+    const b = sim(
+      "subagent-fork",
+      "A chat forked from a subagent: its history, the Forked from line, then its own turn.",
+    );
+    b.prompt("Split unit and integration coverage for the fetch helper.");
+    b.say("Retries have no tests. Splitting unit and integration coverage.");
+    b.turnEnd();
+    b.record(
+      "mux",
+      "forked",
+      { parentId: "sim-parent-chat", subagentId: "a39e817af38ddf5e7", subagentName: "Test coverage" },
+      400,
+      "forked from subagent",
+    );
+    b.prompt("Now write the integration tests, on Sonnet.");
+    b.tool("bun test src/net", { ms: 900 });
+    b.say("Integration tests added; all pass.");
+    return b.turnEnd().build();
+  },
+
   compaction: () => {
     const b = sim("compaction", "A turn compacts its context halfway through its work.");
     b.prompt("Keep going with the migration.");
@@ -368,10 +398,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.say(
       Array.from({ length: 50 }, (_, part) =>
         part % 10 === 4
-          ? "| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | 12000 |\n"
+          ? `| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | ${12000 + part} |\n`
           : part % 10 === 7
             ? "```sh\nbun run build --profile\n```\n"
-            : `${PARAGRAPH}\n`,
+            : `${part}. ${PARAGRAPH}\n`,
       ).join("\n"),
       { chunks: 120, chunkMs: 30 },
     );
@@ -578,6 +608,65 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.tool("bun test api/", { ms: 900 });
     b.tool("git diff --stat", { ms: 300 });
     b.say("Fixed: the loop now makes exactly `attempts` calls. " + PARAGRAPH, { chunks: 6 });
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-25: "the compaction starting from idle should not go from thinking to idle potentially. just
+  // the compacting conversation to start with so it skips the unnecesssary animation". The records a real
+  // /compact sent to a hibernated chat wrote, in their order: the prompt, the agent host waking (`host_started`,
+  // `resumed`, `status: ready`), the turn's start, and the compaction's first note about 50 ms after it.
+  "compact-from-idle": () => {
+    const b = sim("compact-from-idle", "/compact sent from an idle chat whose agent host hibernated.");
+    b.prompt("Look at the retry helper.");
+    workTurn(b, 2, { middleText: false });
+    b.say("Done: the helper retries three times.");
+    b.turnEnd();
+    b.record("mux", "stopped", { code: 143, hibernated: true }, 2_000, "host hibernated");
+    b.record("mux", "status", { status: "idle" }, 0, "status idle");
+    b.prompt("/compact", 3_000, {}, { wake: true });
+    b.record("in", "compaction", compaction("running"), 50, "compaction running");
+    b.record("in", "compaction", compaction("running"), 6_000, "compaction still running");
+    b.record("in", "compaction", compaction("completed"), 3_000, "compaction completed");
+    return b.turnEnd("completed", 200).build();
+  },
+
+  // Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is weird. the
+  // worked for collapsing the compaction and then the next worked for + thinking is weird. layout shifts and
+  // awkward looking animations".
+  "compact-steer": () => {
+    const b = sim("compact-steer", "/compact from idle, and the person steers while it compacts.");
+    b.prompt("Look at the retry helper.");
+    workTurn(b, 2, { middleText: false });
+    b.say("Done: the helper retries three times.");
+    b.turnEnd();
+    b.prompt("/compact", 3_000);
+    b.record("in", "compaction", compaction("running"), 50, "compaction running");
+    const steerId = `steer-${b.events.length + 1}`;
+    b.steer("then add a test for the retry count", { after: 2_500, readMs: false });
+    b.record("in", "compaction", compaction("running"), 3_000, "compaction still running");
+    b.record("in", "compaction", compaction("completed"), 2_000, "compaction completed");
+    b.record("mux", "steer_read", { promptId: steerId, turnId: b.current().turnId }, 400, "steer_read");
+    b.think("Adding the test now.");
+    b.tool("bun test src/api", { ms: 900 });
+    b.say("Added a test that the helper makes exactly three attempts.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-25, on a finished reply's action row with about 120 px of nothing under it, then the next
+  // turn's "Working for 22s" and "Received 3 messages": "and then this unnecesssary space". Three agent
+  // messages arrive after a reply and start a turn of their own.
+  "turn-after-reply-gap": () => {
+    const b = sim("turn-after-reply-gap", "A reply ends its turn; three agent messages then start the next turn.");
+    b.prompt("Is the deploy safe to leave?");
+    workTurn(b, 2, { middleText: false });
+    b.say("Yes. The deploy finished and its checks are green. You don't need to do anything.");
+    b.turnEnd();
+    b.incoming("Lane report: merged PR 101.", { kind: "agent_message", fromName: "lane-a" }, 4_000);
+    b.message("Lane report: merged PR 102.", { fromName: "lane-b", after: 200 });
+    b.message("Lane report: merged PR 103.", { fromName: "lane-c", after: 200 });
+    b.think("Three lanes reported merges.");
+    b.tool("gh pr list --state merged", { ms: 900 });
+    b.say("All three merged.");
     return b.turnEnd().build();
   },
 };
