@@ -213,6 +213,10 @@ JOBS = {
     "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree", "macos", "macos_build"),
                                    NIGHTLY_PRODUCT_FLAGS, product=True,
                                    workflow=".github/workflows/nightly.yml"),
+    # The Nightly's Release compile of the app on a pull request (scripts/ci/nightly_pr_build.py): the
+    # product closure and the arch. The fleet job pins its own Xcode (scripts/ci/xcode-pins.txt, in the
+    # closure), so the runner's toolchain is not part of it.
+    "nightly-pr-build": Job(("arch",), product=True, workflow=".github/workflows/nightly-pr-build.yml"),
 }
 GRAPH = route.GRAPH
 

@@ -136,6 +136,63 @@
     ".github/workflows/screen-share-drop-gate.yml"
    ],
    "affects_why": "The gate builds cmux-rd from cmux-rd-host (its own Cargo workspace, which pulls the link, proto and transport crates by path) and runs scripts/screen-share-netem.py from cmux-rd-host's tree; nothing else changes what it measures."
+  },
+  "nightly-pr-build.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/**",
+    "vendor/**",
+    "Resources/**",
+    "ghostty",
+    "ghostty-next",
+    ".gitmodules",
+    ".xcode-version",
+    "*.xcodeproj/**",
+    "Sources/**",
+    "cmux-tui/**",
+    "cmux-next-ios/rust/**",
+    "Native/OptChat/**",
+    "Native/DiffSidecar/**",
+    ".cargo/**",
+    "scripts/cmux-next/check-release-compile.sh",
+    "scripts/cmux-next/lib/**",
+    "scripts/ci/xcode-pins.txt",
+    "scripts/select-ci-xcode.sh",
+    "scripts/ci/nightly_pr_build.py",
+    "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/cmux_next_route.py",
+    ".github/workflows/nightly-pr-build.yml"
+   ],
+   "affects": [
+    "Packages/**",
+    "vendor/**",
+    "Resources/**",
+    "ghostty",
+    "ghostty-next",
+    ".gitmodules",
+    ".xcode-version",
+    "*.xcodeproj/**",
+    "Sources/**",
+    "cmux-tui/**",
+    "cmux-next-ios/rust/**",
+    "Native/OptChat/**",
+    "Native/DiffSidecar/**",
+    ".cargo/**",
+    "scripts/cmux-next/check-release-compile.sh",
+    "scripts/cmux-next/lib/**",
+    "scripts/ci/xcode-pins.txt",
+    "scripts/select-ci-xcode.sh",
+    "scripts/ci/nightly_pr_build.py",
+    "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/cmux_next_route.py",
+    ".github/workflows/nightly-pr-build.yml"
+   ],
+   "affects_why": "The Nightly's app compile reads the packages, vendored sources, resources, the Xcode project and the compile script with what it sources; the helpers read cmux-tui, cmux-next-ios/rust, Native/OptChat and DiffSidecar and the cargo config. nightly_pr_build.py route narrows it per build; nothing else changes what it builds."
   }
  }
 }
