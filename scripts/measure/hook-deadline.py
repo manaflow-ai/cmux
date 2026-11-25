@@ -201,7 +201,8 @@ def main(argv: list[str]) -> int:
                         body = payload(agent, event, work)
                         samples: dict[str, list[float]] = {label: [] for label, _ in helpers}
                         bad: dict[str, int] = {label: 0 for label, _ in helpers}
-                        for i in range(n):
+                        # Each held run leaves a detached child waiting on the lock until the cell ends.
+                        for i in range(min(n, 10) if mode == "held" else n):
                             order = helpers if i % 2 == 0 else list(reversed(helpers))
                             for label, helper in order:
                                 ms, wrong = one(helper, agent, event, env, body, contract, timeout + 30)
