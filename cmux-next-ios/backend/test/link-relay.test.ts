@@ -528,3 +528,129 @@ describe("netcheck targets (PROTOCOL.md \"Relay placement\")", () => {
     expect(await closed).toBe(1008)
   })
 })
+
+// RFD 0142 R8, PROTOCOL.md "Relay-held sends": a sealed send to a Mac that is not joined is acked by the relay at
+// once, held, and handed to the Mac when it joins; the Mac's ack deletes it. Off unless LINK_RELAY_HOLD=on.
+describe("link relay: relay-held send queue (R8)", () => {
+  const vars = env as unknown as { LINK_RELAY_HOLD?: string }
+  const sealed = (n: number) => btoa(`sealed-${n}-${"x".repeat(40)}`).replace(/\+/g, "-").replace(/\//g, "_")
+  const withHold = async (fn: () => Promise<void>) => {
+    vars.LINK_RELAY_HOLD = "on"
+    try {
+      await fn()
+    } finally {
+      delete vars.LINK_RELAY_HOLD
+    }
+  }
+  const answers = (s: Sock, id: string) => s.frames.filter((f) => (f.type === "held" || f.type === "hold_refused") && f.id === id)
+  const itemsFor = (s: Sock, id: string) => s.frames.filter((f) => f.type === "held_item" && f.id === id)
+
+  it("is off by default: a hold is refused with off and nothing is kept", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const p = await joined(tok, sessionId, phone)
+    const id = crypto.randomUUID()
+    p.send({ type: "hold", id, sealed: sealed(1) })
+    await p.until((s) => answers(s, id).length === 1)
+    expect(answers(p, id)[0]).toMatchObject({ type: "hold_refused", code: "off" })
+    const m = await joined(tok, sessionId, mac)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(m.frames.some((f) => f.type === "held_item")).toBe(false)
+  })
+
+  it("acks while the Mac is away, delivers on its join, and the Mac's ack deletes it and tells the phone", async () =>
+    withHold(async () => {
+      const { tok, phone, mac, sessionId } = await session()
+      const p = await joined(tok, sessionId, phone)
+      const id = crypto.randomUUID()
+      const t0 = Date.now()
+      p.send({ type: "hold", id, sealed: sealed(1) })
+      await p.until((s) => answers(s, id).length === 1)
+      const acked = Date.now() - t0
+      expect(answers(p, id)[0]).toMatchObject({ type: "held", depth: 1 })
+      // The same id again (a lost ack, a retry): the first answer, nothing new held.
+      p.send({ type: "hold", id: id.toUpperCase(), sealed: sealed(1) })
+      await p.until((s) => answers(s, id).length === 2)
+      expect(answers(p, id)[1]).toMatchObject({ type: "held", depth: 1, expiresAt: answers(p, id)[0].expiresAt })
+      const m = await joined(tok, sessionId, mac)
+      await m.until((s) => itemsFor(s, id).length === 1)
+      // The relay hands over only what it was given: the sealed bytes, the sender's id, times.
+      expect(Object.keys(itemsFor(m, id)[0]).sort()).toEqual(["at", "expiresAt", "from", "id", "sealed", "type"])
+      expect(itemsFor(m, id)[0]).toMatchObject({ from: phone, sealed: sealed(1) })
+      m.send({ type: "held_ack", id })
+      await p.until((s) => s.frames.some((f) => f.type === "delivered" && f.id === id))
+      // A rejoin gets nothing more; a late retry of the same id is answered delivered and not held again.
+      m.ws.close()
+      const m2 = await joined(tok, sessionId, mac)
+      p.send({ type: "hold", id, sealed: sealed(1) })
+      await p.until((s) => answers(s, id).length === 3)
+      expect(answers(p, id)[2]).toMatchObject({ type: "held", delivered: true })
+      await new Promise((r) => setTimeout(r, 100))
+      expect(itemsFor(m2, id)).toHaveLength(0)
+      console.log(JSON.stringify({ row: "relay-hold accept", ms: acked }))
+    }))
+
+  it("hands a hold to a joined Mac at once, and refuses bad ids and a full queue", async () =>
+    withHold(async () => {
+      const { tok, phone, mac, sessionId } = await session()
+      const p = await joined(tok, sessionId, phone)
+      const m = await joined(tok, sessionId, mac)
+      const id = crypto.randomUUID()
+      p.send({ type: "hold", id, sealed: sealed(2) })
+      await m.until((s) => itemsFor(s, id).length === 1)
+      p.send({ type: "hold", id: "nope", sealed: sealed(3) })
+      await p.until((s) => s.frames.some((f) => f.type === "hold_refused" && f.code === "bad"))
+      m.ws.close()
+      const ids = Array.from({ length: 64 }, () => crypto.randomUUID())
+      for (const [i, x] of ids.entries()) p.send({ type: "hold", id: x, sealed: sealed(i) })
+      await p.until((s) => ids.every((x) => answers(s, x).length === 1))
+      // 64 per session: the first item still counts, so the last one is refused full.
+      expect(answers(p, ids.at(-1)!)[0]).toMatchObject({ type: "hold_refused", code: "full" })
+      expect(ids.slice(0, 63).every((x) => answers(p, x)[0].type === "held")).toBe(true)
+    }))
+
+  it("kill and wake, 100 runs: 0 lost, and nothing redelivered after the Mac's ack", { timeout: 180_000 }, async () =>
+    withHold(async () => {
+      const { tok, phone, mac, sessionId } = await session()
+      let p = await joined(tok, sessionId, phone)
+      const applied = new Map<string, number>()
+      let redelivered = 0
+      let lost = 0
+      const t0 = Date.now()
+      for (let run = 0; run < 100; run++) {
+        const id = crypto.randomUUID()
+        // The Mac is unreachable at send. Every 4th run the phone dies after sending and redials, then retries.
+        p.send({ type: "hold", id, sealed: sealed(run) })
+        if (run % 4 === 1) {
+          p.ws.close()
+          p = await joined(tok, sessionId, phone)
+          p.send({ type: "hold", id, sealed: sealed(run) })
+        }
+        await p.until((s) => answers(s, id).length >= 1)
+        // The Mac wakes. Every 3rd run it dies after applying and before its ack, and wakes again.
+        let m = await joined(tok, sessionId, mac)
+        await m.until((s) => itemsFor(s, id).length >= 1)
+        // The Mac side applies an id once (cmux_mobile_link::relay_hold::HeldInbox); count every hand-over.
+        applied.set(id, (applied.get(id) ?? 0) + 1)
+        if (run % 3 === 2) {
+          m.ws.close()
+          m = await joined(tok, sessionId, mac)
+          await m.until((s) => itemsFor(s, id).length >= 1)
+          applied.set(id, (applied.get(id) ?? 0) + 1)
+        }
+        m.send({ type: "held_ack", id })
+        await p.until((s) => s.frames.some((f) => f.type === "delivered" && f.id === id))
+        m.ws.close()
+        const after = await joined(tok, sessionId, mac)
+        await new Promise((r) => setTimeout(r, 20))
+        redelivered += itemsFor(after, id).length
+        after.ws.close()
+      }
+      for (const n of applied.values()) if (n < 1) lost += 1
+      lost += 100 - applied.size
+      const killWakes = [...applied.values()].filter((n) => n > 1).length
+      console.log(JSON.stringify({ row: "relay-hold kill-and-wake", runs: 100, lost, redeliveredAfterAck: redelivered, macKilledBeforeAck: killWakes, ms: Date.now() - t0 }))
+      expect(lost).toBe(0)
+      expect(redelivered).toBe(0)
+      expect(killWakes).toBe(33)
+    }))
+})

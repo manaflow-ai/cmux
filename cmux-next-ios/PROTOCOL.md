@@ -766,6 +766,34 @@ are already the newest and keep flowing with no reconnect.
   the relay's copy trails the other source's known head by more than the
   tolerance (4).
 
+## Relay-held sends (RFD 0142 R8, added 2026-11-25, off by default)
+
+A send the phone makes while the Mac is not joined to the session's WebSocket relay (asleep, offline,
+mid-redial) can ride the phone's relay socket and be held by the relay until the Mac joins. The backend turns it
+on with `LINK_RELAY_HOLD=on`; off, the relay answers every hold with `hold_refused` `off` and the phone routes the
+send as before (the store-and-forward mailbox, else it fails). Code: `backend/src/relay-hold.ts`,
+`cmux_mobile_link::relay_hold`.
+
+Text frames on the relay socket (JSON; binary relay frames are unchanged):
+
+- Phone to relay: `{"type":"hold","id","sealed"}`. `id` is a UUID (the composer's client message id, also inside
+  the signature); `sealed` is the store-and-forward item (`mailbox-send-v1`: signed by the phone's identity key,
+  sealed to the Mac's box key), base64url, at most 16384 characters.
+- Relay to phone: `{"type":"held","id","depth","expiresAt"}` at once (one relay RTT: the send is done as far as
+  the user sees), or `{"type":"hold_refused","id","code"}` with `off`, `bad` or `full` (64 items or 524288
+  sealed characters per session). The same id again answers its first `held` and holds nothing new; an id the
+  Mac already acked answers `held` with `"delivered":true`.
+- Relay to Mac: `{"type":"held_item","id","from","sealed","at","expiresAt"}`, oldest first, on every join and at
+  once for a hold made while it is joined. Delivery is at least once.
+- Mac to relay: `{"type":"held_ack","id"}` after the send is applied; the relay deletes it and tells the phone
+  `{"type":"delivered","id"}`.
+
+The Mac applies an id at most once (`HeldInbox`): it records the id in the same durable write as the send's
+effect, before its ack, so a redelivery, a lost ack or a killed process never applies it twice. Items expire
+10 minutes after the hold, with the P8 mailbox's default hold. The relay reads the id, the sender's device id,
+the sealed length and times; never the text (it holds no key). Nothing is written per keystroke: one storage
+write per send, one per ack.
+
 ## Link (inside either transport)
 
 A link is one reliable ordered byte stream, the main stream (WebRTC: data
