@@ -47,6 +47,10 @@ pub(crate) use tick::WatchTicker;
 #[path = "watch_idle_tests.rs"]
 mod idle_tests;
 
+#[cfg(test)]
+#[path = "watch_revive_tests.rs"]
+mod revive_tests;
+
 /// Tests only: what the watches of this thread's runtime cost while transcripts are quiet: timer
 /// wakeups, and hops to a blocking thread (`watch_idle_tests.rs`).
 #[cfg(test)]
@@ -64,6 +68,14 @@ pub(super) mod idle_cost {
     pub(crate) fn take() -> (u64, u64) {
         COST.with(|c| c.replace((0, 0)))
     }
+}
+
+/// The chats a watch reader follows now (`Hub::start_watch`): one reader each.
+static FOLLOWING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn following() -> std::sync::MutexGuard<'static, std::collections::HashSet<String>> {
+    FOLLOWING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// A transcript bigger than this is read from its newest part only.
@@ -269,16 +281,31 @@ impl Hub {
         // A restored chat whose app the registry names reads disconnected once it exits, or at
         // once when it exited while the daemon was down (`app_exit.rs`).
         self.follow_app(session, None);
+        // One reader per chat: a chat reopened while its last reader has not yet seen the close
+        // keeps that reader (`revive_registered_watch`), never a second one reading the same lines.
+        if !following().insert(session.id.clone()) {
+            return;
+        }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
             // Woken by the hub's one check of all watched transcripts (`watch_tick.rs`) when
             // this one's length moved, never on a timer of its own.
             let check = hub.watch_ticker.register(&session);
             hub.follow_terminal(&session);
-            let over = || {
+            let ended = || {
                 session.meta().watching.is_none()
                     || session.purged.load(std::sync::atomic::Ordering::SeqCst)
                     || session.status() == SessionStatus::Closed
+            };
+            // Over: this reader leaves the chat's place, then looks once more, so a reopen that
+            // came between its look and its leaving still has a reader: this one, back again,
+            // unless that reopen started its own.
+            let over = || {
+                if !ended() {
+                    return false;
+                }
+                following().remove(&session.id);
+                !(!ended() && following().insert(session.id.clone()))
             };
             // Do not start copying the transcript before its older-history
             // boundary is safely journaled and checkpointed. Retry a transient
@@ -297,7 +324,10 @@ impl Hub {
                 if over() {
                     return;
                 }
-                let Some(watching) = session.meta().watching else { return };
+                let Some(watching) = session.meta().watching else {
+                    following().remove(&session.id);
+                    return;
+                };
                 let file = watching.file.clone();
                 #[cfg(test)]
                 idle_cost::blocking();
@@ -325,6 +355,52 @@ impl Hub {
                 }
             }
         });
+    }
+
+    /// A registered chat (`register.rs`) that a stop closed while its app still runs it opens
+    /// again and follows its transcript again, from its end when the chat missed more than one
+    /// read's worth ([`MAX_READ`]): what it missed is in the transcript, and replaying hours of it
+    /// would hold the new turns back. Called when a delivery reached the app (`bridge.rs`) and when
+    /// the chat registers or renews (`register.rs`). False when there was nothing to revive.
+    ///
+    /// Before it, a closed registered chat kept taking deliveries into its app while nothing read
+    /// its transcript, so no delivered prompt's turn ever showed: each send waited out the
+    /// bridge's 30 minutes, `acpmux ls` read the chat closed, and senders took it for unreachable
+    /// (a coordinator chat, 2026-11-25: one delivery per 30 minutes, 70 queued).
+    pub(super) fn revive_registered_watch(self: &Arc<Self>, session: &Arc<Session>) -> bool {
+        if session.status() != SessionStatus::Closed
+            || !super::register::is_registered(session)
+            || session.purged.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return false;
+        }
+        let Some(watching) = session.meta().watching else { return false };
+        let stops = session.stops.load(std::sync::atomic::Ordering::SeqCst);
+        if !self.reopen(session, stops) {
+            return false;
+        }
+        let file = watching.file.clone();
+        // Files: off the runtime's workers (RFD 0124 R6).
+        let end = crate::qos::off_worker(|| std::fs::metadata(&file).map(|m| m.len()))
+            .unwrap_or(watching.offset);
+        let skipped = end.saturating_sub(watching.offset) > MAX_READ;
+        if skipped {
+            if let Some(w) =
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching.as_mut()
+            {
+                w.offset = end;
+            }
+            self.save_meta(session);
+        }
+        tracing::info!(session = %session.id, skipped, "a closed registered chat follows its app again");
+        self.append(
+            session,
+            "mux",
+            "watch_started",
+            json!({"family": watching.family, "revived": true}),
+        );
+        self.start_watch(session);
+        true
     }
 
     /// A Claude Code watch that has read nothing yet starts at its transcript's newest page

@@ -753,6 +753,11 @@ impl Hub {
             record.extend(more.clone());
         }
         self.append(session, "mux", "bridge_delivered", record);
+        // The app took it: a registered chat a stop closed follows the app again, so this
+        // prompt's turn shows and its call answers (`watch.rs` `revive_registered_watch`).
+        if registered {
+            self.revive_registered_watch(session);
+        }
         // Added only to a set the log was already read into: a set made here would hide the log's
         // earlier deliveries from `delivered_before`.
         if let Some(ids) = delivered_ids().get_mut(&session.id) {
