@@ -61,7 +61,7 @@ describe("a look's reply and prompt type", () => {
     expect(variables["--cv-reply-font"]).toBe(SERIF);
     expect(variables["--cv-reply-tracking"]).toBe("0px");
     expect(variables["--cv-reply-font-size"]).toBe("16px");
-    expect(variables["--cv-reply-line-height"]).toBe(`${Math.round(16 * display.lineHeight * 100) / 100}px`);
+    expect(variables["--cv-reply-line-height"]).toBe(`${Math.round(16 * display.lineHeight)}px`);
     expect(variables["--cv-prompt-font"]).toBe("var(--font-ui)");
     expect(variables["--cv-prompt-tracking"]).toBeNull();
     expect(variables["--cv-prompt-font-size"]).toBe("15px");

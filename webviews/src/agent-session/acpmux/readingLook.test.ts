@@ -38,9 +38,10 @@ describe("reading layout experiment", () => {
     const metrics = chatMetrics(display, 1);
     const variables = chatDisplayVariables(display, 1);
     expect(variables["--cv-font-size"]).toBe("15px");
-    expect(variables["--cv-line-height"]).toBe("22.5px");
+    // 15 px at 1.5 is 22.5 px; lines draw on whole pixels (chatDisplay.ts wholeLine).
+    expect(variables["--cv-line-height"]).toBe("23px");
     expect(metrics.measureFont).toStartWith("15px ");
-    expect(metrics.lineHeight).toBe(22.5);
+    expect(metrics.lineHeight).toBe(23);
   });
 
   test("type-only preserves full width and unrelated display preferences", () => {
