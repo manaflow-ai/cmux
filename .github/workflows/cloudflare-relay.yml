@@ -392,15 +392,21 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # On by default for staging only; an unset variable reads '' (format), so only an explicit '0' turns it off.
+          VIEWER_CIRCUITS: ${{ format('{0}', vars.RELAY_STAGING_VIEWER_CIRCUITS) != '0' && '1' || '0' }}
         run: |
           set -euo pipefail
           python3 tests/validate_wrangler_config.py
           if [ "$MODE" = version ]; then
             npx --no-install wrangler rollback "$VERSION" --name "$WORKER" -y --message "rollback by run $GITHUB_RUN_ID"
           else
-            # --config and --name: the relay's own wrangler.toml, as the staging Worker.
+            # --config and --name: the relay's own wrangler.toml, as the staging Worker. Staging serves far-viewer
+            # circuits (CMUX_RELAY_VIEWER_CIRCUITS, RFD 0163 pick 6; wrangler.toml and production keep it off), so the
+            # staging journey crosses them before any production deploy and the far-viewer measure has a relay to hit.
+            # Repo variable RELAY_STAGING_VIEWER_CIRCUITS=0 turns it off on the next staging deploy, no PR needed.
             npx --no-install wrangler deploy --config wrangler.toml --name "$WORKER" \
-              --var "CMUX_SOURCE_REVISION:$SHA" --message "cmux $SHA (run $GITHUB_RUN_ID)"
+              --var "CMUX_SOURCE_REVISION:$SHA" --var "CMUX_RELAY_VIEWER_CIRCUITS:$VIEWER_CIRCUITS" \
+              --message "cmux $SHA (run $GITHUB_RUN_ID)"
           fi
       - name: Health and /version check; roll back on red
         env:
