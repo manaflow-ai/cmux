@@ -44,6 +44,14 @@ pub struct ClientConfig {
 pub const ADVANCED_CREATE_FIELDS: &[&str] =
     &["size_name", "idle_seconds", "bootstrap", "machine_config_base64"];
 
+/// The Mac applies these fields itself once the machine exists (bootstrap, idle pause, named size); the create op
+/// never receives them. The backend's `capabilities.create` block answers whether it lets the Mac apply each,
+/// while `capabilities.machine_create` answers whether the create op itself takes it (cmux-platform
+/// CreateOptions.ts, #1703), which is false for all of them. So a field with a key here is read from `create`,
+/// and from `machine_create` only when the backend's `create` does not name it.
+const MAC_APPLIED_CREATE_KEYS: &[(&str, &str)] =
+    &[("size_name", "size"), ("idle_seconds", "idlePause"), ("bootstrap", "bootstrap")];
+
 /// Fail closed before a machine-create request is sent when a parameter needs
 /// a backend capability that was not advertised by `/v1/client-config`.
 /// `null` values are equivalent to an omitted optional field.
@@ -55,16 +63,24 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
         if object.get(*field).is_none_or(Value::is_null) {
             continue;
         }
-        let advertised = selection
-            .capabilities
-            .get("machine_create")
-            .and_then(Value::as_object)
-            .and_then(|capabilities| capabilities.get(*field));
+        let read = |group: &str, key: &str| {
+            selection
+                .capabilities
+                .get(group)
+                .and_then(Value::as_object)
+                .and_then(|capabilities| capabilities.get(key))
+                .map(|value| (format!("{group}.{key}"), value))
+        };
+        let mac_applied = MAC_APPLIED_CREATE_KEYS
+            .iter()
+            .find(|(name, _)| name == field)
+            .and_then(|(_, key)| read("create", key));
+        let advertised = mac_applied.or_else(|| read("machine_create", field));
         match advertised {
-            Some(Value::Bool(true)) => {}
-            Some(Value::Bool(false)) => {
+            Some((_, Value::Bool(true))) => {}
+            Some((name, Value::Bool(false))) => {
                 return Err(format!(
-                    "backend capability refused: machine_create.{field} (backend {})",
+                    "backend capability refused: {name} (backend {})",
                     selection.api_origin
                 ));
             }
@@ -528,6 +544,36 @@ mod tests {
         );
         selection.capabilities["machine_create"]["size_name"] = serde_json::json!(true);
         check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"})).unwrap();
+    }
+
+    #[test]
+    fn a_mac_applied_field_reads_the_backends_create_block() {
+        // Production since cmux-platform #1703: the op takes none of these (`machine_create` false), and the
+        // backend lets the Mac apply them (`create` true). A repo create's bootstrap must pass.
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let mut selection = resolver.resolve(Some("dev")).unwrap();
+        selection.capabilities = serde_json::json!({
+            "machine_create": {"size_name": false, "idle_seconds": false, "name": true, "bootstrap": false,
+                               "machine_config_base64": false},
+            "create": {"size": true, "idlePause": true, "name": true, "bootstrap": true}
+        });
+        let mac_applied = serde_json::json!({"bootstrap": {"kind": "shell"}, "idle_seconds": 0, "size_name": "md"});
+        check_create_capabilities(&selection, &mac_applied).unwrap();
+        // A field the backend's create block does not name still reads machine_create.
+        let config = check_create_capabilities(
+            &selection,
+            &serde_json::json!({"machine_config_base64": "x"}),
+        )
+        .unwrap_err();
+        assert!(
+            config.contains("backend capability refused: machine_create.machine_config_base64")
+        );
+        // A backend that does not let the Mac apply it refuses by its create block's name.
+        selection.capabilities["create"]["bootstrap"] = serde_json::json!(false);
+        let refused = check_create_capabilities(&selection, &serde_json::json!({"bootstrap": "x"}))
+            .unwrap_err();
+        assert!(refused.contains("backend capability refused: create.bootstrap"));
     }
 
     #[tokio::test]
