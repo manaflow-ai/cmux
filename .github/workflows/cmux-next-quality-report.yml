@@ -46,8 +46,9 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # Every bounded step at its limit fits: Rust setup 30, the gate step 90, the gate home 20, and the report.
-    timeout-minutes: 150
+    # Every bounded step at its limit fits: Rust setup 30, the home's build 25, the gate step 90, the gate home 20, and
+    # the token mints (169 minutes), with room for the unbounded report steps.
+    timeout-minutes: 180
     permissions:
       contents: read
     steps:
