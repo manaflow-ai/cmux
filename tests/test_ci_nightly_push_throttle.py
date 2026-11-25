@@ -85,6 +85,11 @@ const github = { rest: {
     },
   },
   repos: {
+    getReleaseByTag: async () => {
+      if (!scenario.publicationAgeHours) return { data: { body: '' } };
+      const publishedAt = new Date(Date.now() - scenario.publicationAgeHours * 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      return { data: { body: `<!-- cmux-published-sha: ${scenario.tagSha} -->\n<!-- cmux-published-at: ${publishedAt} -->` } };
+    },
     compareCommitsWithBasehead: async ({ basehead }) => {
       if (!scenario.compare) throw new Error('comparison unavailable');
       if (basehead !== `${scenario.tagSha}...${scenario.headSha}`) {
@@ -173,6 +178,7 @@ def run_decide(
     extra_env=None,
     comparison=None,
     classifier=None,
+    publication_age_hours=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -193,6 +199,7 @@ def run_decide(
                 "eventName": event,
                 "tagSha": tag_sha,
                 "tagAgeHours": tag_age_hours,
+                "publicationAgeHours": publication_age_hours,
                 "getCommitFails": get_commit_fails,
                 "limitedFor": limited_for,
                 "schedule": schedule,
@@ -531,6 +538,13 @@ def test_push_to_main_builds_once_published_commit_is_old_enough() -> None:
     assert not should_build(run_decide(event="push", tag_age_hours=1.999))
     assert should_build(run_decide(event="push", tag_age_hours=2))
     assert should_build(run_decide(event="push", tag_age_hours=2.5))
+
+
+def test_push_throttle_uses_publication_time_after_a_slow_build() -> None:
+    # The source commit may be many hours old by the time signing finishes.
+    # The cadence is measured from the completed publication instead.
+    assert not should_build(run_decide(event="push", tag_age_hours=20, publication_age_hours=0.5))
+    assert should_build(run_decide(event="push", tag_age_hours=0.5, publication_age_hours=2))
 
 
 def test_non_default_interval_changes_the_push_decision() -> None:

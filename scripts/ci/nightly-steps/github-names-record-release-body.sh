@@ -6,8 +6,10 @@
 # The release body with the cmux-published-sha marker decide reads, as publish-nightly's
 # Record step writes it on the other channels.
 set -euo pipefail
+published_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 {
   printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
+  printf '<!-- cmux-published-at: %s -->\n' "$published_at"
   printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "${BUILD_SHA:0:7}" "$REF_NAME"
   printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
   printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
