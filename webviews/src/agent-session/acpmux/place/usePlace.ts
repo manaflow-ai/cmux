@@ -10,6 +10,8 @@ import type { PlaceMode } from "./placeModel";
 /// a toast).
 export interface PlaceActions {
   setMode(mode: PlaceMode): void;
+  /// Keep Running on (`high`) or off (`normal`): `chatPriority.set`.
+  setPriority(priority: "high" | "normal"): void;
   cancel(): void;
   retry(): void;
 }
@@ -45,6 +47,7 @@ export function placeActions(session: string, say?: (text: string) => void, clai
   const carried = () => (claims ? { ...claims() } : {});
   return {
     setMode: (mode) => run({ id: "chatPlace.set", mode, ...carried() }),
+    setPriority: (priority) => run({ id: "chatPriority.set", priority }),
     cancel: () => run({ id: "chatMove.cancel" }),
     retry: () => run({ id: "chatMove.retry", ...carried() }),
   };
