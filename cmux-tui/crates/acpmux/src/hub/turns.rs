@@ -1117,11 +1117,12 @@ impl Hub {
         {
             t.show(&line);
         }
+        let mut draft_sent = false;
         {
             let mut m = session.meta.lock().unwrap();
             if !trigger {
                 m.last_prompt = Some(short_text(&line, 200));
-                drafts::clear_sent_draft(&mut m, &text);
+                draft_sent = drafts::clear_sent_draft(&mut m, &text);
                 // Titled by the sender's words, never the envelope they came in.
                 let words = super::prompt_line::prompt_words(&text, client, provenance.as_ref());
                 super::titles::set_fallback_title(&mut m, &words);
@@ -1147,6 +1148,10 @@ impl Hub {
                 crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
             }
             m.turn_count += 1;
+        }
+        // The sent draft is gone on every replica of the person's (`hub/synced.rs`).
+        if draft_sent {
+            self.synced_record(super::synced::draft_key(&session.id), Value::Null);
         }
         // The first turn after a rate-limit reset carries the continuation it folded
         // (`rate_hold.rs`). Appended, as above; never to a slash command, whose words it would
