@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefPetWiring
 import CmuxNextCloud
+import CmuxNextCloudPlace
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -137,7 +138,22 @@ extension AgentTabStore {
                   let daemon = services.machines.daemons.first(where: { $0.store === found.store }),
                   services.placeEligible(found.record, session: session, on: daemon) else { return nil }
             let record = found.record
-            return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName)
+            // The control's blocked and slots-full facts (Rust decides, ``CloudPlaceFlows/ControlFacts``): a plan only once a
+            // read kept one, so a plan not read never claims No Plan or a full slot list. The chats are read only when Rust
+            // will count slots (signed in, plan kept): a header with no plan never walks every tab.
+            // Off unless the person turns it on (`defaults write … cmux.hybrid.blockedStates -bool YES`): the chip then shows
+            // Signed Out, No Plan and the slot holders. Unset, `place` is what it was.
+            var control: CloudPlaceFlows.ControlFacts?
+            if UserDefaults.standard.bool(forKey: "cmux.hybrid.blockedStates") {
+                let signedIn = services.cloud.isSignedIn
+                // A kept plan with no id is not known: Rust would read it as no plan at all.
+                let planId = signedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account)?.id : nil
+                control = CloudPlaceFlows.ControlFacts(signedIn: signedIn, restoring: services.cloud.auth.isRestoring,
+                                                       planKnown: planId != nil, planId: planId,
+                                                       chats: planId == nil ? [] : services.cloud.place.controlChats(services.placeChats()))
+            }
+            return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName,
+                                                  control: control)
         }
         tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
         // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a
