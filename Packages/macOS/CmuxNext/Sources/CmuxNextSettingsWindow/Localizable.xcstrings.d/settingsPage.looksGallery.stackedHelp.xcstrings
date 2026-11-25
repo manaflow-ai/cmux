@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.looksGallery.stackedHelp" : {
+      "comment" : "Looks card: one line above the installed looks saying how the stack works.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top first: where two set the same thing, the higher wins."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأعلى أولًا: إذا ضبط مظهران الشيء نفسه يفوز الأعلى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gornji prvi: kad dva postave isto, pobjeđuje viši."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Øverst først: sætter to det samme, vinder det øverste."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oben zuerst: Setzen zwei dasselbe, gewinnt der höhere."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arriba primero: si dos ajustan lo mismo, gana el de arriba."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le plus haut d’abord : en cas de conflit, il l’emporte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prima in alto: a parità, vince lo stile più alto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "上から順に。同じ項目なら上のものが優先されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ខាងលើមុន៖ ពេលពីរកំណត់ដូចគ្នា ខាងលើឈ្នះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "위에서부터. 같은 항목이면 위의 룩이 이깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Øverst først: setter to det samme, vinner det øverste."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Od góry: gdy dwa ustawiają to samo, wygrywa wyższy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De cima: se dois definem o mesmo, vence o de cima."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сверху вниз: при совпадении побеждает верхнее."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บนสุดก่อน: ถ้าตั้งค่าเดียวกัน อันที่สูงกว่าชนะ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Üstteki önce: ikisi aynı şeyi ayarlarsa üstteki kazanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Згори вниз: якщо збігаються, перемагає вищий."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trên cùng trước: nếu trùng nhau, cái ở trên thắng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从上到下：设置同一项时，上面的优先。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從上到下：設定同一項時，上面的優先。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
