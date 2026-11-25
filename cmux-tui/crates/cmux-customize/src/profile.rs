@@ -14,12 +14,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cmux_app_manifest::hidden;
+use cmux_config::migrations::{self, Notice};
 use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::library::keys::{self, KEYBINDINGS};
 use crate::redact::{self, find_secret};
+use crate::setup::check::{Finding, codes, first_error};
 use crate::tree::{self, Part, SETTINGS};
 use crate::{Begun, Customize, Error, validate};
 
@@ -39,6 +41,56 @@ pub struct Profile {
     /// Whole text files by logical path (`themes/night.json`).
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+}
+
+impl Profile {
+    /// This profile with every key an older cmux named differently under
+    /// its new name, and a removed key left out
+    /// (`cmux_config::migrations`), and what changed.
+    pub fn migrated(&self) -> (Profile, Vec<Notice>) {
+        let (settings, notices) = migrations::migrate_dotted(&self.settings);
+        (Profile { settings, ..self.clone() }, notices)
+    }
+}
+
+/// A setting a setup sets that this cmux leaves out at install.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Skipped {
+    pub key: String,
+    pub reason: String,
+}
+
+/// A profile as it installs here: migrated, and (for a setup) without the
+/// keys this cmux does not have.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Settled {
+    pub profile: Profile,
+    /// Keys it named by an older name, rewritten or left out.
+    pub notices: Vec<Notice>,
+    /// Keys this cmux has no setting for, left out.
+    pub skipped: Vec<Skipped>,
+}
+
+/// `profile` migrated, with every key this cmux's schema does not have taken
+/// out and listed. A setup is lenient at install (it may be written for a
+/// newer cmux, or use a key a later cmux removed and this one never had);
+/// a known key with a bad value, or one only the person may set, is still
+/// refused by [`Customize::check_profile`].
+pub(crate) fn settle_lenient(profile: &Profile) -> Settled {
+    let (mut profile, notices) = profile.migrated();
+    let schema = Schema::embedded();
+    let mut skipped = Vec::new();
+    profile.settings.retain(|key, _| {
+        let known = schema.row(key).is_some();
+        if !known {
+            skipped.push(Skipped {
+                key: key.clone(),
+                reason: "this cmux has no setting by that name (a newer cmux may)".to_owned(),
+            });
+        }
+        known
+    });
+    Settled { profile, notices, skipped }
 }
 
 /// What a save wrote.
@@ -238,6 +290,12 @@ impl Customize {
         } else {
             PathBuf::from(source)
         };
+        if path.file_name().is_some_and(|name| name == crate::setup::SETUP_FILE) {
+            return crate::setup::read_dir(
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map(|setup| setup.profile);
+        }
         read_profile(&path)
     }
 
@@ -247,77 +305,23 @@ impl Customize {
     /// name or description hides a character. What `use` and a library
     /// import check before a byte is written.
     pub(crate) fn check_profile(&self, profile: &Profile) -> Result<(), Error> {
-        if profile.version != 1 {
-            return Err(Error::Profile(format!(
-                "this profile is format {}; this cmux reads format 1",
-                profile.version
-            )));
-        }
-        let schema = Schema::embedded();
-        for (key, value) in &profile.settings {
-            let row = schema.row(key).ok_or_else(|| {
-                Error::Profile(format!("the setting {key} is not one this cmux has"))
-            })?;
-            if !row.agent_settable {
-                return Err(Error::Profile(format!(
-                    "the setting {key} is one only you can change; a profile may not set it"
-                )));
-            }
-            if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
-                // The key says where to look; the refused value (which may be
-                // a credential under the wrong key) stays in the file.
-                return Err(Error::Profile(format!(
-                    "the profile's value for {key} is not one that setting accepts"
-                )));
-            }
-        }
-        for (path, text) in &profile.files {
-            // Only a path the scan reads: anything else (a dot file like
-            // `customize/.env`) would be overwritten with no generation
-            // holding what was there.
-            let owned = tree::tracked(self.roots(), path)
-                && !matches!(Part::of(path), Part::Settings | Part::Automations);
-            if !owned {
-                return Err(Error::Profile(format!("{path}: a profile may not write there")));
-            }
-            if path == KEYBINDINGS && !keys::readable(text) {
-                return Err(Error::Profile(format!(
-                    "{path} in the profile is not a list of bindings ([{{ \"key\": ..., \"command\": ... }}])"
-                )));
-            }
-            // A name that reads as something else is refused by position,
-            // never shown: the path would carry the hidden character.
-            if let Some(mark) = hidden::first_hidden(path, hidden::Context::ManifestString) {
-                return Err(Error::Profile(format!(
-                    "a file name in the profile has {} ({}) at character {}",
-                    mark.describe(),
-                    mark.code_point,
-                    mark.column
-                )));
-            }
-        }
-        if let Some(mark) =
-            hidden::first_hidden(&profile.description, hidden::Context::ManifestString)
-        {
-            return Err(Error::Profile(format!(
-                "the profile's description has {} ({})",
-                mark.describe(),
-                mark.code_point
-            )));
-        }
-        Ok(())
+        first_error(profile_findings(self.roots(), profile), Error::Profile)
     }
 
     /// Makes a profile live as a draft: nothing is recorded until the person
     /// applies it. The whole profile is checked first (every path is one a
     /// part owns, every setting is one an agent may set and a value its row
-    /// accepts, every file validates); one failure writes nothing.
+    /// accepts, every file validates); one failure writes nothing. A key an
+    /// older cmux named differently is taken under its new name first
+    /// ([`Profile::migrated`]); a key this cmux does not know is refused.
     pub fn preview_profile(
         &self,
         profile: &Profile,
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        let (profile, _) = profile.migrated();
+        let profile = &profile;
         self.check_profile(profile)?;
         // One import at a time, from the first read to the last write: two
         // that merged into the same settings text would each write theirs
@@ -334,6 +338,8 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Begun, Error> {
+        let (profile, _) = profile.migrated();
+        let profile = &profile;
         self.check_profile(profile)?;
         let schema = Schema::embedded();
         let mut files: BTreeMap<String, Vec<u8>> = profile
@@ -483,19 +489,165 @@ pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<St
     (settings, credentials, private)
 }
 
+/// Everything [`Customize::check_profile`] refuses in `profile`, in the order
+/// it checks. `roots` only places paths (no file is read).
+pub(crate) fn profile_findings(roots: &crate::Roots, profile: &Profile) -> Vec<Finding> {
+    // A setup's profile is its `cmux-setup.json` (settings, header) and the
+    // files beside it.
+    let at = crate::setup::SETUP_FILE;
+    let mut findings = Vec::new();
+    if profile.version != 1 {
+        findings.push(
+            Finding::error(
+                codes::SETUP_FORMAT,
+                at,
+                format!("this profile is format {}; this cmux reads format 1", profile.version),
+            )
+            .key("cmuxProfile"),
+        );
+    }
+    let schema = Schema::embedded();
+    for (key, value) in &profile.settings {
+        let Some(row) = schema.row(key) else {
+            let finding = Finding::error(
+                codes::SETTING_UNKNOWN,
+                at,
+                format!("the setting {key} is not one this cmux has"),
+            )
+            .key(key.clone());
+            findings.push(match crate::setup::check::nearest_key(key) {
+                Some(near) => finding.fix(format!("did you mean {near}?")),
+                None => finding.fix("`cmux settings list` names every setting"),
+            });
+            continue;
+        };
+        if !row.agent_settable {
+            findings.push(
+                Finding::error(
+                    codes::SETTING_PRIVATE,
+                    at,
+                    format!(
+                        "the setting {key} is one only you can change; a profile may not set it"
+                    ),
+                )
+                .key(key.clone())
+                .fix(format!("take {key} out; the person sets it on their machine")),
+            );
+            continue;
+        }
+        if let Err(refusal) = cmux_config::schema::accepts(row, value, &Default::default()) {
+            // The key says where to look; the refused value (which may be
+            // a credential under the wrong key) stays in the file. A document's
+            // refusal says where it goes wrong (`phases.row.frames[3]: ...`):
+            // a path in the look's own file, never a value.
+            let document = match &refusal {
+                cmux_config::refusal::Refusal::InvalidValue {
+                    accepted: cmux_config::schema::Accepted::Document { schema, reason },
+                    ..
+                } => Some(format!(
+                    "the profile's value for {key} is not a {schema} document: {reason}"
+                )),
+                _ => None,
+            };
+            findings.push(
+                Finding::error(
+                    codes::SETTING_VALUE,
+                    at,
+                    if let Some(message) = document {
+                        message
+                    } else if key == "workspaceColors.indicatorStyle" {
+                        "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("the profile's value for {key} is not one that setting accepts")
+                    },
+                )
+                .key(key.clone()),
+            );
+        }
+    }
+    for (path, text) in &profile.files {
+        // Only a path the scan reads: anything else (a dot file like
+        // `customize/.env`) would be overwritten with no generation
+        // holding what was there.
+        let owned = tree::tracked(roots, path)
+            && !matches!(Part::of(path), Part::Settings | Part::Automations);
+        if !owned {
+            findings.push(
+                Finding::error(
+                    codes::FILE_PLACE,
+                    path,
+                    format!("{path}: a profile may not write there"),
+                )
+                .fix("a setup writes keybindings.json, themes/NAME.json, customize/... and SURFACE/theme.css"),
+            );
+        } else if path == KEYBINDINGS && !keys::readable(text) {
+            findings.push(Finding::error(
+                codes::FILE_INVALID,
+                path,
+                format!(
+                    "{path} in the profile is not a list of bindings ([{{ \"key\": ..., \"command\": ... }}])"
+                ),
+            ));
+        }
+        // A name that reads as something else is refused by position,
+        // never shown: the path would carry the hidden character.
+        if let Some(mark) = hidden::first_hidden(path, hidden::Context::ManifestString) {
+            findings.push(Finding::error(
+                codes::HIDDEN_TEXT,
+                at,
+                format!(
+                    "a file name in the profile has {} ({}) at character {}",
+                    mark.describe(),
+                    mark.code_point,
+                    mark.column
+                ),
+            ));
+        }
+    }
+    if let Some(mark) = hidden::first_hidden(&profile.description, hidden::Context::ManifestString)
+    {
+        findings.push(
+            Finding::error(
+                codes::HIDDEN_TEXT,
+                at,
+                format!("the profile's description has {} ({})", mark.describe(), mark.code_point),
+            )
+            .key("description"),
+        );
+    }
+    findings
+}
+
 fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Profile(format!("{}: {error}", path.display())))?;
-    // Where it stops reading, never what it read there: the parser's own
-    // message quotes the value it did not expect.
-    serde_json::from_str::<Profile>(&text).map_err(|error| {
+    // Parse errors never quote a value, which might contain credentials.
+    let invalid = |error: serde_json::Error| {
         Error::Profile(format!(
             "{}: not a cmux profile (line {}, column {})",
             path.display(),
             error.line(),
             error.column()
         ))
-    })
+    };
+    let mut profile = match serde_json::from_str::<Profile>(&text) {
+        Ok(profile) => profile,
+        Err(original_error) => {
+            let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
+            crate::file_refs::resolve(
+                &mut value,
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map_err(Error::Profile)?;
+            serde_json::from_value(value).map_err(|_| invalid(original_error))?
+        }
+    };
+    // A look's cmux-setup.json read as a profile (`cmux customize try PATH`) keeps long values in
+    // files beside it, as a setup install reads them.
+    if let Some(dir) = path.parent() {
+        crate::setup::inline_files(&mut profile.settings, dir)?;
+    }
+    Ok(profile)
 }
 
 #[cfg(test)]

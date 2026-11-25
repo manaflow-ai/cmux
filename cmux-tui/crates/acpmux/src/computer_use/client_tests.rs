@@ -143,9 +143,6 @@ struct FakeDaemon {
     asks: Arc<AtomicUsize>,
     remote: Arc<Mutex<Vec<Value>>>,
     workspace_reads: Arc<AtomicUsize>,
-    /// What `update_outdated` answers, and how often it was asked.
-    update: Arc<Mutex<Result<bool, String>>>,
-    updates: Arc<AtomicUsize>,
 }
 
 impl FakeDaemon {
@@ -155,14 +152,7 @@ impl FakeDaemon {
             asks: Arc::default(),
             remote: Arc::default(),
             workspace_reads: Arc::default(),
-            update: Arc::new(Mutex::new(Ok(false))),
-            updates: Arc::default(),
         }
-    }
-
-    fn updating(self, answer: Result<bool, String>) -> Self {
-        *self.update.lock().unwrap() = answer;
-        self
     }
 }
 
@@ -180,10 +170,6 @@ impl Daemon for FakeDaemon {
     }
     fn machines(&self) -> Result<Value, DaemonError> {
         Ok(json!({"machines": [{"name": "studio", "reachable": true, "computer_use": "ready"}]}))
-    }
-    fn update_outdated(&self) -> Result<bool, String> {
-        self.updates.fetch_add(1, Ordering::SeqCst);
-        self.update.lock().unwrap().clone()
     }
     fn workspace_name(&self, id: &str) -> Option<String> {
         self.workspace_reads.fetch_add(1, Ordering::SeqCst);
@@ -343,7 +329,11 @@ fn computer_use_off_is_a_tool_error_but_status_still_answers() {
         caller(FakeDaemon::new(vec![Ok(json!({"state": "off", "reason": "mode is off"}))]));
     let mcp = caller.call("click", &json!({}), "c").to_mcp();
     assert_eq!(mcp["isError"], true);
-    assert!(mcp["content"][0]["text"].as_str().unwrap().contains("computer_use_off"), "{mcp}");
+    let text = mcp["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("computer_use_off"), "{mcp}");
+    // The refusal tells the agent to open the guided setup for the person.
+    assert!(text.contains("cmux action run palette.computerUse.setup"), "{mcp}");
+    assert!(text.contains("mode is off"), "{mcp}");
     let Outcome::Output(status) = caller.call("status", &json!({}), "c2") else { panic!() };
     assert!(!status.is_error);
     assert_eq!(status.body["mode"], "off");
@@ -377,54 +367,24 @@ fn a_daemon_without_the_endpoint_fails_at_once() {
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
-/// The refusal an older daemon gives today (cmux#48044).
-fn unknown_variant() -> Result<Value, DaemonError> {
-    Err(DaemonError::Refused {
+/// A daemon that still lacks the endpoint after the shared restart
+/// (`daemon_skew.rs`, which adds why to the refusal) fails at once, with that reason.
+#[test]
+fn a_refused_endpoint_fails_at_once_with_the_daemons_reason() {
+    let refused = Err(DaemonError::Refused {
         code: "refused".into(),
-        message: "bad request: unknown variant `computer-use-endpoint`, expected one of ...".into(),
-    })
-}
-
-/// An older daemon an app update left running is swapped for the installed
-/// build, and the same call then reaches the worker (cmux#48044).
-#[test]
-fn an_outdated_daemon_is_updated_once_and_the_call_goes_through() {
-    let dir = tmp();
-    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
-    let daemon = FakeDaemon::new(vec![unknown_variant(), Ok(worker.ready())]).updating(Ok(true));
-    let updates = daemon.updates.clone();
-    let caller = caller(daemon);
-    let out = caller.call("list_windows", &json!({}), "call-48044");
-    assert!(matches!(out, Outcome::Output(_)), "{out:?}");
-    assert_eq!(updates.load(Ordering::SeqCst), 1);
-}
-
-/// A daemon still without the command after its update is final: no second
-/// restart, no wait.
-#[test]
-fn a_daemon_still_refusing_after_its_update_fails_without_another() {
-    let daemon = FakeDaemon::new(vec![unknown_variant()]).updating(Ok(true));
-    let updates = daemon.updates.clone();
-    let caller = caller(daemon).with_budget(Duration::from_secs(30));
+        message: "bad request: unknown variant `computer-use-endpoint`. the cmux daemon already \
+                  runs the installed build, which does not have it"
+            .into(),
+    });
+    let caller = caller(FakeDaemon::new(vec![refused])).with_budget(Duration::from_secs(30));
     let started = std::time::Instant::now();
-    assert!(matches!(caller.call("status", &json!({}), "c"), Outcome::Failed { .. }));
-    assert!(matches!(caller.call("status", &json!({}), "c2"), Outcome::Failed { .. }));
-    assert_eq!(updates.load(Ordering::SeqCst), 1);
-    assert!(started.elapsed() < Duration::from_secs(5));
-}
-
-/// When no update can help, the error says why.
-#[test]
-fn an_update_that_cannot_help_names_its_reason() {
-    let daemon = FakeDaemon::new(vec![unknown_variant()]).updating(Err(
-        "the cmux daemon already runs the installed build, which has no Computer Use".into(),
-    ));
-    let Outcome::Failed { code, message } = caller(daemon).call("status", &json!({}), "c") else {
+    let Outcome::Failed { code, message } = caller.call("status", &json!({}), "c") else {
         panic!()
     };
     assert_eq!(code, "computer_use_unavailable");
-    assert!(message.contains("unknown variant"), "{message}");
     assert!(message.contains("already runs the installed build"), "{message}");
+    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[test]
@@ -590,4 +550,20 @@ fn a_session_attaches_once_and_a_relayed_one_never() {
     let relayed = caller(FakeDaemon::new(vec![Ok(relayed_worker.ready())])).with_origin(origin);
     assert!(matches!(relayed.call("status", &json!({}), "c"), Outcome::Output(_)));
     assert!(relayed_worker.attaches.lock().unwrap().is_empty());
+}
+
+#[test]
+fn routable_machines_are_reachable_ready_and_not_the_locked_one() {
+    let data = json!({"machines": [
+        {"name": "studio", "reachable": true, "computer_use": "ready"},
+        {"name": "air", "reachable": true, "computer_use": "off"},
+        {"name": "mini", "reachable": false, "computer_use": "unknown"},
+        {"name": "hubbed", "reachable": true, "via": "hub", "computer_use": "unknown"},
+        {"name": "cosmic", "reachable": true, "computer_use": "ready"},
+    ]});
+    assert_eq!(routable_in(&data, None), ["studio", "cosmic"]);
+    assert_eq!(routable_in(&data, Some("studio")), ["cosmic"]);
+    assert!(routable_in(&json!({}), None).is_empty());
+    assert_eq!(caller(FakeDaemon::new(Vec::new())).routable_machines(None), ["studio"]);
+    assert!(caller(FakeDaemon::new(Vec::new())).routable_machines(Some("studio")).is_empty());
 }

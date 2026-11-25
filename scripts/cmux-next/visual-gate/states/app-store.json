@@ -1,6 +1,11 @@
 {
   "title": "App Store: Features",
-  "settings": null,
+  "settings": {
+    "labs": {
+      "previewFeatures": true,
+      "appStore": true
+    }
+  },
   "launch_args": [],
   "steps": [
     {

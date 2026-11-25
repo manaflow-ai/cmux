@@ -7,11 +7,20 @@ extension CEFTab {
         if passwordFill.setAllowedByProfile(allowed) { applyPasswordFill() }
     }
 
+    /// Every agent action calls it: the first marks the tab; each one refuses WebAuthn again after the person took it.
     public func markAgentDriven() {
+        webAuthnAgentActs = true
+        markAgentReading()
+        applyWebAuthnRefusal()
+    }
+
+    /// Every agent read calls it: the first marks the tab (no saved password fills, the agent URL guard); a read
+    /// refuses no WebAuthn, so a page the person took (``allowWebAuthnForPerson()``) keeps their passkeys while the
+    /// agent watches it.
+    public func markAgentReading() {
         guard !isAgentDriven else { return }
         isAgentDriven = true
         applyPasswordFill()
-        applyWebAuthnRefusal()
         CEFAgentURLGuard.applyShimGuard(self)
         CEFAgentURLGuard.leave(self, committedURL ?? state.url)
     }

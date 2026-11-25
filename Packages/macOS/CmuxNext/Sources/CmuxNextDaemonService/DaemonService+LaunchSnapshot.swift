@@ -20,6 +20,7 @@ extension DaemonService {
         // first handshake; `rememberLaunchSnapshot` gives it again at each handshake.
         if let path = launchSnapshotLocation.path(session: session) { noteSessionFolder(ofLaunchSnapshot: path) }
         guard let snapshot, snapshot.session == session else { return }
+        launchRecordedRegistryID = snapshot.knownRegistryID
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
         launchSnapshotRegistryID = snapshot.tree.registryID
@@ -48,11 +49,18 @@ extension DaemonService {
         take(data)
     }
 
-    /// Records the snapshot path the local daemon reported, for the next launch.
+    /// Records the snapshot path the local daemon reported, for the next launch, and its registry id in this home's
+    /// folder (`LaunchSnapshotLocation.recordRegistry`): the next launch draws only a snapshot of that registry.
     func rememberLaunchSnapshot(_ identity: DaemonIdentity) {
         guard let session = launchSnapshotSession, identity.session == session else { return }
         launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
         if let path = identity.launchSnapshotPath { noteSessionFolder(ofLaunchSnapshot: path) }
+        if let registry = identity.registryID, registry != launchRecordedRegistryID {
+            launchRecordedRegistryID = registry
+            let location = launchSnapshotLocation
+            // task-owner: none; a write of a few bytes that ends by itself, off the main thread (a file write blocks).
+            Task.detached(priority: .utility) { location.recordRegistry(registry, session: session) }
+        }
     }
 
     /// The daemon keeps its launch snapshot in its session folder: the app's slow request log goes beside the
@@ -91,13 +99,16 @@ extension DaemonService {
 
     /// What the local daemon's supervisor needs from this app at launch: the
     /// first-party app packages shipped in the app bundle (its default apps) and the App Store
-    /// examples (third-party packages the person may install).
+    /// packages in `AppPlatform/store` (`CMUX_APPS_DIRS`). The daemon puts cmux's own store apps
+    /// (`cmux/` ids: the clock, weather, calendar and to-do widgets) on Discover and the SDK samples
+    /// on the developers-only Examples shelf (apps/store.rs `Shelf`; Leo, 2026-11-16: "stop shipping
+    /// these into the app store if they're f***ing busted").
     /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
     /// cmux-tui spec/transports.md "App listener and page files").
     /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``).
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
         var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path,
-                           // The App Store examples: listed, installed only by the person.
+                           // App Store packages: cmux's store apps on Discover, samples under Examples.
                            "CMUX_APPS_DIRS": AppPlatformResources.storeExamples.path]
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
         let process = ProcessInfo.processInfo.environment

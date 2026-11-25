@@ -14,6 +14,7 @@ pub mod file_birth;
 pub mod host_exe;
 mod kinfo_proc;
 pub mod malloc_arenas;
+pub mod malloc_quiet_trim;
 pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;

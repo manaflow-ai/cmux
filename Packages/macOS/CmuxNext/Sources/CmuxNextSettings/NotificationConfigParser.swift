@@ -21,6 +21,10 @@ enum NotificationConfigParser {
         if let value = reader.choice("dockBounce", DockBounceMode.self) { prefs.dockBounce = value }
         if let value = reader.choice("showPreviews", NotificationPreviews.self) { prefs.showPreviews = value }
         diagnostics += reader.diagnostics
+        if var toast = ConfigFieldReader(root, at: ["notifications", "toast"], diagnostics: &diagnostics) {
+            if let value = toast.choice("style", CmuxToastStyle.self) { prefs.toastStyle = value }
+            diagnostics += toast.diagnostics
+        }
         prefs.quietHours = quietHours(root, diagnostics: &diagnostics)
         prefs.mutedWorkspaces = mutedWorkspaces(root, diagnostics: &diagnostics)
         prefs.sounds = sounds(root, diagnostics: &diagnostics)

@@ -1261,7 +1261,6 @@
    "trigger": {
     "paths": [
      ".github/language-boundaries.toml",
-     "webviews/src/pages/home-messages/*",
      "webviews/src/pages/home-channels/*"
     ],
     "exclude": [

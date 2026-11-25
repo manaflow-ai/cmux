@@ -135,6 +135,11 @@ fn post(route: Route, event: &Cf) {
                 }
                 raw::CGEventPostToPid(pid, event.ptr());
             }
+            // The route was refused on a locked screen before the gesture
+            // (`refuse_if_locked`); a screen that locks while it runs (a long
+            // typed string) gets none of the rest, which would type into the
+            // lock screen's password field.
+            Route::Hid if crate::locked::session_screen_locked() => {}
             Route::Hid => raw::CGEventPost(HID_TAP, event.ptr()),
         }
     }
@@ -269,6 +274,17 @@ pub fn drag(p: &Posting, from: Point, to: Point, button: Button, front: bool) ->
         }
     }
     post_mouse(route, aim, &press(up, to)?, to);
+    Ok(())
+}
+
+/// Moves the pointer to `at` and presses nothing (a hover). On a process
+/// route the move names the window and its point inside it, as a scroll
+/// does: a mouse-moved event raises no window, so it is always addressed.
+/// On the HID route it moves the real pointer.
+pub fn move_to(p: &Posting, at: Point) -> DResult<()> {
+    let route = p.route();
+    let src = source()?;
+    post_mouse(route, Aim::of(route), &mouse_event(&src, MOUSE_MOVED, at, Button::Left, 0)?, at);
     Ok(())
 }
 

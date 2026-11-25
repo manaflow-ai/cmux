@@ -121,6 +121,9 @@ pub const SYSTEM_TIMERS: &[&str] = &[
     "anacron.timer",
     "cmux-machine-health.timer",
     "cmux-self-update-guard.timer",
+    // The Cloud Chief host's self-update (images/cmux-vm/chief): installed in every image, so on a
+    // guest that is not a Chief it still kept every machine awake as workload (staging, 2026-11-24).
+    "cmux-chief-update.timer",
 ];
 
 /// `/etc/cron.d` entries that are the distribution's.
@@ -227,6 +230,13 @@ pub struct Workload {
     pub timers: Vec<String>,
     /// When a probe last found the machine busy (Unix ms): the idle period starts no earlier.
     pub last_busy_at: Option<u64>,
+}
+
+impl Snapshot {
+    /// Whether an `acpmux` process (a daemon, or a CLI call) is in the process list.
+    pub fn acpmux_running(&self) -> bool {
+        self.procs.iter().any(|p| !p.kthread && p.comm == "acpmux")
+    }
 }
 
 impl Workload {

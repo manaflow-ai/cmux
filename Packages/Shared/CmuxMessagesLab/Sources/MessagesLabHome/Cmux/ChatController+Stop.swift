@@ -25,7 +25,7 @@ extension ChatController {
                 : FieldChrome.emojiGlyph(tinted: false))
         button.image?.accessibilityDescription = label
         button.setAccessibilityLabel(label)
-        button.toolTip = isWorking ? stopToolTip ?? label : label
+        button.setHomeToolTip(isWorking ? stopToolTip ?? label : label)
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

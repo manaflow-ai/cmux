@@ -77,6 +77,12 @@ impl Machine {
                             "defaultHarness": "fake",
                             "webAskingModes": {"fake": ["normal"]}});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
+        // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+        std::fs::set_permissions(
+            dir.join("acpmux/config.json"),
+            <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+        )
+        .unwrap();
         let machine = Self {
             socket: dir.join("mux.sock"),
             session: format!("cloud-move-journey-{name}"),
@@ -110,6 +116,7 @@ impl Machine {
             .env_remove("CMUX_VM_ID")
             .env_remove("CMUX_CODEROUTER_URL")
             .env_remove("CMUX_TEST_CLOUD_ETC")
+            .env_remove("CMUX_TEST_NO_FILE_OWNER")
             .stdin(Stdio::null());
         for (key, value) in &self.env {
             command.env(key, value);
