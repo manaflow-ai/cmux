@@ -4,6 +4,33 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    CloudVmEventEmitParamsKind {
+        AgentStarted = "agent.started",
+        AgentFinished = "agent.finished",
+        AgentNeedsInput = "agent.needs_input",
+        Notification = "notification",
+        BrowserLeaseChanged = "browser.lease.changed",
+        CuaSessionStarted = "cua.session.started",
+        CuaSessionEnded = "cua.session.ended",
+        ServicePortOpened = "service.port.opened",
+        ServicePortClosed = "service.port.closed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmEventEmitParams {
+    pub machine: MachineId,
+    pub kind: CloudVmEventEmitParamsKind,
+    pub at: i64,
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmEventEmitResult {
+    pub delivered: bool,
+}
+
 wire_errors! {
     /// The error codes cloud.vm.event.emit declares.
     CloudVmEventEmitError {
@@ -860,42 +887,4 @@ pub struct FeedAdoptParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedAdoptResult {
     pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.adopt declares.
-    FeedAdoptError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedAdoptCancelled = "feed.adopt_cancelled",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.
-    FeedAdoptCancelOp {
-        name: "feed.adopt.cancel",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: FeedAdoptCancelParams,
-        result: FeedAdoptCancelResult,
-        error: FeedAdoptCancelError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptCancelParams {
-    pub key: String,
 }

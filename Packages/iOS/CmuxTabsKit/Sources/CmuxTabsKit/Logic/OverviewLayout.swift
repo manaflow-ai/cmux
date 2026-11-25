@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Tab overview grid geometry (Mobile Safari, device-measured on an
 /// iPhone 17 Pro Max): two columns (more on a wider page, `columns`) with 16 pt insets and gutter, card
@@ -203,5 +207,17 @@ struct CardResidencyPlan: Equatable, Sendable {
         }
         step.next = step.visible.first ?? best?.index
         return step
+    }
+}
+
+/// The grid's card size, for a host that draws a card's picture ahead (at the size the grid
+/// will show it, not a guess that drifts from the grid on a wider page or a lone card).
+public struct TabsKitOverviewGeometry {
+    public init() {}
+    /// The width in points of each card when the grid lists `cards` tabs (the first `pinned`
+    /// of them pinned) in a page `pageWidth` wide with `columns` columns.
+    public static func cardWidth(pageWidth: CGFloat, columns: Int, cards: Int, pinned: Int = 0) -> CGFloat {
+        OverviewLayout(size: CGSize(width: pageWidth, height: 1), safeTop: 0, safeBottom: 0, count: cards,
+                       pinned: pinned, columns: columns).cardWidth
     }
 }

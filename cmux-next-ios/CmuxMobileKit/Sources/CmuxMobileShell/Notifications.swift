@@ -1,6 +1,8 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -141,6 +143,9 @@ public final class NotificationRouter {
     /// The route was opened (or settled for the Feed).
     func opened() {
         set(nil)
+        #if DEBUG
+        OpenMarks.shared?.note("route_opened")
+        #endif
     }
 
     /// The person went to another screen while a route waited: it is dropped.
@@ -283,6 +288,12 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     /// NotificationDelegateThreadTests fails if the handler leaves the main thread.
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                                    withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+        #if DEBUG
+        // The probe's trigger (OpenMarks, LaunchTTIOpenPathsUITests): the tap reached the app.
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            Task { @MainActor in OpenMarks.shared?.begin("notification_tap") }
+        }
+        #endif
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
@@ -337,6 +348,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     }
 
     var relayAvailable: Bool? { live?.relayAvailable }
+    var terminalSizingPeers: TerminalSizingPeers? { live?.terminalSizingPeers }
 
     struct NotSignedIn: Error {}
 
@@ -344,7 +356,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     /// The service's devices, a phone's link and presence ids folded into one row.
     func devices() async throws -> [SettingsDevice] {
-        guard let live else { return [] }
+        guard let live else { throw NotSignedIn() }
         let all = try await live.myDevices()
         let own = live.ownDeviceIDs
         var out: [SettingsDevice] = []
@@ -419,5 +431,15 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     func deleteAccountData() async throws {}
 
     func removeThisPhoneFromMacs() async {}
+
+    /// The mock account's Macs as Screen Sharing lists them: each once, sharing its screen,
+    /// online as Devices shows it.
+    static func hubDevices(_ macs: [MacDevice]) -> [HubDevice] {
+        macs.reduce(into: [HubDevice]()) { out, mac in
+            guard !out.contains(where: { $0.id == mac.id }) else { return }
+            out.append(HubDevice(id: mac.id, name: mac.name, platform: .macos, lastSeenAt: mac.lastSeenAt,
+                                 macScreenShared: true, online: mac.isOnline))
+        }
+    }
 }
 #endif
