@@ -16,6 +16,7 @@ import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { Check, ChevronRight, Spinner } from "./icons";
 import { planOpen, setPlanOpen } from "./planOpen";
+import { planStepParts } from "./planStepText";
 import { experimentArm } from "../../../experiments/experiment";
 import { earlierPlanHat } from "../subagents/earlierPlanHat.experiment";
 
@@ -112,10 +113,8 @@ export const PlanList = memo(function PlanList({
 /// lines after it are its detail, muted and clamped to two. The whole text is its tooltip. Leo,
 /// 2026-11-22, on a two-line ops note drawn as plain wrapped text: ">1 line is ok IFF it's rendered
 /// and styled properly".
-const PlanStep = memo(function PlanStep({ content }: { content: string }) {
-  const cut = content.indexOf("\n");
-  const title = (cut < 0 ? content : content.slice(0, cut)).trim();
-  const detail = cut < 0 ? "" : content.slice(cut + 1).trim();
+export const PlanStep = memo(function PlanStep({ content }: { content: string }) {
+  const { title, detail } = planStepParts(content);
   return (
     // tooltip-allow: the detail is clamped to two lines; the tooltip holds the whole step
     <span className="cv-plan__text" title={content}>
