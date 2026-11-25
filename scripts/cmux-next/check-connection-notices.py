@@ -130,6 +130,8 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    # A web button component drawn with its handler (`<ConnectButton phase={phase} onConnect={onConnect} />`).
+    r"|<[A-Z]\w*Button\b[^>]*\bon[A-Z]\w*\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
