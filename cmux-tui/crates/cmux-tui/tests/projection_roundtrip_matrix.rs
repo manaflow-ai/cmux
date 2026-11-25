@@ -859,8 +859,8 @@ fn a_folder_removed_mid_turn_keeps_its_edits_for_bring_back_and_refuses_later_wr
     assert!(!t.mac("src/after.txt").exists(), "{answer}");
 
     // Added back: served again under the same name, the mount reads the edits brought home.
-    assert_eq!(name, t.projection_name());
     let _server = t.restart_server();
+    assert_eq!(name, t.projection_name());
     assert_eq!(read(&t.at("src/a.txt")), "alpha, edited before the removal\n");
     write(&t.at("src/b.txt"), "bravo, after it came back\n");
     let answer = t.brought_back();
