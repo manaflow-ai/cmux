@@ -47,32 +47,32 @@ public final class DaemonCommandScope: Sendable {
     }
 
     public let idempotencyKey: String?
-    private struct State {
-        /// Everything but the waiters: `cmux_daemon_scope_*` (cmux-daemon-conn-core src/scope.rs).
-        let handle: OpaquePointer?
-        var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    // crash-allow: an immutable pointer to a Rust scope that locks its own Mutex on every call (ffi.rs cmux_daemon_scope_call)
+    private struct Handle: @unchecked Sendable {
+        let raw: OpaquePointer
     }
 
-    private let state: Mutex<State>
+    private let handle: Handle?
+    /// Held across a Rust call only where the idle check and the waiters must agree.
+    private let idleWaiters = Mutex<[CheckedContinuation<Void, Never>]>([])
     private let createdAt = ContinuousClock.now
 
     public init(idempotencyKey: String? = nil) {
         let key = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
         self.idempotencyKey = key
-        state = Mutex(State(handle: Array((key ?? "").utf8).withUnsafeBufferPointer { cmux_daemon_scope_new($0.baseAddress, $0.count) }))
+        handle = Array((key ?? "").utf8).withUnsafeBufferPointer { cmux_daemon_scope_new($0.baseAddress, $0.count) }
+            .map(Handle.init(raw:))
     }
 
     deinit {
-        if let handle = state.load().handle { cmux_daemon_scope_free(handle) }
+        if let handle { cmux_daemon_scope_free(handle.raw) }
     }
 
-    /// One scope op's reply.
     private func call(_ op: String, _ request: [String: Any] = [:]) -> [String: Any] {
-        let request = encoded(request)
-        return decoded(state.withLock { Self.call(op, request, on: $0.handle) })
+        Self.call(op, encoded(request), on: handle)
     }
 
-    /// `request` as JSON; `at_ms` stamps the stage log.
+    /// `at_ms` stamps the stage log.
     private func encoded(_ request: [String: Any]) -> Data {
         let ms = (ContinuousClock.now - createdAt).components
         var request = request
@@ -80,12 +80,9 @@ public final class DaemonCommandScope: Sendable {
         return (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
     }
 
-    private func decoded(_ reply: Data?) -> [String: Any] {
-        reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
-    }
-
-    private static func call(_ op: String, _ data: Data, on handle: OpaquePointer?) -> Data? {
-        guard let handle else { return nil }
+    /// The Rust scope's reply to `op`, or empty.
+    private static func call(_ op: String, _ data: Data, on handle: Handle?) -> [String: Any] {
+        guard let handle = handle?.raw else { return [:] }
         var out = CmuxDaemonConnBytes(ptr: nil, len: 0)
         let code: Int32 = data.withUnsafeBytes { raw in
             op.withCString { name in
@@ -93,8 +90,8 @@ public final class DaemonCommandScope: Sendable {
             }
         }
         defer { cmux_daemon_conn_bytes_free(out) }
-        guard code == 0, let bytes = out.ptr, out.len > 0 else { return nil }
-        return Data(bytes: bytes, count: out.len)
+        guard code == 0, let bytes = out.ptr, out.len > 0 else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: out.len))) as? [String: Any] ?? [:]
     }
 
     private func field(_ name: String) -> Any? { call("state")[name] }
@@ -136,9 +133,7 @@ public final class DaemonCommandScope: Sendable {
 
     /// Opens a ticket for a command about to be sent, or nil once closed.
     public func begin(label: String? = nil) -> Ticket? {
-        var request: [String: Any] = [:]
-        if let label { request["label"] = label }
-        return (call("begin", request)["ticket"] as? NSNumber).map { Ticket(id: $0.uint64Value) }
+        (call("begin", label.map { ["label": $0] } ?? [:])["ticket"] as? NSNumber).map { Ticket(id: $0.uint64Value) }
     }
 
     /// Closes `ticket`, recording `failure` when the command failed.
@@ -153,10 +148,11 @@ public final class DaemonCommandScope: Sendable {
             ]
         }
         let data = encoded(request)
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-            guard decoded(Self.call("end", data, on: state.handle))["became_idle"] as? Bool == true else { return [] }
-            defer { state.idleWaiters.removeAll() }
-            return state.idleWaiters
+        let handle = handle
+        let waiters = idleWaiters.withLock { waiters -> [CheckedContinuation<Void, Never>] in
+            guard Self.call("end", data, on: handle)["became_idle"] as? Bool == true else { return [] }
+            defer { waiters.removeAll() }
+            return waiters
         }
         for waiter in waiters { waiter.resume() }
     }
@@ -168,7 +164,6 @@ public final class DaemonCommandScope: Sendable {
 
     /// Records objects a creating command made (`DaemonCreatingRequest`).
     public func noteCreated(_ objects: [DaemonCreatedObject]) {
-        guard !objects.isEmpty else { return }
         _ = call("note_created", ["objects": objects.map { ["kind": $0.kind.rawValue, "id": $0.id] }])
     }
 
@@ -182,9 +177,10 @@ public final class DaemonCommandScope: Sendable {
     public func waitUntilIdle() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let data = encoded([:])
-            let idle = state.withLock { state -> Bool in
-                if decoded(Self.call("state", data, on: state.handle))["idle"] as? Bool ?? true { return true }
-                state.idleWaiters.append(continuation)
+            let handle = handle
+            let idle = idleWaiters.withLock { waiters -> Bool in
+                if Self.call("state", data, on: handle)["idle"] as? Bool ?? true { return true }
+                waiters.append(continuation)
                 return false
             }
             if idle { continuation.resume() }
@@ -217,11 +213,7 @@ public final class DaemonCommandScope: Sendable {
 
     public var ticketCount: UInt64 { (field("ticket_count") as? NSNumber)?.uint64Value ?? 0 }
 
-    /// The event sequence of `machine` that covers every command's echo, or
-    /// nil when no command reported one.
-    public func barrier(machine: String) -> UInt64? { barriers[machine] }
-
-    /// Every machine's barrier, by machine id.
+    /// Every machine's barrier: the event sequence that covers every command's echo, by machine id.
     public var barriers: [String: UInt64] {
         (field("barriers") as? [String: NSNumber] ?? [:]).mapValues(\.uint64Value)
     }
