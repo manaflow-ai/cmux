@@ -909,7 +909,7 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { facts: PathBuf },
+    RouteDeath { session: Option<String>, facts: Option<PathBuf>, show_facts: bool },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1526,10 +1526,18 @@ pub enum SessionCmd {
     /// wait, or hand its work off. Reads FACTS (a JSON file, `-` for stdin: its host, how it
     /// died, what was tried, which hosts admit one more session) and prints one JSON step,
     /// `{"step": "restart"|"move"|"successor"|...}`. Runs nothing; the caller runs the step
-    /// (`session restart`, `session move`) and asks again on its next pass.
+    /// (`session restart`, `session move`) and asks again on its next pass. Name the session
+    /// (`HOST/NAME`) and this machine's hub fills what it knows first: whether its host is down
+    /// and since when, which peers answer, its row and how much of its chat the copy here keeps;
+    /// FACTS, when given, lie over those field by field. `--show-facts` prints both.
     Route {
+        /// The dead session, `HOST/NAME`.
+        session: Option<String>,
         #[arg(long, value_name = "FILE")]
-        facts: PathBuf,
+        facts: Option<PathBuf>,
+        /// Print `{facts, step}`: the facts the step was decided on, then the step.
+        #[arg(long)]
+        show_facts: bool,
     },
     /// Rename a session.
     Rename {
@@ -2089,7 +2097,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition, close }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Route { facts } => Command::RouteDeath { facts },
+            SessionCmd::Route { session, facts, show_facts } => {
+                Command::RouteDeath { session, facts, show_facts }
+            }
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
