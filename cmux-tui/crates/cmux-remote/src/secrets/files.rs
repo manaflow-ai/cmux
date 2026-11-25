@@ -190,8 +190,11 @@ pub fn declared_names(status: &[u8]) -> Option<Vec<String>> {
 /// `~/.config/cmux/git-hosts`: one file per git host, the person's own token
 /// for it (`git-host-tokens-v1`), read by `cmux gitlab credential` and, for
 /// `github.com`, `cmux github credential` and `gh` (cmux-host `gitlab_cli.rs`
-/// `TOKENS_DIR`, the same folder).
-pub const GIT_HOSTS_DIR: &str = ".config/cmux/git-hosts";
+/// `TOKENS_DIR`, the same folder). Beside [`MACHINE_SECRETS_FILE`].
+pub fn git_hosts_dir(home: &Path) -> PathBuf {
+    let config = Path::new(MACHINE_SECRETS_FILE).parent().unwrap_or(Path::new(""));
+    home.join(config).join("git-hosts")
+}
 /// The longest git host token taken (GitHub's and GitLab's are under 300 bytes).
 pub const MAX_GIT_HOST_TOKEN_BYTES: usize = 4096;
 
@@ -215,7 +218,7 @@ pub fn is_git_host(authority: &str) -> bool {
 
 /// The token file for `host`, when it is a git host name.
 pub fn git_host_path(home: &Path, host: &str) -> Option<PathBuf> {
-    is_git_host(host).then(|| home.join(GIT_HOSTS_DIR).join(host))
+    is_git_host(host).then(|| git_hosts_dir(home).join(host))
 }
 
 /// A token as one plain line: printable ASCII, no space, at most
@@ -270,7 +273,7 @@ pub fn write_allowed_for(
 pub fn remove_git_host_token(_lock: &super::Lock, home: &Path, host: &str) -> io::Result<bool> {
     let path = git_host_path(home, host)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a git host"))?;
-    let folder = home.join(GIT_HOSTS_DIR);
+    let folder = git_hosts_dir(home);
     match std::fs::symlink_metadata(&folder) {
         Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
             return Err(io::Error::new(

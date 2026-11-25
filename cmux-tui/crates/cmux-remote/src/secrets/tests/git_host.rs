@@ -5,7 +5,7 @@ use super::*;
 const HOST: &str = "github.com";
 
 fn token_file(fixture: &Fixture) -> std::path::PathBuf {
-    fixture.home.join(files::GIT_HOSTS_DIR).join(HOST)
+    files::git_hosts_dir(&fixture.home).join(HOST)
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn a_git_host_token_is_written_0600_in_a_0700_folder_and_removed() {
     let path = token_file(&fixture);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), format!("{token}\n"));
     assert_eq!(mode(&path), 0o600);
-    assert_eq!(mode(&fixture.home.join(files::GIT_HOSTS_DIR)), 0o700);
+    assert_eq!(mode(&files::git_hosts_dir(&fixture.home)), 0o700);
     // The same sealed item again is a replay.
     let again = fixture.secrets.replace_git_host_token(HOST, Some(&item)).unwrap_err();
     assert!(again.message.starts_with("replay"), "{}", again.message);
@@ -62,7 +62,7 @@ fn a_symlinked_git_hosts_folder_is_never_written_through() {
     let elsewhere = fixture.home.join("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::create_dir_all(fixture.home.join(".config/cmux")).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, fixture.home.join(files::GIT_HOSTS_DIR)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, files::git_hosts_dir(&fixture.home)).unwrap();
     let item = fixture.seal(Purpose::GitHost, HOST, "gho_x");
     assert!(fixture.secrets.replace_git_host_token(HOST, Some(&item)).is_err());
     assert!(!elsewhere.join(HOST).exists());
