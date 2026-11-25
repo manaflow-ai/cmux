@@ -194,6 +194,10 @@ extension PaletteStrings {
     // Cmd-P and Cmd-Shift-P rows for a typed path or web address (GoToPaletteRows).
     static var sectionGoTo: String { String(localized: "palette.section.goTo", defaultValue: "Go To", bundle: .localizedModule) }
     static var kindFolder: String { String(localized: "palette.kind.folder", defaultValue: "Folder", bundle: .localizedModule) }
+    /// The footer's Return label naming the row it acts on: "Switch to Tab “Fix the login bug”".
+    static func primaryNamingRow(_ verb: String, _ row: String) -> String {
+        String(localized: "palette.footer.primaryNamingRow", defaultValue: "\(verb) “\(row)”", bundle: .localizedModule)
+    }
     static func goToOpen(_ place: String) -> String { String(localized: "palette.goTo.open", defaultValue: "Open \(place)", bundle: .localizedModule) }
     static var goToFolderHint: String { String(localized: "palette.goTo.folderHint", defaultValue: "New terminal tab in this folder", bundle: .localizedModule) }
     static var goToAskCommand: String { String(localized: "palette.goTo.askCommand", defaultValue: "Ask Agent", bundle: .localizedModule) }
