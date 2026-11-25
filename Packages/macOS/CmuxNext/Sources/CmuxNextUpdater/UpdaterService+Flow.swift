@@ -152,6 +152,8 @@ extension UpdaterService {
         switch effect {
         case .install:
             stagedRefresh.installStarted()
+            installClickedAt = ContinuousClock.now
+            picturesAtClick?()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.
@@ -292,6 +294,12 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
                           installWhenIdleMinutes: TimeInterval? = nil) {
+        // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
+        let paused = pausesAutomaticUpdates
+        let checkAutomatically = checkAutomatically && !paused
+        let downloadAutomatically = downloadAutomatically && !paused
+        let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
+        if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }
         if let ring { follow(ring: ring) }
         installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
@@ -351,7 +359,7 @@ extension UpdaterService {
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
-        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
+        let downloads = (required || !downloadHeldForDeltas) && UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained || networkPending,
                                                                    expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by

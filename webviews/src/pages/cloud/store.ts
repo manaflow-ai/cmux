@@ -3,7 +3,8 @@
 // no timers) plus one ordered log of pending intents (OWNERSHIP-PRINCIPLES "Clients are
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
-import { isPageError, type PageClient, pageError } from "../shared/pageClient";
+import { isPageError, pageError, type PageClient } from "../shared/pageClient";
+import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
@@ -38,7 +39,6 @@ import {
   type CloudMachine,
   type CloudPlan,
   type CloudSnapshot,
-  type CloudSurge,
   type CloudTeam,
   type CreateMachineArgs,
   type MachineEvent,
@@ -48,6 +48,8 @@ import {
   type PlanRefusal,
   type RetentionOverrides,
   type SnapshotListResult,
+  type CloudSurge,
+  type CloudUsage,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
@@ -115,6 +117,12 @@ export interface CloudState {
   migration?: MigrationStatus;
   /** The account's latest payment failed (`cmux.cloud.billing.status`): the plan shows a notice. */
   paymentPastDue?: boolean;
+  /** This month's usage and its price (`cloud.usage.current`); absent until read or when not served. */
+  usage?: CloudUsage;
+  /** The last usage read failed (not "not served"): the panel says so and offers Retry. */
+  usageFailed?: boolean;
+  /** The checkout answered that payments are not open yet (`cloud.billing.off`): no Add payment method button. */
+  paymentOff?: boolean;
   /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
@@ -175,6 +183,10 @@ export class CloudStore {
   private unwatch?: () => void;
   /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
   private unwatchAuth?: () => void;
+  /** The host's `cmux.page.connection` stream: lives from the first listener to the last. */
+  private unwatchLink?: () => void;
+  /** Bumped when the last listener leaves: a link subscribe that answers after that closes itself. */
+  private linkLifetime = 0;
   /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
   private lifetime = 0;
   /** The lifetime whose account subscribe is in flight, if any. */
@@ -279,10 +291,18 @@ export class CloudStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) void this.start();
+    if (this.listeners.size === 1) {
+      void this.followLink();
+      void this.start();
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stop();
+      if (this.listeners.size === 0) {
+        this.linkLifetime += 1;
+        this.unwatchLink?.();
+        this.unwatchLink = undefined;
+        this.stop();
+      }
     };
   };
 
@@ -447,7 +467,17 @@ export class CloudStore {
 
   /** The page is shown again (the app became active, the tab came back): read the billing state again. */
   refreshBilling(): Promise<void> {
-    return this.account.readBilling(this.session);
+    return Promise.all([this.account.readBilling(this.session), this.account.readUsage(this.session)]).then(() => {});
+  }
+
+  /** Retry beside a failed usage read. */
+  retryUsage(): Promise<void> {
+    return this.account.readUsage(this.session);
+  }
+
+  /** "Add payment method": the host confirms, then opens the checkout in the browser. */
+  addPaymentMethod(): Promise<void> {
+    return this.account.checkout();
   }
 
   /** Manage Billing beside the payment notice. */
@@ -1223,6 +1253,37 @@ export class CloudStore {
   }
 
   /**
+   * Follows the host's word on the owner link (`cmux.page.connection`): the moment it says the link
+   * is up again, a page that is still disconnected reads again at once instead of at its next backoff
+   * step (up to CLOUD_RESTART_MAX_MS later). A host without the stream (an older one, the mock) leaves
+   * the backoff alone.
+   */
+  private async followLink(): Promise<void> {
+    if (!this.client) return;
+    const lifetime = this.linkLifetime;
+    try {
+      const stop = await subscribePageStreams(this.client, {
+        onConnection: (connected) => {
+          if (connected && lifetime === this.linkLifetime) this.relinkNow();
+        },
+      });
+      if (lifetime !== this.linkLifetime) return stop();
+      this.unwatchLink = stop;
+    } catch {
+      // The link is down now: the backoff reads again, and the next first listener subscribes again.
+    }
+  }
+
+  /** The link is back: a disconnected page reads again now, as Retry does, with nothing cleared from the screen. */
+  private relinkNow(): void {
+    if (this.listeners.size === 0 || this.state.connection !== "disconnected") return;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.started) this.stop();
+    void this.start();
+  }
+
+  /**
    * The link dropped while the page was live: after the same backoff as `startLater` (1 s doubling to
    * 10 s), the page starts again as Retry does, with no Retry and nothing cleared from the screen. Any
    * machine event meanwhile proves the link is back and ends the wait (`onEvent`).
@@ -1251,6 +1312,9 @@ function signedOutState(): Partial<CloudState> {
     plan: undefined,
     migration: undefined,
     paymentPastDue: undefined,
+    usage: undefined,
+    usageFailed: undefined,
+    paymentOff: undefined,
     refusal: undefined,
     blocked: undefined,
     selection: undefined,

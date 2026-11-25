@@ -20,10 +20,19 @@ enum AgentPaneHandshakeReply {
         // The store's start folder is read while acpmux connects, not after (Leo, 2026-11-03: "why does
         // it even take time to read settings?"): ``AgentPaneStartFolders/apply(to:ready:model:)`` takes it.
         model.startFolders.prefetch(for: model)
+        // So is the last quit's state (AgentPaneRelaunchWake): its read runs beside acpmux's handshake, and a
+        // retried `ready` awaits the same read (goal restart-to-chat: the ready reply was ~320 ms of serial awaits).
+        if request == .ready, model.pendingWake == nil, let source = model.wakeSource {
+            let read = Task { await source() }
+            model.wakeSource = { await read.value }
+        }
+        // Each step's end, for the relaunch bench (first ready only: the App keeps each name's first time).
+        let step: (String) -> Void = { name in if request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.ready.\(name)") } }
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)
                 : try await model.host.reconnectHandshake(sessionId: model.sessionId)
+            step("host")
             // Each await of the page's handshake, for the relaunch bench (bench_relaunch_reconnect.py PHASES).
             AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_endpoint")
             // Only a chat without a session yet starts from the seed.
@@ -50,6 +59,7 @@ enum AgentPaneHandshakeReply {
                 if seed.showsHarnesses { handshake.harnesses = true }
                 if seed.picksCloud { handshake.pickCloud = true }
                 handshake.cloudStartHandoff = seed.cloudStartHandoff
+                handshake.autoCloudStartKey = seed.autoCloudStartKey
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload
@@ -89,6 +99,7 @@ enum AgentPaneHandshakeReply {
             // A peer's folder belongs to that peer. Never resolve it against this Mac's
             // workspace/agent-home or read local Git data at the same path.
             let filled = started || handshake.peer != nil ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
+            step("folders")
             AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_folders")
             if !started, handshake.peer == nil {
                 handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
@@ -96,6 +107,7 @@ enum AgentPaneHandshakeReply {
                 if let repository = handshake.githubRepository, let cwd = handshake.cwd {
                     AgentReplyPullRequests.shared.noteFolder(cwd, of: repository)
                 }
+                step("repository")
             }
             AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_github")
             handshake.revealTurn = model.pendingRevealTurn
@@ -106,6 +118,7 @@ enum AgentPaneHandshakeReply {
                 if model.pendingWake == nil, let source = model.wakeSource { model.pendingWake = await source() }
                 AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_wake")
                 model.wakeSource = nil
+                step("wake")
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
                 model.openWaits.ran(.handshake)
