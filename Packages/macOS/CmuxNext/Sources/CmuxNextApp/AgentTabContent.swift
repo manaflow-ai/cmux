@@ -26,12 +26,10 @@ struct AgentTabContent {
         let focused = pane.workspace?.focus.state.pane
         // A Mac tab that shows a Cloud chat in place (CloudFrontedChats) draws that chat's page, and its files and machine are the chat's.
         let front = services.agentTabs.frontedChats.front(of: AgentTabKey(machine: pane.daemon.machineID, key: key)), chat = front?.key ?? key, machine = front?.machine ?? pane.daemon.machineID
-        let deferred = services.agentTabs.deferAtLaunch(
+        let deferred = (services.agentTabs.existingView(chat, machine: machine) == nil && pane.defersPageUntilFrame(key)) || services.agentTabs.deferAtLaunch( // no page before the first frame: its last frame until then
             chat, machine: machine, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
-            if let pane, pane.currentTabKey == key { pane.showSelected() }
-        }
+        ) { [weak pane] in if let pane, pane.currentTabKey == key { pane.showSelected() } }
         if deferred {
             drawLastPage(key, until: nil)
             return nil

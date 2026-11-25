@@ -14,6 +14,11 @@
 //! - [`names`]: the link's capability names, declared once (PROTOCOL.md "Capabilities").
 //! - [`local`], [`local_hub`]: nearby links with no internet (mDNS ad policy, the Mac's local hub).
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
+//! - [`viewport`]: viewport state sync's VT rendering and the phone's datagram receiver.
+
+// A test function that lost its `#[test]` in a merge is dead code: fail the
+// test build on it instead of skipping the test with a warning nobody reads.
+#![cfg_attr(test, deny(dead_code))]
 
 pub mod api;
 pub mod build_space;
@@ -31,23 +36,27 @@ mod liveness;
 pub mod local;
 pub mod local_dns;
 pub mod local_hub;
+pub mod mailbox_client;
 pub mod media;
 pub mod names;
 pub mod path_report;
 pub mod reconnect;
+pub mod reliable;
 mod send_queue;
 pub mod signal_dial;
 pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod timing;
+pub mod viewport;
 
 pub use build_space::BuildSpace;
-pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
+pub use dial::{Connected, DialError, DialOptions, LinkPath, Overlay, TransportKind, UltraSetting};
 pub use link::{
-    Channel, ChannelEvent, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane, LaneState, Link, LinkConfig,
-    LinkError, Role,
+    Accepted, Channel, ChannelEvent, ChannelResume, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane,
+    LaneState, Link, LinkConfig, LinkError, ResumeReport, Role,
 };
+pub use reliable::{Carrier, RELIABLE_LANE, ReliableConfig, ReliableStats, ResumeRegistry};
 pub use signaling::SignalingClient;
 pub use timing::Timeline;
 

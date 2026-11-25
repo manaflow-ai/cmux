@@ -97,6 +97,14 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         }
     }
 
+    func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
+        do {
+            return FFIChannel(handle: try await handle.openChannel(service: service, argsJson: argsJSON))
+        } catch let error as CmuxMobileError {
+            throw error.linkError
+        }
+    }
+
     func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
         do {
@@ -147,6 +155,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 }
 
 extension FFIMacLink: ParkableMacLink {
+    var resumeHedge: Duration? { .milliseconds(handle.resumeHedgeMs()) }
+
     func park(hold: Duration, timeout: Duration) async -> Bool {
         (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
     }
