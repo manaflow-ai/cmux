@@ -96,8 +96,9 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         return DeviceIdentity(deviceID: id, keys: keys)
     }
 
-    /// `buildSpace`: the dev build's `dev:<slug>` the device was anchored in, nil for the default space. A worker
-    /// from before build spaces ignores it and renews in the default space, where the hub refuses it (fails closed).
+    /// `buildSpace`: the dev build's `dev:<slug>` the device was anchored in, nil for the default space. Nil today:
+    /// DeviceHubService uses the worker's device only in the default space, since the pinned cmux Remote (dev) predates
+    /// build spaces and ignores the value.
     func anchored(userID: String, hubURL: URL, buildSpace: String? = nil) async {
         var params: [String: Any] = ["user_id": userID, "hub_url": hubURL.absoluteString]
         if let buildSpace { params["build_space"] = buildSpace }

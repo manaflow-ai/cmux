@@ -96,6 +96,7 @@ public final class DeviceHubService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
     /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
     /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
+    /// Asked only in the default build space (``remoteHubFactory``).
     public var makeRemoteHub: (@MainActor (URL, String) async throws -> DeviceHub?)?
     /// The running hub, its account and address after every change (the App anchors cmux Remote).
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
@@ -198,7 +199,7 @@ public final class DeviceHubService {
         let id = UUID()
         loadingFor = (url, user)
         loadingID = id
-        let makeRemoteHub = makeRemoteHub, makeAppHub = makeAppHub, clock = retryClock
+        let makeRemoteHub = remoteHubFactory, makeAppHub = makeAppHub, clock = retryClock
         // task-owner: DeviceHubService.loading: identity attempts and backoff; stopHub cancels both
         loading = Task { [weak self] in
             // Rust owns exponential spacing and jitter. Identity availability has no change event:
@@ -235,6 +236,14 @@ public final class DeviceHubService {
         }
         let task = loading
         if let task { trackLoading(task) }
+    }
+
+    /// ``makeRemoteHub`` in the default build space (NIGHTLY, release: unchanged); nil in a dev build space, so the app's
+    /// own hub serves this Mac there. That hub names the space on every call and its User DO socket; a remote hub's device
+    /// renews and connects through its own process, and the cmux Remote (dev) DEV builds pin predates build spaces, so it
+    /// would renew in the default space and the tag's Mac would never be online in its own (its iPhone could not share it).
+    private var remoteHubFactory: (@MainActor (URL, String) async throws -> DeviceHub?)? {
+        buildSpace == .nightly ? makeRemoteHub : nil
     }
 
     /// Platform error codes only: diagnostics must never include tokens or key material.

@@ -215,7 +215,10 @@ session asked for one is `404 not_found`).
   names another space than its session's is `401 unauthorized`, so the app signs in again with its
   own header. Device renewal (`POST /v1/auth/device`) reaches the User DO of the request's space,
   the only one that knows the device's anchor: the app tells cmux Remote the space it anchored in
-  (`hub.anchored` `build_space`).
+  (`hub.anchored` `build_space`). The cmux Remote (dev) that DEV builds pin predates build spaces
+  and would renew in the default space, so in a dev space the Mac app serves this Mac with its own
+  hub (its own device, which names the space on every call and its socket) and signs cmux Remote's
+  worker out (`hub.signed_out`); only the default space uses cmux Remote's device.
 - The user id is the same in every space (`<projectId>:<sub>`); only the objects are apart.
 - A machine sign-in (`POST /v1/auth/machine`) names no build: the acpmux daemon's and `cmux-rd
   linux-host`'s devices are default-space devices, and a dev-space Mac app does not adopt the
