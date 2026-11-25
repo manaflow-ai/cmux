@@ -912,6 +912,7 @@ pub enum Command {
         set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
+        hold_for: Option<String>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -1427,8 +1428,9 @@ pub enum SessionCmd {
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
     /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
-    /// `--set-allow` replaces it. Prints the allowlist before and after.
+    /// sessions outside them, for 12 hours unless `--for` says otherwise. `--allow` adds names
+    /// to the allowlist of a hold that is on and keeps the rest (with no hold on it changes
+    /// nothing); `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
@@ -1449,6 +1451,10 @@ pub enum SessionCmd {
         /// With `--fleet`: print the fleet hold, change nothing.
         #[arg(long)]
         status: bool,
+        /// With `--fleet`: how long it holds (`30m`, `4h`, `2d`; `never` keeps it until
+        /// released). Default 12h.
+        #[arg(long = "for", value_name = "DURATION")]
+        hold_for: Option<String>,
     },
     /// Release a held session (`session hold`): it runs its next prompt as usual. With
     /// `--fleet`: lift the fleet hold.
@@ -2033,7 +2039,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
                 Command::SessionHold {
                     session,
                     held: true,
@@ -2042,6 +2048,7 @@ pub fn flatten(c: Command) -> Command {
                     set_allow,
                     reason,
                     status,
+                    hold_for,
                 }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
@@ -2052,6 +2059,7 @@ pub fn flatten(c: Command) -> Command {
                 set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
+                hold_for: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
