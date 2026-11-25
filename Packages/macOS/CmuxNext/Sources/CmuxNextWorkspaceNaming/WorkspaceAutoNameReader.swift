@@ -129,7 +129,7 @@ public struct WorkspaceAutoNameReader {
                 ?? NewWorkspaceName.clean(SidebarMapping.shortSessionName(sessionName))
                 ?? turns.title(for: session).flatMap { AgentTurnStates.promptGist($0) }.flatMap(NewWorkspaceName.clean)
                 // A Cloud chat this Mac started reads as its first prompt until its chat has a title here (`AgentCloudStartTitles`).
-                ?? (cloudStarts.title(of: face) ?? cloudStarts.title(of: sent)).flatMap(NewWorkspaceName.clean)
+                ?? (cloudStarts.title(of: face) ?? cloudStarts.inPlaceTitle(of: sent)).flatMap(NewWorkspaceName.clean)
         }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },

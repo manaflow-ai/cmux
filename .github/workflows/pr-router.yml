@@ -54,12 +54,15 @@ jobs:
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
     steps:
-      - name: Checkout the router (blobless, the merge commit and the base tip)
+      - name: Checkout the router (the merge commit and the base tip)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
-          filter: blob:none
+          # A same-repo pull request's runner reads the git mirror, which serves whole blobs in about 10 s; a blob
+          # filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to 81 s a head,
+          # note-559). A fork, or any other event, keeps blob:none.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json
@@ -169,3 +172,5 @@ jobs:
       contents: read
       # The ios job's picker reads the queue and its runs (scripts/ci/ios_runner_pool.py).
       actions: read
+      # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
+      id-token: write
