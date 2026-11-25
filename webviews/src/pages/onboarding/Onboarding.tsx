@@ -61,6 +61,21 @@ function Footer({
             {back}
           </DialogButton>
         )}
+        {/* The intro walk's way out to a chat from any screen before the last (cmux#56827): it keeps
+            every pick so far and ends the step as Continue on the last screen does; Skip still puts
+            them back. */}
+        {walkNext && (
+          <DialogButton
+            dialogKey={null}
+            className="ui-button ui-btn"
+            data-variant="subtle"
+            data-size="md"
+            data-walk-exit=""
+            onClick={() => store.call(OPS.next)}
+          >
+            {strings.t("onboarding.button.startChatting")}
+          </DialogButton>
+        )}
         <DialogButton
           dialogKey="escape"
           className="ui-button ui-btn"
