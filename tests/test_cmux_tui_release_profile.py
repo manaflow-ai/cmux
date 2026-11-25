@@ -8,10 +8,10 @@ binary 16.8 MB larger (116.5 -> 133.3 MB). Thin LTO with 16 codegen units made
 it 24% larger in #27830, so cmux-tui, cmux-tui-core and acpmux keep one unit.
 
 The build workflow's `lto: fat` input means "the Cargo.toml release profile".
-Only build-machine-channel passes `lto: thin` (cmux-tui-build-package.yml:
+Only cmux-machine-channel.yml's build passes `lto: thin` (cmux-tui-build-package.yml:
 release LTO off): the Cloud machine channel's own copy of the two Linux musl
-targets, artifacts machine-channel-*, which only point-machine-channel-early
-reads (cmux-tui-artifacts.yml MACHINE_CHANNEL_THIN; on the cmux-linux pool a
+targets, artifacts machine-channel-*, which only that workflow's point job
+reads (MACHINE_CHANNEL_THIN; on the cmux-linux pool a
 fat leg builds cold in 23-40 min). Every other caller, and so every shipped
 app, npm, PyPI, release, R2 and tree artifact, keeps the Cargo.toml profile.
 ChannelOnlyThinTest checks that.
@@ -84,6 +84,10 @@ def resolve(value):
         whole = re.fullmatch(r"\$\{\{\s*" + PROFILE_REF.pattern + r"\s*\}\}", value)
         if whole:
             return profiles()[whole.group(1)][whole.group(2)]
+        # cmux-machine-channel.yml's plan job prints the machine_channel profile as its outputs.
+        plan = re.fullmatch(r"\$\{\{\s*needs\.plan\.outputs\.(target_set|lto|artifact_prefix)\s*\}\}", value)
+        if plan:
+            return profiles()["machine_channel"][plan.group(1)]
     return value
 
 
@@ -114,7 +118,9 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     # A fat build's artifacts keep the names every shipped download reads.
                     self.assertEqual(inputs.get("artifact_prefix", ""), "")
         # MACHINE_CHANNEL_THIN: the Cloud machine channel's own copy of the Linux targets, alone.
-        self.assertEqual(thin, [("cmux-tui-artifacts.yml", "build-machine-channel")])
+        self.assertEqual(thin, [("cmux-machine-channel.yml", "build")])
+        plan = workflow(ROOT / ".github/workflows/cmux-machine-channel.yml")["jobs"]["plan"]
+        self.assertIn('["machine_channel"]', "\n".join(str(st.get("run", "")) for st in plan["steps"]))
 
     def test_the_shipped_linux_binaries_come_from_the_fat_build(self):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
@@ -142,10 +148,10 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     names += re.findall(r"(?:--pattern|--name|-n)[ =]+[\"']?([^\s\"']+)", str(step.get("run", "")))
                     if any(n.startswith(MACHINE_PREFIX) for n in names):
                         readers.append((path.name, name))
-        self.assertEqual(readers, [("cmux-tui-artifacts.yml", "point-machine-channel-early")])
-        early = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]["point-machine-channel-early"]
-        self.assertIn("build-machine-channel", early["needs"])
-        self.assertIn("needs.build-machine-channel.result == 'success'", early["if"])
+        self.assertEqual(readers, [("cmux-machine-channel.yml", "point")])
+        early = workflow(ROOT / ".github/workflows/cmux-machine-channel.yml")["jobs"]["point"]
+        self.assertIn("build", early["needs"])
+        self.assertIn("needs.build.result == 'success'", early["if"])
         downloads = [step["with"]["pattern"] for step in early["steps"]
                      if "download-artifact" in str(step.get("uses", ""))]
         self.assertEqual(downloads, ["machine-channel-cmux-tui-*-unknown-linux-musl"])

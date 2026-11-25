@@ -14,6 +14,11 @@ public enum TabIcon: Hashable, Sendable {
     /// An agent's brand mark (a CmuxAgentBrands brand id such as "claude"),
     /// tinted to the tab's text color like a symbol.
     case agentMark(String)
+    /// The same mark for an agent that runs in a terminal tab (Claude Code, Codex as a CLI), on a soft
+    /// rounded square of the tint, so a terminal agent's tab is told from a GUI agent chat's bare mark
+    /// with no extra part on it (Leo 2026-11-24: "both of them rn are just claude icon. but one is
+    /// terminal one is gui"). The iPhone's `AgentAvatarHost.terminal` draws the same rounded square.
+    case terminalAgentMark(String)
 }
 
 public extension TabIcon {
