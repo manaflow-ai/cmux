@@ -95,12 +95,16 @@ pub(super) fn parse_link(text: &str) -> Option<String> {
 }
 
 fn is_locale(s: &str) -> bool {
-    let b = s.as_bytes();
-    (b.len() == 2 && b.iter().all(u8::is_ascii_lowercase))
-        || (b.len() == 5
-            && b[..2].iter().all(u8::is_ascii_lowercase)
-            && b[2] == b'-'
-            && b[3..].iter().all(u8::is_ascii_uppercase))
+    match *s.as_bytes() {
+        [a, b] => a.is_ascii_lowercase() && b.is_ascii_lowercase(),
+        [a, b, b'-', c, d] => {
+            a.is_ascii_lowercase()
+                && b.is_ascii_lowercase()
+                && c.is_ascii_uppercase()
+                && d.is_ascii_uppercase()
+        }
+        _ => false,
+    }
 }
 
 /// `7d`, `12h`, `30m`, `90s` or plain seconds, as seconds; between 60 s and 30 days.
@@ -157,8 +161,8 @@ pub(super) fn parse(
     let (mut ttl, mut note) = (None, None);
     let mut positional = vec![];
     let mut i = 0;
-    while i < rest.len() {
-        let word = rest[i].as_str();
+    while let Some(word) = rest.get(i) {
+        let word = word.as_str();
         let mut value = || {
             i += 1;
             rest.get(i).cloned().ok_or_else(|| format!("{word} needs a value"))
