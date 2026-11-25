@@ -97,6 +97,16 @@ import Testing
         #expect(PullRequestProbeService.preferredPullRequest(from: [closedAtCutoff], now: now) == closedAtCutoff)
     }
 
+    @Test func staleClosedPullRequestLosesToARecentlyClosedOneAndLeavesNothingBesideAStaleMergedOne() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let staleClosed = item(number: 2310, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2310", updatedAt: "2026-04-19T12:00:00Z", closedAt: "2025-04-01T12:00:00Z")
+        let recentlyClosed = item(number: 2311, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2311", updatedAt: "2026-04-18T12:00:00Z", closedAt: "2026-04-18T12:00:00Z")
+        let staleMerged = item(number: 2312, state: "MERGED", url: "https://github.com/manaflow-ai/cmux/pull/2312", updatedAt: "2026-03-06T12:00:00Z", mergedAt: "2026-03-06T12:00:00Z", closedAt: "2026-03-06T12:00:00Z")
+        // The stale one was updated last, so it won before on updatedAt alone.
+        #expect(PullRequestProbeService.preferredPullRequest(from: [staleClosed, recentlyClosed], now: now) == recentlyClosed)
+        #expect(PullRequestProbeService.preferredPullRequest(from: [staleClosed, staleMerged], now: now) == nil)
+    }
+
     @Test func closedPullRequestWithoutCloseDateStaysBadgeCandidate() throws {
         let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
         let undated = item(number: 2304, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2304", updatedAt: "2025-04-01T12:00:00Z")
