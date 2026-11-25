@@ -18,11 +18,12 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 /// A key slower than its tag's usual (the median of its newest keys) by more than this (ms) is
-/// a spike; until [`BASELINE_KEYS`] keys, slower than this outright (as `key_echo`'s). On a
+/// a spike (the median follows every key for the first [`BASELINE_KEYS`], then every
+/// [`BASELINE_KEYS`] keys). On a
 /// link whose every key takes 200 ms (lossy-3) a spike is a key that felt slower than the rest,
 /// not every key.
 pub const SPIKE_MS: u32 = crate::key_echo::SPIKE_MS;
-/// Keys a tag needs before its median sets its spike line.
+/// Keys after which a tag's spike line is refreshed only every this many keys.
 pub const BASELINE_KEYS: u64 = 64;
 /// Upper edges (ms, inclusive) of the buckets; one more bucket holds the rest.
 pub const EDGES_MS: [u32; 15] = [8, 16, 25, 33, 50, 67, 100, 150, 200, 300, 500, 750, 1000, 2000, 5000];
@@ -65,7 +66,7 @@ struct Tag {
     buckets: [u64; EDGES_MS.len() + 1],
     recent: VecDeque<u32>,
     total: u64,
-    /// The spike line: `SPIKE_MS` over the median, refreshed every `BASELINE_KEYS` keys.
+    /// The spike line: `SPIKE_MS` over the median, refreshed each key in warm-up, then every `BASELINE_KEYS`.
     spike_over: u32,
 }
 
@@ -167,10 +168,11 @@ impl Meter {
             tag.recent.pop_front();
         }
         tag.recent.push_back(ms);
-        let line = if tag.total > BASELINE_KEYS { tag.spike_over } else { SPIKE_MS };
-        if tag.total % BASELINE_KEYS == 0 {
+        // Warm-up: the line follows every key, so a slow link's first keys are not spikes.
+        if tag.total <= BASELINE_KEYS || tag.total.is_multiple_of(BASELINE_KEYS) {
             tag.refresh_line();
         }
+        let line = tag.spike_over;
         if ms <= line {
             return;
         }
@@ -204,7 +206,7 @@ impl Meter {
                     max: sorted[sorted.len() - 1],
                     buckets: tag.buckets.to_vec(),
                     spikes: self.tag_spikes.get(&(net.clone(), path.clone())).copied().unwrap_or(0),
-                    spike_over_ms: if tag.total > BASELINE_KEYS { tag.spike_over } else { SPIKE_MS },
+                    spike_over_ms: tag.spike_over,
                 }
             })
             .collect();
