@@ -52,9 +52,8 @@ env:
 jobs:
   swift-linux-packages:
     name: Swift packages on Linux (${{ matrix.group }})
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # Runs on every pull request the router starts it for: these suites run here instead of on a Mac, so a
+    # red here is the only place a pull request learns it broke one.
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
@@ -82,6 +81,41 @@ jobs:
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
+          # PROBE (lane/linux-swift-tests-all): every other package with tests; reds are pruned before merge.
+          - group: CmuxAuthRuntime
+            packages: Packages/Shared/CmuxAuthRuntime
+          - group: CmuxChiefList
+            packages: Packages/Shared/CmuxChiefList
+          - group: CmuxConnectivityTelemetry
+            packages: Packages/Shared/CmuxConnectivityTelemetry
+          - group: CmuxDeviceHub
+            packages: Packages/Shared/CmuxDeviceHub
+          - group: CmuxEgress
+            packages: Packages/Shared/CmuxEgress
+          - group: CmuxHomeRender
+            packages: Packages/Shared/CmuxHomeRender
+          - group: CmuxIrohTransport
+            packages: Packages/Shared/CmuxIrohTransport
+          - group: CmuxIrxTransport
+            packages: Packages/Shared/CmuxIrxTransport
+          - group: CmuxMessagesLab
+            packages: Packages/Shared/CmuxMessagesLab
+          - group: CmuxScreenKit
+            packages: Packages/Shared/CmuxScreenKit
+          - group: CmuxSpinner
+            packages: Packages/Shared/CmuxSpinner
+          - group: CmuxVNC
+            packages: Packages/Shared/CmuxVNC
+          - group: CmuxVisibleRows
+            packages: Packages/Shared/CmuxVisibleRows
+          - group: GlassHost
+            packages: Packages/Shared/GlassHost
+          - group: CmuxPhonePush
+            packages: Packages/macOS/CmuxPhonePush
+          - group: CmuxRemote
+            packages: Packages/macOS/CmuxRemote
+          - group: CmuxUpdater
+            packages: Packages/macOS/CmuxUpdater
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
