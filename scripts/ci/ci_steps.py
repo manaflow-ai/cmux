@@ -271,7 +271,9 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
         print(f"No step of job {job} is routed for this change.", file=out)
         return 0
     results: list[Result] = []
-    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None) as tools:
+    # A tool a step leaves unremovable (a root-owned install) must not turn a job of green steps red at cleanup.
+    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None,
+                                     ignore_cleanup_errors=True) as tools:
         env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
         # The change's paths, one a line, for a step whose own router is finer than path globs (a web subarea):
         # unset when the change is unknown, which a step reads as "everything changed".
