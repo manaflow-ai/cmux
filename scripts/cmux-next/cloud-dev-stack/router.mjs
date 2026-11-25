@@ -147,6 +147,9 @@ export function publicRefusal(route, headers) {
   return tag !== undefined && tag !== route.tag ? "this origin is another tag's stack (its slot changed hands); run the hand-off again" : undefined
 }
 
+/** An open path's request never wakes a stack, and never joins (or fails) a real request's shared wake. */
+const openPathWake = () => Promise.reject(new Error("not woken by an open path"))
+
 /** A path the gateway lets through with no credential (gateway/index.js OPEN), on a public host. Anyone can send
  * one, so it never counts as the stack's activity and never wakes it: a stopped stack answers 503 until a
  * signed-in request wakes it. */
@@ -188,6 +191,9 @@ function proxy(opts, req, res, route, retried = false) {
     if (!res.writableFinished) upstream.destroy()
   })
   upstream.on("error", async (e) => {
+    if (!retried && e.code === "ECONNREFUSED" && !res.headersSent && opts.wakeRun === openPathWake) {
+      return refuse(res, 503, "the stack is not running; a signed-in request wakes it") // never the shared wake
+    }
     if (!retried && e.code === "ECONNREFUSED" && !res.headersSent) {
       // A stack whose workerd is gone though its entry says running (it crashed, the VM rebooted): wake it,
       // then send a bodyless request again; one with a body was already read, so it is answered 503.
@@ -271,7 +277,7 @@ export function createRouter(opts = {}) {
     if (route.public && req.method === "GET" && req.url === "/__wdev/jwks") return serveJwks(opts, res, route)
     if (publicOpenPath(route, req, req.headers.host)) {
       if (stackState(opts.base, route.tag) !== "running") return refuse(res, 503, "the stack is stopped; a signed-in request wakes it")
-      return proxy({ ...opts, wakeRun: async () => { throw new Error("not woken by an open path") } }, req, res, route)
+      return proxy({ ...opts, wakeRun: openPathWake }, req, res, route)
     }
     heartbeat(opts.base, route.tag)
     // A client that leaves while its stack wakes is not sent on: its request never reaches the stack.
@@ -300,6 +306,9 @@ export function createRouter(opts = {}) {
   const handleUpgrade = async (req, socket, head) => {
     const route = routeFor(table(), req.headers.host)
     if (!route || publicRefusal(route, req.headers)) return socket.end("HTTP/1.1 421 Misdirected Request\r\nconnection: close\r\n\r\n")
+    // An open path never upgrades on a public host (the gateway sends a credential-free upgrade nowhere): no
+    // heartbeat, no wake.
+    if (publicOpenPath(route, req, req.headers.host)) return socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\n")
     heartbeat(opts.base, route.tag)
     try {
       await ready(opts, route)

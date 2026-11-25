@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces."
+            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل."
+            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل. ليس لديك cmux على iPhone بعد؟ إنه في مرحلة تجريبية: احصل عليه عبر TestFlight."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima."
+            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima. Još nemate cmux na iPhoneu? U beta je fazi: preuzmite ga putem TestFlighta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder."
+            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder. Har du ikke cmux på din iPhone endnu? Den er i beta: hent den via TestFlight."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“."
+            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“. Noch kein cmux auf deinem iPhone? Es ist in der Beta: Hol es dir über TestFlight."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo."
+            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo. ¿Aún no tienes cmux en tu iPhone? Está en beta: consíguelo con TestFlight."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail."
+            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail. Pas encore cmux sur votre iPhone ? Il est en bêta : obtenez-le via TestFlight."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro."
+            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro. Non hai ancora cmux sul tuo iPhone? È in beta: scaricalo con TestFlight."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。"
+            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。iPhoneにまだcmuxがない場合は、ベータ版をTestFlightで入手できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។"
+            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។ មិនទាន់មាន cmux នៅលើ iPhone របស់អ្នកទេ? វាស្ថិតក្នុងកំណែ beta៖ ទាញយកវាតាម TestFlight។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다."
+            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다. iPhone에 아직 cmux가 없나요? 베타 버전을 TestFlight로 받으세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder."
+            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder. Har du ikke cmux på iPhonen ennå? Den er i beta: hent den via TestFlight."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych."
+            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych. Nie masz jeszcze cmux na iPhonie? Jest w wersji beta: pobierz go przez TestFlight."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho."
+            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho. Ainda não tem o cmux no iPhone? Ele está em beta: baixe pelo TestFlight."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства»."
+            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства». Ещё нет cmux на iPhone? Он в бета-версии: установите его через TestFlight."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน"
+            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน ยังไม่มี cmux บน iPhone ใช่ไหม แอปอยู่ในช่วงเบต้า: ดาวน์โหลดผ่าน TestFlight"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür."
+            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür. iPhone’unda henüz cmux yok mu? Beta aşamasında: TestFlight üzerinden edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори»."
+            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори». Ще немає cmux на iPhone? Він у бета-версії: установіть його через TestFlight."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc."
+            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc. Chưa có cmux trên iPhone? Ứng dụng đang ở bản beta: tải qua TestFlight."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。"
+            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。iPhone 上还没有 cmux？它正在测试中：可通过 TestFlight 获取。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。"
+            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。iPhone 上還沒有 cmux？它正在測試中：可透過 TestFlight 取得。"
           }
         }
       }
@@ -1442,7 +1442,7 @@
         }
       }
     },
-"iphone.phone.transport.next": {
+    "iphone.phone.transport.next": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1573,7 +1573,7 @@
         }
       }
     },
-"iphone.phone.transport.ios": {
+    "iphone.phone.transport.ios": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2355,6 +2355,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "中繼 (TURN/TLS)"
+          }
+        }
+      }
+    },
+    "iphone.path.httpsRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relayed (cmux over HTTPS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر مُرحِّل (cmux, HTTPS)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preko releja (cmux, HTTPS)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Über Relay (cmux, HTTPS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Relayée (cmux, HTTPS)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tramite relay (cmux, HTTPS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中継 (cmux, HTTPS)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈការបញ្ជូនត (cmux, HTTPS)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중계(cmux, HTTPS)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przez przekaźnik (cmux, HTTPS)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่านรีเลย์ (cmux, HTTPS)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktarmalı (cmux, HTTPS)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qua chuyển tiếp (cmux, HTTPS)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中继 (cmux, HTTPS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中繼 (cmux, HTTPS)"
           }
         }
       }

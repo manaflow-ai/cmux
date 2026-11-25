@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -58,6 +59,9 @@ public final class PaletteController {
     public private(set) lazy var shortcutRecorder = PaletteShortcutRecorder(registry: registry, model: model)
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
+    /// The view the palette centers on instead of its whole window (a chat's own pane, so a split opening beside it
+    /// leaves the palette over that chat, not over the divider); nil centers on the window.
+    private weak var anchorView: NSView?
     private var presentationGeneration = 0
 
     public init(
@@ -91,6 +95,7 @@ public final class PaletteController {
     /// Returns false for a scope the graph does not have.
     @discardableResult
     public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
+        anchorView = nil
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
         markOpenStarted()
@@ -211,6 +216,7 @@ public final class PaletteController {
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        anchorView = nil
         configureScopes()
         markOpenStarted()
         captureContext()
@@ -220,8 +226,9 @@ public final class PaletteController {
     }
 
     /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
-    /// the palette serves as a page).
-    public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
+    /// the palette serves as a page), centered on `anchor` when given (a view in `window`), else on the window.
+    public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil, anchor: NSView? = nil) {
+        anchorView = anchor
         configureScopes()
         markOpenStarted()
         captureContext()
@@ -323,7 +330,12 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setMainCompletion {
+            // Timed at the frame commit that first shows the panel: right after Core Animation's commit observer
+            // (CommitBoundary), before the after-frame work of the open (warm-ups, deferred provider loads), which
+            // is not the open's cost. Not the turn's CATransaction completion: that waits for every animation added
+            // after it in the turn (the search field's spinner while a provider loads), so an open was reported
+            // hundreds of ms after its frame, or after a reader gave up on it.
+            CommitBoundary().after { _ in
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
@@ -429,12 +441,19 @@ public final class PaletteController {
         return panel
     }
 
-    /// Top-centered over the parent window at about a sixth of its height,
-    /// clamped to the visible screen.
+    /// The anchor view moved or changed size while the palette is open (its pane's layout): the palette follows it.
+    public func anchorMoved() {
+        guard isVisible, anchorView != nil, let panel else { return }
+        let moved = frame(for: parentWindow, size: panel.frame.size)
+        if moved != panel.frame { panel.setFrame(moved, display: true) }
+    }
+
+    /// Top-centered over the anchor view (``show(page:relativeTo:anchor:)``) or else the parent window, at about a
+    /// sixth of its height, clamped to the visible screen.
     private func frame(for parent: NSWindow?, size: CGSize) -> NSRect {
         let screen = parent?.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        let anchor = parent?.frame ?? visible
+        let anchor = anchorRect(in: parent) ?? parent?.frame ?? visible
         var origin = NSPoint(
             x: anchor.midX - size.width / 2,
             y: anchor.maxY - anchor.height / 6 - size.height + PaletteLayout.shadowMargin
@@ -442,6 +461,13 @@ public final class PaletteController {
         origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
         origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
         return NSRect(origin: origin, size: size)
+    }
+
+    /// The anchor view's frame on screen while it is shown in `parent`, else nil.
+    private func anchorRect(in parent: NSWindow?) -> NSRect? {
+        guard let view = anchorView, let window = view.window, window === parent, !view.isHiddenOrHasHiddenAncestor,
+              view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     // MARK: Keys

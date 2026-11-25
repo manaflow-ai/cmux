@@ -10,7 +10,8 @@ import Testing
 
 /// David Beyer, Nov 20 call: a task list that tracks what is done and what is next across a long
 /// agent chat, shown per chat in the sidebar. acpmux keeps the chat's `taskList` across its turns;
-/// the chat's row shows a quiet "1/3" while steps are left, and its hover card says Now and Next.
+/// the chat's hover card says how far, Now and Next. A workspace row draws no count
+/// (https://github.com/manaflow-ai/cmux/issues/52977).
 @MainActor @Suite(.serialized) struct SidebarTaskProgressTests {
     typealias Lanes = SidebarLaneStatusTests
 
@@ -83,33 +84,35 @@ import Testing
         #expect(SidebarLaneStatus.taskProgress([done]) == nil, "a finished list says nothing a row needs")
     }
 
-    @Test func aRowWithStepsLeftShowsItsCountQuietly() throws {
+    @Test func aChatWithStepsLeftCarriesItsProgress() throws {
         let fixture = try Fixture()
         try Self.withTaskProgress(nil) {
             let rows = fixture.rows()
             let planned = try #require(rows["planned"])
             #expect(planned.taskProgress == SidebarTaskProgress(done: 1, total: 3, current: "Fix the queue", next: "Land"))
             #expect(rows["finished"]?.taskProgress == nil)
-            let content = SidebarLayoutOptions().rowContent(planned, machine: nil)
-            #expect(content.trailingStatus == "1/3")
-            #expect(content.tasks?.total == 3)
-            #expect(content.detail == nil, "a one-line row stays one line")
         }
     }
 
-    @Test func theCountNeverCoversAnExpandedRowsAge() throws {
+    /// https://github.com/manaflow-ai/cmux/issues/52977: a "1/5" on a workspace row read as stray. No density,
+    /// one-line or expanded, with or without timestamps, draws the count or says it.
+    @Test func aWorkspaceRowDrawsNoTaskCount() throws {
         let fixture = try Fixture()
         try Self.withTaskProgress(nil) {
             var planned = try #require(fixture.rows()["planned"])
             planned.lastActivity = Date(timeIntervalSince1970: 1_000)
-            var options = SidebarLayoutOptions()
-            options.expanded = true
-            // Timestamps are off by default: the expanded row has no age, so the count may sit there.
-            #expect(options.rowContent(planned, machine: nil).trailingStatus == "1/3")
-            options.showsTimestamps = true
-            let content = options.rowContent(planned, machine: nil)
-            #expect(content.time != nil)
-            #expect(content.trailingStatus == nil)
+            try #require(planned.taskProgress != nil)
+            for expanded in [false, true] {
+                for timestamps in [false, true] {
+                    var options = SidebarLayoutOptions()
+                    (options.expanded, options.showsTimestamps) = (expanded, timestamps)
+                    let content = options.rowContent(planned, machine: nil)
+                    #expect(content.trailingStatus == nil, "expanded \(expanded), timestamps \(timestamps): \(content.trailingStatus ?? "")")
+                    let spoken = WorkspaceRowView.accessibilityText(planned, content: content, tabCount: nil, presence: [])
+                    #expect(!spoken.contains("1/3") && !spoken.contains("tasks done"), "\(spoken)")
+                }
+            }
+            #expect(SidebarLayoutOptions().rowContent(planned, machine: nil).detail == nil, "a one-line row stays one line")
         }
     }
 

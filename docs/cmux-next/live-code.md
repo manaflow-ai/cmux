@@ -141,7 +141,11 @@ Leo then: "For the swift bit why can't we simply apply after switching the build
 - **While on**, a watcher (`live-mode.py watch`, in the background) patches each saved CmuxNextApp
   file in, and once saves stop for 20 s it makes the optimized build of the edited checkout
   (`reload.sh --tag TAG --build-only`, the tag's own warm derived data, at background priority).
-  It stops when live mode does.
+  It stops when live mode does. It hears a save by FSEvents (no poll; only the saved files are read
+  again) and patch.py reads the build's compile command from `xcodebuild.log` once, into
+  `xcodebuild.log.commands.json`, which the watcher fills when it starts. Each save's phases (saved,
+  heard, lookup, compile, link, placed, applied by the app) are one line in the tag's
+  `~/Library/Caches/cmux-next/live-mode/TAG/phases.jsonl`.
 - **Stop** restarts into that optimized build, so the edits are kept and fast. If saves came after
   it, stop builds the rest first (incremental). `--discard` restarts into the build that ran before
   live mode instead; your files are not touched.

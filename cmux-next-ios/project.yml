@@ -358,15 +358,15 @@ targets:
         # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
         # WebRTC host candidates) before falling back to the relay.
         NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.
-        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan the pairing code on your Mac.
-        # A Mac's pairing code (`cmux-next://pair?…`, MobileHostPairInvite): the Camera
-        # opens it here. Every configuration registers it; side-by-side installs share the scheme.
+        # A Mac nearby is found by Bonjour (`_cmux-link._tcp`, over Wi-Fi and peer-to-peer) and dialed
+        # through its local hub, with no internet needed (LocalLinkBrowser). iOS 14+ refuses a browse
+        # for a type not listed here.
+        NSBonjourServices: [_cmux-link._tcp]
+        NSCameraUsageDescription: Take a photo to attach to a message for your agent, or scan an invite code on your Mac.
         # cmux links (CmuxLink: `cmux://tab/tab_…`, `cmux://agent/claude/…`) in each Mac
         # build's scheme open what they name, from Safari, Messages, Notes or a QR code.
         # (`cmux-dev-<tag>` links of a tagged Mac open only when tapped inside the app.)
         CFBundleURLTypes:
-          - CFBundleURLName: dev.cmux.mobile.pair
-            CFBundleURLSchemes: [cmux-next]
           - CFBundleURLName: dev.cmux.mobile.link
             CFBundleURLSchemes: [cmux, cmux-nightly, cmux-rc, cmux-dev]
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
