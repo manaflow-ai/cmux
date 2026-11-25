@@ -701,6 +701,9 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSPanel call:setFrame/2:display": {
+   "26.6": true
+  },
   "NSPopUpButton call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
    "26.7": true,
