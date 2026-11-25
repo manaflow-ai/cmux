@@ -138,6 +138,23 @@ struct ControlCallerLocation: Sendable, Equatable {
         return nil
     }
 
+    /// The agent chat in the pane of tab `id` (a durable id or surface handle), as the place of that chat's own
+    /// agent (``own(_:in:)``): a browser opened in that workspace with no pane named goes on the chat's right
+    /// (``ControlRouter/placeBesideTargetChat(_:action:topology:)``). Nil when that pane holds no agent chat
+    /// (a tab bound to an agent session; the New Tab page is not one).
+    static func chat(inPaneOf id: String, in topology: ControlTopology) -> Self? {
+        for workspace in topology.workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes where pane.tabs.contains(where: { $0.id == id || $0.surface == id }) {
+                    guard let chat = pane.tabs.first(where: { $0.agentSessionID != nil }) else { return nil }
+                    return Self(caller: ControlCaller(agentSession: chat.agentSessionID), workspace: workspace, screen: screen, pane: pane,
+                                tab: chat, beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen))
+                }
+            }
+        }
+        return nil
+    }
+
     /// The first pane of the next column right of `pane` (`column`, as the
     /// window draws columns left to right). Only a scrolling column counts:
     /// a dock (another chat dock, a tool dock) never takes an agent's tabs,
@@ -255,6 +272,28 @@ extension ControlRouter {
                 : ControlTargetRef(kind: "workspace", id: location.workspace.publicID)
             return
         }
+        aim(&request, action: action, beside: location, measured: request.callerAgentSession != nil && !location.caller.homeChat,
+            topology: topology)
+    }
+
+    /// A browser opened in a workspace with no pane named (`beside_chat`: `cmux tab create browser --workspace`,
+    /// `cmux open --workspace`, `browser.open_split` `workspace_id`) whose default pane holds an agent chat opens
+    /// where that chat's own agent would open it (``placeBesideCaller(_:action:topology:)``): the column right of
+    /// the chat, never the chat's pane. A workspace's default pane is its chat's pane while the chat has the
+    /// focus, so the Chief's "show the work in the subagent's workspace" filled each chat's tab strip with pages
+    /// (Lawrence 2026-11-19: "agent chat that is on left, will open stuff to the right"). A pane with no agent
+    /// chat keeps the tab, and so does a run that names its pane or tab (`browser.page.right`, `--pane`).
+    static func placeBesideTargetChat(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) {
+        guard request.besideTargetChat, opensBrowser(action.id), !request.besideCaller,
+              let target = request.target, target.kind == "tab",
+              let location = ControlCallerLocation.chat(inPaneOf: target.id, in: topology) else { return }
+        aim(&request, action: action, beside: location, measured: true, topology: topology)
+    }
+
+    /// Aims `request` at the column right of the chat at `location`, or at a new column there. `measured`: an
+    /// agent chat (not the Home chat), whose column the app measures when a window shows it.
+    static func aim(_ request: inout ControlActionRequest, action: ControlActionInfo, beside location: ControlCallerLocation,
+                    measured: Bool, topology: ControlTopology) {
         let paneTarget = action.targets.contains("pane")
         // An agent's browser beside a column that is already there: the app measures that column and
         // places it as the chat header's Preview is placed (AgentBesidePlacement, RightColumnPlacement):
@@ -262,8 +301,7 @@ extension ControlRouter {
         // in the lowest pane; never a third column. Leo 2026-10-31: "imo in this case, just open it
         // on the existing. you only need the rightmost botom auto split when there's a terminal that
         // gets opened when there's already a browser, and vice versa".
-        if opensBrowser(action.id), !paneTarget, location.beside != nil, request.callerAgentSession != nil,
-           !location.caller.homeChat, location.isShown(in: topology) {
+        if opensBrowser(action.id), !paneTarget, location.beside != nil, measured, location.isShown(in: topology) {
             request.target = ControlTargetRef(kind: "tab", id: location.tab.id)
             request.newColumnBeside = true
             request.besideCaller = true

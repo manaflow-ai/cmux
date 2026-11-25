@@ -1,0 +1,495 @@
+{
+  "cmux.widget/1 small": {
+    "ops": [
+      {
+        "op": "create",
+        "id": "n1",
+        "type": "VStack",
+        "props": {
+          "spacing": 4,
+          "alignment": "leading",
+          "padding": 16,
+          "frame": {
+            "maxWidth": "infinity",
+            "maxHeight": "infinity"
+          }
+        }
+      },
+      {
+        "op": "create",
+        "id": "n2",
+        "type": "HStack",
+        "props": {
+          "spacing": 4
+        }
+      },
+      {
+        "op": "create",
+        "id": "n3",
+        "type": "Icon",
+        "props": {
+          "symbol": "timer",
+          "size": 13,
+          "color": "accent"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n4",
+        "type": "Text",
+        "props": {
+          "text": "Focus",
+          "font": 13,
+          "weight": "semibold",
+          "lineLimit": 1,
+          "color": "accent"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n5",
+        "type": "VStack",
+        "props": {
+          "spacing": 4,
+          "alignment": "leading"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n6",
+        "type": "Spacer",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n7",
+        "type": "Text",
+        "props": {
+          "text": "17",
+          "font": 34,
+          "weight": "semibold",
+          "lineLimit": 1,
+          "contentTransition": "numericText"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n8",
+        "type": "Text",
+        "props": {
+          "text": "min left · block 2 of 4",
+          "font": 12,
+          "weight": "regular",
+          "lineLimit": 1,
+          "color": "secondary"
+        }
+      },
+      {
+        "op": "children",
+        "id": "n1",
+        "children": [
+          "n2",
+          "n5"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n2",
+        "children": [
+          "n3",
+          "n4"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n5",
+        "children": [
+          "n6",
+          "n7",
+          "n8"
+        ]
+      },
+      {
+        "op": "root",
+        "id": "n1"
+      }
+    ]
+  },
+  "cmux.widget/1 medium": {
+    "ops": [
+      {
+        "op": "create",
+        "id": "n1",
+        "type": "VStack",
+        "props": {
+          "spacing": 4,
+          "alignment": "leading",
+          "padding": 16,
+          "frame": {
+            "maxWidth": "infinity",
+            "maxHeight": "infinity"
+          }
+        }
+      },
+      {
+        "op": "create",
+        "id": "n2",
+        "type": "HStack",
+        "props": {
+          "spacing": 4
+        }
+      },
+      {
+        "op": "create",
+        "id": "n3",
+        "type": "Icon",
+        "props": {
+          "symbol": "timer",
+          "size": 13,
+          "color": "accent"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n4",
+        "type": "Text",
+        "props": {
+          "text": "Focus",
+          "font": 13,
+          "weight": "semibold",
+          "lineLimit": 1,
+          "color": "accent"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n5",
+        "type": "VStack",
+        "props": {
+          "spacing": 8,
+          "alignment": "leading"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n6",
+        "type": "Text",
+        "props": {
+          "text": "17 min left",
+          "font": 13,
+          "weight": "semibold",
+          "lineLimit": 1
+        }
+      },
+      {
+        "op": "create",
+        "id": "n7",
+        "type": "VStack",
+        "props": {
+          "spacing": 2,
+          "alignment": "leading"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n8",
+        "type": "ProgressView",
+        "props": {
+          "value": 0.32
+        }
+      },
+      {
+        "op": "create",
+        "id": "n9",
+        "type": "Text",
+        "props": {
+          "text": "block 2 of 4",
+          "font": 12,
+          "weight": "regular",
+          "lineLimit": 1,
+          "color": "secondary"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n10",
+        "type": "Text",
+        "props": {
+          "text": "Done today",
+          "font": 12,
+          "weight": "regular",
+          "lineLimit": 1,
+          "color": "secondary"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n11",
+        "type": "VStack",
+        "props": {
+          "spacing": 6,
+          "alignment": "leading"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n12",
+        "type": "ForEach",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n13",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n14",
+        "type": "VStack",
+        "props": {
+          "frame": {
+            "width": 3,
+            "minHeight": 28
+          },
+          "cornerRadius": 1.5,
+          "background": "accent"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n15",
+        "type": "VStack",
+        "props": {
+          "spacing": 2,
+          "alignment": "leading"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n16",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "semibold",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Focus 1",
+          "strikethrough": true,
+          "color": "secondary"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n17",
+        "type": "Group",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n18",
+        "type": "Spacer",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n19",
+        "type": "Group",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n20",
+        "type": "Text",
+        "props": {
+          "font": 12,
+          "weight": "regular",
+          "lineLimit": 1,
+          "color": "secondary",
+          "text": "09:00"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n21",
+        "type": "HStack",
+        "props": {
+          "spacing": 8,
+          "transition": "slide"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n22",
+        "type": "VStack",
+        "props": {
+          "frame": {
+            "width": 3,
+            "minHeight": 28
+          },
+          "cornerRadius": 1.5,
+          "background": "accent"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n23",
+        "type": "VStack",
+        "props": {
+          "spacing": 2,
+          "alignment": "leading"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n24",
+        "type": "Text",
+        "props": {
+          "font": 13,
+          "weight": "semibold",
+          "lineLimit": 1,
+          "animation": "smooth",
+          "text": "Focus 2",
+          "strikethrough": true,
+          "color": "secondary"
+        }
+      },
+      {
+        "op": "create",
+        "id": "n25",
+        "type": "Group",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n26",
+        "type": "Spacer",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n27",
+        "type": "Group",
+        "props": {}
+      },
+      {
+        "op": "create",
+        "id": "n28",
+        "type": "Text",
+        "props": {
+          "font": 12,
+          "weight": "regular",
+          "lineLimit": 1,
+          "color": "secondary",
+          "text": "10:30"
+        }
+      },
+      {
+        "op": "children",
+        "id": "n1",
+        "children": [
+          "n2",
+          "n5"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n2",
+        "children": [
+          "n3",
+          "n4"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n5",
+        "children": [
+          "n6",
+          "n7",
+          "n10",
+          "n11"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n7",
+        "children": [
+          "n8",
+          "n9"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n11",
+        "children": [
+          "n12"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n12",
+        "children": [
+          "n13",
+          "n21"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n13",
+        "children": [
+          "n14",
+          "n15",
+          "n18",
+          "n19"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n15",
+        "children": [
+          "n16",
+          "n17"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n19",
+        "children": [
+          "n20"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n21",
+        "children": [
+          "n22",
+          "n23",
+          "n26",
+          "n27"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n23",
+        "children": [
+          "n24",
+          "n25"
+        ]
+      },
+      {
+        "op": "children",
+        "id": "n27",
+        "children": [
+          "n28"
+        ]
+      },
+      {
+        "op": "root",
+        "id": "n1"
+      }
+    ]
+  }
+}

@@ -116,8 +116,12 @@ public final class DividerMouseCatchers {
             }
             if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
         }
-        // No divider wants the spares now (no page window, or fewer dividers): only the newest stay parked.
-        if wanted.isEmpty, !active || !window.isVisible { for panel in spares { remove(panel) }; spares.removeAll() }
+        // Only the newest spares stay parked. An update with no page window or no divider (`active` false) keeps them:
+        // a workspace switch passes through one (the old workspace's pages hide before the new one's show), and closing
+        // the spares there made a new window for every divider of every switch, 6 for one switch away and back over 3
+        // panes (Leo's NIGHTLY, 2026-11-22 04:14:49Z, two minutes before his clicks into a chat's composer stopped
+        // landing, #49788). A parked spare has no
+        // size and takes no mouse; ``teardown()`` closes them.
         while spares.count > Self.maxSpares { remove(spares.removeFirst()) }
     }
 
@@ -156,6 +160,15 @@ public final class DividerMouseCatchers {
         // No press holds a panel.
         for panel in panels.values { panel.catcher.resetForReuse() }
         update([], active: false)
+        for panel in spares { remove(panel) }
+        spares.removeAll()
+    }
+
+    /// The panels that take the mouse now and where (screen coordinates): every one must sit on a divider area of the
+    /// last update. A test reads it; `input.clicks` names a panel that took a click.
+    var mouseTakingFrames: [CGRect] {
+        (window.childWindows ?? []).compactMap { $0 as? DividerMousePanel }
+            .filter { $0.isVisible && !$0.ignoresMouseEvents && $0.frame.width > 0 && $0.frame.height > 0 }.map(\.frame)
     }
 
     private func makePanel(id: String) -> DividerMousePanel {
@@ -339,6 +352,8 @@ final class DividerMouseCatcherView: NSView {
                   context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
               )
         else { return }
+        // `cmux app clicks` names the window a press over a divider went on to (its view, never a page under it).
+        WindowOverlayHost.existingHost(for: parent)?.clickTrace.forwarded(event, to: parent)
         parent.sendEvent(forwarded)
     }
 }

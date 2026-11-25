@@ -4,6 +4,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
+import { historySizes, installVirtualSizes } from "./support/virtualSizes";
 
 const { LASTING_MS } = await importWithDom(() => import("../src/ui/lasting"));
 
@@ -40,6 +41,8 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // The list is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, historySizes);
   host = dom.window.document.getElementById("root")!;
 });
 

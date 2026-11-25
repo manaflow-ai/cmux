@@ -8,7 +8,8 @@
 //! 1. Signs in to the account (a kept Stack refresh token, else a browser link) and registers
 //!    this machine as a `linux` viewer device with its own key (`cmux/screen-viewer/`, apart
 //!    from `linux-host`'s, because the hub keeps one socket per device).
-//! 2. Picks DEVICE (a name or an id prefix; with none, the only shared device online) and asks
+//! 2. Picks DEVICE (a name or an id prefix; with none, the only shared device online; a whole
+//!    device id this account does not list goes to the hub, which refuses another account's) and asks
 //!    for a session (`POST /v1/sessions`); the host's person allows it unless they already did.
 //! 3. Takes the viewer ticket from the user socket, opens the session's signaling socket, sends a
 //!    signed cmux.rd/1 offer, checks the host's signed answer, and opens the secure link in this
@@ -257,6 +258,14 @@ fn pick(devices: &[HostDevice], target: Option<&str>) -> Res<HostDevice> {
     }
     match unique.as_slice() {
         [one] => Ok((*one).clone()),
+        // A whole device id this account does not list is asked of the hub all the same: the hub
+        // decides who may view a device (another account's is refused there, not here).
+        [] if device_id_shaped(target) => Ok(HostDevice {
+            id: target.to_owned(),
+            name: target.to_owned(),
+            platform: "unknown".into(),
+            online: false,
+        }),
         [] => {
             Err(format!("no shared device is called {}; shared: {}", printable(target), names())
                 .into())
@@ -275,7 +284,31 @@ fn explain_request(
         "host_offline" => format!("{host} is offline").into(),
         "not_shared" => format!("{host} does not share its screen").into(),
         "permission_none" => format!("{host} does not let this device in").into(),
+        "not_found" => {
+            format!("{host} is no device of this account (device hub {} not_found)", h.status)
+                .into()
+        }
         _ => e,
+    }
+}
+
+/// A whole device id as the hub makes them (a UUID: 8-4-4-4-12 hex digits).
+fn device_id_shaped(text: &str) -> bool {
+    let groups: Vec<&str> = text.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// A failed link's end reason, with why the hub sent no relay when billing could not be read.
+fn with_relay_note(reason: String, relay_note: Option<&str>) -> String {
+    match relay_note {
+        Some(note) if reason.starts_with("the link failed") => {
+            format!("{reason}; no relay: {note}")
+        }
+        _ => reason,
     }
 }
 
@@ -357,18 +390,19 @@ fn view_session(
         // The stream fits this screen: the host scales down to it, so the window shows it 1:1.
         max_width: Some(screen.0),
         max_fps: Some(opts.num_or("max-fps", 60u32)?),
+        // `--encode-profile ultra` asks the host for the ultra profile (standard when absent).
+        encode_profile: opts
+            .get("encode-profile")
+            .map(|_| opts.encode_profile())
+            .transpose()?
+            .map(|p| p.as_str().to_owned()),
         ..RdDocument::default()
     };
     signal.send_text(&signed_frame("offer", &offer.text(), &ticket.session_id, hub)?)?;
     let answer = wait_for_answer(&mut signal, user, ticket)?;
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
-    let stun = stun
-        .iter()
-        .filter_map(|s| {
-            std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(std::net::SocketAddr::is_ipv4)
-        })
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
     let turn: Vec<crate::carrier::TurnSetup> = turn
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
@@ -387,6 +421,11 @@ fn view_session(
         turn: crate::carrier::turn_servers(&turn),
         relay_only: false,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
+    // A host that dies without a close ends this viewer instead of freezing it.
+    net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
@@ -418,7 +457,10 @@ fn view_session(
         drop(to_hub);
         let _ = signals.join();
         let ended = ended?;
-        Ok(Outcome { reason: ended.reason, connected: ended.connected })
+        Ok(Outcome {
+            reason: with_relay_note(ended.reason, ticket.relay_note.as_deref()),
+            connected: ended.connected,
+        })
     })
 }
 
@@ -601,6 +643,17 @@ fn unhex32(text: &str) -> Option<[u8; 32]> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_failed_link_says_when_billing_could_not_be_read() {
+        let note = Some("could not read your plan");
+        assert_eq!(
+            with_relay_note("the link failed: the secure handshake timed out".into(), note),
+            "the link failed: the secure handshake timed out; no relay: could not read your plan"
+        );
+        assert_eq!(with_relay_note("the link failed: x".into(), None), "the link failed: x");
+        assert_eq!(with_relay_note("the window was closed".into(), note), "the window was closed");
+    }
+
     fn devices() -> Value {
         json!({"devices": [
             {"id": "aaaa1111-0000", "name": "Me", "platform": "linux", "macScreenShared": true, "online": true},
@@ -634,6 +687,29 @@ mod tests {
             })
             .collect();
         assert!(pick(&two_online, None).unwrap_err().to_string().contains("several"));
+    }
+
+    #[test]
+    fn a_whole_device_id_this_account_does_not_list_is_asked_of_the_hub() {
+        let list = shared_devices(&devices(), "aaaa1111-0000");
+        // Another account's machine: the hub answers (and refuses), not this list.
+        let other = "0f1e2d3c-4b5a-4697-8877-665544332211";
+        let host = pick(&list, Some(other)).unwrap();
+        assert_eq!((host.id.as_str(), host.online), (other, false));
+        // A name or a prefix that matches nothing is still this list's error.
+        assert!(pick(&list, Some("0f1e2d3c")).is_err());
+        assert!(pick(&list, Some("0f1e2d3c-4b5a-4697-8877-66554433221")).is_err());
+        assert!(pick(&list, Some("zf1e2d3c-4b5a-4697-8877-665544332211")).is_err());
+        assert!(device_id_shaped(other));
+        assert!(!device_id_shaped("bbbb2222-0000"));
+        // The hub's refusal names its code.
+        let refused: Box<dyn std::error::Error + Send + Sync> = Box::new(HubError {
+            status: 404,
+            code: "not_found".into(),
+            message: "device not found".into(),
+        });
+        let said = explain_request(refused, other).to_string();
+        assert!(said.contains("is no device of this account (device hub 404 not_found)"), "{said}");
     }
 
     #[test]

@@ -34,6 +34,7 @@ final class DeclarativePopupHost {
         self.isAppActive = isAppActive
         panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
+        popup.followsOpeningPress = true
         let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -128,11 +129,17 @@ final class DeclarativePopupHost {
         shownParent = window
         panel.adoptThemeScope(of: webView)
         surface.applyTheme()
+        let styleV2 = DesignSettings.shared.experiment("menuStyleV2")
+        applyEdge(styleV2: styleV2)
+        // `experiments.menuStyleV2`: a submenu sits flush on its parent row, its first row level with
+        // that row (the card rises by the first row's inset: padding, plus the title when it has one).
+        var placedAnchor = anchor
+        if sideBySide, styleV2, let firstRow = content.rowViews.first?.1.frame.minY { placedAnchor.origin.y += firstRow }
         popup.dismissalWindow = webView.window
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
-                                      anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
+                                      anchor: placedAnchor, in: window, preferred: next.side == .top ? .above : .below,
                                       trailing: sideBySide ? false : next.align == .end, makeKey: opening,
-                                      sideBySide: sideBySide) else { model = nil; return ["shown": false] }
+                                      sideBySide: sideBySide, sideGap: styleV2 ? 0 : 4) else { model = nil; return ["shown": false] }
         content.setFrameSize(NSSize(width: content.superview?.bounds.width ?? placed.frame.width,
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
@@ -286,6 +293,17 @@ final class DeclarativePopupHost {
         // root's trailing alignment cannot pull it back over its parent row.
         next.align = .start
         _ = submenu.show(next, screenAnchor: submenuAnchor(for: view), in: panel, sideBySide: true)
+    }
+
+    /// `experiments.menuStyleV2` in dark mode: a 1 pt hairline in the separator ink edges the card in
+    /// place of the popup shadow; light mode (and the switch off) keeps the shadow and no line.
+    private func applyEdge(styleV2: Bool) {
+        let hairline = styleV2 && surface.themeTokens.isDark
+        (panel.contentView as? PopupHostView)?.shadowLayer.isHidden = hairline
+        surface.contentView.wantsLayer = true
+        guard let layer = surface.contentView.layer else { return }
+        layer.borderWidth = hairline ? Metrics.lineWidth(1) : 0
+        layer.borderColor = hairline ? surface.performWithTheme { Palette.separator.cgColor } : nil
     }
 
     private func submenuAnchor(for view: NSView) -> CGRect {

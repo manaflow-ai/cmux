@@ -21,7 +21,7 @@ const { inlineToken, inlineTokenIds, promptBlocks, withoutInlineTokens } = await
 const { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, isLargePaste, pastedTextAttachment, resentAttachments, shownPrompt } =
   await importWithDom(() => import("../src/agent-session/acpmux/pastedText"));
 const { keptChips } = await importWithDom(() => import("../src/agent-session/acpmux/composer/keptAttachments"));
-const { DEFAULT_COMPOSER, setComposerSettings } = await importWithDom(
+const { setComposerSettings } = await importWithDom(
   () => import("../src/agent-session/acpmux/composerSettings"),
 );
 
@@ -85,7 +85,7 @@ afterEach(() => {
   // Every test opens chat "chat-a": its saved draft (composerDraft.ts, the page's localStorage
   // remount cache) would come back in the next test's prompt.
   dom.window.localStorage.clear();
-  setComposerSettings({ attachmentView: DEFAULT_COMPOSER.attachmentView });
+  setComposerSettings({ attachmentView: "inline" });
 });
 
 afterAll(async () => {

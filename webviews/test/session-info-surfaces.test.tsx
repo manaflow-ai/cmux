@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
@@ -509,6 +510,8 @@ for (const width of [370, 528, 740, 1100, 1200, 1420]) {
       return {};
     });
     setNativeSessionInfoHost(true);
+    // The App-drawn panel is its own chunk (LazyNativeSessionInfo.tsx): in before the pane mounts, as the host event makes it.
+    await loadNativeSessionInfo();
     try {
       const opened: string[] = [];
       const container = await mountFolderPane(width, opened, 960);

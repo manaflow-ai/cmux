@@ -11,6 +11,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/session-info/native/model";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
@@ -143,6 +144,8 @@ async function flushFrames() {
 
 async function mount() {
   const container = installDom();
+  // The App-drawn panel is its own chunk (LazyNativeSessionInfo.tsx), fetched at the host event above.
+  await loadNativeSessionInfo();
   await act(async () => {
     root = createRoot(container);
     root.render(<Pane />);
