@@ -31,6 +31,30 @@ fn settings_keys_map_to_the_policy_and_missing_keys_keep_defaults() {
     );
 }
 
+/// A stored deny list copied from the earlier default (terminals and cmux
+/// denied) loses those entries and keeps the person's own; a list the person
+/// shaped (one terminal kept on purpose) stays as written.
+#[test]
+fn a_stored_copy_of_the_earlier_default_lets_agents_act_in_cmux_and_terminals() {
+    use cmux_computer_use::policy::{default_denied_apps, retired_default_denied_apps};
+    let earlier: Vec<&str> = default_denied_apps()
+        .iter()
+        .chain(retired_default_denied_apps())
+        .copied()
+        .chain(["com.example.mine"])
+        .collect();
+    let config =
+        from_settings(&json!({"computerUse": {"deniedApps": earlier}}), PolicyConfig::default());
+    let mut want: Vec<String> = default_denied_apps().iter().map(|s| (*s).to_string()).collect();
+    want.push("com.example.mine".into());
+    assert_eq!(config.denied_apps, want);
+    let shaped = from_settings(
+        &json!({"computerUse": {"deniedApps": ["com.apple.Terminal", "com.1password.*"]}}),
+        PolicyConfig::default(),
+    );
+    assert_eq!(shaped.denied_apps, ["com.apple.Terminal", "com.1password.*"]);
+}
+
 #[test]
 fn menus_setting_maps_in_any_case_and_an_unknown_value_refuses() {
     use cmux_computer_use::menus::MenuMode;

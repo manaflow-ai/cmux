@@ -361,7 +361,13 @@ pub enum DesktopError {
 impl std::fmt::Display for DesktopError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DesktopError::PermissionMissing(p) => write!(f, "the {p} permission is not granted"),
+            DesktopError::PermissionMissing(p) => write!(
+                f,
+                "the {p} permission is not granted; on a Mac open Computer Use setup for the person \
+                 with `cmux action run palette.computerUse.setup` (elsewhere call \
+                 request_permission; for a call that named another `machine`, setup is on that \
+                 machine), tell them, and try again once they finish"
+            ),
             DesktopError::TargetNotFound(t) => write!(f, "not found: {t}"),
             DesktopError::StaleElement(e) => {
                 write!(f, "element {e} is stale; call get_ui_tree again")

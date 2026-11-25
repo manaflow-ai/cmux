@@ -29,12 +29,17 @@ fn split(text: &str) -> Option<(&str, &str)> {
     let end = body
         .match_indices("\n---")
         .map(|(at, _)| at)
-        .find(|&at| matches!(body[at + 4..].chars().next(), None | Some('\n' | '\r' | ' ' | '\t')))
+        .find(|&at| {
+            matches!(
+                body.get(at + 4..).unwrap_or_default().chars().next(),
+                None | Some('\n' | '\r' | ' ' | '\t')
+            )
+        })
         .or_else(|| body.starts_with("---").then_some(0))?;
     let close = if end == 0 && body.starts_with("---") { 3 } else { end + 4 };
-    let rest = &body[close.min(body.len())..];
+    let rest = body.get(close.min(body.len())..).unwrap_or_default();
     let rest = rest.split_once('\n').map_or("", |(_, after)| after);
-    Some((&body[..end], rest))
+    Some((body.get(..end)?, rest))
 }
 
 /// What follows the frontmatter of `text` (the prompt of a slash command file); all of `text`

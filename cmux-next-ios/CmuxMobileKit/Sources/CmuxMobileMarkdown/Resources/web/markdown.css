@@ -18,6 +18,7 @@
 html, body { margin: 0; padding: 0; background: transparent; -webkit-text-size-adjust: 100%; }
 body { font: -apple-system-body; line-height: 1.6; color: var(--label); overflow: hidden;
   -webkit-user-select: none; -webkit-touch-callout: none; word-wrap: break-word; }
+body.selectable { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 body.compact { font: -apple-system-subheadline; line-height: 1.5; }
 #content { padding: 0; }
 #content > :first-child { margin-top: 0 !important; }

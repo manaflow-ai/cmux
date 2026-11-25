@@ -18,6 +18,7 @@ fn payload(committed_at: u64, daemon_from: &[&str]) -> ChannelPayload {
         expires_at: committed_at + 86_400,
         live_from: vec![TIP.to_owned()],
         daemon_from: daemon_from.iter().map(|s| (*s).to_owned()).collect(),
+        tree_key: None,
     }
 }
 
@@ -58,17 +59,25 @@ impl Inputs {
 }
 
 #[test]
-fn off_by_default_and_for_any_value_but_every_merge() {
-    assert!(!setting_on(None));
-    assert!(!setting_on(Some(&json!({}))));
-    assert!(!setting_on(Some(&json!({ "updates": {} }))));
-    for value in [json!("off"), json!("Every-Merge"), json!(true), json!(1), Value::Null] {
+fn on_by_default_and_off_for_any_value_but_every_merge() {
+    // Leo (cmuxterm-hq#5334): "Every machine does this by itself"; no opt-in on a team build.
+    assert!(setting_on(None));
+    assert!(setting_on(Some(&json!({}))));
+    assert!(setting_on(Some(&json!({ "updates": {} }))));
+    assert!(setting_on(Some(&json!({ "updates": { "daemon": null } }))));
+    assert!(setting_on(Some(&json!({ "updates": { "daemon": "every-merge" } }))));
+    for value in [json!("off"), json!("Every-Merge"), json!(true), json!(false), json!(1)] {
         assert!(!setting_on(Some(&json!({ "updates": { "daemon": value } }))), "{value}");
     }
-    assert!(setting_on(Some(&json!({ "updates": { "daemon": "every-merge" } }))));
     let mut inputs = Inputs::on();
     inputs.settings = json!({});
+    assert_eq!(inputs.gate(), Ok(()), "a NIGHTLY with no setting takes daemon updates");
+    inputs.settings = json!({ "updates": { "daemon": "off" } });
     assert_eq!(inputs.gate(), Err("updates.daemon is off"));
+    // A Release build keeps today's behaviour with no setting at all.
+    inputs.settings = json!({});
+    inputs.bundle = Some(("com.cmuxterm.app", None));
+    assert!(inputs.gate().is_err());
 }
 
 #[test]
@@ -170,19 +179,38 @@ fn an_applied_or_attempted_pointer_is_never_taken_again() {
 }
 
 #[test]
-fn swaps_only_with_no_live_agent_and_no_recent_input() {
+fn swaps_with_agents_running_and_holds_on_typing_for_at_most_two_minutes() {
     let now = 1_000_000_000;
     let quiet = json!({ "live_agents": 0, "last_user_input_at_ms": now - 31_000 });
-    assert_eq!(safe_point(Some(&quiet), now), Ok(()));
+    assert_eq!(safe_point(Some(&quiet), now, now), Ok(()));
     let never_typed = json!({ "live_agents": 0, "last_user_input_at_ms": null });
-    assert_eq!(safe_point(Some(&never_typed), now), Ok(()));
+    assert_eq!(safe_point(Some(&never_typed), now, now), Ok(()));
+    // Leo: "The daemon updates itself without waiting for idle": a working agent never holds it.
+    let agents = json!({ "live_agents": 3, "last_user_input_at_ms": null });
+    assert_eq!(safe_point(Some(&agents), now, now), Ok(()));
+    assert_eq!(safe_point(Some(&json!({})), now, now), Ok(()));
     let typing = json!({ "live_agents": 0, "last_user_input_at_ms": now - 5_000 });
-    assert!(safe_point(Some(&typing), now).is_err());
-    let agent = json!({ "live_agents": 1, "last_user_input_at_ms": null });
-    assert!(safe_point(Some(&agent), now).is_err());
-    assert!(safe_point(Some(&json!({})), now).is_err());
-    assert!(safe_point(Some(&json!("busy")), now).is_err());
-    assert!(safe_point(None, now).is_err());
+    assert!(safe_point(Some(&typing), now, now).is_err());
+    assert!(safe_point(Some(&json!("busy")), now, now).is_err());
+    assert!(safe_point(None, now, now).is_err());
+    // Two minutes on, the commit goes even while a person types.
+    let held = now - INPUT_HOLD_MAX.as_millis() as u64;
+    assert_eq!(safe_point(Some(&typing), now, held), Ok(()));
+    assert_eq!(safe_point(None, now, held), Ok(()));
+    assert!(safe_point(Some(&typing), now, held + 1).is_err());
+}
+
+#[test]
+fn a_team_signed_app_waits_for_its_trees_team_signed_set() {
+    let key = "c".repeat(40);
+    let found = |_: &str| Ok(true);
+    // An ad-hoc (local) app takes the ad-hoc build as before, tree or none.
+    assert_eq!(team_set_ready(false, None, |_| panic!("no read")), Ok(()));
+    assert_eq!(team_set_ready(true, Some(&key), found), Ok(()));
+    assert!(team_set_ready(true, None, |_| panic!("no read")).is_err());
+    assert!(team_set_ready(true, Some("C".repeat(40).as_str()), |_| panic!("no read")).is_err());
+    assert!(team_set_ready(true, Some(&key), |_| Ok(false)).unwrap_err().contains("waits"));
+    assert!(team_set_ready(true, Some(&key), |_| Err("404".into())).is_err());
 }
 
 #[test]

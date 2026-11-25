@@ -31,17 +31,27 @@ impl NameSource {
         if value == "auto" { Self::Auto } else { Self::User }
     }
 
-    /// A new workspace's name source: one the daemon picked itself (no
-    /// requested name) belongs to the automatic namer, a requested name to
-    /// whoever asked. The app sends the daemon's own next
-    /// default (`workspace-N`) with Cmd-N so its row shows the final name at
-    /// once; that is still the daemon's default, not a name a person chose,
-    /// so it stays the automatic namer's (else the first prompt never
-    /// renames the workspace).
-    pub(crate) fn for_requested_workspace_name(name: Option<&str>) -> Self {
+    /// A new workspace's name source when its name is a starting name: always
+    /// auto. A name the app derives at creation is not a pin (the Cmd-N
+    /// `workspace-N`, a moved tab's new workspace, a launcher's default), so
+    /// the automatic namer may replace it. A rename by a person or agent
+    /// (`NameUpdate::user`) pins a name, and so does a name the caller asked
+    /// for explicitly ([`Self::for_created_workspace`]).
+    pub(crate) fn for_requested_workspace_name(_name: Option<&str>) -> Self {
+        Self::Auto
+    }
+
+    /// A new workspace's name source and revision. `explicit`: the caller
+    /// asked for exactly this name (CLI and MCP `workspace.create {name}`,
+    /// `create-workspace {name, name_source: "user"}` from `agents chat new
+    /// --name`), so a non-blank name is the caller's, pinned as a rename
+    /// pins it: user-owned at revision 1, which no automatic namer or agent
+    /// chat title replaces (#56422). Any other name given at creation is a
+    /// starting name ([`Self::for_requested_workspace_name`]).
+    pub(crate) fn for_created_workspace(name: Option<&str>, explicit: bool) -> (Self, u64) {
         match name {
-            Some(name) if !is_default_workspace_name(name) => Self::User,
-            _ => Self::Auto,
+            Some(name) if explicit && !name.trim().is_empty() => (Self::User, 1),
+            _ => (Self::for_requested_workspace_name(name), 0),
         }
     }
 }
