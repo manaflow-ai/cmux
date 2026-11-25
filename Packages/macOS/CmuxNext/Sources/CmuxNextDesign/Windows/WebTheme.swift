@@ -39,9 +39,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `off` the bootstrap stylesheet makes every CSS transition and animation instant
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
-    /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
+    /// `lens`, `plain`, `spectrum` or `engine` (``GlassLensMode/current``, already `plain` under Reduce
     /// Transparency and Low Power Mode), or ``glassOff`` while `appearance.liquidGlass` is off:
-    /// `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// `data-glass` on `<html>`, which `.ui-glass` reads (`engine` is `lens` there, plus
+    /// `data-glass-engine`).
     public let glass: String
 
     /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
@@ -68,6 +69,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// experiment arms, and a `cmux-experiment-settings` event when it changes. Empty sends no
     /// `experiments` key; the page then clears the switches.
     public let experiments: [String: Bool]
+    /// `appearance.appFont` as the CSS stack the page's `--font-ui` takes (``appFontStack(_:)``), or
+    /// empty for the system font. The bootstrap script puts it in its own `:root` rule, under the
+    /// page's inline styles, so a chat Interface Font the person picked still wins in the chat.
+    public let appFont: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -237,6 +242,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         decorations = ThemeDecorations.current.payload
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
         experiments = DesignSettings.shared.experiments
+        appFont = Self.appFontStack(DesignSettings.shared.appFont)
+    }
+
+    /// The system UI stack every page's `--font-ui` holds by default (schemas/type-scale/ui-font-pin.json).
+    static let systemUIStack = "-apple-system, BlinkMacSystemFont, system-ui, sans-serif"
+
+    /// `family` first, then the system font for any character it lacks; empty for nil or blank. The
+    /// family is a validated name (no `"`, `#`, `=` or control characters); a backslash is escaped,
+    /// so the name stays one CSS string.
+    public static func appFontStack(_ family: String?) -> String {
+        guard let name = family?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+              !name.contains(where: { $0 == "\"" || $0.isNewline || $0 == "<" }) else { return "" }
+        return "\"\(name.replacingOccurrences(of: "\\", with: "\\\\"))\", \(systemUIStack)"
     }
 
     /// `data-cmux-font-smoothing` for `setting`: an explicit choice as it is; ``FontSmoothing/auto``
@@ -266,7 +284,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing,
+                                     "appFont": appFont]
         if !decorations.isEmpty { object["decorations"] = decorations }
         if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
@@ -313,6 +332,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       var registered = {};
       var applied = {};
       var transitionStyle = null;
+      var appFontStyle = null;
       // A theme applied before <html> exists (Chromium new-document scripts), and the watch that
       // applies it, with the page background rule, once the parser inserts the root.
       var pendingPayload = null;
@@ -422,10 +442,27 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
-          if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          if (payload.glass) {
+            // The glass engine (GlassLensMode.engine) is the lens to every glass rule, with its own renderer.
+            root.setAttribute('data-glass', payload.glass === 'engine' ? 'lens' : payload.glass);
+            if (payload.glass === 'engine') root.setAttribute('data-glass-engine', '');
+            else root.removeAttribute('data-glass-engine');
+          }
           if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
           else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
+          // appearance.appFont: one :root rule over the page's own --font-ui (desktop.css), under its
+          // inline styles (a chat Interface Font the person picked). Empty: the page's own.
+          var appFont = typeof payload.appFont === 'string' ? payload.appFont : '';
+          if (appFont || appFontStyle) {
+            if (!appFontStyle) {
+              appFontStyle = document.createElement('style');
+              appFontStyle.id = 'cmux-app-font';
+              (document.head || document.documentElement).appendChild(appFontStyle);
+            }
+            var appFontRule = appFont ? ':root:root{--font-ui:' + appFont + '}' : '';
+            if (appFontStyle.textContent !== appFontRule) appFontStyle.textContent = appFontRule;
+          }
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
           var decorations = payload.decorations || {};
@@ -513,7 +550,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, `appearance.appFont`,
     /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
     /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
@@ -521,7 +558,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

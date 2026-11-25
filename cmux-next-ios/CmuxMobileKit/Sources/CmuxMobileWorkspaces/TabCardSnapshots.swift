@@ -259,16 +259,26 @@ public final class TabCardSnapshots {
     /// order (nearest the active tab first), off the main thread.
     public func warm(_ keys: [TabSnapshotKey]) {
         let store = store
+        // `limit` bounds a tab list's warm; a card that appears warms its own key (`warm(key)`),
+        // so a tab past the first `limit`, or one evicted since, is read when it shows.
         for key in keys.prefix(limit) {
             let entry = entry(key)
             guard entry.image == nil, !entry.asked else { continue }
             entry.asked = true
             Task.detached(priority: .userInitiated) { [weak self] in
                 let newest = store.newestPicture(key)
-                let image = newest.flatMap { UIImage(data: $0.data) }?.preparingForDisplay()
+                // A picture an earlier build saved as a placeholder (the cannot-draw mark, one solid
+                // colour) is never shown; the card draws afresh instead.
+                let image = newest.flatMap { UIImage(data: $0.data) }.flatMap { CardPictureGate.isPlaceholder($0) ? nil : $0 }?.preparingForDisplay()
                 await self?.loaded(image, key, capturedAtMs: newest?.capturedAtMs ?? 0)
             }
         }
+    }
+
+    /// One card's picture, read from disk if it is not in memory: a card that appears asks for its
+    /// own, so a tab past a list's first `limit` or one evicted since still shows its last picture.
+    public func warm(_ key: TabSnapshotKey) {
+        warm([key])
     }
 
     private func loaded(_ image: UIImage?, _ key: TabSnapshotKey, capturedAtMs: Int64) {
@@ -290,6 +300,12 @@ public final class TabCardSnapshots {
         // The tab is live while this entry is its entry: `remove` drops it.
         let live = entry(key)
         Task.detached(priority: .utility) { [weak self] in
+            // A placeholder (`CardPictureGate`) is neither shown once scaled nor saved: the card's
+            // last real picture stays.
+            guard !CardPictureGate.isPlaceholder(image) else {
+                if pixelWidth <= 0 { await self?.unshow(image, key) }
+                return
+            }
             var picture = image
             if pixelWidth > 0 {
                 picture = TabCardSnapshots.downscaled(image, pixelWidth: pixelWidth)
@@ -299,6 +315,16 @@ public final class TabCardSnapshots {
             await self?.encoded(data, key, live, pixelWidth: Int(picture.size.width * picture.scale),
                                 pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source)
         }
+    }
+
+    /// A placeholder `put` showed at once goes again (the card's previous picture is gone from
+    /// memory, so it reads the disk's, which the placeholder never replaced).
+    private func unshow(_ image: UIImage, _ key: TabSnapshotKey) {
+        guard let entry = entries[key], entry.image === image else { return }
+        entry.image = nil
+        entry.asked = false
+        resident.removeAll { $0 == key }
+        warm([key])
     }
 
     private func showScaled(_ image: UIImage, _ key: TabSnapshotKey, _ live: TabSnapshotEntry, capturedAtMs: Int64) {
