@@ -426,8 +426,14 @@
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
 /* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
-   its actual height reserve the stage's room (including a growing draft in a short pane). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}
+   its actual height reserve the stage's room (including a growing draft in a short pane). The dock keeps
+   the floating stack's own max-height (bottomStack.css, the quiet row's `data-foot` one too) and the stage
+   gives up its floor, so the composer is the same size and in the same place loading as open: a second
+   max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
+   stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
+   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
 /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
@@ -449,8 +455,10 @@
 /* A host failure above the composer (HostError.tsx HostUnavailableLine): one muted line cut to the
    width, and one small quiet button. Nothing shows while the host is still recovering. */
 .acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 calc(var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2)))) - var(--acpmux-stack-outset,0px)) 0 calc(var(--cv-inset,max(18px,calc((100% - 760px)/2))) - var(--acpmux-stack-outset,0px));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-host-line-message{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
-.acpmux-host-line button{flex:none;height:24px;padding:0 8px;border:0;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
+/* Its message is the fit text (cardFit.css, HostError.tsx): it takes the line, and in a narrow pane
+   its buttons move under it, Restart and Retry down to their icons. */
+.acpmux-host-line-message{min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
+.acpmux-host-line button{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 8px;border:0;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -512,7 +520,7 @@
 }
 /* Context (ComposerContext.tsx): composerLocation.css. */
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
-.acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-tool-card .acpmux-trust-ask-text{padding:4px 0;white-space:normal;overflow-wrap:anywhere}.acpmux-tool-card-input{flex:0 1 220px;min-width:80px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--acpmux-composer-hover);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font:inherit}.acpmux-tool-card-input:focus{outline:none}.acpmux-tool-card:is(:focus-visible, :has(:focus-visible)) .acpmux-tool-card-input{border-color:var(--agent-text)}.acpmux-trust-ask-action:disabled{opacity:.5;cursor:default}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:calc(var(--acpmux-composer-radius,12px) - 4px) /* radius-allow: concentric child of the 4px-padded composer-radius strip */;background:none;color:var(--agent-text);font:inherit;cursor:default}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
+.acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-tool-card .acpmux-trust-ask-text{padding:4px 0;white-space:normal;overflow-wrap:anywhere}.acpmux-tool-card-input{flex:0 1 220px;min-width:80px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--acpmux-composer-hover);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font:inherit}.acpmux-tool-card-input:focus{outline:none}.acpmux-tool-card:is(:focus-visible, :has(:focus-visible)) .acpmux-tool-card-input{border-color:var(--agent-text)}.acpmux-trust-ask-action:disabled{opacity:.5;cursor:default}.acpmux-trust-ask-action{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-1);height:26px;padding:0 10px;border:0;border-radius:calc(var(--acpmux-composer-radius,12px) - 4px) /* radius-allow: concentric child of the 4px-padded composer-radius strip */;background:none;color:var(--agent-text);font:inherit;cursor:default}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
 /* Quick open drops from the top as it opens (ui-enter, ui/popupSurface.css). */
 .acpmux-file-search{--ui-enter-y:-8px;animation:ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both}
@@ -1019,6 +1027,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-reason{overflow-wrap:anywhere}
 .acpmux-secret-card-private{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-secret-card-row{display:flex;align-items:center;gap:4px}
+.acpmux-secret-card-keep{display:flex;align-items:center;gap:var(--ds-space-2);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-secret-card-keep input{margin:0}
 .acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
 .acpmux-secret-card-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-secret-card-action{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);cursor:default}
@@ -1121,6 +1131,11 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-reset:hover { background: var(--ds-surface-hover); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking],.acpmux-trust-ask[data-recovery]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
+/* The trust line is a fit card (cardFit.css, TrustAsk.tsx): in a narrow pane its answers take the line
+   under the words, and Undo shrinks to its icon. A receipt's words keep to their line; an open
+   question's body wraps as before. It takes its row's whole width: the stack around it sizes a child
+   to its content, which inline-size containment collapses to nothing. */
+.acpmux-trust-ask.cv-fit-row{column-gap:4px}.acpmux-trust-ask.cv-fit-row>.cv-fit-text{flex:1 1 12em}
 
 /* The composer's + palette is a command surface: searchable, compact and immediately interactive.
    A column: the search field, then the list, which is the scroller, so the field never scrolls away

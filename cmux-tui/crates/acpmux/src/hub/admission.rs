@@ -32,7 +32,8 @@
 //! remains accepted for compatibility; floors and caps never refuse a session. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
 //! the composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
 //! send, a resume, a restart, an adopt that never forks, a side chat (`btw.rs`)
-//! and a handoff target never are. An admitted create counts as live until it ends, so of concurrent
+//! and a handoff target never are. A Claude create while the sr2 model pool is short starts with a
+//! warning that suggests Codex when it has room (`pool_pressure.rs`). An admitted create counts as live until it ends, so of concurrent
 //! creates at the cap every one past it is warned.
 
 use super::*;
@@ -43,6 +44,8 @@ use std::sync::OnceLock;
 pub const REASON: &str = "admission_refused";
 /// `_meta.acpmux` field that admits past the checks.
 pub const FORCE_FIELD: &str = "forceAdmit";
+/// `_meta.acpmux.autoPlace` marks a start whose place choice was Auto.
+pub const AUTO_PLACE_FIELD: &str = "autoPlace";
 
 const NO_REGISTRY: &str = "no fleet registry";
 
@@ -379,9 +382,11 @@ impl Hub {
             let hosted = Hub::live_host_sessions();
             // This machine's readings for the shadow verdict: none of them waits.
             let here = crate::shadow_admission::local_candidate();
-            (flag, registry, unreadable, source, machine, hosted, here)
+            // The sr2 pool's pressure, from sr2_pool's cache file (`pool_pressure.rs`).
+            let pool = super::pool_pressure::current();
+            (flag, registry, unreadable, source, machine, hosted, here, pool)
         });
-        let (flag, registry, unreadable, source, machine, hosted, here) =
+        let (flag, registry, unreadable, source, machine, hosted, here, pool) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
         let (verdict, fillers, mut admitted) = {
@@ -435,8 +440,52 @@ impl Hub {
         );
         // The connected peers as the placement engine weighs them, once for the move
         // and the warning.
-        let peers = (reason.is_some() || verdict.over.is_some())
+        let mut peers = (reason.is_some() || verdict.over.is_some())
             .then(|| self.peer_verdict(registry.as_ref()));
+        let mut scaling_up = false;
+        let mut auto_joined = false;
+        let no_peer_room = verdict.over.is_some()
+            && peers.as_ref().is_some_and(|verdict| {
+                super::admission_scale_up::room_elsewhere(verdict).is_none()
+            });
+        if should_wait_for_scale_up(ask.auto, no_peer_room)
+            && let Some(over) = verdict.over.as_ref()
+        {
+            // Subscribe before triggering the provider so a fast join cannot be missed.
+            let peer_states = self.peer_states();
+            let states = peer_states.subscribe();
+            let (trigger, result) = self.scale_up_wait(over, registry.as_ref());
+            scaling_up = trigger.scaling();
+            if scaling_up && let Some(result) = result {
+                // Tell the caller now that a machine is being added and its start waits for it.
+                if let Some(waiting) = &ask.waiting {
+                    waiting(waiting_note(over, &ask));
+                }
+                let joined = wait_for_scale_up(
+                    result,
+                    peer_states,
+                    states,
+                    super::admission_scale_up::AUTO_WAIT_BOUND,
+                )
+                .await;
+                if joined {
+                    let refreshed = self.peer_verdict(registry.as_ref());
+                    if super::admission_scale_up::room_elsewhere(&refreshed).is_some() {
+                        peers = Some(refreshed);
+                        auto_joined = true;
+                    }
+                }
+            }
+        } else if verdict.over.is_some()
+            && peers
+                .as_ref()
+                .is_some_and(|verdict| super::admission_scale_up::room_elsewhere(verdict).is_none())
+        {
+            if let Some(over) = verdict.over.as_ref() {
+                let (trigger, _) = self.scale_up_wait(over, registry.as_ref());
+                scaling_up = trigger.scaling();
+            }
+        }
         if let (Some(reason), Some(filler)) = (reason, fillers.first()) {
             // A filler's room is this start's: it starts here, never moved for it.
             super::admission_redirect::log(
@@ -454,6 +503,18 @@ impl Hub {
             if admitted.placed.is_none() {
                 super::admission_redirect::log("local_no_room", reason, None, None);
             }
+        } else if auto_joined
+            && admitted.placed.is_none()
+            && let Some(over) = verdict.over.as_ref()
+        {
+            admitted.placed = peers.as_ref().and_then(|peers| {
+                super::admission_redirect::pick(
+                    peers,
+                    super::admission_redirect::Reason::OverCap,
+                    over.live,
+                    Some(over.max),
+                )
+            });
         } else if verdict.over.is_some() && verdict.uncapped.is_none() {
             // Past a lane host's cap, a create that may not move (an old client, a person,
             // a peer's or a Web caller) starts here as before.
@@ -461,9 +522,7 @@ impl Hub {
             super::admission_redirect::log("local_not_asked", reason, None, Some(ask.who));
         }
         admitted.warning = match (&verdict.over, &peers) {
-            (Some(over), Some(peers)) => {
-                Some(self.over_cap_warning(over, peers, registry.as_ref(), &ask))
-            }
+            (Some(over), Some(peers)) => Some(self.over_cap_warning(over, peers, &ask, scaling_up)),
             _ => None,
         };
         if let Some(floor) = verdict.under_floor {
@@ -478,6 +537,25 @@ impl Hub {
             warning.set("underFloor", json!(true));
             admitted.warning = Some(warning);
         }
+        if let Some(pressure) = pool {
+            let family = self.admission_family(ask.harness.as_deref()).await;
+            if super::pool_pressure::is_claude(&family) {
+                let text = super::pool_pressure::warning(&pressure);
+                tracing::warn!(
+                    caller = ask.who,
+                    family,
+                    "session/new admitted under pool pressure: {text}"
+                );
+                let mut warning = admitted.warning.take().unwrap_or_else(|| json!({}));
+                let combined = match warning.get("warning").and_then(Value::as_str) {
+                    Some(before) => format!("{before} {text}"),
+                    None => text,
+                };
+                warning.set("warning", json!(combined));
+                warning.set("poolPressure", super::pool_pressure::field(&pressure));
+                admitted.warning = Some(warning);
+            }
+        }
         tracing::debug!(
             caller = ask.who,
             name = ask.name.as_deref(),
@@ -490,6 +568,16 @@ impl Hub {
 }
 
 impl Hub {
+    /// The family of harness `name` (a family or profile name), or of the default harness.
+    async fn admission_family(&self, name: Option<&str>) -> String {
+        let cfg = self.config.read().await;
+        let Some(name) = name.map(str::to_owned).or_else(|| cfg.default_harness.clone()) else {
+            // acpmux's own default is Claude Code.
+            return "claude".to_owned();
+        };
+        cfg.resolve_harness(&name).ok().and_then(|profile| cfg.family(&profile)).unwrap_or(name)
+    }
+
     /// Where the placement engine would put a create from the connected peers' last
     /// readings (`server/place.rs` `pick` weighs the same hosts, this one too), with
     /// the shadow verdict of its pick (`shadow_admission.rs`).
@@ -515,14 +603,14 @@ impl Hub {
         &self,
         over: &OverCap,
         verdict: &Value,
-        registry: Option<&Value>,
         ask: &Ask<'_>,
+        scaling: bool,
     ) -> Value {
         // Weighed for every caller: whether a peer has room decides the scale-up too.
         let placed = super::admission_scale_up::room_elsewhere(verdict);
         // No connected host has room: the fleet adds one (`admission_scale_up.rs`).
-        let scaling =
-            placed.is_none() && self.scale_up(over, registry).is_some_and(|t| t.scaling());
+        // `scaling` was captured before an Auto wait, so its warning remains visible
+        // while the request waits for the new peer.
         // Only a caller that may learn this host's peers hears where it could have gone.
         let shown = ask.local && ask.peers;
         let placed = placed.filter(|_| shown);
@@ -546,17 +634,98 @@ impl Hub {
         warning
     }
 
-    /// Asks the registry's `lane_overflow` providers for a machine, detached
-    /// (`admission_scale_up.rs`); None when the fleet declares none here.
-    fn scale_up(
+    /// Asks the registry's `lane_overflow` providers for a machine. The
+    /// receiver lets Auto wait for a provider failure or a peer join.
+    fn scale_up_wait(
         &self,
         over: &OverCap,
         registry: Option<&Value>,
-    ) -> Option<super::admission_scale_up::Trigger> {
+    ) -> (super::admission_scale_up::Trigger, Option<super::admission_scale_up::ResultReceiver>)
+    {
         use super::admission_scale_up::{ScaleUp, plan, workspace_of};
         let workspace = workspace_of(&over.source);
-        let plan = plan(registry?, &over.source, &over.machine, workspace.as_deref())?;
-        Some(ScaleUp::daemon().trigger(&self.scope, plan, std::time::Instant::now()))
+        let Some(plan) = registry
+            .and_then(|registry| plan(registry, &over.source, &over.machine, workspace.as_deref()))
+        else {
+            return (super::admission_scale_up::Trigger::Cooling, None);
+        };
+        ScaleUp::daemon().trigger_wait(&self.scope, plan, std::time::Instant::now())
+    }
+}
+
+/// `_acpmux/admission_waiting`'s params: the over-cap warning with `scalingUp`, and how long the
+/// start waits at most for the new machine before it starts here.
+fn waiting_note(over: &OverCap, ask: &Ask<'_>) -> Value {
+    let host = if ask.local { super::start_gate::host_label() } else { "this machine" };
+    let secs = super::admission_scale_up::AUTO_WAIT_BOUND.as_secs();
+    let warning = format!(
+        "{host} has {} live sessions, at its cap of {}, and no connected host has room, so a machine is being added to the fleet. This start waits for it (up to {secs} s), then starts there, or here if it does not join.",
+        over.live, over.max
+    );
+    json!({
+        "warning": warning,
+        "live": over.live,
+        "maxLanes": over.max,
+        "scalingUp": true,
+        "waitSecs": secs,
+    })
+}
+
+fn should_wait_for_scale_up(auto: bool, no_peer_room: bool) -> bool {
+    auto && no_peer_room
+}
+
+/// Waits for the provider to fail or for a connected peer notification.
+/// A successful provider answer is not enough because the peer must be
+/// registered before placement can forward the create.
+async fn wait_for_scale_up(
+    mut result: super::admission_scale_up::ResultReceiver,
+    peer_states: &crate::peer_states::PeerStates,
+    mut states: tokio::sync::broadcast::Receiver<Value>,
+    bound: std::time::Duration,
+) -> bool {
+    use crate::protocol::peer_state::{MachineLink, PeerStateChanged};
+    let mut expected = None;
+    let deadline = tokio::time::sleep(bound);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            changed = result.changed() => {
+                if changed.is_err() {
+                    return false;
+                }
+                match result.borrow().as_ref() {
+                    Some(Some(host)) => {
+                        expected = Some(host.clone());
+                        // The peer can connect before the provider prints its answer. The
+                        // retained state makes that ordering safe without polling.
+                        if peer_states.snapshot().iter().any(|note| {
+                            note.get(crate::peer_states::STATE_NOTE)
+                                .and_then(|note| serde_json::from_value::<PeerStateChanged>(note.clone()).ok())
+                                .is_some_and(|note| note.link == MachineLink::Connected && Some(note.peer) == expected)
+                        }) {
+                            return true;
+                        }
+                    }
+                    Some(None) => return false,
+                    None => {}
+                }
+            }
+            note = states.recv() => {
+                let Ok(note) = note else { return false };
+                let connected = note
+                    .get(crate::peer_states::STATE_NOTE)
+                    .and_then(|note| serde_json::from_value::<PeerStateChanged>(note.clone()).ok())
+                    .is_some_and(|note| {
+                        note.link == MachineLink::Connected
+                            && expected.as_deref() == Some(note.peer.as_str())
+                    });
+                if connected {
+                    return true;
+                }
+            }
+            _ = &mut deadline => return false,
+        }
     }
 }
 
@@ -578,11 +747,53 @@ pub(crate) struct Ask<'a> {
     /// The create asked to start on a peer when this host has no room, and nothing ties
     /// it here (`admission_redirect.rs` `movable`).
     pub redirect: bool,
+    /// The caller chose Auto as the machine/place. Explicit machine choices never wait.
+    pub auto: bool,
+    /// Tells the caller, once, that its Auto start waits for a machine being added
+    /// (`_acpmux/admission_waiting`); None where nobody listens.
+    pub waiting: Option<Waiting<'a>>,
+    /// The harness (family or profile) asked for; None: the default harness. A Claude one
+    /// is warned while the sr2 pool is short (`pool_pressure.rs`).
+    pub harness: Option<String>,
 }
+
+/// [`Ask::waiting`]: sends `_acpmux/admission_waiting`'s params to the creating connection.
+pub(crate) type Waiting<'a> = Box<dyn Fn(Value) + Send + Sync + 'a>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The note an Auto start's caller hears when its wait begins says a machine is being added
+    /// and how long the start waits; a Web caller's names no host.
+    #[test]
+    fn the_waiting_note_says_a_machine_is_being_added() {
+        let over = OverCap { live: 9, max: 8, machine: "m".into(), source: "/r.json".into() };
+        let ask = Ask {
+            force: false,
+            can_force: false,
+            person: true,
+            name: None,
+            who: "test",
+            local: false,
+            peers: true,
+            redirect: true,
+            auto: true,
+            waiting: None,
+            harness: None,
+        };
+        let note = waiting_note(&over, &ask);
+        assert_eq!(note["scalingUp"], json!(true));
+        assert_eq!(note["live"], json!(9));
+        assert_eq!(note["maxLanes"], json!(8));
+        assert_eq!(
+            note["waitSecs"],
+            json!(super::super::admission_scale_up::AUTO_WAIT_BOUND.as_secs())
+        );
+        let text = note["warning"].as_str().unwrap();
+        assert!(text.starts_with("this machine has 9 live sessions"), "{text}");
+        assert!(text.contains("a machine is being added"), "{text}");
+    }
 
     #[test]
     fn a_session_whose_agent_host_runs_is_live_whatever_its_status() {
@@ -827,5 +1038,50 @@ mod tests {
         });
         assert_eq!(verdict, Verdict::default());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn auto_waits_for_the_provider_machine_join_but_falls_back_safely() {
+        use crate::peer_states::{Observed, PeerStates};
+        use crate::protocol::peer_state::MachineLink;
+        use std::time::Duration;
+
+        // A spawned wait needs a 'static borrow; the test leaks its two small tables.
+        let states: &'static PeerStates = Box::leak(Box::default());
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        let task = tokio::spawn(wait_for_scale_up(
+            receiver,
+            states,
+            states.subscribe(),
+            Duration::from_secs(10),
+        ));
+        sender.send(Some(Some("new-machine".into()))).unwrap();
+        states.register("other-machine", 1, Observed::new(MachineLink::Connected, None, None));
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished(), "an unrelated peer does not satisfy the wait");
+        states.register("new-machine", 1, Observed::new(MachineLink::Connected, None, None));
+        assert!(task.await.unwrap(), "a connected machine is used for placement");
+
+        let states: &'static PeerStates = Box::leak(Box::default());
+        let (_sender, receiver) = tokio::sync::watch::channel(None);
+        let joined = tokio::spawn(wait_for_scale_up(
+            receiver,
+            states,
+            states.subscribe(),
+            Duration::from_secs(10),
+        ));
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(10)).await;
+        assert!(!joined.await.unwrap(), "the bound falls back to the existing over-cap start");
+
+        let states = PeerStates::default();
+        let (sender, receiver) = tokio::sync::watch::channel(None);
+        let _ = sender.send(Some(None));
+        let failed =
+            wait_for_scale_up(receiver, &states, states.subscribe(), Duration::from_secs(1)).await;
+        assert!(!failed, "a provider failure falls back immediately");
+
+        assert!(!should_wait_for_scale_up(false, true), "an explicit machine never waits");
+        assert!(should_wait_for_scale_up(true, true), "only Auto waits with no room");
     }
 }
