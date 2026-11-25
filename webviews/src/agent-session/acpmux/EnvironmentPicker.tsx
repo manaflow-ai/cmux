@@ -340,8 +340,8 @@ export function EnvironmentPicker({
         : [],
     [offersDevices, environments, sections],
   );
-  // What its row counts: the ones a chat can start on now.
-  const devicesReady = devices.filter(environmentReady).length;
+  // What its row counts: the ones a chat can start on now, a machine still dialing included.
+  const devicesReady = devices.filter((environment) => environmentPickable(environment)).length;
   const searchable =
     machineList &&
     (list === "devices" ? devices.length : environments.length + listedSaved.length) >= ENVIRONMENT_SEARCH_MIN;
@@ -613,10 +613,11 @@ export function EnvironmentPicker({
     ...(cloudRow ? [cloudRow] : []),
     ...(devicesMenu ? [devicesMenu.value] : []),
   ];
-  // Which machine: the machines a chat can start on first, whatever their kind, then the rest
-  // greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
+  // Which machine: the connected ones first, then those still dialing (a pick, drawn the same), then
+  // the rest greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
   const readyFirst = (items: Environment[]) => [
-    ...items.filter((environment) => environmentPickable(environment, groupedAt)),
+    ...items.filter(environmentReady),
+    ...items.filter((environment) => !environmentReady(environment) && environmentPickable(environment, groupedAt)),
     ...items.filter((environment) => !environmentPickable(environment, groupedAt)),
   ];
   const choicesGrouped = grouped(
