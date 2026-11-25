@@ -650,11 +650,12 @@ impl Hub {
         // aimed at a turn that has ended since: the one running now is another prompt's.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
-            if self.put_next(session, p.prompt_id, None).is_ok_and(|next| next)
-                && let Some(running) = running
-                && p.interrupt_turn.is_none_or(|aimed| aimed == running)
-            {
-                self.cancel_turn_for_replacement(session, &running, p.prompt_id).await;
+            if self.put_next(session, p.prompt_id, None).is_ok_and(|next| next) {
+                if let Some(running) = running {
+                    if p.interrupt_turn.is_none_or(|aimed| aimed == running) {
+                        self.cancel_turn_for_replacement(session, &running, p.prompt_id).await;
+                    }
+                }
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
@@ -783,10 +784,10 @@ impl Hub {
     /// Stops the turn `turn_id` if it still runs: a bare cancel stops whatever turn runs now,
     /// which may already be the next one.
     pub(super) async fn cancel_turn(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
-        if session.turn().is_some_and(|t| t.turn_id == turn_id)
-            && let Err(e) = self.cancel(session).await
-        {
-            tracing::warn!(session = %session.id, "interrupt for a steer: {}", e.message);
+        if session.turn().is_some_and(|t| t.turn_id == turn_id) {
+            if let Err(e) = self.cancel(session).await {
+                tracing::warn!(session = %session.id, "interrupt for a steer: {}", e.message);
+            }
         }
     }
 
@@ -797,10 +798,10 @@ impl Hub {
         turn_id: &str,
         prompt_id: &str,
     ) {
-        if session.turn().is_some_and(|t| t.turn_id == turn_id)
-            && let Err(e) = self.cancel_preserving_queued(session, Some(prompt_id)).await
-        {
-            tracing::warn!(session = %session.id, "interrupt for a queued prompt: {}", e.message);
+        if session.turn().is_some_and(|t| t.turn_id == turn_id) {
+            if let Err(e) = self.cancel_preserving_queued(session, Some(prompt_id)).await {
+                tracing::warn!(session = %session.id, "interrupt for a queued prompt: {}", e.message);
+            }
         }
     }
 
@@ -1716,13 +1717,12 @@ impl Hub {
                         let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
                         queue.iter().any(|w| w.turn_id == q.turn_id)
                     };
-                    if let Err(e) = result
-                        && waiting()
-                        && hub.remove_queued(&session, &q.prompt_id)
-                    {
-                        tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
-                        let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
-                        hub.append(&session, "mux", "prompt_refused", msg);
+                    if let Err(e) = result {
+                        if waiting() && hub.remove_queued(&session, &q.prompt_id) {
+                            tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                            let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                            hub.append(&session, "mux", "prompt_refused", msg);
+                        }
                     }
                 });
             }
