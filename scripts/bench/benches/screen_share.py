@@ -3,7 +3,7 @@
 Two harnesses, one bench:
 
   mode=eval (default)  scripts/measure/screen-stream-eval.sh on one fleet Mac (host and viewer on that Mac,
-                       targets rd,webrtc by default; the daily workflow's run). Its results.json
+                       targets rd,webrtc by default, rd,webrtc,iphone-sim in the daily workflow's run). Its results.json
                        (schema cmux.screen-stream-eval/1) becomes rows labelled target=<the harness's target>.
   mode=vs              cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py `run`: cmux's session path
                        against the OS's built-in screen sharing on two Macs. Its JSON lines (--out FILE, or
