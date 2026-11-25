@@ -1,4 +1,4 @@
-import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, shellQuote } from "./cmuxTuiDaemon";
+import { CMUX_TUI_EXIT_NO_WORK_USER, cmuxTuiAgentLayoutSelector, cmuxTuiAsDaemonUser, shellQuote } from "./cmuxTuiDaemon";
 
 // The fixed guest commands of the keyed acpmux start on a Cloud machine
 // (cx-0q7o slice 2d, cx-psxg; acpmux hub/person.rs). The app makes the
@@ -8,7 +8,7 @@ import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, shellQuote } from "./cmuxTu
 // person_holds nonce is checked hex before it is put into a frame.
 //
 // Every command runs as root through the provider exec, then as the
-// daemon's own user, home and environment (cmuxTuiLayoutSelector,
+// daemon's own user, home and environment (cmuxTuiAgentLayoutSelector,
 // cmuxTuiAsDaemonUser), so the acpmux it starts, and the `acp stdio` that
 // checks it, use the socket the session daemon's agent-session-* verbs use.
 // The keyed start gives the daemon the environment the session daemon's own
@@ -18,6 +18,8 @@ import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, shellQuote } from "./cmuxTu
 export const ACPMUX_EXIT_TEAM_VM = 81;
 /** Exit status of a prepare on a machine whose cmux-tui has no keyed start. */
 export const ACPMUX_EXIT_UNSUPPORTED = 82;
+/** Exit status of a command on a machine whose unprivileged work user is not usable: agents never run as root. */
+export const ACPMUX_EXIT_NO_WORK_USER = CMUX_TUI_EXIT_NO_WORK_USER;
 /**
  * The guest kills a keyed start or a person_holds check after this long.
  * Under the provider's 5 s background window, so the call that carries the
@@ -57,7 +59,7 @@ const DROPPED_ENV = [
 
 /** Layout and team refusal, with stdin closed so nothing here can read the key. */
 function setup(): string {
-  return `{ ${cmuxTuiLayoutSelector()} && ${teamMachineCheck()}; } </dev/null`;
+  return `{ ${cmuxTuiAgentLayoutSelector()} && ${teamMachineCheck()}; } </dev/null`;
 }
 
 /**

@@ -18,8 +18,11 @@ extension SidebarItemRowView {
     /// Places the controls on hover and keeps the title and the trailing marks clear of them.
     func layoutHoverActions(in b: NSRect) {
         let shown = showsHoverActions
+        // Last, shown or not: no two icons share a box (Leo 2026-11-22: "fucking overlapping icons"), whatever the
+        // alphas below say.
+        defer { clearMarksMeetingIcons(keep: [hoverMore, hoverUnpin], marks: [rowBadge, badge, activity], fades: false) }
         if shown, hoverMore == nil, onMore != nil {
-            let button = OverflowButton(label: Strings.workspaceMenu)
+            let button = OverflowButton.rowControl(label: Strings.workspaceMenu)
             button.onPress = { [weak self] in self?.onMore?() }
             addSubview(button)
             hoverMore = button
@@ -27,7 +30,9 @@ extension SidebarItemRowView {
         hoverMore?.isHidden = !shown
         // The more button whose menu is open stays lit after the pointer leaves for the menu (Leo 2026-10-26).
         hoverMore?.showsMenu = shown && showsMenu
-        // The status mark and the count sit in the controls' place: they hide while the controls show.
+        // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the
+        // hovered buttons should just replace the other ones"): the dot, the spinner and the status mark
+        // all hide while the controls show, and none of them moves (no layout shift).
         if !isEditing {
             rowBadge.alphaValue = shown ? 0 : 1
             badge.alphaValue = shown ? 0 : 1
@@ -37,7 +42,7 @@ extension SidebarItemRowView {
         let unpins = shown && hoverMore != nil && onUnpin != nil && isPinned?() == true
         if unpins, hoverUnpin == nil {
             // Unpin is an action, so it draws the struck-through pin, never the filled pinned mark (`applyPin`).
-            let button = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
+            let button = SidebarIconButton.rowControl(icon: .browserToolbarUnpin, label: Strings.unpinWorkspace)
             button.onPress = { [weak self] in self?.onUnpin?() }
             if let workspace = info.workspace { button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(workspace.rawValue).pin") }
             addSubview(button)

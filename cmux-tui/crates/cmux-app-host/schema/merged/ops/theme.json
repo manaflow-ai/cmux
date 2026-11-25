@@ -1,0 +1,25 @@
+{
+  "family": "theme",
+  "ops": {
+    "theme.scheme.convert": {
+      "source": "local",
+      "class": "read",
+      "digest": "cdb569c03b85bfbd"
+    },
+    "theme.scheme.export": {
+      "source": "local",
+      "class": "read",
+      "digest": "3b20db62288ecc18"
+    },
+    "theme.scheme.from_image": {
+      "source": "local",
+      "class": "read",
+      "digest": "92fba88fbcb25a58"
+    },
+    "theme.slots.resolve": {
+      "source": "local",
+      "class": "read",
+      "digest": "e8f767eb25aab909"
+    }
+  }
+}

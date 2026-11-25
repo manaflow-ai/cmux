@@ -8,16 +8,17 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// Compare in `agent-pane.turn-fold-replies`.
 /// The `replies` arm draws a closed "Worked for" as chatgpt.com does: nothing beside it but what the
 /// agent said to the person, never a tool call (2026-11-10: "it says 'worked for 36s' but if i hide
-/// it, it still shows a bunch of tool calls"). The `answer` arm, the default, hides narration while
-/// keeping substantive answers outside the closed fold; earlier answers read in order once it opens.
+/// it, it still shows a bunch of tool calls"). The `answer` arm, the default, keeps only the final answer
+/// beside the closed fold; every earlier message folds and reads in order once it opens (Lawrence,
+/// 2026-11-19: "in collapsed, literally everything but final assistant message should be collapsed").
 export const turnFoldReplies = defineExperiment({
   id: "turn-fold-replies",
   title: "Replies in a closed turn fold",
   description: "How a closed Worked for draws the work before, between and after the replies it keeps in sight.",
   arms: {
     answer: {
-      label: "Substantive answers",
-      description: "Substantive answers stay in sight while short narration folds under Worked for, as Codex does.",
+      label: "Final answer only",
+      description: "Only the final answer stays in sight; every earlier message folds under Worked for with the work.",
     },
     groups: {
       label: "One line per stretch",

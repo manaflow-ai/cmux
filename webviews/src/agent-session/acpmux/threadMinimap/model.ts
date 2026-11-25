@@ -3,13 +3,14 @@
 import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
 import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
+import { keptPrefix } from "../conversation/prefixFlatMap";
 import { PromptHeads } from "../promptHeads";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
 import { SUBAGENTS } from "../subagents/subagentFold";
-import type { RailShow } from "./railShow";
+import { RAIL_SHOWS, type RailShow } from "./railShow";
 import { SUBAGENT_DONE, SUBAGENT_ROW, SUBAGENT_STARTED } from "../subagents/subagentRows";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
@@ -337,7 +338,7 @@ export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
 /// down to the stack's top, as the Codex app's do (Lucas, 2026-11-17), Jump to latest or not.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
-export const TRANSCRIPT_FADE_TOP = 18;
+export const TRANSCRIPT_FADE_TOP = 24;
 export const TRANSCRIPT_FADE_BOTTOM = 0;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
@@ -449,9 +450,10 @@ export const RAIL_FADE = 40;
 export const railFade = (height: number) => Math.max(0, Math.min(RAIL_FADE, Math.floor(height / 4)));
 
 /// Which of the list's edge fades draw at offset `top`: an edge with more rows past it fades, unless
-/// the fade would lie over the band (the prompts on screen), which always draws in full ink.
+/// following the transcript would put its highlighted prompts under that fade. A reader browsing
+/// the rail independently can scroll those prompts out of view in either direction.
 export function railFades(
-  band: { first: number; last: number },
+  band: { first: number; last: number } | undefined,
   count: number,
   height: number,
   top: number,
@@ -459,8 +461,8 @@ export function railFades(
 ): { top: boolean; bottom: boolean } {
   const fade = railFade(height);
   return {
-    top: top > 0 && band.first * pitch - top >= fade,
-    bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
+    top: top > 0 && (!band || band.first * pitch - top >= fade),
+    bottom: count * pitch - top - height > 0 && (!band || (band.last + 1) * pitch - top <= height - fade),
   };
 }
 
@@ -572,6 +574,8 @@ const isSubagentRow = (row: AcpmuxRow) =>
 
 type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
 type CardContribution = {
+  /// The `minimapTurns` pass that last read it (`cardPass`).
+  pass: number;
   version: number;
   shape: string;
   before?: CardState;
@@ -584,6 +588,11 @@ type CardContribution = {
 // owns one entry per row, replaced on revision; releasing the prompt releases the cache.
 const cardStates = new WeakMap<AcpmuxRow, Map<string, CardContribution>>();
 const noFiles: ReadonlySet<string> = new Set();
+/// Each `minimapTurns` pass's number. A turn that never ends (a coordinator's) keeps its prompt while its oldest rows
+/// leave for good (direct.ts `shedOlderHeld`), so its entry by row id kept one contribution for every row it ever
+/// had: about 5 MB at 100k records (chat-100k-flat running_x1). A turn read whole whose entries outnumber twice
+/// the rows it read lets go of the ones that pass did not read (`forgetLeftCards`).
+let cardPass = 0;
 
 function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardState {
   let contributions = cardStates.get(prompt);
@@ -593,7 +602,10 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   // revision can name both. Their drawn shape separates those contributions without reading items.
   const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
   const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
-  if (cached && cached.before === before) return cached.state;
+  if (cached && cached.before === before) {
+    cached.pass = cardPass;
+    return cached.state;
+  }
   let state = before ?? {
     metadata: {
       at: row.at,
@@ -648,8 +660,19 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
       ...(failure && { failure }),
     };
   if (metadata !== state.metadata || files !== state.files) state = { metadata, files };
-  contributions.set(row.id, { version: row.version, shape, before, state, paths });
+  contributions.set(row.id, { pass: cardPass, version: row.version, shape, before, state, paths });
   return state;
+}
+
+/// How many rows' card contributions the rail keeps for the turn `prompt` opened (tests).
+export const cardEntries = (prompt: AcpmuxRow): number => cardStates.get(prompt)?.size ?? 0;
+
+/// Lets go of `prompt`'s contributions this pass did not read once they are more than twice the `read` rows of its
+/// turn it read whole (`cardPass`): O(entries) once per as many rows that left, so O(1) a row.
+function forgetLeftCards(prompt: AcpmuxRow, read: number): void {
+  const contributions = cardStates.get(prompt);
+  if (!contributions || contributions.size <= 2 * read + 16) return;
+  for (const [id, contribution] of contributions) if (contribution.pass !== cardPass) contributions.delete(id);
 }
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
@@ -690,6 +713,9 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   /// The rail row of the first held turn, past the indexed prompts (the count-only ones come before both).
   loadedStart?: number;
+  /// The prompts newer than the rows (the snapshot's `laterPrompts`, a window of the chat the reader scrolled far up
+  /// holds): rail rows after the held ones (railRows.ts), read as `earlier` is.
+  later?: PromptHeads;
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -727,6 +753,7 @@ export function minimapTurns(
   change?: RowsChange,
   earlier: PromptHeads = PromptHeads.EMPTY,
   promptCount = 0,
+  later: PromptHeads = PromptHeads.EMPTY,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior;
@@ -754,8 +781,12 @@ export function minimapTurns(
   let reply: AcpmuxRow | undefined;
   let replyIndex = 0;
   let details: CardState | undefined;
+  let cardsRead = 0;
+  cardPass += 1;
   const close = () => {
     if (!user) return;
+    forgetLeftCards(user, cardsRead);
+    cardsRead = 0;
     const kept = turnsByPrompt.get(user);
     const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
     const nextMetadata = details?.metadata;
@@ -808,14 +839,18 @@ export function minimapTurns(
       user = folded ?? row;
       userIndex = index;
       details = cardState(user, user);
+      cardsRead = 1;
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
         replyIndex = index;
         details = cardState(user, row, details);
+        cardsRead += 1;
       }
-      if (row.kind === "activity" || row.kind === "turnSummary" || isSubagentRow(row))
+      if (row.kind === "activity" || row.kind === "turnSummary" || isSubagentRow(row)) {
         details = cardState(user, row, details);
+        cardsRead += 1;
+      }
     }
   }
   close();
@@ -853,7 +888,7 @@ export function minimapTurns(
     // ticks above the held ones, so the rail has its final length and every tick its final row on the
     // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
     // don't like it when the thing shifts and whatnot trying to center itself").
-    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length);
+    const pending = Math.max(0, promptCount - earlier.length - loadedTurns.length - later.length);
     return {
       rows,
       sessionId,
@@ -863,6 +898,7 @@ export function minimapTurns(
       loadedTicks,
       ...(spare ? { spare } : {}),
       ...(earlier.length ? { earlier } : {}),
+      ...(later.length ? { later } : {}),
       loadedStart: earlier.length,
       pendingCount: pending,
     };
@@ -984,7 +1020,10 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
+    // A turn newer than the rows (railRows.ts `later`, index -1) has no top: it is below every held one. A held turn
+    // whose top is not placed yet reads as above, as before.
+    const turn = turns.at(middle)!;
+    if ((tops(turn.index) ?? (turn.index < 0 ? Infinity : 0)) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -1324,13 +1363,39 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
 }
 
 /// The choices that keep something in this chat (the rest are offered disabled): every prompt always.
+/// Each turn's choices are kept as a running union (`offeredRuns`), so an update reads only the turns
+/// after the last one it kept: read whole, each streamed record of a long chat walked every turn
+/// (0.15 ms a record at 20,000 rows, bench/transcript-replay.bench.ts PROFILE=1).
 export function railShowsOffered(turns: readonly MinimapTurn[], ticks: readonly MinimapTick[]): ReadonlySet<RailShow> {
-  const offered = new Set<RailShow>(["prompts"]);
-  for (let at = 0; at < turns.length; at += 1) {
+  const last = offeredRun;
+  const from = last ? Math.min(keptPrefix(last.turns, turns), keptPrefix(last.ticks, ticks)) : 0;
+  if (last && from === turns.length && from === last.turns.length) return last.offered;
+  const unions = new Uint16Array(turns.length);
+  if (from > 0) unions.set(last!.unions.subarray(0, from));
+  let union = from > 0 ? unions[from - 1]! : OFFERED_BIT.prompts;
+  for (let at = from; at < turns.length; at += 1) {
     const turn = turns[at]!;
-    offered.add(ticks[at]?.from === undefined ? "mine" : "received");
-    if (turn.replyAt) offered.add("replies").add("everything");
-    for (const kind of ["errors", "edits", "tools", "subagents"] as const) if (turnHas(turn, kind)) offered.add(kind);
+    union |= OFFERED_BIT[ticks[at]?.from === undefined ? "mine" : "received"];
+    if (turn.replyAt) union |= OFFERED_BIT.replies | OFFERED_BIT.everything;
+    for (const kind of TURN_KINDS) if (turnHas(turn, kind)) union |= OFFERED_BIT[kind];
+    unions[at] = union;
   }
+  const offered =
+    last && union === last.union
+      ? last.offered
+      : new Set<RailShow>(RAIL_SHOWS.filter((each) => (union & OFFERED_BIT[each]) !== 0));
+  offeredRun = { turns, ticks, unions, union, offered };
   return offered;
 }
+const TURN_KINDS = ["errors", "edits", "tools", "subagents"] as const;
+const OFFERED_BIT = Object.fromEntries(RAIL_SHOWS.map((each, at) => [each, 1 << at])) as Record<RailShow, number>;
+/// The last turns `railShowsOffered` read, the union of the choices up to each, and its answer.
+let offeredRun:
+  | {
+      turns: readonly MinimapTurn[];
+      ticks: readonly MinimapTick[];
+      unions: Uint16Array;
+      union: number;
+      offered: ReadonlySet<RailShow>;
+    }
+  | undefined;

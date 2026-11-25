@@ -32,6 +32,9 @@
 //!   deny SESSION
 //!   status [--json]                `--json`: the cmux.screen-share.status/1 document cmux
 //!                                  reads from every share host (status_json.rs)
+//!   remove-device DEVICE           removes one of the account's other devices from the hub
+//!                                  (`DELETE /v1/devices/DEVICE`): an identity this host left
+//!                                  behind when it joined again, still listed in every viewer
 //!
 //! Consent: the hub serves the account's own devices at once (a viewer with no saved permission
 //! reads `full`) and a viewer the person allowed; a request under a saved Ask waits for `approve` and is
@@ -69,7 +72,8 @@ const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-
        cmux-rd linux-host grant [--control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
-       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
+       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]
+       cmux-rd linux-host remove-device DEVICE";
 
 /// The exit code when the host cannot go on until the person acts (the hub removed this
 /// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
@@ -239,6 +243,9 @@ pub fn run_cli(args: &[String]) -> i32 {
             .map_err(Into::into)
             .and_then(|()| approve(id, &parsed)),
         ["deny", id] => parsed.only(&[]).map_err(Into::into).and_then(|()| deny(id)),
+        ["remove-device", id] => {
+            parsed.only(&[]).map_err(Into::into).and_then(|()| remove_device(id))
+        }
         ["status"] => parsed.only(&["json"]).map_err(Into::into).and_then(|()| {
             if parsed.flag("json") {
                 print_status_json();
@@ -543,28 +550,63 @@ fn openh264_line_in(dir: Option<std::path::PathBuf>) -> String {
     }
 }
 
-/// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
+/// `grant [--control]`: the Wayland portal's grant, made now so no share asks. A GNOME
+/// desktop (mutter on the session bus) needs none and is asked nothing.
 fn grant(control: bool) -> Res<()> {
     if CaptureBackend::from_env(None)? != CaptureBackend::Portal {
         println!("This is not a Wayland session: sharing it needs no portal grant.");
         return Ok(());
     }
-    println!("{}", portal_grant(control, None)?);
+    let line = portal_grant(control, None)?;
+    println!("{line}");
+    if line.starts_with(MUTTER_LINE_START) {
+        return Ok(());
+    }
     if identity::runtime_dir().is_ok_and(|dir| dir.join("capture").exists()) {
         println!("Restart the host to use it: systemctl --user restart cmux-screen-host.service");
     }
     Ok(())
 }
 
+/// How [`mutter_line`] starts (`grant` tells it from a portal grant by it).
+const MUTTER_LINE_START: &str = "Screen sharing on this GNOME desktop needs no approval";
+
+/// What a join says on a GNOME desktop, where shares go through mutter's own screen cast
+/// (mutter.rs) and nothing is asked: `None` when the portal is the path. `remote_desktop`:
+/// mutter offers keyboard and pointer.
+fn mutter_line(
+    capture: crate::capture_backend::WaylandCapture,
+    remote_desktop: bool,
+    control: bool,
+) -> Option<String> {
+    if capture.needs_grant() {
+        return None;
+    }
+    let what = if !control {
+        ""
+    } else if remote_desktop {
+        " (view and control)"
+    } else {
+        " (view only: this desktop offers no keyboard and pointer control)"
+    };
+    Some(format!("{MUTTER_LINE_START}{what}: no dialog appears on this screen."))
+}
+
 /// Asks the portal once for the screen (and, with `control`, keyboard and pointer) and saves
 /// its restore token (portal.rs); what it granted. Prints the join's notes on what this portal
 /// cannot keep (setup.rs). `within` bounds the wait on the dialog: past it nothing is saved and
 /// the first share asks. A build that cannot capture through the portal asks nothing: a grant
-/// would show a dialog for shares it cannot serve.
+/// would show a dialog for shares it cannot serve. On GNOME (mutter on the session bus) it asks
+/// nothing either: mutter casts with no grant, and it says so ([`mutter_line`]).
 #[cfg(feature = "portal-dbus")]
 fn portal_grant(control: bool, within: Option<Duration>) -> Res<String> {
+    use crate::capture_backend::WaylandCapture;
     use crate::portal::{PortalState, SessionKind};
     CaptureBackend::Portal.available()?;
+    let (screen_cast, remote_desktop) = crate::capture_backend::mutter_on_bus();
+    if let Some(line) = mutter_line(WaylandCapture::choose(screen_cast), remote_desktop, control) {
+        return Ok(line);
+    }
     let (done, result) = std::sync::mpsc::channel();
     // On its own thread, so a dialog nobody answers cannot hold the join past `within`. Not
     // joined: past `within` it is left to the process, which ends with `enable`.
@@ -697,7 +739,8 @@ fn join_consent(
 /// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
 /// at the screen (with `control`, the RemoteDesktop grant: keyboard and pointer too), and keeps
 /// the restore token it returns: later sessions start from that token with no dialog, so no
-/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant.
+/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant,
+/// and neither does GNOME, which is cast through mutter directly: it asks nothing.
 /// A refusal, a missing portal or no answer `within` only says so: the host still serves, and
 /// its first session asks.
 fn grant_capture_now(control: bool, desktop: &setup::Desktop, within: Option<Duration>) {
@@ -850,6 +893,32 @@ fn deny(id: &str) -> Res<()> {
     pending.remove(id, now)?;
     println!("Denied.");
     Ok(())
+}
+
+/// `remove-device DEVICE`: the hub forgets one of the account's devices, signed by this host.
+fn remove_device(id: &str) -> Res<()> {
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
+    remove_device_on(&hub, id)?;
+    println!("Removed device {id} from the hub.");
+    Ok(())
+}
+
+/// Asks `hub` to remove device `id`: a hub device id (letters, digits and dashes), never this
+/// host's own, which would end its serving (`share off` stops sharing instead).
+fn remove_device_on(hub: &Hub, id: &str) -> Res<()> {
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(format!(
+            "{id:?} is not a device id (the hub's ids are like 281f0b45-b1b9-...)"
+        )
+        .into());
+    }
+    if id.eq_ignore_ascii_case(&hub.device.id) {
+        return Err(format!(
+            "{id} is this host's own device; run `cmux-rd linux-host share off` to stop sharing"
+        )
+        .into());
+    }
+    hub.call("DELETE", &format!("/v1/devices/{id}"), None).map(|_| ())
 }
 
 fn status() -> Res<()> {
@@ -1179,11 +1248,24 @@ enum OnTicket {
     Drop(String),
 }
 
-/// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
+/// The hub says both devices are signed in to one account (`ownerKind: "user"`, which the hub
+/// writes from its own authenticated record, never from the viewer): the person reaching their
+/// own desktop. A missing field (an older hub) or any other owner is not shown to be own.
+fn own_account(push: &Value) -> bool {
+    push.get("ownerKind").and_then(Value::as_str) == Some("user")
+}
+
+/// The answer to a host ticket `push`; `admit` maps a scope to `Some(view_only)` or None
 /// when this desktop does not allow it. A ticket that does not parse is ended too, as the
 /// Mac host does: the hub approved the session, and only `/end` closes it.
-fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
-    let ticket = match Ticket::from_push(push) {
+///
+/// The person's own device (``own_account``) is never refused a screen this desktop shares
+/// (Leo, 2026-11-17, ask-834a26b463: "if i've connected, i need to share the screen"): a
+/// control ticket on a desktop enabled `--view-only` is served view only, as a `view` session,
+/// instead of ended. This desktop's `--view-only` still keeps control off. A refusal ends the
+/// session `consent_required`, as the Mac hosts do, so the viewer reads why.
+fn on_ticket(push: &Value, admit: impl Fn(&str) -> Option<bool>) -> OnTicket {
+    let mut ticket = match Ticket::from_push(push) {
         Ok(t) => t,
         Err(e) => {
             return match push["sessionId"].as_str().filter(|id| !id.is_empty()) {
@@ -1192,14 +1274,19 @@ fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket
             }
         }
     };
-    match admit(&ticket.scope) {
-        Some(view_only) => OnTicket::Serve(ticket, view_only),
-        None => OnTicket::End(
-            ticket.session_id,
-            "failed",
-            format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
-        ),
+    if let Some(view_only) = admit(&ticket.scope) {
+        return OnTicket::Serve(ticket, view_only);
     }
+    if own_account(push) && ticket.scope == "full" && admit("view").is_some() {
+        // Served and watched as the view session it is (`withdraw_unconsented` reads this scope).
+        ticket.scope = "view".to_owned();
+        return OnTicket::Serve(ticket, true);
+    }
+    OnTicket::End(
+        ticket.session_id,
+        "consent_required",
+        format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
+    )
 }
 
 fn handle_push(
@@ -1323,6 +1410,45 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 mod tests {
     use super::*;
     use cmux_hub_host::b64;
+
+    /// `remove-device` sends one signed `DELETE /v1/devices/ID` for another device, and
+    /// refuses this host's own id and anything that is not an id, sending nothing for them.
+    #[test]
+    fn remove_device_deletes_another_device_only() {
+        let (origin, seen) = stack_login::tests::stub(|_, request| match request.path.as_str() {
+            "/v1/auth/device/anchor" => {
+                (200, serde_json::json!({ "anchoredUntil": now_ms() + 1_000 }))
+            }
+            "/v1/auth/device" => {
+                (200, serde_json::json!({ "session": "a", "expiresAt": now_ms() + 3_600_000 }))
+            }
+            _ => (200, serde_json::json!({})),
+        });
+        let device = Device::generate("host").unwrap();
+        let own = device.id.clone();
+        let hub = Hub::new(&origin, device, Some("p:a".into())).unwrap();
+        let old = "19e85a2b-50c2-4a2a-ae16-f02a5b14a8e9";
+        let deletes = || {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .filter(|s| s.method == "DELETE")
+                .map(|s| s.path.clone())
+                .collect::<Vec<_>>()
+        };
+        for bad in [own.as_str(), &own.to_uppercase(), "", "../relays/x", "a/b", "a b"] {
+            assert!(remove_device_on(&hub, bad).is_err(), "{bad:?}");
+        }
+        assert!(deletes().is_empty());
+        remove_device_on(&hub, old).unwrap();
+        assert_eq!(deletes(), vec![format!("/v1/devices/{old}")]);
+        let signed =
+            seen.lock().unwrap().iter().any(|s| {
+                s.method == "DELETE" && s.headers.iter().any(|(k, _)| k == "authorization")
+            });
+        assert!(signed, "the remove carries the host's hub session");
+        assert_eq!(run_cli(&["remove-device".into()]), 2);
+    }
 
     #[test]
     fn args_take_positionals_flags_and_values() {
@@ -1864,7 +1990,7 @@ mod tests {
         assert!(matches!(on_ticket(&ticket_push("s1"), |_| Some(true)), OnTicket::Serve(_, true)));
         assert!(matches!(
             on_ticket(&ticket_push("s1"), |_| None),
-            OnTicket::End(id, "failed", _) if id == "s1"
+            OnTicket::End(id, "consent_required", _) if id == "s1"
         ));
         // A ticket that does not agree with its JWS is ended too, as the Mac host does: the
         // approved session would otherwise stay open on the hub.
@@ -1883,6 +2009,46 @@ mod tests {
         assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
     }
 
+    /// The person's own device (`ownerKind: "user"`) gets the screen on a desktop enabled
+    /// `--view-only`: its control ticket serves view only, watched as a `view` session, where
+    /// another device's is ended `consent_required`. Nothing serves what the desktop refuses.
+    #[test]
+    fn an_own_device_control_ticket_serves_view_only_on_a_view_only_desktop() {
+        let view_only = LocalConsent { view: true, full: false };
+        let admit = |scope: &str| view_only.serve(scope, true);
+        let mut own = ticket_push("s1");
+        own["ownerKind"] = "user".into();
+        match on_ticket(&own, admit) {
+            OnTicket::Serve(ticket, true) => {
+                assert_eq!(ticket.scope, "view");
+                let current: Current = Arc::new(Mutex::new(Some(Served {
+                    id: ticket.session_id,
+                    scope: ticket.scope,
+                    stop: Arc::new(AtomicBool::new(false)),
+                })));
+                // The view-only consent it was served under does not withdraw it a second later.
+                assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
+            }
+            other => panic!("own device not served view only: {other:?}"),
+        }
+        for kind in [Value::Null, "team".into(), "shared".into()] {
+            let mut push = ticket_push("s1");
+            push["ownerKind"] = kind;
+            assert!(matches!(
+                on_ticket(&push, admit),
+                OnTicket::End(id, "consent_required", _) if id == "s1"
+            ));
+        }
+        // A desktop that allows control serves it as asked; one whose consent is unreadable
+        // (`admit` None for every scope) serves nothing, own device or not.
+        let both = LocalConsent { view: true, full: true };
+        assert!(matches!(
+            on_ticket(&own, |s| both.serve(s, true)),
+            OnTicket::Serve(t, false) if t.scope == "full"
+        ));
+        assert!(matches!(on_ticket(&own, |_| None), OnTicket::End(_, "consent_required", _)));
+    }
+
     #[test]
     fn approve_and_status_read_the_capture_the_host_recorded() {
         let dir = consent_dir("capture");
@@ -1893,6 +2059,23 @@ mod tests {
         identity::write_private(&dir.join("capture"), b"x11").unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// On GNOME the join's grant step asks nothing and says shares need no grant; elsewhere
+    /// the portal grant runs as before.
+    #[test]
+    fn a_gnome_join_asks_nothing_and_says_shares_need_no_grant() {
+        use crate::capture_backend::WaylandCapture;
+        assert_eq!(mutter_line(WaylandCapture::Portal, true, true), None);
+        let line = mutter_line(WaylandCapture::Mutter, true, true).unwrap();
+        assert!(line.starts_with(MUTTER_LINE_START));
+        assert!(line.contains("view and control"));
+        assert!(line.contains("needs no approval") && line.contains("no dialog appears"));
+        assert!(!line.contains("mutter"));
+        let view = mutter_line(WaylandCapture::Mutter, false, true).unwrap();
+        assert!(view.contains("view only") && !view.contains("mutter"));
+        let plain = mutter_line(WaylandCapture::Mutter, false, false).unwrap();
+        assert!(plain.starts_with(&format!("{MUTTER_LINE_START}:")));
     }
 }
 

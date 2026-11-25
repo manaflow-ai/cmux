@@ -32,6 +32,10 @@ nonisolated enum PageStrings {
     static var serverCredentialDetail: String {
         t("pages.confirm.apps.serverCredentialDetail", "A program you start with it answers this app’s commands on this Mac. It is shown once, and it replaces the last one.")
     }
+    /// An app installed from a git repository: where it comes from (`%1$@`, `github.com/o/r`) and the short commit (`%2$@`).
+    static var appSource: String { t("pages.confirm.apps.source", "From %1$@ at %2$@.") }
+    static var appNotReviewed: String { t("pages.confirm.apps.notReviewed", "Not reviewed by cmux.") }
+    static var appVerifiedSource: String { t("pages.confirm.apps.verifiedSource", "Verified source.") }
 
     static var cloudPublish: String { t("pages.confirm.cloud.publish", "Publish “%@” to the internet?") }
     static var cloudFirewall: String { t("pages.confirm.cloud.firewall", "Change the firewall of “%@”?") }

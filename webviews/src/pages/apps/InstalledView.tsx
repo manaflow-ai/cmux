@@ -6,6 +6,7 @@ import { isRemovable } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 import { UpdatesView } from "./UpdatesView";
+import { UseAsNewTab } from "./UseAsNewTab";
 
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t, format } = strings;
@@ -55,6 +56,7 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                     label={t("store.action.enabled")}
                     onChange={(on) => void store.setEnabled(app.id, on)}
                   />
+                  <UseAsNewTab app={app} strings={strings} />
                   {app.update && (
                     <button type="button" className="apps-button primary" onClick={() => void store.update(app.id)}>
                       {t("store.action.update")}
