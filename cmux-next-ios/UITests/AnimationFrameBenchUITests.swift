@@ -30,11 +30,13 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let oneLine = field.frame.height
         // Shift-Return is the composer's New Line key command; it needs no software key on screen
         // (a keyboard key can sit outside the hit test, and its frame tap inserted nothing).
-        window("composer-grow", in: app) { app.typeKey(XCUIKeyboardKey.return, modifierFlags: .shift) }
-        let deadline = Date().addingTimeInterval(5)
-        while field.frame.height <= oneLine + 1, Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        window("composer-grow", in: app) {
+            app.typeKey(XCUIKeyboardKey.return, modifierFlags: .shift)
+            // Without a hardware keyboard the key command can miss; the software Return is
+            // the chat composer's newline, so the window still holds one line's growth.
+            if !waitFor(timeout: 1.5, { field.frame.height > oneLine + 1 }) { app.typeText("\n") }
         }
+        if !waitFor(timeout: 5, { field.frame.height > oneLine + 1 }) { attachState(app, "composer-grow") }
         XCTAssertGreaterThan(field.frame.height, oneLine + 1, "inserting a newline grew the composer")
 
         // The short drag from ComposerGrowKeepsTranscriptUITests leaves the
@@ -144,7 +146,8 @@ final class AnimationFrameBenchUITests: XCTestCase {
         XCTAssertTrue(closeGrid.waitForExistence(timeout: 10))
         closeGrid.tap()
         // A loaded simulator (cpu 447%) took past 15 s to bring the page back.
-        XCTAssertTrue(tabs.waitForExistence(timeout: 40), "the selected page returned after the grid closed")
+        if !tabs.waitForExistence(timeout: 40) { attachState(app, "grid-close") }
+        XCTAssertTrue(tabs.exists, "the selected page returned after the grid closed")
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.45))
         let far = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.45))
         window("workspace-exit", in: app) {
@@ -152,6 +155,26 @@ final class AnimationFrameBenchUITests: XCTestCase {
         }
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         XCTAssertTrue(row.isHittable, "the workspace list is interactive again")
+    }
+
+    @MainActor
+    private func waitFor(timeout: TimeInterval, _ done: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !done(), Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        return done()
+    }
+
+    /// A failed step keeps a screenshot and the element tree, so the next run names what moved.
+    @MainActor
+    private func attachState(_ app: XCUIApplication, _ step: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "animation-frame-failure-\(step)"
+        shot.lifetime = .keepAlways
+        add(shot)
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "animation-frame-failure-\(step)-tree"
+        tree.lifetime = .keepAlways
+        add(tree)
     }
 
     @MainActor
