@@ -37,7 +37,6 @@ use crate::mesh::{
 };
 use base64::Engine;
 use cmux_deadline::IdleDeadline;
-use cmux_json::JsonSet as _;
 use std::time::Duration;
 
 #[path = "mesh_read_parts.rs"]
@@ -186,7 +185,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage, writes: bool) -> Result<String
     let in_parts = body.get("parts").and_then(Value::as_bool) == Some(true);
     for key in crossing(m) {
         if let Some(value) = asked.and_then(|p| p.get(*key)) {
-            params.set(*key, value.clone());
+            params[*key] = value.clone();
         }
     }
     let mut budget = params
