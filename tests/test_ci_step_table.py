@@ -485,6 +485,59 @@ class StepResultsTest(unittest.TestCase):
         same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
         self.assertTrue(same.write)
 
+    def test_with_an_oidc_request_url_the_store_is_the_public_route_with_a_fresh_token(self) -> None:
+        # The Linux pool is off the tailnet: its jobs reach the controller's public route with an Actions OIDC token.
+        import http.server
+        import threading
+        seen: list[tuple[str, str, str]] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            minted = 0
+
+            def answer(self, code: int, body: bytes) -> None:
+                self.send_response(code)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:
+                auth = self.headers.get("Authorization", "")
+                seen.append((self.command, self.path, auth))
+                if self.path.startswith("/token"):
+                    Handler.minted += 1
+                    ok = auth == "bearer req-secret" and "audience=cmux-ci-step-results" in self.path
+                    return self.answer(200 if ok else 403, json.dumps({"value": f"tok{Handler.minted}"}).encode())
+                if not self.path.startswith("/github/step-results") or not auth.startswith("Bearer tok"):
+                    return self.answer(401, b"token refused")
+                self.answer(404 if self.command == "GET" else 204, b"")
+
+            do_POST = do_GET
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        env = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_NAME": "push",
+               "ACTIONS_ID_TOKEN_REQUEST_URL": f"{base}/token?api-version=2.0",
+               "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "req-secret", "CI_STEP_RESULTS_PUBLIC_URL": base}
+        store = ci_steps.StepResults.from_env(env)
+        self.assertEqual(store.url, f"{base}/github/step-results")
+        self.assertEqual(ci_steps.StepResults.from_env({**env, "CI_STEP_RESULTS_PUBLIC_URL": ""}).url,
+                         "https://gh-events.cmux.com/github/step-results")
+        no_oidc = {k: v for k, v in env.items() if not k.startswith("ACTIONS_ID_TOKEN")}
+        self.assertEqual(ci_steps.StepResults.from_env(no_oidc).url, ci_steps.CONTROLLER + "/v1/ci/step-results")
+        self.assertIsNone(store.lookup("0" * 64, "a"))
+        store.post("0" * 64, "a", "pass", 1.0)
+        server.shutdown()
+        server.server_close()
+        self.assertEqual(store.error, "", seen)
+        self.assertEqual([(m, a) for m, p, a in seen if p.startswith("/github")],
+                         [("GET", "Bearer tok1"), ("POST", "Bearer tok2")], "one fresh token per call")
+        code, out, _ran = self.run_job(store)
+        self.assertNotIn("req-secret", out)
+        self.assertNotIn("tok", out.replace("token", ""), "the token never reaches the log")
+
     def test_an_unreachable_controller_is_a_miss(self) -> None:
         s = ci_steps.StepResults("http://127.0.0.1:9", True, {}, timeout=1)
         self.assertIsNone(s.lookup("0" * 64, "a"))
@@ -708,7 +761,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(set(wf.get("on", wf.get(True))), {"workflow_call"})
         self.assertEqual(wf["permissions"], {})
         job = wf["jobs"]["linux"]
-        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"},
+                         "id-token mints the step-result store's OIDC token, nothing else")
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
