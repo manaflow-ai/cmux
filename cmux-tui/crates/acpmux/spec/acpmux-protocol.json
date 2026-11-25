@@ -2517,6 +2517,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/key.check",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
