@@ -6,6 +6,10 @@
 // An agent that cannot steer queues on every key either way, and queueing off (queueing.ts) steers
 // on every key either way. The composer only picks the steer flag of the send; acpmux then steers a
 // prompt marked steer into the running turn and queues any other behind it.
+//
+// A steer goes sent now (direct.ts, `_meta.acpmux.steerNow`): acpmux stops only the agent's current
+// step, so it reads the message at once and the turn runs on, as a waiting steer's Send now does. No
+// Send now waits under it (https://github.com/manaflow-ai/cmux/issues/56544: "why doesn't it just automatically send when i press enter").
 export type FollowUpMode = "steer" | "queue";
 
 /// The host's value; anything else is the default, "steer".

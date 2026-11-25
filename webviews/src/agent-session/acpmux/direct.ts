@@ -10,6 +10,7 @@ import {
 import { pageAttention } from "./attention";
 import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
+import { markSentNow } from "./conversation/pendingSteerModel";
 import { stuckAttention } from "./loopEpisode";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import type { RaceRecord, RaceStart } from "./races/model";
@@ -12771,6 +12772,9 @@ export class AcpmuxDirectClient {
       ...(this.summary?.host ? { connection: String(this.summary.host) } : {}),
     };
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    // A steer goes sent now (`steerNow`, below): its bubble never offers Send now, and it covers the
+    // person's earlier steers still waiting, which the agent reads with it (PendingSteer.tsx).
+    if (steer) markSentNow(promptId);
     // On disk before it goes: a relaunch while it is on its way draws it again as not sent.
     this.keepUnsent(sessionId, { promptId, input, attachments, at });
     if (waits) {
@@ -12953,7 +12957,9 @@ export class AcpmuxDirectClient {
               _meta: {
                 acpmux: {
                   promptId,
-                  ...(steer ? { steer: true } : {}),
+                  // The person's steer is read now (Send now's `steerNow`): it stops only the agent's
+                  // current step, so the agent reads it at once and the turn runs on (https://github.com/manaflow-ai/cmux/issues/56544).
+                  ...(steer ? { steer: true, steerNow: true } : {}),
                   ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
                   ...(context ? { context } : {}),
                   ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
