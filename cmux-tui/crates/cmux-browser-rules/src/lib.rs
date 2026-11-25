@@ -15,12 +15,17 @@
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
 //! - [`tab_state`]: the tab state machine, the reducer from an engine's navigation events to
 //!   the state the chrome renders (`BrowserTabStateMachine`).
+//! - [`profiles`]: browser profiles: which profile a new tab gets (`BrowserProfileCascade`), the
+//!   profile ids, records and book (naming, ordering, validation, deletion tombstones), a
+//!   profile's proxy as the engines take it, the deleted profiles' cleanup and the off-the-record
+//!   profiles' lifetime (`OffTheRecordProfiles`).
 
 pub mod address;
 pub mod calculator;
 pub mod links;
 pub mod ops;
 pub mod tab_state;
+pub mod profiles;
 
 #[cfg(test)]
 mod address_tests;
@@ -30,3 +35,5 @@ mod calculator_tests;
 mod links_tests;
 #[cfg(test)]
 mod tab_state_tests;
+#[cfg(test)]
+mod profiles_tests;
