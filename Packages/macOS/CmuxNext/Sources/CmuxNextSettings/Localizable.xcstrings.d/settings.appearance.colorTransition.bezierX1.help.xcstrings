@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.colorTransition.bezierX1.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "نقطة تحكم في المنحنى المخصص (بيزييه)، كما في cubic-bezier()‎ في CSS."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontrolna tačka prilagođene (Bezier) krive, kao u CSS cubic-bezier()."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et kontrolpunkt i den tilpassede (Bezier) kurve, som i CSS cubic-bezier()."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Kontrollpunkt der eigenen (Bezier-)Kurve, wie in CSS cubic-bezier()."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un punto de control de la curva personalizada (Bezier), como en CSS cubic-bezier()."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un point de contrôle de la courbe personnalisée (Bézier), comme dans CSS cubic-bezier()."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un punto di controllo della curva personalizzata (Bezier), come in CSS cubic-bezier()."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カスタム（ベジェ）カーブの制御点。CSS の cubic-bezier() と同じです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចំណុចបញ្ជាមួយនៃខ្សែកោងផ្ទាល់ខ្លួន (Bezier) ដូចក្នុង CSS cubic-bezier()។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사용자 지정(베지어) 곡선의 제어점으로, CSS cubic-bezier()와 같습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et kontrollpunkt i den egendefinerte (Bezier) kurven, som i CSS cubic-bezier()."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Punkt kontrolny własnej krzywej (Bézier), jak w CSS cubic-bezier()."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um ponto de controle da curva personalizada (Bezier), como em CSS cubic-bezier()."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Контрольная точка своей кривой (Безье), как в CSS cubic-bezier()."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "จุดควบคุมของเส้นโค้งกำหนดเอง (Bezier) เหมือนใน CSS cubic-bezier()"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Özel (Bezier) eğrinin bir kontrol noktası; CSS cubic-bezier() gibi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Контрольна точка власної кривої (Безьє), як у CSS cubic-bezier()."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một điểm điều khiển của đường cong Tùy chỉnh (Bezier), như trong CSS cubic-bezier()."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义（贝塞尔）曲线的控制点，与 CSS cubic-bezier() 相同。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自訂（貝茲）曲線的控制點，與 CSS cubic-bezier() 相同。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
