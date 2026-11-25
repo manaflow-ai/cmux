@@ -1307,9 +1307,9 @@ button.acpmux-attachment-pasted-open:hover {
    do we have a solid color thing anyway? Shouldn't it also be glass?"). No drop shadow: it sits in
    the composer's glass, not over the page. */
 :is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading {
+  /* The element carries ui-glass (PASTE_LOADING_CLASS), which paints the frost; the chip's own
+     background and rim keep winning over the chip's class here. */
   background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow);
   color: var(--agent-muted);
   opacity: 0.85;
