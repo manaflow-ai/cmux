@@ -33,31 +33,6 @@
       "fix": "cmux#54993"
     },
     {
-      "id": "chat.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "status.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "browser.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "simulator.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
-      "id": "agentChats.connection.chip",
-      "item": "item 3 (conn-chip-ios-surfaces)",
-      "fix": "cmux#54994"
-    },
-    {
       "id": "feed.connecting",
       "item": "item 3 (conn-chip-ios-surfaces)",
       "fix": "cmux#54994"
@@ -99,14 +74,6 @@
     }
   ],
   "placeholders": [
-    {
-      "id": "agentChats.connection.chip",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift",
-      "line": 332,
-      "bound_ms": 0,
-      "waits_for": "the agent chats list's link held stale or reconnecting",
-      "root_fix": "3"
-    },
     {
       "id": "agentChats.loading",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/AgentChatsScreen.swift",
