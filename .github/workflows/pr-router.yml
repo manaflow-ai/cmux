@@ -174,3 +174,5 @@ jobs:
       contents: read
       # The ios job's picker reads the queue and its runs (scripts/ci/ios_runner_pool.py).
       actions: read
+      # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
+      id-token: write

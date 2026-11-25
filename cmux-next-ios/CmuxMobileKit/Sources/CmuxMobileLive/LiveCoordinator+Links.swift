@@ -143,8 +143,12 @@ extension LiveCoordinator {
     }
 
     private func observe(_ session: MacSession) {
-        let (seen, seenMedia) = withObservationTracking {
-            (session.link.phase, session.link.media)
+        // What a change is compared against, read in the same main-actor turn as the tracking
+        // below (so the same values): onChange cannot use the tracking's own result, which is
+        // still being declared when the closure is written.
+        let seen = session.link.phase, seenMedia = session.link.media
+        withObservationTracking {
+            _ = (session.link.phase, session.link.media)
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self, weak session] in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
@@ -191,6 +195,8 @@ extension LiveCoordinator {
         #endif
         session.acpmux.macLink = nil
         session.currentLink = link
+        // A link up is progress for every wait on this Mac (a reply waiting for it, held keys).
+        if link != nil { session.progress.progressed() }
         session.servedLink = nil
         session.pairingGate = nil
         // A new link pairs from the start: the old link's retry ends, the backoff starts over.
@@ -268,6 +274,7 @@ extension LiveCoordinator {
         }
         session.servedLink = link
         session.acpmux.macLink = link
+        session.progress.progressed()
         bindWorkspaces(session, link, prepared: daemon)
         Task { [weak self] in await self?.checkVersion(session, link) }
         let passed = startPairing(session, link, auth: auth)
@@ -292,6 +299,7 @@ extension LiveCoordinator {
             return
         }
         guard session.currentLink === link, sessions[macID] === session else { return }
+        session.progress.progressed()  // paired: the link moved a step
         for relay in session.cloudChats.values { relay.bind(link) }
         #if DEBUG
         UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
@@ -655,6 +663,8 @@ extension LiveCoordinator {
         }
         // Its channel died or went silent: the link is checked at once too.
         terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
+        // Held keys wait on the Mac link's progress, not a fixed 10 s (``DaemonTerminalSession/inputHoldLimit``).
+        terminal.linkProgress = owner.progress
         owner.terminals.removeAll { $0.session == nil }
         owner.terminals.append(MacSession.WeakTerminal(session: terminal))
         // The tab dials its Mac now (a closed link opens, a cached "offline" is tried),

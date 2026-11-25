@@ -89,6 +89,10 @@ public final class CloudPlaceFlows {
     @ObservationIgnored public private(set) var autoMoved: Set<String> = []
     /// Sessions Evacuate moved to Cloud and not back yet (Bring Back All's list with ``autoMoved``), kept across launches.
     @ObservationIgnored public private(set) var evacuated: Set<String> = []
+    /// The Cloud machine each chat ran on before a Bring Back to this Mac ended its move-ledger entry, kept across launches:
+    /// the next move to Cloud offers it to Rust's own-machine rule (`before`), so a Hybrid round trip resumes that machine
+    /// instead of making another. One entry per chat brought back, dropped once a move to Cloud records it in the ledger again.
+    @ObservationIgnored public private(set) var lastMachines: [String: String] = [:]
     /// The running (or last) Evacuate or Bring Back All; each change of it re-sends the header.
     public internal(set) var evacuation: Evacuation?
     /// Each running move's trigger and direction, to record who moved it once it landed.
@@ -110,6 +114,7 @@ public final class CloudPlaceFlows {
         if let kept = defaults.stringArray(forKey: key + ".autoMoved") { autoMoved = Set(kept) }
         if let kept = defaults.stringArray(forKey: key + ".evacuated") { evacuated = Set(kept) }
         if let data = defaults.data(forKey: key), let kept = try? JSONDecoder().decode([String: String].self, from: data) { modes = kept }
+        if let data = defaults.data(forKey: key + ".lastMachine"), let kept = try? JSONDecoder().decode([String: String].self, from: data) { lastMachines = kept }
     }
 
     /// This computer's own name, as the move names the place it leaves or reaches.
@@ -127,6 +132,28 @@ public final class CloudPlaceFlows {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
         modes[session] = mode
         if let data = try? JSONEncoder().encode(modes) { defaults.set(data, forKey: modesKey) }
+    }
+
+    // MARK: The machine a chat ran on
+
+    /// A Bring Back of `session` (its id on this Mac) committed off `machineID`: kept for the chat's next move to Cloud.
+    public func rememberMachine(_ machineID: String, for session: String) {
+        guard lastMachines[session] != machineID else { return }
+        lastMachines[session] = machineID
+        saveLastMachines()
+    }
+
+    /// The machine `session` ran on before it was brought back, when it was.
+    public func lastMachine(of session: String) -> String? { lastMachines[session] }
+
+    /// The move ledger names the chat's machine again (a move to Cloud committed): this one is no longer needed.
+    public func forgetMachine(of session: String) {
+        guard lastMachines.removeValue(forKey: session) != nil else { return }
+        saveLastMachines()
+    }
+
+    private func saveLastMachines() {
+        if let data = try? JSONEncoder().encode(lastMachines) { defaults.set(data, forKey: modesKey + ".lastMachine") }
     }
 
     // MARK: Reporting a move
