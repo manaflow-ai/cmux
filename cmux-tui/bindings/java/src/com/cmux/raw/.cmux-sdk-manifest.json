@@ -772,8 +772,8 @@
     },
     {
       "path": "ColumnPin.java",
-      "sha256": "64c61fb8644611722b50ec633504e71012125da37d5df582ebf34fcb6d488254",
-      "size": 3637
+      "sha256": "0f51dd9469d96aafbee6b410b85f75254beb13eda57444816a2073c278f92a55",
+      "size": 3014
     },
     {
       "path": "ColumnSide.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6437cf60cb335ba2417898dedc885e835d9b3b1a4485b34362a92574f48e787e",
-      "size": 87326
+      "sha256": "18c4838c494139d1cbccca1f4dc108fd9186341294d1f455461716d1ce508cd5",
+      "size": 87497
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1242,8 +1242,8 @@
     },
     {
       "path": "CreateWorkspaceRequest.java",
-      "sha256": "85604c98b5130ea461d49753d2169a096a7cdfaa9a641faf77e2ad10f31e81e6",
-      "size": 6693
+      "sha256": "1009ee55b99e76ff412c85739bab7ea5b4f4052a05ef738788588bfc25283f9b",
+      "size": 7634
     },
     {
       "path": "CursorStyle.java",
@@ -1441,6 +1441,16 @@
       "size": 5380
     },
     {
+      "path": "FlushLaunchSnapshotRequest.java",
+      "sha256": "0dd827879eaef58ae2f6305ef4bec994fcc2a175bff05ee6bc3f50a7df5bdc5f",
+      "size": 1423
+    },
+    {
+      "path": "FlushLaunchSnapshotResult.java",
+      "sha256": "f8981959af3f00456708cdcaac6c853c18f447ba87f45036cab58cce6eb970cd",
+      "size": 2004
+    },
+    {
       "path": "FocusDirectionRequest.java",
       "sha256": "65fb72361d8f01181619b85b9b35ea93e4655e773515e7cb704ca8fe8280c514",
       "size": 2577
@@ -1502,8 +1512,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "6b8d2a194c992b21af5c2daea7b09ca4153e68dcfb93e4a2a2a5796ddb834944",
-      "size": 74521
+      "sha256": "f575c3f5fc804a1b1fca16246d757d1012211819ef4bb859e3f0c95c39d37784",
+      "size": 74750
     },
     {
       "path": "GetBlobRequest.java",
@@ -2057,13 +2067,13 @@
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "36c692853ec43732b6b176d274517240b774de39a11cbf806f3216431566633a",
-      "size": 12594
+      "sha256": "e79a7fed3d1529b122f062e29cca0c0ae9ea25f909473af127eb80c26f11e10c",
+      "size": 11125
     },
     {
       "path": "NewConversationTabResult.java",
-      "sha256": "86d676ac99debd7b6110ff73e7490feb2ad5a31ec5e89c48bb8d24e09325dd7e",
-      "size": 6840
+      "sha256": "12c917523d22eeaa139cd3dca95b06ff5efe21735a0959c3a5b83a1077c60b2c",
+      "size": 6124
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
@@ -2287,7 +2297,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "bc9ceebcf44716a870e9cae8bc7c969926cfce6972f0e567af12bcb31fedf804",
+      "sha256": "8571e9789d80e57bc6e063d4f4c82c4fb6b2c43ce705f82f8cbfe22be0e69d6a",
       "size": 8511
     },
     {
@@ -3847,7 +3857,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a",
+  "ir_sha256": "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a. */
+/* cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a" as const;
+export const SDK_IR_SHA256 = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1521,6 +1521,17 @@ export const COMMAND_METADATA = {
       "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
     ]
   },
+  "flush-launch-snapshot": {
+    "authority": "control",
+    "since": 12,
+    "capability": "launch-snapshot-flush-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Writes the launch snapshot (launch-snapshot-v1) now, with no settle, max delay or byte-budget wait, and answers once it landed or after 1 s: flushed is true when the file holds the session's state as of the request (written now, or already the same), false when the session has no launch snapshot writer, the write failed or the wait passed (the write still happens).",
+      "The daemon writes the same way on its own when a connection that wrote a native frontend projection closes (a quit, force quit, crash or kill of the app); a client sends this when it wants the answer. Other changes keep the settled timing."
+    ]
+  },
   "focus-direction": {
     "authority": "control",
     "since": 6,
@@ -2149,10 +2160,6 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "agent-session-tabs-v1"
       },
-      "dock": {
-        "since": null,
-        "capability": "conversation-tab-dock-v1"
-      },
       "page": {
         "since": null,
         "capability": "page-tabs-v1"
@@ -2172,10 +2179,6 @@ export const COMMAND_METADATA = {
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
-      },
-      "width": {
-        "since": null,
-        "capability": "conversation-tab-dock-v1"
       }
     },
     "stream": null,
@@ -6139,17 +6142,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
-        }
-      },
-      "pinned": {
-        "capability": "pinned-dock-v1",
-        "default": null,
-        "nullable": true,
-        "presence": "optional",
-        "since": 12,
-        "type": {
-          "kind": "scalar",
-          "name": "boolean"
         }
       },
       "role": {
@@ -22390,6 +22382,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "name_source": {
+          "default": null,
+          "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "NameSource"
+          }
+        },
         "origin": {
           "default": null,
           "nullable": true,
@@ -23081,6 +23083,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "flush-launch-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "flushed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "focus-direction": {
@@ -25355,17 +25378,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
-        "dock": {
-          "capability": "conversation-tab-dock-v1",
-          "default": null,
-          "description": "The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.",
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "ref",
-            "name": "ColumnPin"
-          }
-        },
         "mutation_id": {
           "default": null,
           "nullable": true,
@@ -25464,17 +25476,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
-        "width": {
-          "capability": "conversation-tab-dock-v1",
-          "default": null,
-          "description": "With dock: the new column's viewport fraction.",
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "scalar",
-            "name": "float32"
-          }
-        },
         "workspace": {
           "default": null,
           "nullable": true,
@@ -25504,15 +25505,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "ConversationTabRecord"
-          }
-        },
-        "docked": {
-          "description": "With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column).",
-          "nullable": false,
-          "presence": "optional",
-          "type": {
-            "kind": "scalar",
-            "name": "boolean"
           }
         },
         "replayed": {

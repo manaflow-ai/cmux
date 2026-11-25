@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a.
+// cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1695,6 +1695,9 @@ pub struct CreateWorkspaceRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
+    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name_source: Optional<T::NameSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
 }
@@ -1936,6 +1939,17 @@ pub struct FloatPaneRequest {
 
 #[rustfmt::skip]
 pub type FloatPaneResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FlushLaunchSnapshotRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlushLaunchSnapshotResult {
+    pub flushed: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2661,9 +2675,6 @@ pub struct NewConversationTabRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub conversation: Optional<String>,
-    /// The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub dock: Optional<T::ColumnPin>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2687,9 +2698,6 @@ pub struct NewConversationTabRequest {
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
-    /// With dock: the new column's viewport fraction.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub width: Optional<f32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -2699,9 +2707,6 @@ pub struct NewConversationTabRequest {
 pub struct NewConversationTabResult {
     pub content_resource_id: Nullable<String>,
     pub conversation: T::ConversationTabRecord,
-    /// With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column).
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub docked: Option<bool>,
     pub replayed: bool,
     pub surface: T::Id,
     pub tab_resource_id: Nullable<String>,
@@ -5213,6 +5218,10 @@ impl CmuxClient {
         self.execute(&FLOAT_PANE_METADATA, &request)
     }
 
+    pub fn flush_launch_snapshot(&mut self, request: FlushLaunchSnapshotRequest) -> Result<FlushLaunchSnapshotResult> {
+        self.execute(&FLUSH_LAUNCH_SNAPSHOT_METADATA, &request)
+    }
+
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {
         self.execute(&FOCUS_DIRECTION_METADATA, &request)
     }
@@ -5510,9 +5519,6 @@ impl CmuxClient {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
         }
-        if !request.dock.is_missing() {
-            self.require_capability_field("new-conversation-tab", "conversation-tab-dock-v1")?;
-        }
         if !request.page.is_missing() {
             self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
         }
@@ -5527,9 +5533,6 @@ impl CmuxClient {
         }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
-        }
-        if !request.width.is_missing() {
-            self.require_capability_field("new-conversation-tab", "conversation-tab-dock-v1")?;
         }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }

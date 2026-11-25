@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a";
+pub const ir_sha256 = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -502,7 +502,6 @@ pub const ColumnMoveDirection = enum {
 pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
-    pinned: wire.Field(bool) = .absent,
     role: wire.Field([]const u8) = .absent,
 };
 
@@ -6327,6 +6326,8 @@ pub const CreateWorkspaceRequest = struct {
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
+    name_source: wire.Field(NameSource) = .absent,
     origin: wire.Field([]const u8) = .absent,
 };
 
@@ -6761,6 +6762,25 @@ pub fn floatPane(client: anytype, request: FloatPaneRequest) !wire.Decoded(Float
             .authority = "control",
             .since = 12,
             .capability = "floating-panes-v1",
+        },
+        request,
+    );
+}
+
+pub const FlushLaunchSnapshotRequest = struct {};
+
+pub const FlushLaunchSnapshotResult = struct {
+    flushed: bool,
+};
+
+pub fn flushLaunchSnapshot(client: anytype, request: FlushLaunchSnapshotRequest) !wire.Decoded(FlushLaunchSnapshotResult) {
+    return client.callTyped(
+        FlushLaunchSnapshotResult,
+        .{
+            .name = "flush-launch-snapshot",
+            .authority = "control",
+            .since = 12,
+            .capability = "launch-snapshot-flush-v1",
         },
         request,
     );
@@ -8025,8 +8045,6 @@ pub const NewConversationTabRequest = struct {
     agent_session: wire.Field(AgentSessionSource) = .absent,
     cols: wire.Field(u16) = .absent,
     conversation: wire.Field([]const u8) = .absent,
-    /// The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is.
-    dock: wire.Field(ColumnPin) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
@@ -8040,16 +8058,12 @@ pub const NewConversationTabRequest = struct {
     split: wire.Field(ConversationTabSplit) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     transaction: wire.Field([]const u8) = .absent,
-    /// With dock: the new column's viewport fraction.
-    width: wire.Field(f32) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
 pub const NewConversationTabResult = struct {
     content_resource_id: wire.Nullable([]const u8),
     conversation: ConversationTabRecord,
-    /// With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column).
-    docked: ?bool = null,
     replayed: bool,
     surface: Id,
     tab_resource_id: wire.Nullable([]const u8),
@@ -8057,7 +8071,6 @@ pub const NewConversationTabResult = struct {
     transaction: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
-        "docked",
         "transaction",
     };
 };
@@ -8072,13 +8085,11 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .capability = "conversation-tabs-v1",
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
-                .{ .name = "dock", .since = null, .capability = "conversation-tab-dock-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
                 .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
                 .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
                 .{ .name = "split", .since = null, .capability = "conversation-tab-split-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
-                .{ .name = "width", .since = null, .capability = "conversation-tab-dock-v1" },
             },
         },
         request,
@@ -13014,7 +13025,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 313;
+pub const command_count: usize = 314;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13138,6 +13149,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "float-pane", .authority = "control", .since = 12, .capability = "floating-panes-v1", .stream = null },
+    .{ .name = "flush-launch-snapshot", .authority = "control", .since = 12, .capability = "launch-snapshot-flush-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

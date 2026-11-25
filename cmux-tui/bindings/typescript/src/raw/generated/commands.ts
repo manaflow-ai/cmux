@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a. */
+/* cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315. */
 
 
 import type * as T from "./types.js";
@@ -1168,6 +1168,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
+  /** user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace. */
+  "name_source"?: (T.NameSource) | null;
   "origin"?: (string) | null;
 }
 export type CreateWorkspaceResult = T.WorkspaceMutationResult;
@@ -1340,6 +1342,14 @@ export interface FloatPaneRequest extends CmuxRequestBase {
   "y"?: (number) | null;
 }
 export type FloatPaneResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface FlushLaunchSnapshotRequest extends CmuxRequestBase {
+  cmd: "flush-launch-snapshot";
+}
+export type FlushLaunchSnapshotResult = {
+  "flushed": boolean;
+};
 
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
@@ -1849,8 +1859,6 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "agent_session"?: (T.AgentSessionSource) | null;
   "cols"?: (number) | null;
   "conversation"?: (string) | null;
-  /** The new tab moves into a new column pinned at dock (as move-tab-to-column with dock) before the reply, so the tab first shows docked. Refused with split or place; a replay leaves the tab where it is. */
-  "dock"?: (T.ColumnPin) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
   "owner"?: (string) | null;
@@ -1864,15 +1872,11 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "split"?: (T.ConversationTabSplit) | null;
   /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */
   "transaction"?: (string) | null;
-  /** With dock: the new column's viewport fraction. */
-  "width"?: (number) | null;
   "workspace"?: (T.Id) | null;
 }
 export type NewConversationTabResult = {
   "content_resource_id": (string) | null;
   "conversation": T.ConversationTabRecord;
-  /** With dock: whether the tab was docked (false: it stays in its pane; move it with move-tab-to-column). */
-  "docked"?: boolean;
   "replayed": boolean;
   "surface": T.Id;
   "tab_resource_id": (string) | null;
@@ -3319,6 +3323,7 @@ export type CmuxRequest =
   | FeedLocalListRequest
   | FeedLocalReadRequest
   | FloatPaneRequest
+  | FlushLaunchSnapshotRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -4487,6 +4492,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "floating-panes-v1";
+    stream: null;
+  };
+  "flush-launch-snapshot": {
+    request: FlushLaunchSnapshotRequest;
+    result: FlushLaunchSnapshotResult;
+    authority: "control";
+    since: 12;
+    capability: "launch-snapshot-flush-v1";
     stream: null;
   };
   "focus-direction": {

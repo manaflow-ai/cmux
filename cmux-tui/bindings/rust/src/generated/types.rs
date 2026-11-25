@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 36563052f7a38469def0dc9d27b2503229edfb33252d0f9c1d686f1a1214570a.
+// cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -453,8 +453,6 @@ pub enum ColumnMoveDirection {
 pub struct ColumnPin {
     pub edge: String,
     pub mode: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pinned: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
 }
