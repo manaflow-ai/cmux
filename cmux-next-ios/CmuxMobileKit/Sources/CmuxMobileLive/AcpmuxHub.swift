@@ -32,17 +32,6 @@ enum ChatPromptClock {
     static func instant(_ milliseconds: UInt64) -> ContinuousClock.Instant {
         origin + .milliseconds(Int64(clamping: milliseconds))
     }
-
-    /// The outbox's hold window before a send goes out (Rust `chat_prompt_default_hold_ms`). A macOS
-    /// build has no CmuxMobileLinkFFI (its target is iOS-only), so it holds the same 30 s the Rust
-    /// default asserts; nothing there reads it but the `didSet`s the FFI gate already skips.
-    static var defaultHoldMs: UInt64 {
-        #if canImport(CmuxMobileLinkFFI)
-        chatPromptDefaultHoldMs()
-        #else
-        30_000
-        #endif
-    }
 }
 
 /// The app's acpmux client for the connected Mac. It outlives links: each
@@ -1104,12 +1093,22 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// write taken) before it comes back to the composer: a stall bound, not a send deadline. The
     /// terminal's key hold (`DaemonTerminalSession.inputHoldLimit`), so a blip is ridden out
     /// the same way in both (Leo, 2026-11-12, on LTE: "thjs chatters too often with connectivity").
-    var heldPromptWindow: Duration = .milliseconds(Int64(clamping: ChatPromptClock.defaultHoldMs)) {
+    var heldPromptWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             promptOutbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(heldPromptWindow))
             #endif
         }
+    }
+    /// The outbox's default quiet window: Rust's `chat_prompt_default_hold_ms` where the FFI links
+    /// (iOS); a build without it (the macOS host build of the package) has no outbox, and takes the
+    /// same 30 s the Rust test pins.
+    static var defaultHeldPromptWindow: Duration {
+        #if canImport(CmuxMobileLinkFFI)
+        .milliseconds(Int64(clamping: chatPromptDefaultHoldMs()))
+        #else
+        .seconds(30)
+        #endif
     }
     /// The clock prompts are aged on (tests inject one).
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
