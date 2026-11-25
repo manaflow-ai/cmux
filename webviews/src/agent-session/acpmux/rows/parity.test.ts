@@ -78,6 +78,11 @@ const VIEW_ONLY: readonly { field: string; row: string; why: string }[] = [
     row: "parity:worked",
     why: "the worked fold carries the store's prompt row identity",
   },
+  {
+    field: "worked.foldCalls",
+    row: "seed-turn:worked",
+    why: "the worked fold's hidden calls carry the same run content as workedRuns, so their timing fields differ alike",
+  },
 ];
 
 /// Fields neither comparison reads, beside NAMED: what each side names a row by, never drawn.
