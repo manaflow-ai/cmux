@@ -55,8 +55,14 @@ extension WindowRootView {
     /// later ones only follow the card, unless the card got wider than the hold (a slide turned around mid-way into a
     /// hide), which widens the hold once. Chromium pages are child windows: they are told the card moved, so their
     /// windows follow it (geometry only, no clip shape changed).
-    func followContentAreaMotion() {
+    ///
+    /// `settled`: called from `layout()` after the window's constraints are solved, where the card's and the sidebar's
+    /// frames agree. Only there does a hold start: a card frame change can come mid-solve, before the card takes the
+    /// width the sidebar's stepped constraint gives it, and a landing read then would miss one step of the slide (a hide
+    /// then widened its hold, and laid the content out again, on every later frame).
+    func followContentAreaMotion(settled: Bool = false) {
         guard sidebar.isWidthAnimating else { return }
+        guard contentHold != nil || settled else { return }
         let card = contentHost.bounds
         if var hold = contentHold {
             if card.width > hold.width + 0.5 || hold.views.contains(where: { $0.view.frame.height != card.height }) {

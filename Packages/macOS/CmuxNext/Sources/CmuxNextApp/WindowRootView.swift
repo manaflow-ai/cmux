@@ -292,6 +292,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         // occluder wait for its end (`windowDidLayout`): both change other
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
+        followContentAreaMotion(settled: true) // the sidebar's slide: the card's content keeps one size (`ContentAreaHold`)
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.

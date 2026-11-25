@@ -45,12 +45,13 @@ extension SidebarContainerView {
         return (shown, leg.reach.from + (leg.reach.to - leg.reach.from) * p)
     }
 
-    /// How much wider the sidebar still gets on the slide under way (negative: narrower), from the width its constraint
-    /// has now; nil with no slide, or while it floats over the content (the content beside it does not move then).
-    /// The window holds its content at the width it lands at (`WindowRootView` content hold).
+    /// How much wider the sidebar still gets on the slide under way (negative: narrower), from its laid-out width (read
+    /// after the window's layout pass, it matches the content's frame beside it; the constraint can be a step ahead);
+    /// nil with no slide, or while it floats over the content (the content beside it does not move then). The window
+    /// holds its content at the width it lands at (`WindowRootView` content hold).
     public var widthStillToGo: Double? {
         guard isWidthAnimating, !isFloatOverlay, let leg = widthLeg else { return nil }
-        return Double(leg.width.to - widthConstraint.constant)
+        return Double(leg.width.to - frame.width)
     }
 
     /// One frame of the slide: both constraints at `progress` of their leg; the window's layout pass resizes the
