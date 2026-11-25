@@ -25,7 +25,13 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
     // AutoResumeNotice's markup: the daemon waits to retry the turn.
     autoResume:
       '<output class="acpmux-switch-notice" data-auto-resume="waiting" data-test-dock-notice="">Retrying in 5s…</output>',
+    // Composer.tsx's remote, sign-in and blocked note: drawn inside the composer form, above its box, not
+    // as one of the stack's own children.
+    remoteNote:
+      '<p class="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert" data-test-dock-notice="">Sign in to Claude on this machine to send.</p>',
   } as const;
+  // The notices the composer form draws inside itself (before its box) rather than the stack before it.
+  const IN_COMPOSER = new Set<string>([NOTICES.remoteNote]);
   setDefaultTimeout(300_000);
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
@@ -42,7 +48,7 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
   /// each row in view before it moved, at most, and how far the composer card's top moved.
   const change = (page: Page, html: string | undefined) =>
     page.evaluate(
-      async ({ html, rowSelector }) => {
+      async ({ html, inComposer, rowSelector }) => {
         const tops = () =>
           new Map(
             [...document.querySelectorAll<HTMLElement>(rowSelector)].map((row) => [
@@ -73,7 +79,9 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         if (html) {
           const holder = document.createElement("div");
           holder.innerHTML = html;
-          dock.insertBefore(holder.firstElementChild!, dock.querySelector(":scope > .acpmux-composer"));
+          const form = dock.querySelector<HTMLElement>(":scope > .acpmux-composer")!;
+          if (inComposer) form.insertBefore(holder.firstElementChild!, form.firstElementChild);
+          else dock.insertBefore(holder.firstElementChild!, form);
         } else dock.querySelector("[data-test-dock-notice]")!.remove();
         const rows: number[] = [];
         const composer: number[] = [];
@@ -98,7 +106,7 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
           notice: dock.querySelector("[data-test-dock-notice]")?.getBoundingClientRect().height ?? 0,
         };
       },
-      { html, rowSelector: TRANSCRIPT_ROW },
+      { html, inComposer: html !== undefined && IN_COMPOSER.has(html), rowSelector: TRANSCRIPT_ROW },
     );
 
   for (const [name, html] of Object.entries(NOTICES)) {
