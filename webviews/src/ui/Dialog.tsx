@@ -54,12 +54,20 @@ export function Dialog({
     return () => document.removeEventListener("keydown", guardChordEscape, true);
   }, [open]);
   const Root = alert ? BaseAlertDialog.Root : BaseDialog.Root;
+  // A dialog drawn as the shared glass (`.ui-dialog.ui-glass`, popupSurface.css THE SHEET ROLE) is the App's
+  // sheet glass under the page in a see-through Chromium page (ui/glass/hostGlass.ts), as a native dialog
+  // card is; the page under it blurs in place. One without `.ui-glass` draws no glass to hand over.
+  const glass = /(?:^|\s)ui-glass(?:\s|$)/.test(className ?? "");
   return (
     <Root open={open} onOpenChange={(next) => onOpenChange(next)}>
       <BaseDialog.Portal container={container}>
         <BaseDialog.Backdrop className={cx("ui-backdrop", backdropClassName)} />
         <BaseDialog.Popup
           className={cx("ui-dialog", className)}
+          data-host-glass={glass ? "popover" : undefined}
+          data-host-glass-role={glass ? "sheet" : undefined}
+          data-host-glass-cover={glass ? "" : undefined}
+          data-page-glass={glass ? undefined : "a dialog whose class draws no .ui-glass: no glass to hand to the App"}
           data-surface-role="sheet"
           aria-label={label}
           style={style}
