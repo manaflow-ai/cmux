@@ -855,8 +855,27 @@ export function rdSetupCommand(): string {
 }
 
 /** Login shells (ssh) get the same lookup dir as daemon terminals. */
-export function agentToolsProfileScript(): string {
-  return `# cmux VM agent tools (images/cmux-vm). Managed, do not edit.\nexport CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}\n`;
+export function agentToolsProfileScript(chrome?: string): string {
+  const chromeLine = chrome ? `export CHROME_PATH=${sq(chrome)}\n` : "";
+  return `# cmux VM agent tools (images/cmux-vm). Managed, do not edit.\nexport CMUX_AGENT_TOOLS_BIN_DIR=${AGENT_TOOLS_BIN}\n${chromeLine}`;
+}
+
+/**
+ * `chromium` on every shell's PATH: the browser role's Chrome lives at a store path only the daemon's env names
+ * (CMUX_BROWSER_HOST_CHROMIUM), so an agent's own `chromium --headless --dump-dom URL` or a Puppeteer or
+ * Playwright script found no browser (AutoCloud Claude proof, 2026-11-25). CHROME_PATH in the profile names it too.
+ */
+export const CHROMIUM_WRAPPER = "/usr/local/bin/chromium";
+
+export function chromiumWrapperScript(chrome: string): string {
+  return ["#!/bin/sh", "# cmux VM agent tools (images/cmux-vm, managed, do not edit): the browser role's Chrome.", `exec ${sq(chrome)} "$@"`, ""].join("\n");
+}
+
+/** The browser role's Chrome in the store, or a thrown error when the lock bakes none. */
+export function agentChromePath(lock: InputsLock): string {
+  const chrome = rolesManifest(lock).roles[BROWSER_ROLE].env.CMUX_BROWSER_HOST_CHROMIUM;
+  if (!chrome) throw new Error("agent tools: the browser role names no CMUX_BROWSER_HOST_CHROMIUM (programs needs chrome)");
+  return chrome;
 }
 
 /**
@@ -872,6 +891,7 @@ export function agentToolsLinkCommand(): string {
     `install -d -m 0755 ${AGENT_TOOLS_BIN}`,
     `ln -sfn ${CURRENT_BIN}/cmux-tui ${AGENT_TOOLS_BIN}/cmux`,
     `test -x ${AGENT_TOOLS_BIN}/cmux && test -x ${AGENT_TOOLS_BIN}/cmux-cua && test -x ${CURRENT_BIN}/cmux-cua`,
+    `test -x ${CHROMIUM_WRAPPER} && sh -n ${CHROMIUM_WRAPPER}`,
     `sh -n ${DESKTOP_STARTER} && test "$(stat -c '%U:%G %a' ${DESKTOP_STARTER} /etc/cmux | tr '\\n' ' ')" = 'root:root 755 root:root 755 '`,
     `bash -n ${A11Y_SCRIPT} && python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${ROOT_PROPERTY_SCRIPT} && test -x ${AT_SPI_BUS_LAUNCHER} && command -v dbus-daemon >/dev/null && command -v dbus-send >/dev/null`,
     `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${DEVBOX_WORK_HOME}/.config ${configDir}`,
@@ -886,6 +906,7 @@ export function agentToolsLinkCommand(): string {
 /** Files the install writes (path, text, mode). Throws when the lock has no cmux-rd (rdHostPath). */
 export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: string; mode: number }> {
   const rd = rdHostPath(lock);
+  const chrome = agentChromePath(lock);
   return [
     { path: `${AGENT_TOOLS_BIN}/cmux-cua`, text: cuaWrapperScript(), mode: 0o755 },
     { path: DESKTOP_STARTER, text: desktopStarterScript(), mode: 0o755 },
@@ -894,7 +915,8 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
     { path: `/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`, text: a11yTemplateUnit(), mode: 0o644 },
     { path: A11Y_SCRIPT, text: a11yScript(), mode: 0o755 },
     { path: ROOT_PROPERTY_SCRIPT, text: rootPropertyScript(), mode: 0o755 },
-    { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(), mode: 0o644 },
+    { path: AGENT_TOOLS_PROFILE, text: agentToolsProfileScript(chrome), mode: 0o644 },
+    { path: CHROMIUM_WRAPPER, text: chromiumWrapperScript(chrome), mode: 0o755 },
     { path: RD_TMPFILES, text: rdTmpfiles(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(), mode: 0o644 },

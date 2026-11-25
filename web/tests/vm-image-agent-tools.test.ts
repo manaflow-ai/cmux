@@ -24,6 +24,8 @@ import {
   agentToolsFiles,
   agentToolsLinkCommand,
   agentToolsProfileScript,
+  agentChromePath,
+  CHROMIUM_WRAPPER,
   browserRoleBakePhases,
   CUA_UNIT,
   cuaUnit,
@@ -162,6 +164,20 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t"]).agentTools).toBe(true);
     expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--agent-tools"]).agentTools).toBe(true);
     expect(() => bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--agent-tools", "--promotion"])).toThrow(/dev snapshots only/);
+  });
+
+  test("agents find the browser role's Chrome: chromium on PATH and CHROME_PATH in the profile", async () => {
+    const chrome = agentChromePath(rdLock);
+    expect(chrome.startsWith("/opt/cmux/store/")).toBe(true);
+    const files = agentToolsFiles(rdLock);
+    const wrapper = files.find((f) => f.path === CHROMIUM_WRAPPER);
+    expect(wrapper?.mode).toBe(0o755);
+    expect(wrapper?.text).toContain(`exec '${chrome}' "$@"`);
+    await bashSyntax(wrapper?.text ?? "");
+    const profile = files.find((f) => f.path.endsWith("cmux-agent-tools.sh"));
+    expect(profile?.text).toContain(`export CHROME_PATH='${chrome}'`);
+    await bashSyntax(profile?.text ?? "");
+    expect(agentToolsLinkCommand()).toContain(`test -x ${CHROMIUM_WRAPPER}`);
   });
 
   test("the tool dir names cmux as the store's cmux-tui and every install command parses", async () => {
