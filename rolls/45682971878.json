@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45682971878",
+  "recorded_at": "2026-11-25T19:57:07Z",
+  "reason": "image inputs changed in c7feab9c6b138f44ec6072fd34cd042a409d3439..d2330a5fc5f15e49d6cf69dfdc9d737225cee312",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "d2330a5fc5f15e49d6cf69dfdc9d737225cee312",
+      "mergedAt": "2026-11-25T19:12:50Z",
+      "subject": "Cloud VM image: qcow2 export refreshes apt lists before installing zstd (#56588)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-25T19:57:07Z",
+    "snapshot_id": "sh-46044fe828f041e890d7187b94abc8dd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45682971878): 32 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "cloud-native-auto-67d01201-45682971878-1",
+    "revision": "ci-45682971878-1",
+    "at": null
+  },
+  "rolled_back": false
+}
