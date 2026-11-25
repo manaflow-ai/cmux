@@ -97,7 +97,7 @@ export default componentEntry<{ sequence?: "leo" | "burst"; dwell?: boolean }>({
       play: burst(3),
     },
     "rapid-send-before": {
-      note: "The same burst without the dwell, as it shipped before: every step rolls in its 80 ms, the line flickering through nine words.",
+      note: "The same burst without the dwell, as it shipped before: every step rolls in its own micro step, the line flickering through nine words.",
       props: { sequence: "burst", dwell: false },
       play: burst(undefined),
     },

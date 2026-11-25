@@ -219,23 +219,34 @@ test("a new call rolls the live line's words: the old rise out above, the new re
 // call/thinking glimmer text rapidly flickering up". Words that change within the dwell wait for its end
 // and roll once to the latest; words back to what the line shows roll nothing.
 test("words that change within the line's dwell roll once, to the latest, at its end", async () => {
+  jest.useFakeTimers();
+  let clock = 1_000;
+  const now = () => clock;
   const line = () => container.querySelector("output.cv-thinking")!;
-  act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
-  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="SendMessage" sendTo="tests" />));
-  act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
-  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="SendMessage" sendTo="docs" />));
-  // Held: the line still says Thinking and has rolled nothing.
-  expect(line().textContent).toContain("Thinking");
-  expect(line().hasAttribute("data-roll")).toBe(false);
-  await act(() => new Promise((done) => setTimeout(done, LINE_DWELL_MS + 40)));
-  expect(line().textContent).toContain("docs");
-  expect(line().getAttribute("data-roll")).toBe("odd");
-  // Back to Thinking and away again within the next dwell: the line stays on docs, rolling nothing.
-  act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
-  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="SendMessage" sendTo="docs" />));
-  await act(() => new Promise((done) => setTimeout(done, LINE_DWELL_MS + 40)));
-  expect(line().textContent).toContain("docs");
-  expect(line().getAttribute("data-roll")).toBe("odd");
+  const wait = async (ms: number) => {
+    clock += ms;
+    await act(async () => void jest.advanceTimersByTime(ms));
+  };
+  try {
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="tests" />));
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="docs" />));
+    // Held: the line still says Thinking and has rolled nothing.
+    expect(line().textContent).toContain("Thinking");
+    expect(line().hasAttribute("data-roll")).toBe(false);
+    await wait(LINE_DWELL_MS);
+    expect(line().textContent).toContain("docs");
+    expect(line().getAttribute("data-roll")).toBe("odd");
+    // Back to Thinking and away again within the next dwell: the line stays on docs, rolling nothing.
+    act(() => root!.render(<Thinking since={0} now={now} />));
+    act(() => root!.render(<Thinking since={0} now={now} doing="SendMessage" sendTo="docs" />));
+    await wait(LINE_DWELL_MS);
+    expect(line().textContent).toContain("docs");
+    expect(line().getAttribute("data-roll")).toBe("odd");
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("the playful verb's own rotation does not roll the live line", () => {

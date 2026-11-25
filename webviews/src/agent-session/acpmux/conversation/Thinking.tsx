@@ -16,6 +16,7 @@
 import {
   type RefObject,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -221,32 +222,30 @@ function pickSays(props: ThinkingProps): Says {
 /// cleared by the next; no loop). Reduced or no motion shows each change at once: nothing rolls there.
 function useLineDwell(props: ThinkingProps): ThinkingProps {
   const key = saysKey(props);
-  const at = performance.now();
-  const shown = useRef<{ key: string; at: number; says: Says }>(undefined);
-  const [, wake] = useReducer((n: number) => n + 1, 0);
-  const held = shown.current;
-  const hold =
-    held !== undefined &&
-    held.key !== key &&
-    // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
-    !rollsNothing(props) &&
-    !rollsNothing(held.says) &&
-    at - held.at < LINE_DWELL_MS &&
-    motionMode() === "full" &&
-    // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `burst-before`).
-    document.documentElement.dataset.liveDwell !== "off"
-      ? held
-      : undefined;
-  useLayoutEffect(() => {
-    if (hold) {
-      const id = setTimeout(wake, Math.max(0, LINE_DWELL_MS - (at - hold.at)));
-      return () => clearTimeout(id);
-    }
-    if (shown.current?.key !== key) shown.current = { key, at, says: pickSays(props) };
-    else shown.current.says = pickSays(props);
-    return undefined;
-  }, [hold, key, at, props]);
-  return hold ? { ...props, ...hold.says } : props;
+  const clock = props.now ?? Date.now;
+  const [shown, setShown] = useState(() => ({ key, at: clock(), says: pickSays(props) }));
+  // Each wake reads the clock again: a timeout that fires a moment early arms the rest.
+  const [woken, wake] = useReducer((n: number) => n + 1, 0);
+  let hold = false;
+  if (shown.key !== key) {
+    const at = clock();
+    hold =
+      // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
+      !rollsNothing(props) &&
+      !rollsNothing(shown.says) &&
+      at - shown.at < LINE_DWELL_MS &&
+      motionMode() === "full" &&
+      // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `rapid-send-before`).
+      document.documentElement.dataset.liveDwell !== "off";
+    if (!hold) setShown({ key, at, says: pickSays(props) });
+  }
+  const since = shown.at;
+  useEffect(() => {
+    if (!hold) return undefined;
+    const id = setTimeout(wake, Math.max(0, LINE_DWELL_MS - (clock() - since)));
+    return () => clearTimeout(id);
+  }, [hold, since, woken, clock]);
+  return hold ? { ...props, ...shown.says } : props;
 }
 
 /// A running turn's live line (`ThinkingLine`), its words held a moment so quick changes never flash.
