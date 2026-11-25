@@ -1483,6 +1483,11 @@ mark {
   font-weight: 600;
 }
 
+/* The shown-once token keeps a step from the list under it. */
+.tokens-created {
+  margin-bottom: var(--ds-space-3);
+}
+
 /* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
    (path, operator, value, remove), and the preview wraps its rendered prompt. */
 .autocloud-form {

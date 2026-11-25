@@ -18,7 +18,8 @@ export default settingsPageEntry({
   id: "pages.settings-developer-tokens",
   title: "Settings Developer",
   area: "Settings",
-  height: 900,
+  // Tall enough for a team admin's page through the GitHub Actions workflow.
+  height: 1300,
   covers: ["pages/settings/components/DeveloperTokensCard.tsx#DeveloperTokensCard"],
   anchors: [{ selector: '[data-card="developerTokens"]' }],
   variants: {
@@ -45,7 +46,7 @@ export default settingsPageEntry({
         shown,
         rows,
         { selector: '[data-tokens-action="new"]', action: "click" },
-        { selector: "[data-tokens-expiration]", action: "select", value: "never" },
+        { selector: "[data-tokens-expiration]", action: "change", value: "never" },
         { selector: "[data-tokens-never-warning]", action: "wait" },
       ],
       note: "No expiration picked: the warning under the fields says it works until revoked.",
