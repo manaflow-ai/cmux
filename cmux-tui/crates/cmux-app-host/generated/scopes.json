@@ -73,6 +73,10 @@
         "storage:synced"
       ]
     },
+    "app.view.state": {
+      "scope": "none",
+      "class": "runtime"
+    },
     "automation.audit.list": {
       "scope": "automation:read",
       "class": "read"
