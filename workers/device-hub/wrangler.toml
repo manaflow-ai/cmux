@@ -36,6 +36,10 @@ enabled = true
 invocation_logs = false
 
 [vars]
+# Which deployment this is (src/buildSpace.ts): production serves no dev build
+# space. A dev build's X-Cmux-Build-Space is refused here (403), never served
+# as NIGHTLY's space; only env.dev (and a tag's stack, which runs env.dev) serves them.
+ENVIRONMENT = "production"
 # Stack Auth projects accepted by /v1/auth/stack (comma list; STACK_PROJECT_ID
 # is the fallback when this is empty). Production: cmux prod only.
 STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82"
@@ -85,6 +89,9 @@ enabled = true
 invocation_logs = false
 
 [env.dev.vars]
+# Serves dev build spaces: each tagged build's devices and sessions are its own
+# User DO (src/buildSpace.ts).
+ENVIRONMENT = "dev"
 # cmux prod and the Stack development project used by DEBUG/tagged builds.
 STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
 # Prod-project users ask cmux.com; development-project users ask the staging

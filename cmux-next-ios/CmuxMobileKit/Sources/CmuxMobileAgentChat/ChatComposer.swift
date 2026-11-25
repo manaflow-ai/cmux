@@ -43,6 +43,7 @@ struct ChatComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     /// Picked videos Photos is still copying out (a large one takes seconds): a chip each.
     @State private var preparingVideos = 0
+    @State private var optimizingImageIDs = Set<String>()
     /// An attachment tapped before sending: previewed full screen.
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
@@ -122,8 +123,9 @@ struct ChatComposer: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { image in
-                if let data = image.jpegData(compressionQuality: 0.85) {
-                    attachments.append(AgentAttachment(kind: .image, name: "Camera \(Date().formatted(date: .omitted, time: .shortened))", data: data))
+                if let data = image.jpegData(compressionQuality: AgentImageOptimizer.jpegQuality) {
+                    let name = "Camera \(Date().formatted(date: .omitted, time: .shortened))"
+                    appendOptimizedImage(data, name: name)
                 }
             }
             .ignoresSafeArea()
@@ -222,19 +224,27 @@ struct ChatComposer: View {
         let board = UIPasteboard.general
         if board.hasImages {
             let stamp = Date().formatted(date: .omitted, time: .shortened)
-            for (index, image) in board.composerImages().enumerated() {
+            let images = board.composerImages().enumerated().map { index, image in
                 let suffix = index > 0 ? " \(index + 1)" : ""
-                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: image.data))
+                return (name: "Pasted image \(stamp)\(suffix)", data: image.data)
             }
+            for image in images { appendOptimizedImage(image.data, name: image.name) }
         } else if board.composerHoldsFileData {
             // A file copied in Files is its bytes on the pasteboard, not a path.
             let providers = board.itemProviders
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
-                attachments += pasted.files.map { file in
+                for file in pasted.files {
                     let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
-                    return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
-                                           data: file.data, fileURL: file.fileURL, byteCount: file.byteCount)
+                    if image == nil {
+                        attachments.append(AgentAttachment(kind: .file, name: file.name, data: file.data,
+                                                           fileURL: file.fileURL, byteCount: file.byteCount))
+                    } else if let original = file.data {
+                        appendOptimizedImage(original, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
+                    } else {
+                        attachments.append(AgentAttachment(kind: .image, name: file.name, fileURL: file.fileURL,
+                                                           byteCount: file.byteCount))
+                    }
                 }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
@@ -242,6 +252,21 @@ struct ChatComposer: View {
             let (files, refused) = Self.readFiles(urls)
             attachments += files
             if let refused { store.clientError = refused }
+        }
+    }
+
+    private func appendOptimizedImage(_ data: Data, name: String, fileURL: URL? = nil, byteCount: Int? = nil) {
+        let id = UUID().uuidString
+        attachments.append(AgentAttachment(id: id, kind: .image, name: name, data: data,
+                                           fileURL: fileURL, byteCount: byteCount ?? data.count))
+        optimizingImageIDs.insert(id)
+        Task {
+            defer { optimizingImageIDs.remove(id) }
+            let optimized = await AgentImageOptimizer.optimizeAsync(data)
+            guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+            attachments[index].data = optimized
+            attachments[index].byteCount = optimized.count
+            attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
         }
     }
 
@@ -628,7 +653,7 @@ struct ChatComposer: View {
                 .padding(-4)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(state == .empty)
+        .disabled(state == .empty || !optimizingImageIDs.isEmpty)
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
@@ -650,6 +675,7 @@ struct ChatComposer: View {
     }
 
     private func send(steer: Bool) {
+        guard optimizingImageIDs.isEmpty else { return }
         // A cmux command typed alone runs here, as on the Mac; it is never sent to the agent.
         // A cmux command is cmux's whether the menu offers it here or not (the Mac's
         // `composerCommand`): one it can't run now is refused, never sent to the agent.
@@ -664,6 +690,9 @@ struct ChatComposer: View {
             }
             return
         }
+        #if DEBUG
+        LoadFrameProbe.shared?.event("send")
+        #endif
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         // A multi-line draft shrinks to one line on the line motion, with the transcript.
         withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
@@ -747,7 +776,7 @@ struct ChatComposer: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -779,7 +808,7 @@ struct ChatComposer: View {
                 .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -815,12 +844,7 @@ struct ChatComposer: View {
                 continue
             }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
-            // HEIC and other formats agents do not accept go over as JPEG.
-            if attachment.imageMIMEType == nil, let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
-                attachment.data = jpeg
-            }
-            attachments.append(attachment)
+            appendOptimizedImage(data, name: "Photo")
         }
         photoItems = []
     }
@@ -912,7 +936,7 @@ struct QueuedPromptsView: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 40)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .accessibilityElement(children: .contain)
     }
 
@@ -946,7 +970,7 @@ struct QueuedPromptsView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 40)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
         }
         .accessibilityIdentifier("chat.queued")
     }

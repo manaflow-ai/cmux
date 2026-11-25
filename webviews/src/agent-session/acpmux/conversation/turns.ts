@@ -35,8 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { scriptNoun } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -72,6 +71,7 @@ import {
   hiddenInBackground,
   openBackgroundTurns,
   endsDrawingRows,
+  foldedWithoutWork,
 } from "./backgroundTurns";
 import {
   foldMessageRuns,
@@ -92,6 +92,7 @@ import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
+import { planStepTitle } from "./planStepText";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -818,6 +819,8 @@ export function turnViewFrom(
     const last = at === starts.length - 1;
     const live = working && last;
     dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
+    // A quiet background turn that draws work keeps its answer in sight (`foldedWithoutWork`).
+    const turnFolded = foldedWithoutWork(rows, start + 1, end, foldedBackground);
     const shaped = shapedTurn(
       rows,
       start,
@@ -829,7 +832,7 @@ export function turnViewFrom(
       dated[at]!,
       sessionStatus,
       agentFamily,
-      foldedBackground,
+      turnFolded,
       live ? trayAgents : 0,
       at === retryAt,
       live ? turnStartedAtMs : undefined,
@@ -844,7 +847,7 @@ export function turnViewFrom(
     for (const row of shaped) {
       // The local turn may contain a late done line whose background owner is in a prior
       // prompt. Its original background line still controls disclosure of that completion.
-      if (hiddenInBackground(row, foldedBackground)) continue;
+      if (hiddenInBackground(row, turnFolded)) continue;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
@@ -881,14 +884,14 @@ export function turnViewFrom(
         dated[at]!,
         sessionStatus,
         agentFamily,
-        foldedBackground,
+        turnFolded,
         0,
         at === retryAt,
         undefined,
         arms,
       );
       for (const row of shapedOpen) {
-        if (hiddenInBackground(row, foldedBackground)) continue;
+        if (hiddenInBackground(row, turnFolded)) continue;
         if (last && isWaitingMessage(row)) pending.push(row);
         else appendLaneNotice(drawn, row.kind === WORKED && row.foldOpen ? inWorkedRun(row, [run], run) : row);
       }
@@ -1114,30 +1117,35 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
   return changed;
 }
 
-/// The cards still waiting on the person, oldest first: a question neither answered nor spoken after,
-/// with another turn after it, so it is no
-/// longer the chat's last word above the composer (PendingAsks.tsx pins these there). A prompt the
-/// person sent after a newer card answers that card, not an older one still waiting before it. Walks
-/// back from the newest card until one was taken over: every card before that one has the person's
-/// words after it too, so it costs the waiting cards, never the chat's length.
+/// The card pinned above the composer (PendingAsks.tsx), as a list of at most one: the agent's
+/// newest question, while it is neither answered nor spoken after and another turn came after it, so
+/// it is no longer the chat's last word (before that the composer hat holds it).
+///
+/// One pending question at a time (https://github.com/manaflow-ai/cmux/issues/52766): an agent woken
+/// again and again by other agents' messages ends each turn on a question, the same one or a reworded
+/// one ("Should I retry the dev build once the build fleet is answering again?", then "...answers
+/// again?"), and each asking was its own card under its own key, so they stacked. The agent's newest
+/// question stands for its older ones: they stay answerable cards in the transcript, never pinned, so
+/// answering or dismissing the one card clears the stack. Reads back only to the newest card with a
+/// question, so it costs the cards after it, never the chat's length.
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
-  const waiting: AcpmuxRow[] = [];
   for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
     const { at, spoke } = nextSteps[index]!;
     const card = rows[at];
     const step = card?.nextStep;
     if (!card || !step) continue;
-    if (step.superseded) break;
-    // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
-    if (!step.ask.question || step.answer !== undefined || spoke) continue;
-    waiting.push(card);
+    // A recap with nothing to decide asks nothing: the newest question is before it. Read before
+    // `superseded`, which settleNextSteps sets on every recap a later card follows.
+    if (!step.ask.question) continue;
+    if (step.superseded) return NO_ASKS;
+    // Answered, or the person said something after it: nothing pins, its card stays answerable.
+    if (step.answer !== undefined || spoke) return NO_ASKS;
+    // The newest card counts only once a turn came after it: before that it is the chat's last row.
+    if (index === nextSteps.length - 1 && !rows.slice(at + 1).some((row) => row.kind === "user")) return NO_ASKS;
+    return [card];
   }
-  if (!waiting.length) return NO_ASKS;
-  // The newest card counts only once a turn came after it: before that it is the chat's last row.
-  const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
-  return waiting.length ? waiting.reverse() : NO_ASKS;
+  return NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
 
@@ -1326,7 +1334,10 @@ function shapedTurn(
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
-  const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
+  const answering = foldBackgroundTurns(answeringPerson(user, kept), expanded);
+  // Ended (its summary in, even before the session reads ready), a steer the agent was finishing
+  // when it came draws over the answer (`lateSteersLast`); running, every row draws as it came.
+  const turn = lateSteersLast(answering, live);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row) && !sentHere(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
@@ -1621,6 +1632,52 @@ function answerAt(rows: readonly AcpmuxRow[]): number {
   }
   return -1;
 }
+
+/// An ended turn's rows with the person's late steers and then its answer at its end: a steer the
+/// agent started no new call after (it came while the agent was finishing: its reply, a call already
+/// running) draws under all the turn's work and over the answer, which is the turn's last word (Leo,
+/// 2026-11-25: "there are situations in which i steer RIGHT before you finish a turn but your
+/// completed sent message goes above mine bc your turn started before and there's some folding
+/// shit... worked for above my message and then yours and then boom that's it"). The work after it
+/// folds up into the Worked for above it at the turn's end, as the one fold takes it all (Leo, ~09:20Z:
+/// "the final ultra fold simply... takes it all away"); the steer and the answer never fold. A steer
+/// the agent went on working after keeps its place (RFD 0085, in order). While the turn runs rows draw
+/// as they came. Only the turn's own rows up to its summary move; `rows` itself when none do.
+export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
+  let end = rows.findIndex((row) => row.kind === "turnSummary" && row.inBackground === undefined);
+  if (end < 0 && live) return rows;
+  if (end < 0) end = rows.length;
+  // The earliest late steer: from the end back, while no call below a steer started after it (a
+  // call already running at the send started before it).
+  let late = -1;
+  let lastCall = -Infinity;
+  for (let at = end - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (isLateSteer(row)) {
+      if (lastCall >= row.at) break;
+      late = at;
+    } else if (row.kind === "activity" && row.inBackground === undefined)
+      for (const item of row.items ?? []) if (item.tool) lastCall = Math.max(lastCall, item.tool.startedAt ?? row.at);
+  }
+  if (late < 0) return rows;
+  // The agent's text just over the first late steer moves with the answer: the reply it was writing
+  // when the steer came (acpmux cuts it there into two rows, one each side of the steer).
+  let from = late;
+  while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
+  const region = rows.slice(from, end);
+  const steers = region.filter(isLateSteer);
+  const said = region.filter(isOwnText);
+  // Nothing to move without an answer among what moves, or where it already reads in this order.
+  const answer = rows[answerAt(rows.slice(0, end))];
+  if (!answer || !said.includes(answer)) return rows;
+  const work = region.filter((row) => !isLateSteer(row) && !isOwnText(row));
+  const reordered = [...work, ...steers, ...said];
+  if (reordered.every((row, at) => row === region[at])) return rows;
+  return [...rows.slice(0, from), ...reordered, ...rows.slice(end)];
+}
+
+const isLateSteer = (row: AcpmuxRow) => row.kind === "user" && continuesTurn(row) && sentByPerson(row);
+const isOwnText = (row: AcpmuxRow) => row.kind === "assistant" && row.inBackground === undefined;
 
 /// A reply with something to read: an empty segment of the agent's text is never a takeaway.
 const isReply = (row: AcpmuxRow) => isAnswer(row) && !isVisiblyEmptyText(row.text);
@@ -3610,9 +3667,9 @@ function codexLiveTurn(
     // count (Leo, 2026-11-07: "stretch across the line"). One with no line yet reads its title ("Run make"). While
     // Claude still writes its input (a pending "Bash" with no command, often 20s for a long
     // script) it reads "Writing a command", never "Running" a command that has not started.
-    const shell =
-      call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
-    line.doing = shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, "");
+    const summary = liveShellLabel(call);
+    const shell = call.kind === "execute" && !summary && (Boolean(call.command) || isBareShellName(call, call.title));
+    line.doing = summary ?? (shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, ""));
     line.doingShell = shell;
     if (call.kind) line.doingKind = call.kind;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
@@ -3905,14 +3962,14 @@ export function liveWait(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LiveWait
   const item = last.items?.at(-1);
   const tool = item?.tool;
   if (!item || !tool || isThought(item)) return { kind: "next" };
-  const shell =
-    tool.kind === "execute" && !tool.description && (Boolean(tool.command) || isBareShellName(tool, tool.title));
+  const summary = liveShellLabel(tool);
+  const shell = tool.kind === "execute" && !summary && (Boolean(tool.command) || isBareShellName(tool, tool.title));
   const t = translatorFor(currentLanguage());
   const step = shell
     ? tool.command
       ? t("tools.ranCommand", { command: liveCommand(tool.command) })
       : t("tools.ranUnnamed")
-    : runningLabel(tool, item.text ?? "");
+    : (summary ?? runningLabel(tool, item.text ?? ""));
   const words = step.trim();
   // The step as the step row says it ("Ran bun test", "Read App.tsx"); the label sets it after a
   // colon in every language, so its verb keeps the row's own capital.
@@ -3990,7 +4047,7 @@ function activityLine(
         .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
-    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+    : planStepTitle(plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
   const command =
     running?.tool?.kind === "execute" && !isDraftCall(running.tool) && running.tool.background === undefined;
@@ -4014,6 +4071,7 @@ function activityLine(
 /// The message a call in flight sends, for the live line: "Sending message to tests", never the
 /// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
 function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
+  if (tool.description?.trim()) return {};
   const sends = acpmuxSendCalls(tool) ?? acpmuxMcpSends(tool);
   // Only a send still going: one that failed in the background is not "Sending" any more. A batch
   // names the first message still going out.
@@ -4031,16 +4089,22 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
   return to ? { doingSendTo: short(to) } : {};
 }
 
+function liveShellLabel(tool: NonNullable<AcpmuxActivity["tool"]>): string | undefined {
+  return tool.kind === "execute" ? commandSaid(translatorFor(currentLanguage()), tool) : undefined;
+}
+
 /// A command on the live line: its working step whole (the line's CSS ellipsis cuts it), or a
 /// script its interpreter reads from a heredoc as "a Python script on als.json", never its
 /// `<<'EOF'` marker (Leo, 2026-11-07: "it's just weird, um, that it just says EOF").
 function liveCommand(command: string): string {
-  return scriptNoun(translatorFor(currentLanguage()), command) ?? shortCommand(command, ROW_WIDTH);
+  return scriptNoun(translatorFor(currentLanguage()), command) ?? commandLine(command, "command", false);
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
 /// file call by the file's name ("Edit ProductGrid.module.css").
 function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): string {
+  const description = tool.description?.trim();
+  if (description) return description;
   // A file write reads as its row does (WriteLabel.tsx): "Writing a file" before its input,
   // "Writing gen.py", then "Wrote gen.py", never the bare tool name "Write".
   const write = writeCall(tool);
@@ -4051,7 +4115,7 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
     if (!file) return t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed");
     return t(done ? "tools.wrote.file" : "tools.writing.file", { file });
   }
-  const label = toolLabel(tool, text, (command) => command, undefined, undefined, false);
+  const label = toolLabel(tool, text, (command) => command);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)

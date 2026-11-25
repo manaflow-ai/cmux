@@ -46,6 +46,10 @@ use super::Start;
 pub(in crate::cli) const DRIVE_VERB: &str = "hybrid-drive";
 /// The hidden verb the nightly read-back runs: `cmux cloud hybrid-status`, `{enabled, off, ...}`.
 pub(in crate::cli) const STATUS_VERB: &str = "hybrid-status";
+/// The hidden verb the app runs once its Cloud send's first turn started here
+/// (cmux-cloud-start-core `hybrid_gui`): `cmux cloud hybrid-begin ID new|MACHINE`, the same
+/// driver a `cmux chat --on cloud` start spawns, detached; it prints `{log}`.
+pub(in crate::cli) const BEGIN_VERB: &str = "hybrid-begin";
 /// How long a driver runs at most: the machine's own wait (`vm new --wait`, 20 min) and a move
 /// (the app's 20 min) fit. Past it the chat stays here.
 const DRIVE_DEADLINE: Duration = Duration::from_secs(60 * 60);
@@ -204,45 +208,9 @@ fn account_for_start(global: &GlobalArgs, flag: Option<bool>) -> Account {
     })
 }
 
-/// Whether this machine's acpmux can start the chat's agent, from its `_acpmux/harnesses`
-/// answer (`catalog`; None: it could not be asked): the harness the start names (`--harness`),
-/// else its `defaultHarness`, resolved as acpmux's `session/new` resolves it (a profile, else a
-/// family's `prefer`, its only profile or the profile named like it), and not `unavailable`.
-/// `Err(NoLocalHarness)`: the chat could not run here (no Claude Code or Codex on this machine:
-/// acpmux answers "no harnesses configured"), so the Cloud start runs as before.
-pub(super) fn local_harness(catalog: Option<&Value>, named: Option<&str>) -> Result<(), Off> {
-    let catalog = catalog.ok_or(Off::NoLocalHarness)?;
-    let head = named
-        .or_else(|| catalog.get("defaultHarness").and_then(Value::as_str))
-        .ok_or(Off::NoLocalHarness)?;
-    let harnesses = catalog.get("harnesses").and_then(Value::as_object);
-    let usable = |name: &str| {
-        harnesses
-            .and_then(|rows| rows.get(name))
-            .is_some_and(|row| row.get("unavailable").is_none_or(Value::is_null))
-    };
-    let names = |value: Option<&Value>| -> Vec<String> {
-        value
-            .and_then(Value::as_array)
-            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-            .unwrap_or_default()
-    };
-    let members = names(catalog.pointer(&format!("/families/{}", escape(head))));
-    let resolved = if members.is_empty() {
-        usable(head)
-    } else {
-        let prefer = names(catalog.pointer(&format!("/defaults/{}/prefer", escape(head))));
-        prefer.iter().any(|name| members.contains(name) && usable(name))
-            || (members.len() == 1 && members.first().is_some_and(|only| usable(only)))
-            || (members.iter().any(|name| name == head) && usable(head))
-    };
-    if resolved { Ok(()) } else { Err(Off::NoLocalHarness) }
-}
-
-/// `name` as one JSON pointer token.
-fn escape(name: &str) -> String {
-    name.replace('~', "~0").replace('/', "~1")
-}
+/// Whether this machine's acpmux can start the chat's agent (cmux-cloud-start-core, shared with
+/// the app's Cloud send).
+pub(super) use cmux_cloud_start_core::hybrid_gui::local_harness;
 
 /// How long the start waits for the local acpmux's harness catalog: it answers from memory
 /// (milliseconds); only a daemon still reading its login shell takes longer.
@@ -843,6 +811,7 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     match verb.as_str() {
         DRIVE_VERB => Some(run_drive(&global, rest)),
         STATUS_VERB => Some(status(&global)),
+        BEGIN_VERB => Some(run_begin(&global, rest)),
         _ => None,
     }
 }
@@ -878,6 +847,25 @@ fn run_drive(global: &GlobalArgs, rest: &[String]) -> i32 {
     let left = live.threads.iter().filter(|thread| !thread.is_finished()).count();
     println!("{}", json!({"done": state, "threads_left": left}));
     0
+}
+
+/// The app's begin: the driver for a chat that already runs here, detached, its log's path out.
+fn run_begin(global: &GlobalArgs, rest: &[String]) -> i32 {
+    let Some((session, target, _)) = drive_args(rest) else {
+        eprintln!("usage: cmux cloud {BEGIN_VERB} ID new|MACHINE");
+        return 2;
+    };
+    match spawn(global, &session, &target, 0, 0) {
+        Ok(log) => super::super::wire::print_local_success(
+            &json!({"log": log.display().to_string()}),
+            global.output,
+        ),
+        Err(error) => {
+            let error = json!({"code": "hybrid.begin", "message": error, "details": {},
+                               "retryable": true});
+            super::super::wire::print_local_error(&error, global.output, 1)
+        }
+    }
 }
 
 /// `{enabled, off, plan, flag, signed_in, cloud_disabled, local_harness, harness_ms}`: what the
