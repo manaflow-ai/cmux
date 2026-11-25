@@ -1,31 +1,16 @@
-// l10n-allow-file: gallery fixtures (plan steps, commands), not shipped UI.
-// The composer hat with the turn's plan, opened, for the feel check that drags its top rim
-// (test/feel-plan-tray.test.ts). Leo, 2026-11-22: "the dragging isn't properly relative accurate to
+// l10n-allow-file: gallery fixtures (commands), not shipped UI.
+// The composer hat with background commands, opened, for the feel check that drags its top rim
+// (test/feel-tray.test.ts). Leo, 2026-11-22: "the dragging isn't properly relative accurate to
 // the cursor, and it's just jumpy all over the place and doesn't have satisfying snap alongs ...
-// errant clicks could make it jump". The variants are the extremes a hand meets: one step, five,
-// fifty, and steps with huge text.
+// errant clicks could make it jump". The variants are the extremes a hand meets: one command,
+// five, fifty, and commands with huge text.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
-import type { AcpmuxPlanEntry } from "../model";
 
-const STEPS = [
-  "Read the tray and its tests",
-  "Move the plan into the hat",
-  "Run the tray tests",
-  "Compile the app on the fleet",
-  "Update the design spec",
-];
 const HUGE =
   "Walk every surface that draws the hat (the bottom stack, a pinned chat, a split pane, the floating chat and the iPhone mirror) and check each keeps its height through a reload, a theme switch and a font size change";
-
-function plan(count: number, huge = false): AcpmuxPlanEntry[] {
-  return Array.from({ length: count }, (_, i) => ({
-    content: huge ? `${HUGE} (${i + 1})` : count <= STEPS.length ? STEPS[i]! : `${STEPS[i % STEPS.length]} (${i + 1})`,
-    status: i < Math.floor(count / 3) ? "completed" : i === Math.floor(count / 3) ? "in_progress" : "pending",
-  }));
-}
 
 const command = (line: string, description: string, minutes: number) =>
   tool(line, "execute", "completed", {
@@ -41,7 +26,7 @@ const COMMANDS = [
   ["scripts/web-lint.sh", "lint the web UI"],
 ] as const;
 
-/// As many background commands as plan steps: the hat's list holds them, so a drag up has lines to show.
+/// The hat's list holds the background commands, so a drag up has lines to show.
 const commands = (count: number, huge: boolean) =>
   Array.from({ length: count }, (_, i) => {
     const [line, description] = COMMANDS[i % COMMANDS.length]!;
@@ -56,7 +41,6 @@ const snapshot = (count: number, huge = false) =>
   chat(
     [
       user("Land the tray change: compile, test and update the spec", 3),
-      row("plan", 2.9, { plan: plan(count, huge) }),
       activity(commands(count, huge), 2),
       assistant("The tests and the compile are running.", 0.5),
     ],
@@ -71,23 +55,23 @@ const opened = async (ctx: PlayContext) => {
 };
 
 export default agentPaneEntry({
-  id: "agent-pane.feel-plan-tray",
-  title: "Composer hat with a plan, opened: the feel check's stage",
+  id: "agent-pane.feel-tray",
+  title: "Composer hat with background commands, opened: the feel check's stage",
   area: "Agent pane",
   height: 720,
   widths: { narrow: 360 },
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/trayResize.ts"],
   variants: {
-    one: { note: "One plan step and one command.", play: opened, snapshot: snapshot(1) },
-    five: { note: "Five plan steps and five commands.", play: opened, snapshot: snapshot(5) },
+    one: { note: "One command.", play: opened, snapshot: snapshot(1) },
+    five: { note: "Five commands.", play: opened, snapshot: snapshot(5) },
     fifty: {
-      note: "Fifty plan steps and fifty commands: the list scrolls in place under the cap.",
+      note: "Fifty commands: the list scrolls in place under the cap.",
       play: opened,
       snapshot: snapshot(50),
     },
     huge: {
-      note: "Five steps and commands of huge text: each cut at the row's edge.",
+      note: "Five commands of huge text: each cut at the row's edge.",
       play: opened,
       snapshot: snapshot(5, true),
     },
