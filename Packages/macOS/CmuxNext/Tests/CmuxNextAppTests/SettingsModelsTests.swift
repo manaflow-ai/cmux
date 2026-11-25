@@ -407,4 +407,3 @@ import Testing
         #expect(daemon.calls.withLock { $0 }.last?.method == "_acpmux/connections")
     }
 }
-

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 
@@ -113,17 +114,12 @@ nonisolated enum ClaudeSetupTokenCapture {
     }
 
     /// The running CLI, stopped once from whichever of the timeout, a cancel or the end gets there first.
-    private final class Running: @unchecked Sendable {
-        private let process: Process
-        private let lock = NSLock()
-        private var stopped = false
-        init(_ process: Process) { self.process = process }
+    private final class Running: Sendable {
+        private let held: Mutex<Process?>
+        init(_ process: consuming sending Process) { held = Mutex(process) }
 
         func stop() {
-            lock.lock()
-            defer { lock.unlock() }
-            guard !stopped else { return }
-            stopped = true
+            guard let process = held.withLock({ $0.take() }) else { return }
             if process.isRunning { process.terminate() }
         }
     }
@@ -156,6 +152,7 @@ nonisolated enum ClaudeSetupTokenCapture {
 
         let running = Running(process)
         let timer = Task {
+            // concurrency-allow: a deadline off the main thread (run is @concurrent), cancelled when the CLI ends
             try? await Task.sleep(for: timeout)
             running.stop()
         }
@@ -188,4 +185,3 @@ nonisolated enum ClaudeSetupTokenCapture {
         return token
     }
 }
-

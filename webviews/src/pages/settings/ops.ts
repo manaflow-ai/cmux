@@ -2701,4 +2701,3 @@ export function revisionNumber(value: unknown): number {
 export function newIdempotencyKey(): string {
   return `settings-page-${crypto.randomUUID()}`;
 }
-

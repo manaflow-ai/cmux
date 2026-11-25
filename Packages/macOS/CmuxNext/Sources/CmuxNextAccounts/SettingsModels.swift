@@ -418,4 +418,3 @@ public final class SettingsModels {
         return PageError(code: "cmux.models.failed", message: "the change could not be made")
     }
 }
-

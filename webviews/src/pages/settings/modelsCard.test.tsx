@@ -225,4 +225,3 @@ test("the Models state is read again only while this Mac's connections can't be 
   expect(modelsRetryMs(state(true))).toBe(false);
   expect(modelsRetryMs(state(false))).toBe(2000);
 });
-
