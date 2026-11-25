@@ -5,9 +5,11 @@ public import Foundation
 /// One chat as the place controls see it, read by the app (``CloudPlaceHost``).
 public struct CloudPlaceChat: Sendable {
     public var id: String, session: String, title: String, onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool
-    public init(id: String, session: String, title: String = "", onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool) {
+    /// The prompts waiting behind its turn, as acpmux counts them (the summary's `queued`); 0 from an acpmux that names none.
+    public var queued: Int
+    public init(id: String, session: String, title: String = "", onCloud: Bool, turnRunning: Bool, turnStartedAtMs: Double?, moving: Bool, queued: Int = 0) {
         self.id = id; self.session = session; self.title = title; self.onCloud = onCloud; self.turnRunning = turnRunning
-        self.turnStartedAtMs = turnStartedAtMs; self.moving = moving
+        self.turnStartedAtMs = turnStartedAtMs; self.moving = moving; self.queued = queued
     }
 }
 
@@ -97,8 +99,9 @@ public final class CloudPlaceDriver {
     @discardableResult
     public func setMode(_ mode: String, tab: String?, session: String? = nil, claims: CloudPlaceClaims = .init()) -> CloudPlaceRefusal? {
         guard ["local", "cloud", "auto"].contains(mode), let chat = chat(tab: tab, session: session) else { return nil }
-        // A chat mid-move keeps its mode and its move (Cancel stops that): the move this mode needs would run beside it.
-        if mode == "cloud" && !chat.onCloud || mode == "local" && chat.onCloud, busy(chat) { return .moving }
+        // A chat mid-move keeps its mode and its move (Cancel stops that): any mode picked now would either start a move beside
+        // it or be recorded while the running move lands the chat elsewhere (Local picked while it moves to Cloud).
+        if busy(chat) { return .moving }
         place.setMode(mode, of: chat.session)
         switch mode {
         case "cloud" where !chat.onCloud: return move(chat, toCloud: true, trigger: .person, claims: claims)
@@ -233,12 +236,15 @@ public final class CloudPlaceDriver {
         guard signals == nil else { return }
         let signals = CloudAutoSignals { [weak self] event in
             guard let self else { return }
-            if case .turnEnded(let session) = event { turnEnded[session] = place.nowMs; return }
+            // A turn that ended may be what Auto waited for (a chat idle now): read again at once, as for every other signal.
+            if case .turnEnded(let session) = event { turnEnded[session] = place.nowMs }
             evaluate()
         }
         self.signals = signals
         signals.start()
         host?.placeOnTurnEnded { session in signals.post(.turnEnded(session)) }
+        // Chats kept on Auto across a relaunch are read now, not at the first signal that happens to change.
+        evaluate()
     }
 
     /// The system is about to sleep (true) or woke (false): told by the app's sleep/wake adapter.
@@ -248,7 +254,8 @@ public final class CloudPlaceDriver {
     public func evaluate() {
         guard let signals, let host else { return }
         let autos = host.placeChats().filter { place.mode(of: $0.session) == "auto" }
-        guard !autos.isEmpty else { tick.cancel(); return }
+        // A chat kept on Auto whose tab is not listed yet (a relaunch, before its daemon answers) is read at the next tick.
+        guard !autos.isEmpty || place.modes.values.contains("auto") else { tick.cancel(); return }
         tick.schedule(after: .seconds(Self.interval)) { @MainActor [weak self] in self?.evaluate() }
         let now = signals.signals()
         let nowMs = place.nowMs
@@ -258,7 +265,7 @@ public final class CloudPlaceDriver {
             let turnMs = chat.turnRunning ? chat.turnStartedAtMs.map { UInt64(max(0, Date().timeIntervalSince1970 * 1000 - $0)) } ?? 0 : 0
             let ended = turnEnded[chat.session]
             let ask = CloudAutoSignals.Chat(at: chat.onCloud ? "cloud" : "local", movedByAuto: place.autoMoved.contains(chat.session),
-                                            turnRunning: chat.turnRunning, turnMs: turnMs, queued: 0,
+                                            turnRunning: chat.turnRunning, turnMs: turnMs, queued: chat.queued,
                                             idleMs: chat.turnRunning ? 0 : ended.map { nowMs &- $0 } ?? now.idleMs ?? 0,
                                             moving: chat.moving || place.isMoving(chat.session))
             guard let answer = signals.decide(ask, signals: now) else { continue }

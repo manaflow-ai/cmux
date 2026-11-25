@@ -194,8 +194,8 @@ extension CloudPlaceRefusal {
 }
 
 /// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`. A person's move from the page
-/// takes its `queued` and `hasDraft` from the page's claims (``CloudPlaceClaims``) when it sent them; no Swift source reads the
-/// queued prompts, so Auto and Evacuate leave it out.
+/// takes its `queued` and `hasDraft` from the page's claims (``CloudPlaceClaims``) when it sent them; otherwise `queued` is
+/// acpmux's count from the chat's summary when it names prompts waiting (a 0 there may be an older acpmux's silence: left out).
 extension CloudPlaceFlows.Cargo {
     @MainActor static func read(tab: TabModel, session: String, services: AppServices, invocation: ActionInvocation? = nil) -> CloudPlaceFlows.Cargo {
         var cargo = Self()
@@ -205,6 +205,7 @@ extension CloudPlaceFlows.Cargo {
         cargo.branch = tab.gitBranch
         let tabs = services.agentTabs
         cargo.hasDraft = tabs.unsentDrafts.hasDraft(tabs.resolve(tab.id), machine: tabs.daemonListing(tab)?.machineID)
+        if let ref = tab.agentSession, let queued = AgentTurnStateStore.shared.detail(for: ref)?.queued, queued > 0 { cargo.queued = queued }
         if let invocation {
             let claims = CloudPlaceClaims(invocation)
             cargo.queued = claims.queued ?? cargo.queued
@@ -236,7 +237,8 @@ extension AppServices: CloudPlaceHost {
                           seen.insert(session).inserted else { continue }
                     found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
-                                                moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id)))
+                                                moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id),
+                                                queued: AgentTurnStateStore.shared.detail(for: record)?.queued ?? 0))
                 }
             }
         }
