@@ -221,7 +221,7 @@ try {
 
 /// A phase's heaviest functions by self time, and the share of its samples each holds.
 type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  nodes: { id: number; children?: number[]; callFrame: { functionName: string; url: string; lineNumber: number } }[];
   samples?: number[];
 };
 function printProfile(name: string, profile: CpuProfile) {
@@ -241,6 +241,26 @@ function printProfile(name: string, profile: CpuProfile) {
   for (const [key, value] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
     if (value > 0) console.log(`    ${((100 * value) / Math.max(1, busy)).toFixed(1)}% ${key}`);
   }
+  // Inclusive: each node's samples and its subtree's, counted once per function on a stack (recursion).
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const keyOf = (node: CpuProfile["nodes"][number]) =>
+    `${node.callFrame.functionName || "(anonymous)"} ${node.callFrame.url.split("/").pop() ?? ""}:${node.callFrame.lineNumber + 1}`;
+  const inclusive = new Map<string, number>();
+  const walk = (id: number, onStack: Set<string>) => {
+    const node = byId.get(id)!;
+    const key = keyOf(node);
+    const fresh = !onStack.has(key) && node.callFrame.functionName !== "(root)";
+    if (fresh) onStack.add(key);
+    const own = counts.get(id) ?? 0;
+    const idle = node.callFrame.functionName === "(idle)" || node.callFrame.functionName === "(program)";
+    if (own && !idle) for (const held of onStack) inclusive.set(held, (inclusive.get(held) ?? 0) + own);
+    for (const child of node.children ?? []) walk(child, onStack);
+    if (fresh) onStack.delete(key);
+  };
+  walk(profile.nodes[0]!.id, new Set());
+  console.log(`  inclusive ${name}:`);
+  for (const [key, value] of [...inclusive].sort((a, b) => b[1] - a[1]).slice(0, 30))
+    if (key.includes(".js:")) console.log(`    ${((100 * value) / Math.max(1, busy)).toFixed(1)}% ${key}`);
 }
 
 /// The settled page's JS heap after a collection, and a heap snapshot's self size summed by node kind and by
