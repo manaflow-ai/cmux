@@ -70,7 +70,7 @@ impl EvictedKeys {
 /// row is a few hundred bytes). Unpacked when a list page reads it.
 enum PackedRow {
     Packed {
-        dict: Arc<[u8]>,
+        dict: Arc<RowDict>,
         len: u32,
         bytes: Box<[u8]>,
     },
@@ -81,12 +81,28 @@ enum PackedRow {
 /// The zstd level rows are packed at: an eviction packs two rows, a list page unpacks them.
 const ROW_LEVEL: i32 = 3;
 
+/// The shared row, prepared once for packing and for unpacking: a list page unpacks every
+/// evicted row it shows, and loading the raw row into each unpack cost more than the unpack.
+pub(crate) struct RowDict {
+    pack: zstd::dict::EncoderDictionary<'static>,
+    unpack: zstd::dict::DecoderDictionary<'static>,
+}
+
+impl RowDict {
+    fn new(row: &[u8]) -> Self {
+        Self {
+            pack: zstd::dict::EncoderDictionary::copy(row, ROW_LEVEL),
+            unpack: zstd::dict::DecoderDictionary::copy(row),
+        }
+    }
+}
+
 impl PackedRow {
-    fn pack(text: Arc<str>, dict: &Arc<[u8]>) -> Self {
+    fn pack(text: Arc<str>, dict: &Arc<RowDict>) -> Self {
         let packed = u32::try_from(text.len()).ok().and_then(|len| {
-            let mut packer = zstd::bulk::Compressor::with_dictionary(ROW_LEVEL, dict).ok()?;
+            let mut packer = zstd::bulk::Compressor::with_prepared_dictionary(&dict.pack).ok()?;
             let bytes = packer.compress(text.as_bytes()).ok()?;
-            (bytes.len() < text.len()).then(|| (len, bytes))
+            (bytes.len() < text.len()).then_some((len, bytes))
         });
         match packed {
             Some((len, bytes)) => {
@@ -100,7 +116,7 @@ impl PackedRow {
         match self {
             Self::Plain(text) => text.clone(),
             Self::Packed { dict, len, bytes } => {
-                let unpacked = zstd::bulk::Decompressor::with_dictionary(dict)
+                let unpacked = zstd::bulk::Decompressor::with_prepared_dictionary(&dict.unpack)
                     .and_then(|mut d| d.decompress(bytes, *len as usize))
                     .ok()
                     .and_then(|raw| String::from_utf8(raw).ok());
@@ -154,7 +170,7 @@ pub(crate) struct Tier {
     /// The last pass stopped at [`EVICT_AT_ONCE`]: due chats remain that nothing kept.
     pub(super) more_due: AtomicBool,
     /// The row every evicted row is packed against ([`PackedRow`]): the first one evicted.
-    row_dict: StdMutex<Option<Arc<[u8]>>>,
+    row_dict: StdMutex<Option<Arc<RowDict>>>,
 }
 
 impl Default for Tier {
@@ -192,9 +208,9 @@ impl Tier {
     }
 
     /// The shared row rows are packed against, `first` when there is none yet.
-    fn row_dict(&self, first: &str) -> Arc<[u8]> {
+    fn row_dict(&self, first: &str) -> Arc<RowDict> {
         let mut dict = self.row_dict.lock().unwrap_or_else(|e| e.into_inner());
-        dict.get_or_insert_with(|| Arc::from(first.as_bytes())).clone()
+        dict.get_or_insert_with(|| Arc::new(RowDict::new(first.as_bytes()))).clone()
     }
 
     /// `session`'s row for this tier: its keys and both list rows, packed.
