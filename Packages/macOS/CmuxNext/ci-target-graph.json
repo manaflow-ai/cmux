@@ -633,7 +633,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
         "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CmuxHomeRender"
@@ -963,6 +964,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
         "CmuxNextCloud",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
