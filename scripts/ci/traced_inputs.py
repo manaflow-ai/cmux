@@ -366,6 +366,11 @@ def job_steps(workflow: Path, job: str) -> list[tuple[str, str, dict]]:
     """(name, script, env) of every `run:` step after the job's checkout that can fail the job (not continue-on-error),
     as the workflow file has them. A step env
     value that is an expression is left out (this is the shadow audit, not the job)."""
+    return [(name, script, env) for _id, name, script, env in job_steps_with_ids(workflow, job)]
+
+
+def job_steps_with_ids(workflow: Path, job: str) -> list[tuple[str, str, str, dict]]:
+    """job_steps with each step's `id` first ("" when it has none)."""
     import yaml  # PyYAML: the guard venv and the Linux runners have it.
 
     steps = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)["jobs"][job]["steps"]
@@ -377,7 +382,7 @@ def job_steps(workflow: Path, job: str) -> list[tuple[str, str, dict]]:
         if not seen_checkout or "run" not in st or str(st.get("continue-on-error", "")) == "true":
             continue  # before the checkout (workspace cleanup), or a shadow step of its own
         env = {k: v for k, v in (st.get("env") or {}).items() if "${{" not in str(v)}
-        out.append((st.get("name", st["run"].splitlines()[0]), st["run"], env))
+        out.append((st.get("id", ""), st.get("name", st["run"].splitlines()[0]), st["run"], env))
     return out
 
 
@@ -390,8 +395,18 @@ def cmd_trace_job(a: argparse.Namespace) -> int:
         return 0
     out = Path(a.out)
     out.unlink(missing_ok=True)
+    # --step ID=LIST (RFD 0148 row 34): trace only those steps, each into its own manifest (OUT with .ID before its
+    # suffix), and audit each against its own list. A step receipt's list covers that step's reads alone.
+    own = dict(spec.split("=", 1) for spec in a.step)
+    steps = job_steps_with_ids(Path(a.workflow), a.job)
+    unknown = sorted(set(own) - {sid for sid, _, _, _ in steps})
+    if unknown:
+        print(f"traced_inputs: {a.job} has no run step with id {unknown}", file=sys.stderr)
+        return 2
     with tempfile.TemporaryDirectory(prefix="traced-job-") as tmp:
-        for i, (name, script, env) in enumerate(job_steps(Path(a.workflow), a.job)):
+        for i, (sid, name, script, env) in enumerate(steps):
+            if own and sid not in own:
+                continue
             sh = Path(tmp) / f"step{i}.sh"
             sh.write_text(script)
             raw = Path(tmp) / f"raw{i}"
@@ -403,11 +418,14 @@ def cmd_trace_job(a: argparse.Namespace) -> int:
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             man = manifest_from_raw(raw, root, a.rev, [name])
             man["exit"] = st.returncode
-            write_manifest(man, out, True)
+            step_out = out.with_suffix(f".{sid}{out.suffix}") if own else out
+            write_manifest(man, step_out, not own)
             shutil.rmtree(raw)
             print(f"traced_inputs: step {i} exit={st.returncode} {time.monotonic() - t0:.0f}s {man['counts']} "
                   f"git={man['git']}: {name}")
-    if not a.inputs:
+            if own:
+                cmd_audit(argparse.Namespace(manifest=str(step_out), inputs=own[sid], strict=False, label=f" {sid}"))
+    if own or not a.inputs:
         return 0
     return cmd_audit(argparse.Namespace(manifest=str(out), inputs=a.inputs, strict=a.strict))
 
@@ -615,7 +633,7 @@ def cmd_audit(a: argparse.Namespace) -> int:
             missed.append(f"{kind} {path}")
     out = {"missed": len(missed), "examples": missed[:30], "git": man.get("git"),
            "untracked_reads": man["risks"]["untracked_reads"][:10], "network": man["risks"]["network"][:10]}
-    print("audit=" + json.dumps(out, separators=(",", ":")))
+    print(f"audit{getattr(a, 'label', '')}=" + json.dumps(out, separators=(",", ":")))
     return 1 if a.strict and (missed or man.get("git") == "H") else 0
 
 
@@ -676,6 +694,8 @@ def main(argv: list[str] | None = None) -> int:
     tj.add_argument("--out", required=True)
     tj.add_argument("--inputs", default="")
     tj.add_argument("--strict", action="store_true")
+    tj.add_argument("--step", action="append", default=[], metavar="ID=LIST",
+                    help="trace only the step with this id and audit it against its own list (repeatable)")
     x = sub.add_parser("export")
     x.add_argument("--check", required=True)
     x.add_argument("--root", default=".")

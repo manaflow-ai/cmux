@@ -25,6 +25,10 @@ own green result. A record here is unsigned and is never skip evidence.
         code under test runs those, so a run that touches one is never skipped, whatever its key (the receipt
         signer's rule, cmuxterm-hq RFD 0019); its would-skip is false.
   record CHECK --input-key K [--base SHA] [--exit N] --out FILE   write the unsigned ci-receipt/v1 record
+  step-keys JOB [--output FILE]   one `STEP=input_key` line per step of JOB that has its own receipt (RFD 0148 row
+        34); a step whose key cannot be computed prints an empty key and the others still print
+  step-verdicts JOB   read the job's `steps` context (env STEPS, JSON) and print one shadow line per such step:
+        would_skip (its receipt was found), its own outcome, and wrong_reuse (found, and the step did not pass)
   replay CHECK --since ISO [--ref origin/feat-cmux-next]   the base-push hit rate this key would have had: each
         first-parent commit keyed over every unit, a hit when its key was seen on an earlier push
 """
@@ -55,6 +59,27 @@ CHECKS = {
     "static-checks": {
         "check": "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)",
         "command": ".github/workflows/cmux-next-guards.yml jobs.static-checks",
+    },
+    # One receipt per step of that job (cmuxterm-hq RFD 0148 row 34): a step's key is its own traced rows, so a
+    # change another step reads keeps this step's key, and a step that finished green before the job timed out or
+    # another step failed keeps its receipt. `step` is the step's id in the job; `command` is its `run:` line (and
+    # the Node the job sets up), which tests/test_receipt_input_key.py holds equal to the workflow's, so the
+    # workflow file is not a row: an edit to another step does not change this step's key.
+    "static-checks-defaults-snapshot": {
+        "check": "cmux-next static checks: the defaults snapshot tests",
+        "command": "python3 tests/test_defaults_guard.py",
+        "job": "static-checks", "step": "defaults-snapshot",
+    },
+    "static-checks-group-menus": {
+        "check": "cmux-next static checks: the group rows stay at the top of the right-click menus",
+        "command": "python3 scripts/cmux-next/check-group-menus.py",
+        "job": "static-checks", "step": "group-menus",
+    },
+    "static-checks-page-strings": {
+        "check": "cmux-next static checks: every page's strings generate with no missing translation",
+        "command": "node webviews/scripts/pages/gen-strings.mjs",
+        "node": "24.22.1",
+        "job": "static-checks", "step": "page-strings",
     },
 }
 GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
@@ -122,6 +147,17 @@ def names_id(revision: str, rel: str, oid: str | None) -> str | None:
     return names_hash([rec.split(b" ", 2)[1] + b" " + rec.split(b"\t", 1)[1] for rec in listing.split(b"\0") if rec])
 
 
+def canonical_command(check: str) -> str:
+    """The command a key covers; a step that runs on the job's Node names that Node, so a new pin is a new key."""
+    spec = CHECKS[check]
+    return spec["command"] + (f" (node {spec['node']})" if spec.get("node") else "")
+
+
+def step_checks(job: str) -> dict[str, str]:
+    """step id -> check, for the checks that are one step of JOB."""
+    return {spec["step"]: check for check, spec in CHECKS.items() if spec.get("job") == job}
+
+
 def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -> tuple[str, dict]:
     if check not in CHECKS:
         raise ValueError(f"unknown check {check!r}; known: {sorted(CHECKS)}")
@@ -135,7 +171,7 @@ def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -
     material = {
         "v": KEY_VERSION,
         "check": check,
-        "command": CHECKS[check]["command"],
+        "command": canonical_command(check),
         "units": selected,
         "inputs": input_ids(revision, [(kind, rel) for unit, kind, rel in rows
                                        if unit == "*" or unit in selected]),
@@ -222,7 +258,7 @@ def record(check: str, key: str, base: str, exit_code: int) -> dict:
         "repo": repo,
         "tree": git("rev-parse", "HEAD^{tree}"),
         "base": base,
-        "command_sha256": hashlib.sha256(CHECKS[check]["command"].encode()).hexdigest(),
+        "command_sha256": hashlib.sha256(canonical_command(check).encode()).hexdigest(),
         "exit": exit_code,
         "runner": {"kind": "actions", "name": env.get("RUNNER_NAME", ""), "job": f"{run}/{env.get('GITHUB_RUN_ATTEMPT', '')}"},
         "logs": f"{server}/{repo}/actions/runs/{run}" if run else "",
@@ -230,6 +266,36 @@ def record(check: str, key: str, base: str, exit_code: int) -> dict:
         "sig": None,  # unsigned: shadow only, never skip evidence (RFD 0019: the controller signs)
         "input_key": key,
     }
+
+
+def step_keys(job: str) -> dict[str, str]:
+    """step id -> input key at HEAD ("" when it cannot be computed: that step reports nothing, the rest still do)."""
+    keys = {}
+    for step, check in sorted(step_checks(job).items()):
+        try:
+            keys[step] = input_key(check, [])[0]
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            print(f"{check}: no key: {error}", file=sys.stderr)
+            keys[step] = ""
+    return keys
+
+
+def step_verdicts(job: str, steps: dict) -> list[dict]:
+    """One shadow verdict per keyed step of JOB from the job's `steps` context: the key (step `step-keys`'s output
+    STEP), whether its receipt was found (step `STEP-receipt`'s cache-hit) and the step's own outcome. A found
+    receipt beside an outcome other than success is a reuse the key would have got wrong. A step that did not run
+    (skipped, or the job was cut off before it) has no verdict to compare, so it is not a wrong reuse."""
+    keys = (steps.get("step-keys") or {}).get("outputs") or {}
+    out = []
+    for step in sorted(step_checks(job)):
+        key = keys.get(step, "")
+        if not key:
+            continue
+        hit = ((steps.get(f"{step}-receipt") or {}).get("outputs") or {}).get("cache-hit") == "true"
+        outcome = (steps.get(step) or {}).get("outcome", "not-run")
+        out.append({"step": step, "would_skip": hit, "run": outcome, "input_key": key,
+                    "wrong_reuse": hit and outcome in ("failure", "cancelled")})
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -246,12 +312,40 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--base", default="")
     r.add_argument("--exit", type=int, default=0)
     r.add_argument("--out", type=Path, required=True)
+    jobs = sorted({spec["job"] for spec in CHECKS.values() if spec.get("job")})
+    sk = sub.add_parser("step-keys")
+    sk.add_argument("job", choices=jobs)
+    sk.add_argument("--output", type=Path, help="append STEP=input_key lines to this file (GITHUB_OUTPUT)")
+    sv = sub.add_parser("step-verdicts")
+    sv.add_argument("job", choices=jobs)
+    sv.add_argument("--output", type=Path, help="append any_would_skip= to this file (GITHUB_OUTPUT)")
+    sv.add_argument("--summary", type=Path, help="append the lines to this file (GITHUB_STEP_SUMMARY)")
     p = sub.add_parser("replay")
     p.add_argument("check", choices=sorted(CHECKS))
     p.add_argument("--since", required=True)
     p.add_argument("--ref", default="origin/feat-cmux-next")
     args = parser.parse_args(argv)
 
+    if args.cmd == "step-keys":
+        text = "".join(f"{step}={key}\n" for step, key in step_keys(args.job).items())
+        sys.stdout.write(text)
+        if args.output:
+            with args.output.open("a", encoding="utf-8") as handle:
+                handle.write(text)
+        return 0
+    if args.cmd == "step-verdicts":
+        verdicts = step_verdicts(args.job, json.loads(os.environ.get("STEPS") or "{}"))
+        lines = [f"{args.job} step={v['step']} would_skip={str(v['would_skip']).lower()} run={v['run']} "
+                 f"wrong_reuse={str(v['wrong_reuse']).lower()} input_key={v['input_key']}" for v in verdicts]
+        for line in lines:
+            print(f"::notice title=ci-receipt shadow (step receipt)::{line}")
+        if args.summary and lines:
+            with args.summary.open("a", encoding="utf-8") as handle:
+                handle.write("".join(f"ci-receipt shadow: {line}\n" for line in lines))
+        if args.output:
+            with args.output.open("a", encoding="utf-8") as handle:
+                handle.write(f"any_would_skip={str(any(v['would_skip'] for v in verdicts)).lower()}\n")
+        return 0
     if args.cmd == "replay":
         rows = load_inputs(args.check)
         units = sorted({unit for unit, _, _ in rows if unit != "*"})
