@@ -2,6 +2,7 @@
 import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -142,6 +143,9 @@ public final class NotificationRouter {
     /// The route was opened (or settled for the Feed).
     func opened() {
         set(nil)
+        #if DEBUG
+        OpenMarks.shared?.note("route_opened")
+        #endif
     }
 
     /// The person went to another screen while a route waited: it is dropped.
@@ -284,6 +288,12 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     /// NotificationDelegateThreadTests fails if the handler leaves the main thread.
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                                    withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+        #if DEBUG
+        // The probe's trigger (OpenMarks, LaunchTTIOpenPathsUITests): the tap reached the app.
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            Task { @MainActor in OpenMarks.shared?.begin("notification_tap") }
+        }
+        #endif
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
