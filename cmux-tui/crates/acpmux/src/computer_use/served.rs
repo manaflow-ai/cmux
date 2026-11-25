@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use anyhow::{Result, anyhow};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::client::{Caller, DAEMON_SOCKET_ENV, SocketDaemon};
 use super::mcp::{LABEL_ENV, SERVER_NAME, SESSION_ENV, WORKSPACE_ENV};
@@ -160,6 +160,7 @@ pub(crate) fn has(session: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn env(session: &str) -> HashMap<String, String> {
         HashMap::from([
