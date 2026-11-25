@@ -29,6 +29,23 @@ fn the_summary_names_the_step_at_work_and_the_one_after_it() {
 }
 
 #[test]
+fn summary_names_a_multi_line_step_by_its_first_line() {
+    let list = TaskList {
+        items: vec![
+            item("\n  Restart the relay  \nthen read its log for the 403s", TaskStatus::InProgress),
+            item("Rerun the lane\nfrom its last green head", TaskStatus::Pending),
+        ],
+        source: TaskListSource::Harness,
+        updated_at: 7,
+        turn: 1,
+    };
+    let s = list.summary();
+    assert_eq!(s.current.as_deref(), Some("Restart the relay"));
+    assert_eq!(s.next.as_deref(), Some("Rerun the lane"));
+    assert!(s.items[0].content.contains("403s"), "the whole step stays in items");
+}
+
+#[test]
 fn a_plan_is_read_leniently_and_a_set_strictly() {
     let plan = json!({"entries": [
         {"content": "  one  ", "status": "completed"},
