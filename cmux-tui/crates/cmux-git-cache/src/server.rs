@@ -572,12 +572,15 @@ async fn upload_pack(
     }
     let dir = state.mirrors.dir(&state.cfg.tenant, &key);
     let upstream_url = route.url(state.base(route, &caller), "");
+    if pkt::filtered(&decoded) {
+        Mirrors::mark_partial_only(&dir);
+    }
     let mut held = state
         .mirrors
         .ensure(&dir, &upstream_url, &state.peer_urls(route), auth.as_deref(), &wants)
         .await;
     let mut keeper = None;
-    if !held {
+    if !held && !Mirrors::partial_only(&dir) {
         // One clone at a time writes upstream's pack into the mirror; the others wait for it
         // and are then served here instead of downloading the same pack again.
         keeper = pkt::whole_clone(&decoded, v2).then(|| state.mirrors.try_keep(&dir)).flatten();

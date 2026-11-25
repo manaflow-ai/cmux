@@ -115,6 +115,13 @@ pub fn whole_clone(body: &[u8], v2: bool) -> bool {
     !partial && sideband_pack(body, v2)
 }
 
+/// Whether this fetch asks a partial clone (`filter ...`, as `git clone --filter=blob:none` does).
+pub fn filtered(body: &[u8]) -> bool {
+    parse(body).is_some_and(|pkts| {
+        pkts.iter().any(|p| matches!(p, Pkt::Data(d) if line(d).starts_with(b"filter ")))
+    })
+}
+
 /// Pulls the pack out of an upload-pack answer as it streams by: the pkt-lines before the
 /// pack (v0 `NAK`/`ACK`, v2 `acknowledgments`/`shallow-info` and the `packfile` header) are
 /// skipped, then band 1 is the pack, band 2 progress and band 3 an error.
@@ -310,6 +317,22 @@ mod tests {
         ] {
             assert!(!whole_clone(v2(&encode(&partial)).as_bytes(), true), "{partial}");
         }
+    }
+
+    #[test]
+    fn filtered_only_with_a_filter_line() {
+        let req = |extra: &str| {
+            format!(
+                "{}0001{}{}{}0000",
+                encode("command=fetch\n"),
+                encode(&format!("want {A}\n")),
+                extra,
+                encode("done\n")
+            )
+        };
+        assert!(filtered(req(&encode("filter blob:none\n")).as_bytes()));
+        assert!(!filtered(req("").as_bytes()));
+        assert!(!filtered(req(&encode(&format!("have {B}\n"))).as_bytes()));
     }
 
     fn band(n: u8, data: &[u8]) -> Vec<u8> {

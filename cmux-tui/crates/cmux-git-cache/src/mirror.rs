@@ -229,6 +229,12 @@ const NO_ROOM_RETRY: Duration = Duration::from_secs(6 * 60 * 60);
 /// The marker a finished full fill leaves in a mirror: from then on a missing want is a short
 /// incremental fetch away, so it is fetched before the clone is served.
 const FILLED: &str = "cmux-filled";
+/// The marker a mirror gets when this machine clones its repository partially (`--filter`): such
+/// a machine keeps only its own partial copy, so the cache keeps no pack and starts no full fill of
+/// that repository (manaflow-ai/cmux's full mirror is about 11 GiB; a Cloud machine's disk is
+/// 20 GiB, Leo 2026-11-25: "isn't 20gb a bit... too limited?"). It answers from a full mirror
+/// it already has, and from peers; everything else goes to upstream.
+const PARTIAL_ONLY: &str = "cmux-partial-only";
 /// One background full fill's bound; a fill cut here leaves what it already kept, and the next
 /// miss after `FILL_RETRY` starts another from there.
 const FILL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -300,6 +306,23 @@ impl Mirrors {
 
     pub fn filled(dir: &Path) -> bool {
         dir.join(FILLED).is_file()
+    }
+
+    /// Whether this machine clones the repository partially (`PARTIAL_ONLY`).
+    pub fn partial_only(dir: &Path) -> bool {
+        dir.join(PARTIAL_ONLY).is_file()
+    }
+
+    /// Marks the repository partial-only here (`PARTIAL_ONLY`); a filled mirror is left as it is.
+    pub fn mark_partial_only(dir: &Path) {
+        if Self::filled(dir) || Self::partial_only(dir) {
+            return;
+        }
+        if std::fs::create_dir_all(dir).is_ok()
+            && std::fs::write(dir.join(PARTIAL_ONLY), b"").is_ok()
+        {
+            eprintln!("git-cache: {} is cloned partially here: no full mirror kept", dir.display());
+        }
     }
 
     async fn init(dir: &Path) -> bool {
@@ -508,6 +531,9 @@ impl Mirrors {
     /// already kept or fetched, so a cut fill's next start fetches only what is still missing.
     /// The clone that asked never waits on it.
     pub fn fill_later(&self, dir: PathBuf, upstream_url: String, authorization: Option<Vec<u8>>) {
+        if Self::partial_only(&dir) {
+            return;
+        }
         let now = std::time::Instant::now();
         {
             let mut fills = self.fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -615,6 +641,28 @@ mod tests {
         assert_ne!(m.dir("team-1", "o/r"), m.dir("team-2", "o/r"));
         let odd = m.dir("../x", "o/r");
         assert!(odd.starts_with("/c/") && !odd.to_string_lossy().contains(".."));
+    }
+
+    #[tokio::test]
+    async fn a_partially_cloned_repository_is_never_filled() {
+        let root = tempfile::tempdir().unwrap();
+        let m = Mirrors::new(root.path().to_owned());
+        let dir = m.dir("machine", "manaflow-ai/cmux");
+        Mirrors::mark_partial_only(&dir);
+        assert!(Mirrors::partial_only(&dir));
+        m.fill_later(dir.clone(), "http://127.0.0.1:9/never".to_owned(), None);
+        assert!(!m.filling(&dir), "a partial-only repository started a full fill");
+        assert!(!dir.join("objects").exists(), "a partial-only repository got a mirror");
+    }
+
+    #[test]
+    fn a_filled_mirror_is_not_marked_partial_only() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("r.git");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILLED), b"").unwrap();
+        Mirrors::mark_partial_only(&dir);
+        assert!(!Mirrors::partial_only(&dir));
     }
 
     #[test]
