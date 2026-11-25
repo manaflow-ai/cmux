@@ -33,7 +33,10 @@ extension ExternalOpenRouter {
     }
 
     nonisolated struct RouteRequest: Encodable, Sendable {
-        var link: Link, file: File?, linkScheme: String?, mode: String
+        var link: Link
+        var file: File?
+        var linkScheme: String?
+        var mode: String
     }
 
     /// Where the link goes (Rust `Route`); the URL itself comes from the request.
@@ -60,7 +63,8 @@ extension ExternalOpenRouter {
 
     nonisolated struct SignInCallback: Encodable, Sendable {
         nonisolated struct Reply: Decodable, Sendable { var callback: Bool }
-        var host: String?, path: String
+        var host: String?
+        var path: String
     }
 }
 
