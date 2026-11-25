@@ -504,6 +504,16 @@
   max-height: min(132px, calc(var(--available-height, 100vh) / 2));
 }
 .acpmux-quick-placement-top .acpmux-quick-rail-tab { max-width: 100%; }
+/* A harness tab dragged along the rail (railReorder.ts), as in the columns menu: it rides above the
+   others, which slide aside; Starred never moves. With reduced motion they jump. */
+.acpmux-quick-rail[data-reordering],
+.acpmux-quick-rail[data-reordering] .acpmux-quick-rail-tab { cursor: grabbing; }
+.acpmux-quick-rail-tab[data-lifted] { position: relative; z-index: 1; background: var(--acpmux-menu-hover); color: var(--agent-text); }
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-quick-rail[data-reordering] .acpmux-quick-rail-tab[data-movable]:not([data-lifted]) {
+    transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
+  }
+}
 .acpmux-quick-placement-top .acpmux-quick-body { flex-basis: auto; }
 /* The default: harness symbols in a row across the top, each name on hover (Leo 2026-10-30: "we
    had a pretty good thing going with teh symbols of the harneses at the top"). A harness with no

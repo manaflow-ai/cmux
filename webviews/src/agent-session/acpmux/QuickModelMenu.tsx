@@ -46,6 +46,8 @@ import {
   heldTab,
   type UsedLook,
 } from "./quickModelMenuModel";
+import { movedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
+import { startRailDrag } from "./railReorder";
 /// How many models (the tab's rows and More models) make a list long enough for the `long`
 /// version's search field.
 const LONG_LIST = 8;
@@ -295,7 +297,27 @@ export function QuickModelMenu({
     return families.list.filter((family) => matched.has(groupKey(family)));
   }, [families, groups]);
   // One tab per model family; its routes are an Account choice, never tabs of their own.
-  const tabs = useMemo(() => familyTabs(railTabs), [railTabs]);
+  // The person's tab order (modelPickerOrder.ts): Starred first, then theirs, then the rest.
+  const order = useModelPickerOrder();
+  const tabs = useMemo(
+    () =>
+      orderTabs(
+        familyTabs(railTabs).map((tab) => ({ ...tab, starred: tab.routes.some((route) => route.starred) })),
+        order,
+      ),
+    [railTabs, order],
+  );
+  /// A drag dropped the tab `key` at `to` among the movable tabs: that is the order now.
+  const dropTab = (key: string, to: number) =>
+    setModelPickerOrder(
+      movedOrder(
+        tabs.filter((tab) => !tab.starred).map((tab) => tab.key),
+        key,
+        to,
+      ),
+    );
+  // The rail runs left to right as a row of symbols or a top strip, else top to bottom.
+  const railAxis = placement === "symbols" || placement === "top" ? "x" : "y";
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
   const routes = shownTab && !shownTab.routes[0]?.starred ? shownTab.routes : [];
   // Rows whose name and detail read the same within one harness also show their model id.
@@ -1182,6 +1204,10 @@ export function QuickModelMenu({
                       className="acpmux-quick-rail-tab"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
                       tabIndex={-1}
+                      // Every harness tab moves along the rail; Starred stays first (railReorder.ts).
+                      data-tab-key={entry.key}
+                      data-movable={entry.starred ? undefined : ""}
+                      onPointerDown={entry.starred ? undefined : (event) => startRailDrag(event, railAxis, dropTab)}
                       onClick={() => {
                         if (entry.routes.length === 1 && family.launch && !family.note) {
                           onOpenChange(false);

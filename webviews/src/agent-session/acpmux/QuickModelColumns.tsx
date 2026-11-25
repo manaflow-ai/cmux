@@ -32,6 +32,8 @@ import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
+import { movedOrder, orderTabs, setModelPickerOrder, useModelPickerOrder } from "./modelPickerOrder";
+import { startRailDrag } from "./railReorder";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { startPopupResize, type PopupResizeAxes } from "../../ui/popupResizeDrag";
 import {
@@ -589,7 +591,25 @@ function Columns({
     return () => observer.disconnect();
   }, [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
-  const tabs = useMemo(() => familyTabs(list), [list]);
+  // The person's tab order (modelPickerOrder.ts): Starred first, then theirs, then the rest.
+  const order = useModelPickerOrder();
+  const tabs = useMemo(
+    () =>
+      orderTabs(
+        familyTabs(list).map((tab) => ({ ...tab, starred: tab.routes.some((route) => route.starred) })),
+        order,
+      ),
+    [list, order],
+  );
+  /// A drag dropped the tab `key` at `to` among the movable tabs: that is the order now.
+  const dropTab = (key: string, to: number) =>
+    setModelPickerOrder(
+      movedOrder(
+        tabs.filter((tab) => !tab.starred).map((tab) => tab.key),
+        key,
+        to,
+      ),
+    );
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groups = useMemo(
@@ -1719,6 +1739,10 @@ function Columns({
                       className="acpmux-cols-tab"
                       data-hl={selected ? "" : undefined}
                       data-off={family.setUp ? "" : undefined}
+                      // Every harness tab moves along the rail; Starred stays first (railReorder.ts).
+                      data-tab-key={entry.key}
+                      data-movable={entry.starred ? undefined : ""}
+                      onPointerDown={entry.starred ? undefined : (event) => startRailDrag(event, "y", dropTab)}
                       onPick={() => {
                         setCol(1);
                         showTab(index);

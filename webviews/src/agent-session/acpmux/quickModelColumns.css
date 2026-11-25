@@ -379,6 +379,22 @@
   background: var(--agent-muted);
 }
 
+/* A harness tab dragged along the rail (railReorder.ts): it follows the pointer above the others,
+   which slide aside on the standard clock; Starred never moves. With reduced motion they jump. */
+.acpmux-cols-rail[data-reordering] { cursor: grabbing; }
+.acpmux-cols-rail[data-reordering] .acpmux-cols-tab { cursor: grabbing; }
+.acpmux-cols-tab[data-lifted] {
+  position: relative;
+  z-index: 1;
+  background: var(--ds-surface-inset);
+  color: var(--agent-text);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-cols-rail[data-reordering] .acpmux-cols-tab[data-movable]:not([data-lifted]) {
+    transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
+  }
+}
+
 /* Rows */
 .acpmux-cols-row {
   display: flex;
