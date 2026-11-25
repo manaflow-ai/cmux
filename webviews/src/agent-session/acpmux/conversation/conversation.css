@@ -4394,7 +4394,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   width: var(--cv-chevron-glyph);
   height: var(--cv-chevron-glyph);
 }
-.acpmux-row :is(.cv-tool__chevron, .cv-worked__chevron, .cv-disclosure__toggle:not(.is-chevron) > .cv-rotor) {
+.acpmux-row :is(.cv-disclosure-chevron, .cv-tool__chevron, .cv-worked__chevron, .cv-disclosure__toggle:not(.is-chevron) > .cv-rotor) {
   flex: none;
   width: var(--cv-chevron-glyph);
   height: var(--cv-chevron-glyph);

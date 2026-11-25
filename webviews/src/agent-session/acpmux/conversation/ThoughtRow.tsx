@@ -2,7 +2,7 @@ import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
-import { Brain, ChevronRight } from "./icons";
+import { Brain } from "./icons";
 import { playResize } from "./fold";
 import { useAnchoredCollapse, type AnchoredCollapse } from "./useAnchoredCollapse";
 import { useTranscriptViewContext } from "./transcriptDisclosureModel";
@@ -10,6 +10,7 @@ import { formatDuration } from "./turns";
 import { isQuietThought, thoughtDuration, thoughtParts } from "./thoughts";
 import { THOUGHT_LIVE_PX, thoughtHead, thoughtLayout, thoughtName } from "./thoughtRowModel";
 import { thoughtChoices } from "./thoughtChoices";
+import { DisclosureChevron } from "./DisclosureChevron";
 /// The reader's open or closed, by thought, so a row the transcript unmounts and mounts again keeps it.
 const choices = thoughtChoices;
 
@@ -132,7 +133,7 @@ function FoldedThought({
         <span ref={line} className={lineClass} dir="auto">
           {words}
         </span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
         {meta}
       </button>
       {fold.present && head.rest && (

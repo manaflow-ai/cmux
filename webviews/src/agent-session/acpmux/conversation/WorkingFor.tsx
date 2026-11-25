@@ -18,7 +18,8 @@ import { useContext, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { TerminalSquare } from "./icons";
+import { DisclosureChevron } from "./DisclosureChevron";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel } from "./TurnTokens";
@@ -99,7 +100,10 @@ export function WorkingFor({
             <TimedLabel
               text={(time) => t("turn.working", { time })}
               time={Math.max(0, until - row.at)}
-              ticking={!held}
+              // A chevron follows the words over the work: a clock that held the minutes' width would
+              // park it a gap away from them (Leo, 2026-11-25: "chevron spacing bad"). The line's
+              // tabular numerals keep each tick in place; only a new unit moves it.
+              ticking={!held && row.below === true}
             />
           )}
         </span>
@@ -115,7 +119,7 @@ export function WorkingFor({
       {toggles ? (
         <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
           {label}
-          <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+          <DisclosureChevron open={expanded} look="worked" />
         </button>
       ) : (
         label
@@ -135,8 +139,9 @@ export function WorkingFor({
       {!waiting && row.doingCommand && !row.doingDraft && <BackgroundHint key={row.doing} />}
       {/* Over the work it is the turn's header in its running phase (turns.ts `turnHeaderId`): the
           ended "Worked for"'s chevron has its slot already, right after the words as it draws
-          there, unseen until the turn ends and the line opens what it folded. */}
-      {!row.below && <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" aria-hidden="true" />}
+          there, unseen until the turn ends and the line opens what it folded. A line that toggles
+          already draws it in its button. */}
+      {!row.below && !toggles && <DisclosureChevron open={false} look="worked" reserved />}
     </div>
   );
 }
