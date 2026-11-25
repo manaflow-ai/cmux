@@ -399,8 +399,9 @@ async fn read_first_line<R: AsyncRead + Unpin>(client: &mut R) -> Option<Vec<u8>
             if n == 0 {
                 return (!got.is_empty()).then_some(got);
             }
-            got.extend_from_slice(&chunk[..n]);
-            if chunk[..n].contains(&b'\n') || got.len() >= FIRST_LINE_MAX {
+            let fresh = chunk.get(..n).unwrap_or_default();
+            got.extend_from_slice(fresh);
+            if fresh.contains(&b'\n') || got.len() >= FIRST_LINE_MAX {
                 return Some(got);
             }
         }
@@ -417,8 +418,8 @@ where
     C: AsyncRead + AsyncWrite + Unpin,
 {
     let Some(first) = read_first_line(&mut client).await else { return };
-    let end = first.iter().position(|b| *b == b'\n').unwrap_or(first.len());
-    let Classified { cost, lane } = classify(&first[..end]);
+    let line = first.split(|b| *b == b'\n').next().unwrap_or_default();
+    let Classified { cost, lane } = classify(line);
     let _admitted = match budget.admit(&machine, &lane, cost, Instant::now()) {
         Ok(admitted) => admitted,
         Err(busy) => {
