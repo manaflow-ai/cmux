@@ -369,6 +369,35 @@ import UIKit
 /// reconfigures only rows in both snapshots. Found by `chat_scroll_fill_ui`.
 @MainActor
 @Suite struct HeldOlderPageTests {
+    @Test func anOlderPageKeepsTheReaderAnchoredBelowTheHeader() {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.earlierHistory(true))
+        store.apply(.batch((10..<40).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+
+        let scroll = list.collectionView
+        scroll.contentOffset.y = max(-scroll.adjustedContentInset.top,
+                                     scroll.contentSize.height - scroll.bounds.height - 240)
+        scroll.layoutIfNeeded()
+        let visibleTop = scroll.contentOffset.y + scroll.adjustedContentInset.top
+        guard let anchor = list.layout.firstRow(below: visibleTop),
+              let anchorBefore = list.layout.top(of: anchor.id) else {
+            Issue.record("the reader did not have an anchor below the transcript header")
+            return
+        }
+
+        store.apply(.earlierPage((0..<10).flatMap { SmoothChatTests.turn($0) }, hasEarlier: false))
+        list.reload()
+        scroll.layoutIfNeeded()
+
+        #expect(abs((list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - anchorBefore) < 1,
+                "loading older history moved the row under the reader")
+    }
+
     @Test func anOlderPageHeldForLayoutTakesSessionStartWithoutATrap() {
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         store.nextFrame = nil

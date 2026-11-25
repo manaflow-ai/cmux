@@ -246,6 +246,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        let ground = look?.groundColor ?? .cmuxMobileBackground
+        if topShelf.backgroundColor != ground { topShelf.backgroundColor = ground }
         topFade.ground = look?.groundColor
     }
 
@@ -283,18 +285,21 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
-        if placement == .external {
-            topShelf.isUserInteractionEnabled = false
-            view.addSubview(topShelf)
-            let topEdge = UIScrollEdgeElementContainerInteraction()
-            topEdge.scrollView = scrollView
-            topEdge.edge = .top
-            topShelf.addInteraction(topEdge)
-            if #unavailable(iOS 27) {
-                topFade.isUserInteractionEnabled = false
-                topFade.isAccessibilityElement = false
-                view.addSubview(topFade)
-            }
+        // Both pushed and workspace chats need a host for the native top edge. The pushed
+        // controller still reports the navigation bar in `headerBottom`, but without this
+        // host its clear transcript exposed the window's black safe-area background.
+        topShelf.isUserInteractionEnabled = false
+        topShelf.isAccessibilityElement = false
+        topShelf.accessibilityIdentifier = "agentChat.topChrome"
+        view.addSubview(topShelf)
+        let topEdge = UIScrollEdgeElementContainerInteraction()
+        topEdge.scrollView = scrollView
+        topEdge.edge = .top
+        topShelf.addInteraction(topEdge)
+        if #unavailable(iOS 27) {
+            topFade.isUserInteractionEnabled = false
+            topFade.isAccessibilityElement = false
+            view.addSubview(topFade)
         }
         bottomShelf.isUserInteractionEnabled = false
         bottomShelf.isAccessibilityElement = false
@@ -471,11 +476,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
-        if placement == .external {
-            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
-            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
-            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
-        }
+        let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+        if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+        if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         // The stack's top as drawn this frame (its height can lead the guide's) to the bottom.
         let stackTop = min(dockGuide.layoutFrame.minY, dockGuide.layoutFrame.maxY - stackHeight)
         let shelfFrame = CGRect(x: 0, y: stackTop, width: view.bounds.width, height: max(0, view.bounds.maxY - stackTop))

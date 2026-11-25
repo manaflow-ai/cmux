@@ -11,6 +11,28 @@ import CmuxMobileSupport
 /// (`MobileKeyboardFrameTracker.dropKeyboardWithoutOwner`).
 @MainActor
 @Suite(.serialized) struct ChatKeyboardReconcileTests {
+    @Test func anOwnedChatGetsThemedTopChrome() throws {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        let surface = AgentChatSurface()
+        let controller = ChatTranscriptController(
+            placement: .owned, surface: surface, store: store,
+            empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil
+        )
+        controller.topInset = 44
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+
+        controller.applyChatLook(nil)
+        controller.view.layoutIfNeeded()
+
+        let chrome = try #require(controller.view.subviews.first { $0.accessibilityIdentifier == "agentChat.topChrome" })
+        #expect(chrome.frame.height >= 44, "owned chat top chrome must cover its header: \(chrome.frame)")
+        #expect(chrome.backgroundColor?.resolvedColor(with: controller.traitCollection)
+            == UIColor.cmuxMobileBackground.resolvedColor(with: controller.traitCollection))
+    }
+
     @Test func aDetachedHideReturnsTheChatDockToTheBottom() throws {
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
