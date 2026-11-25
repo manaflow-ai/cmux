@@ -34,19 +34,45 @@ public enum CloudChatList {
         }
     }
 
+    /// The small, display-only part of a session row safe to keep in the phone cache.
+    public struct CachedRow: Codable, Equatable, Identifiable, Sendable {
+        public let id: String
+        public let displayName: String
+        public let lastPrompt: String?
+
+        public init(_ session: AcpmuxSession) {
+            id = session.id
+            displayName = session.displayName
+            lastPrompt = session.lastPrompt.map { String($0.prefix(300)) }
+        }
+    }
+
+    public struct CachedPage: Codable, Equatable, Sendable {
+        public let rows: [CachedRow]
+        public let hasOlder: Bool
+
+        public init(rows: [CachedRow], hasOlder: Bool) {
+            self.rows = rows
+            self.hasOlder = hasOlder
+        }
+    }
+
     /// The params of a list read of the first `shown` chats.
     nonisolated static func params(shown: Int) -> JSONValue {
-        .object(["localOnly": .bool(true), "topLevelOnly": .bool(true), "limit": .number(Double(max(shown, 1)))])
+        .object(["localOnly": .bool(true), "topLevelOnly": .bool(true),
+                 "limit": .number(Double(max(shown, 1)))])
     }
 
     /// Reads the first `shown` of this machine's chats from its acpmux.
     @MainActor public static func newest(_ hub: AcpmuxHub, shown: Int) async throws -> Listed {
-        listed(try await hub.request("_acpmux/sessions", params(shown: shown), timeout: .seconds(20)))
+        try listed(await hub.request("_acpmux/sessions", params(shown: shown), timeout: .seconds(20)))
     }
 
     /// A `_acpmux/sessions` reply as the list, in the order it came.
-    nonisolated static func listed(_ reply: JSONValue) -> Listed {
-        let rows = (reply["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)
+    nonisolated static func listed(_ reply: JSONValue) throws -> Listed {
+        guard let entries = reply["sessions"]?.arrayValue else { throw CocoaError(.coderReadCorrupt) }
+        let rows = entries.compactMap(AcpmuxSession.init)
+        guard rows.count == entries.count else { throw CocoaError(.coderReadCorrupt) }
         var listed = Listed(ids: rows.map(\.id), hasOlder: reply["nextCursor"]?.stringValue != nil)
         listed.rows = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return listed

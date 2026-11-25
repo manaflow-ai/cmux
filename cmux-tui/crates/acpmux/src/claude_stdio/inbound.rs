@@ -298,30 +298,48 @@ impl Translator {
                         if (name == "Bash" || monitor)
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
-                            let command =
-                                input.get("command").and_then(Value::as_str).unwrap_or("");
-                            let shell = BackgroundShell {
-                                sid: sid.clone(),
-                                command: command.to_owned(),
-                                description: input
-                                    .get("description")
-                                    .and_then(Value::as_str)
-                                    .map(str::trim)
-                                    .filter(|d| !d.is_empty())
-                                    .map(str::to_owned),
-                                task: None,
-                                background: monitor
-                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
-                                launched: monitor
-                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
-                                asked: false,
-                                announced: false,
-                                output: None,
-                                workflow_owned: false,
-                                workflow_agent: None,
-                                owner_tries: 0,
-                            };
-                            self.background_shells.lock().await.insert(id.to_owned(), shell);
+                            let background = monitor
+                                || input.get("run_in_background") == Some(&Value::Bool(true));
+                            let mut shells = self.background_shells.lock().await;
+                            let shell =
+                                shells.entry(id.to_owned()).or_insert_with(|| BackgroundShell {
+                                    sid: sid.clone(),
+                                    command: String::new(),
+                                    description: None,
+                                    task: None,
+                                    background,
+                                    launched: background,
+                                    asked: false,
+                                    announced: false,
+                                    output: None,
+                                    workflow_owned: false,
+                                    workflow_agent: None,
+                                    owner_tries: 0,
+                                });
+                            // A task event may already have supplied the task id and description.
+                            let late_command = shell.announced && shell.command.is_empty();
+                            if let Some(command) = input.get("command").and_then(Value::as_str) {
+                                shell.command = command.to_owned();
+                                // task_started sometimes uses the command itself as its description.
+                                if shell.description.as_deref() == Some(command.trim()) {
+                                    shell.description = None;
+                                }
+                            }
+                            if let Some(description) = input
+                                .get("description")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|d| !d.is_empty())
+                            {
+                                shell.description = Some(description.to_owned());
+                            }
+                            shell.background |= background;
+                            shell.launched |= background;
+                            if late_command && !shell.command.is_empty() {
+                                let mut update = background_task_update(id, shell, "running");
+                                update.set("origin", json!(origin(shell)));
+                                out.push(shell_update(shell, update));
+                            }
                         }
                         // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
                         if parent.is_none()
@@ -413,6 +431,21 @@ impl Translator {
             {
                 if !compaction_fenced && let Some(text) = compaction_summary_text(line) {
                     out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
+                }
+            }
+            // A Stop hook that blocked the stop: Claude Code writes its reason as a synthetic user
+            // line, `Stop hook feedback:\n<reason>`, and the agent goes on. The chat draws it as one
+            // quiet line, so what the agent writes next reads as the hook's doing, not the agent
+            // saying it again (Leo, 2026-11-22: "i assume you got re-prompted here. i thought we
+            // removed those. you also basically said the same thing, so there didnt seem to be a
+            // point to that. if you did get hooked, i think it should get displayed better.").
+            "user"
+                if parent.is_none()
+                    && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && stop_hook_feedback(line).is_some() =>
+            {
+                if let Some(reason) = stop_hook_feedback(line) {
+                    out.push(upd(json!({"sessionUpdate": "stop_hook_feedback", "text": reason})));
                 }
             }
             "user" => {
@@ -597,10 +630,10 @@ impl Translator {
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(dedupe::DEDUPE_CALLBACK) =>
                     {
-                        self.dedupe_hook(&rid, &req).await;
+                        self.dedupe_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
@@ -1332,6 +1365,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
         _ => return None,
     };
     (!text.trim().is_empty()).then_some(text)
+}
+
+/// The reason of a Stop hook's block, from the synthetic user line Claude Code writes for it
+/// (`Stop hook feedback:\n<reason>`); None for any other line, and for a head with no reason.
+pub(super) fn stop_hook_feedback(line: &Value) -> Option<String> {
+    const HEAD: &str = "Stop hook feedback:";
+    let text = compaction_summary_text(line)?;
+    let reason = text.trim_start().strip_prefix(HEAD)?.trim();
+    (!reason.is_empty()).then(|| reason.to_owned())
 }
 
 /// The output file a background Bash launch's result names ("… Output is

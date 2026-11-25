@@ -9,12 +9,12 @@
 //! `PAGER=cat` (output is shown as text, and no pager waits for keys). The same rules as the
 //! app's own runner (`AgentPaneShell.swift`):
 //!
-//! - Bounded: at most [`MAX_RUNNING`] commands run per scope (one chat pane) and
-//!   [`MAX_RUNNING_TOTAL`] on the daemon; each keeps the last [`MAX_BUFFER`] bytes of output;
-//!   finished runs past [`MAX_KEPT`] per scope (or [`MAX_KEPT_TOTAL`] in all) are dropped oldest
-//!   first. A read answers at most [`MAX_READ`] bytes.
+//! - No count of running commands or waiting reads is refused: each costs the same, its process,
+//!   two pipes, two threads of [`THREAD_STACK_BYTES`] and the last [`MAX_BUFFER`] bytes of
+//!   output; finished runs past [`MAX_KEPT`] per scope (or [`MAX_KEPT_TOTAL`] in all) are dropped
+//!   oldest first. A read answers at most [`MAX_READ`] bytes.
 //! - A read is a long poll: it answers when there is output after `after` or the command ended,
-//!   else after [`READ_WAIT`]. At most [`MAX_WAITING_READS`] wait at once.
+//!   else after [`READ_WAIT`]. One that waits holds a thread of [`THREAD_STACK_BYTES`].
 //! - Stop is Ctrl-C: SIGINT to the group, then SIGTERM and SIGKILL [`STOP_ESCALATION`] apart to
 //!   what is left.
 //! - After the shell exits its pipe may drain for [`DRAIN_AFTER_EXIT`]; a background child that
@@ -37,14 +37,15 @@ use crate::panic_free::RecoverPoison;
 
 /// The capability `identify` advertises for `shell-run`, `shell-read` and `shell-stop`.
 pub(crate) const CAPABILITY: &str = "shell-runs-v1";
-pub(crate) const MAX_RUNNING: usize = 4;
-pub(crate) const MAX_RUNNING_TOTAL: usize = 16;
 pub(crate) const MAX_KEPT: usize = 16;
 pub(crate) const MAX_KEPT_TOTAL: usize = 64;
 pub(crate) const MAX_BUFFER: usize = 1 << 20;
 pub(crate) const MAX_READ: usize = 256 << 10;
 pub(crate) const READ_WAIT: Duration = Duration::from_secs(10);
-pub(crate) const MAX_WAITING_READS: usize = 32;
+/// The stack of each run's reader, exit waiter and Stop escalation, and of a read that waits:
+/// each blocks in one syscall or condvar wait (the reader's 64 KiB buffer is on the heap), so
+/// the default 2 MiB is reserve no run uses.
+pub(crate) const THREAD_STACK_BYTES: usize = 128 << 10;
 /// The longest command text and scope name a run takes.
 pub(crate) const MAX_COMMAND_BYTES: usize = 64 << 10;
 pub(crate) const MAX_SCOPE_BYTES: usize = 128;
@@ -55,7 +56,6 @@ const PIPE_READ_BYTES: usize = 64 << 10;
 /// Why a request did nothing. Answered to the app as its code (`as_str`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Refusal {
-    TooMany,
     FolderMissing,
     SpawnFailed,
     UnknownRun,
@@ -66,7 +66,6 @@ pub(crate) enum Refusal {
 impl Refusal {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::TooMany => "too_many",
             Self::FolderMissing => "folder_missing",
             Self::SpawnFailed => "spawn_failed",
             Self::UnknownRun => "unknown_run",
@@ -94,22 +93,10 @@ pub(crate) struct Chunk {
     pub(crate) exit: Option<Exit>,
 }
 
-/// What a read finds without waiting: the answer, or a permit to wait for one.
+/// What a read finds without waiting: the answer, or that it has to wait for one.
 pub(crate) enum ReadStart {
     Ready(Chunk),
-    Wait(WaitPermit),
-}
-
-/// One of [`MAX_WAITING_READS`]; returned when dropped.
-pub(crate) struct WaitPermit {
-    shared: Arc<Shared>,
-}
-
-impl Drop for WaitPermit {
-    fn drop(&mut self) {
-        let mut state = self.shared.state.lock().recover_poison();
-        state.waiting_reads = state.waiting_reads.saturating_sub(1);
-    }
+    Wait,
 }
 
 /// The shell, home folder and environment changes runs start with; tests choose them.
@@ -165,7 +152,6 @@ struct State {
     runs: HashMap<String, Run>,
     /// Ids oldest first.
     order: VecDeque<String>,
-    waiting_reads: usize,
 }
 
 struct Run {
@@ -238,16 +224,6 @@ impl ShellRuns {
         }
         let folder = self.folder(cwd).ok_or(Refusal::FolderMissing)?;
         let mut state = self.shared.state.lock().recover_poison();
-        let running = |scoped: bool| {
-            state
-                .runs
-                .values()
-                .filter(|run| run.exit.is_none() && (!scoped || run.scope == scope))
-                .count()
-        };
-        if running(true) >= MAX_RUNNING || running(false) >= MAX_RUNNING_TOTAL {
-            return Err(Refusal::TooMany);
-        }
         let id = match chosen {
             Some(id) if state.runs.contains_key(id) => return Err(Refusal::Invalid),
             Some(id) => id.to_owned(),
@@ -315,22 +291,26 @@ impl ShellRuns {
         let reader_id = id.to_owned();
         let reader = std::thread::Builder::new()
             .name("shell-run-output".into())
+            .stack_size(THREAD_STACK_BYTES)
             .spawn(move || read_output(&reader_shared, &reader_id, output, wake));
         if reader.is_err() {
             return false;
         }
         let waiter_shared = self.shared.clone();
         let waiter_id = id.to_owned();
-        let waiter = std::thread::Builder::new().name("shell-run-exit".into()).spawn(move || {
-            let exit = match child.wait() {
-                Ok(status) => {
-                    use std::os::unix::process::ExitStatusExt;
-                    Exit { code: status.code(), signal: status.signal() }
-                }
-                Err(_) => Exit::default(),
-            };
-            finish(&waiter_shared, &waiter_id, exit);
-        });
+        let waiter = std::thread::Builder::new()
+            .name("shell-run-exit".into())
+            .stack_size(THREAD_STACK_BYTES)
+            .spawn(move || {
+                let exit = match child.wait() {
+                    Ok(status) => {
+                        use std::os::unix::process::ExitStatusExt;
+                        Exit { code: status.code(), signal: status.signal() }
+                    }
+                    Err(_) => Exit::default(),
+                };
+                finish(&waiter_shared, &waiter_id, exit);
+            });
         if waiter.is_err() {
             // The reader ends once the group is killed and the pipe closes.
             return false;
@@ -338,28 +318,18 @@ impl ShellRuns {
         true
     }
 
-    /// Output after `after` now, or a permit to wait for some ([`Self::wait_read`]).
+    /// Output after `after` now, or `Wait` to wait for some ([`Self::wait_read`]).
     pub(crate) fn start_read(&self, id: &str, after: u64) -> Result<ReadStart, Refusal> {
-        let mut state = self.shared.state.lock().recover_poison();
+        let state = self.shared.state.lock().recover_poison();
         let run = state.runs.get(id).ok_or(Refusal::UnknownRun)?;
         if run.has_news(after) {
             return Ok(ReadStart::Ready(chunk(run, after)));
         }
-        if state.waiting_reads >= MAX_WAITING_READS {
-            return Err(Refusal::Busy);
-        }
-        state.waiting_reads += 1;
-        Ok(ReadStart::Wait(WaitPermit { shared: self.shared.clone() }))
+        Ok(ReadStart::Wait)
     }
 
     /// Output after `after`, waiting up to `wait` (at most [`READ_WAIT`]) for some.
-    pub(crate) fn wait_read(
-        &self,
-        _permit: &WaitPermit,
-        id: &str,
-        after: u64,
-        wait: Duration,
-    ) -> Result<Chunk, Refusal> {
+    pub(crate) fn wait_read(&self, id: &str, after: u64, wait: Duration) -> Result<Chunk, Refusal> {
         let deadline = Instant::now() + wait.min(READ_WAIT);
         let mut state = self.shared.state.lock().recover_poison();
         loop {
@@ -377,7 +347,7 @@ impl ShellRuns {
     pub(crate) fn read(&self, id: &str, after: u64, wait: Duration) -> Result<Chunk, Refusal> {
         match self.start_read(id, after)? {
             ReadStart::Ready(chunk) => Ok(chunk),
-            ReadStart::Wait(permit) => self.wait_read(&permit, id, after, wait),
+            ReadStart::Wait => self.wait_read(id, after, wait),
         }
     }
 
@@ -395,8 +365,10 @@ impl ShellRuns {
         drop(state);
         let shared = self.shared.clone();
         let id = id.to_owned();
-        let escalation =
-            std::thread::Builder::new().name("shell-run-stop".into()).spawn(move || {
+        let escalation = std::thread::Builder::new()
+            .name("shell-run-stop".into())
+            .stack_size(THREAD_STACK_BYTES)
+            .spawn(move || {
                 for signal in [libc::SIGTERM, libc::SIGKILL] {
                     let deadline = Instant::now() + STOP_ESCALATION;
                     let mut state = shared.state.lock().recover_poison();
@@ -469,7 +441,7 @@ fn signal_group(pgid: i32, signal: i32) {
 }
 
 /// Drops finished runs, oldest first, past the scope's and the daemon's caps. Running ones stay
-/// (their count is capped at the start).
+/// (each holds its process; it is dropped once it ended and is past the caps).
 fn evict(state: &mut State, scope: &str) {
     loop {
         let in_scope = state

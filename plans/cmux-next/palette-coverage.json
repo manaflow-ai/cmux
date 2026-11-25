@@ -1033,7 +1033,8 @@
       "reason": "keep: installs or inspects the managed Codex runtime for setup scripts"
     },
     {
-      "verb": "harness disable"
+      "verb": "harness disable",
+      "reason": "keep: withdraws a repo folder profile's confirmation for scripts and setup (`--folder DIR`); a confirmation already lapses on its own when the profile's bytes change, and the app asks again on the next run with its Enable harness sheet"
     },
     {
       "verb": "harness doctor",

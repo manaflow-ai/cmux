@@ -6,7 +6,8 @@
 // under its rule. The header opens the turn: the row under it opens nothing (model.ts
 // `opensBackgroundTurn`). The variants replay acpmux's events through the pane's own client
 // (fixtures/recording.ts), so they show what the code makes. Synthetic data.
-// test/agent-pane-background-turns.test.ts holds the gap at 0 in the model.
+// test/agent-pane-background-turns.test.ts holds the gap at 0 in the model;
+// test/worked-over-background-fixture.test.ts holds the notification to its notice line.
 import { agentPaneEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { chat } from "../../../gallery/fixtures/acpmux";
@@ -42,16 +43,18 @@ export function workedOverBackgroundEvents(): Event[] {
     say("Both runs are queued. I'll land it when they pass."),
     ["mux", "turn_result", { turnId: "t1", status: "completed" }],
     ["mux", "background_turn", { state: "started", id: "bg", trigger: "task_notification" }],
-    // Claude Code writes the notification itself: acpmux records it only for an adopted or watched
-    // chat (`client`), and the pane reads it as a notice line, never the person's bubble
-    // (incomingMessage.ts NOTIFICATION). Without `client` it drew as a raw bubble here only.
     [
       "mux",
       "user_message",
+      // As acpmux records it: a Claude Code notification it read back from the session's history
+      // (hub/native_history.rs, client `adopt`; a watched chat's is `watch`). Live, acpmux writes
+      // none (claude_stdio/inbound.rs drops the echo), and Claude Code's newer lines carry a
+      // non-human `origin` that adopt_replay.rs `from_person` skips. With no client it was the
+      // person's own bubble, raw tags and all, which no live path draws (incomingMessage.ts).
       {
         text: "<task-notification><summary>Background command finished</summary></task-notification>",
-        turnId: "t2",
         client: "adopt",
+        turnId: "t2",
       },
     ],
     ["mux", "turn_started", { turnId: "t2" }],

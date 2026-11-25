@@ -329,6 +329,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(steps[probe]["env"]["KEY"], key)
         self.assertEqual(steps[mark]["env"]["KEY"], key)
         split = workflow()["jobs"]["build-nightly-ghostty-cli-helper"]["steps"]
+        for install_steps in (steps, split):
+            install = next(s for s in install_steps if s.get("name") == "Install Zig")["run"]
+            cache = 'export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"'
+            self.assertLess(install.index(cache), install.index("./scripts/install-zig-ci.sh"))
+        self.assertGreater(int(self.job["env"]["ZIG_DOWNLOAD_BUDGET_SECONDS"]), 480)
         split_restore = next(s for s in split if s.get("name") == "Cache Zig packages")
         self.assertEqual(split_restore["with"], steps[restore]["with"])
         self.assertEqual(one_line(split_restore["if"]), "inputs.nightly_next_unsigned_run == ''")
