@@ -150,13 +150,16 @@ test("a chat on this Mac that cannot run on Cloud still lists the repositories w
   }
 });
 
-test("with Cloud picked the repository is still the Cloud start's folder, never this Mac's checkout", async () => {
+test("with Cloud picked a repository's pick is the Cloud start's folder, and this Mac's clone of one is its one row", async () => {
   const { picker } = store();
   const { root, picked, here } = await render({ runMode: { mode: "cloud", onMode: () => {} } }, picker);
   try {
     await openFolderMenu();
-    await press(option("acme/api")!);
-    expect(picked).toEqual(["github:acme/api"]);
+    // Cloud lists this Mac's folders too (cmux#53226): acme/api's clone is its row, never a second one.
+    expect(option("acme/api")).toBeUndefined();
+    expect(option("api")?.querySelector("[data-github]")).not.toBeNull();
+    await press(option("acme/web")!);
+    expect(picked).toEqual(["github:acme/web"]);
     expect(here).toEqual([]);
   } finally {
     await act(async () => root.unmount());

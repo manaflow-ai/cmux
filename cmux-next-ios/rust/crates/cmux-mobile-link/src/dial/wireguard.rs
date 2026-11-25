@@ -2628,10 +2628,28 @@ pub(super) fn dial_wireguard<'a>(
             relay,
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
+        options.timeline.mark("tunnel_started");
         tunnel.session.follow(events.session);
         let guard = Guard { session: Arc::clone(&tunnel.session) };
         let net = tunnel.session.net()?;
+        {
+            let net = Arc::clone(&net);
+            let timeline = options.timeline.clone();
+            tokio::spawn(async move {
+                for _ in 0..6000 {
+                    match net.time_since_last_handshake().await {
+                        Ok(Some(_)) => {
+                            timeline.mark("wg_handshake_done");
+                            return;
+                        }
+                        Ok(None) => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
+                        Err(_) => return,
+                    }
+                }
+            });
+        }
         tunnel.session.start_control(&net).await;
+        options.timeline.mark("wg_control");
         if turn_missed {
             tunnel.session.retry_missing_turn();
         }
@@ -2667,8 +2685,10 @@ pub(super) fn dial_wireguard<'a>(
         } else {
             None
         };
+        options.timeline.mark("wg_liveness");
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
+        options.timeline.mark("tunnel_tcp_connected");
         // The input lane: a second TCP stream to the same port, opened
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
