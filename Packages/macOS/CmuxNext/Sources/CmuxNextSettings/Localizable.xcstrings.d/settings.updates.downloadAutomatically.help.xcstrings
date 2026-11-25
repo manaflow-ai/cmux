@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.downloadAutomatically.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off: cmux asks before downloading. It always asks before restarting."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إيقاف: يسأل cmux قبل التنزيل. ويسأل دائمًا قبل إعادة التشغيل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Isključeno: cmux pita prije preuzimanja. Uvijek pita prije ponovnog pokretanja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra: cmux spørger, før den henter. Den spørger altid, før den genstarter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aus: cmux fragt vor dem Laden. Vor dem Neustart fragt es immer."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desactivado: cmux pregunta antes de descargar. Siempre pregunta antes de reiniciarse."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Désactivé : cmux demande avant de télécharger. Il demande toujours avant de redémarrer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disattivato: cmux chiede prima di scaricare. Chiede sempre prima di riavviarsi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "オフ：ダウンロードする前に確認します。再起動の前には常に確認します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ៖ cmux សួរមុនពេលទាញយក។ វាតែងតែសួរមុនពេលចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "끄면 다운로드하기 전에 묻습니다. 다시 시작하기 전에는 항상 묻습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Av: cmux spør før nedlasting. Den spør alltid før omstart."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wył.: cmux pyta przed pobraniem. Zawsze pyta przed ponownym uruchomieniem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desativado: o cmux pergunta antes de baixar. Ele sempre pergunta antes de reiniciar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выкл.: cmux спрашивает перед загрузкой. Перед перезапуском он спрашивает всегда."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิด: cmux จะถามก่อนดาวน์โหลด และจะถามก่อนรีสตาร์ทเสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapalı: cmux indirmeden önce sorar. Yeniden başlatmadan önce her zaman sorar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вимк.: cmux питає перед завантаженням. Перед перезапуском cmux питає завжди."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tắt: cmux hỏi trước khi tải xuống. cmux luôn hỏi trước khi khởi động lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭：cmux 在下载前询问。重新启动前始终会询问。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉：cmux 會在下載前詢問。重新啟動前一律會詢問。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
