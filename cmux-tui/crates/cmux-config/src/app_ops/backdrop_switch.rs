@@ -100,20 +100,27 @@ fn rotation(request: &Value) -> Result<Value, OpError> {
 fn location_of(request: &Value) -> Result<Option<Location>, OpError> {
     match request.get("location") {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(text)) => Location::parse(text).map(Some).ok_or_else(|| invalid("a `location` \"LAT,LON\"")),
+        Some(Value::String(text)) => {
+            Location::parse(text).map(Some).ok_or_else(|| invalid("a `location` \"LAT,LON\""))
+        }
         Some(_) => Err(invalid("a string `location`")),
     }
 }
 
 fn time_of_day(request: &Value) -> Result<Value, OpError> {
-    let members = request.get("entries").and_then(Value::as_object).ok_or_else(|| invalid("an object `entries`"))?;
+    let members = request
+        .get("entries")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("an object `entries`"))?;
     let mut pairs = Vec::new();
     for (key, value) in members {
         let Some(text) = value.as_str() else { return Ok(json!({"valid": false})) };
         pairs.push((key.as_str(), text));
     }
     pairs.sort();
-    let Some(schedule) = TimeOfDay::parse(pairs, schema::is_backdrop_picture) else { return Ok(json!({"valid": false})) };
+    let Some(schedule) = TimeOfDay::parse(pairs, schema::is_backdrop_picture) else {
+        return Ok(json!({"valid": false}));
+    };
     if schedule.entries.is_empty() {
         return Ok(json!({"valid": false}));
     }
@@ -125,7 +132,9 @@ fn time_of_day(request: &Value) -> Result<Value, OpError> {
 fn sun(request: &Value) -> Result<Value, OpError> {
     let location = location_of(request)?.ok_or_else(|| invalid("a `location`"))?;
     let position = location.sun_position(number(request, "now")?);
-    Ok(json!({"altitude": position.altitude, "azimuth": position.azimuth, "dark": position.is_dark()}))
+    Ok(
+        json!({"altitude": position.altitude, "azimuth": position.azimuth, "dark": position.is_dark()}),
+    )
 }
 
 fn sun_events(request: &Value) -> Result<Value, OpError> {
@@ -149,9 +158,11 @@ fn display_refresh(request: &Value) -> Result<Value, OpError> {
     if raw == "none" {
         return Ok(json!({"kind": "none"}));
     }
-    let rotation = rotation_of(at(root, &["appearance", "displayBackgroundRotations"]).and_then(|v| v.get(id)))
-        .or_else(|| rotation_of(at(root, &["appearance", "backgroundRotation"])))
-        .unwrap_or(Rotation::DEFAULT);
+    let rotation = rotation_of(
+        at(root, &["appearance", "displayBackgroundRotations"]).and_then(|v| v.get(id)),
+    )
+    .or_else(|| rotation_of(at(root, &["appearance", "backgroundRotation"])))
+    .unwrap_or(Rotation::DEFAULT);
     let (now, zone) = (number(request, "now")?, zone(request)?);
     let next = rotation.next_turn(now, zone);
     if let Some(path) = folder_path(raw) {
@@ -160,7 +171,9 @@ fn display_refresh(request: &Value) -> Result<Value, OpError> {
     }
     if raw == "daily" {
         let count = request.get("paintings").and_then(Value::as_u64).unwrap_or(0) as usize;
-        return Ok(json!({"kind": "daily", "index": rotation.index(count, now, zone), "wait": wait_after(next, now)}));
+        return Ok(
+            json!({"kind": "daily", "index": rotation.index(count, now, zone), "wait": wait_after(next, now)}),
+        );
     }
     if schema::is_backdrop_picture(raw) {
         Ok(json!({"kind": "pin", "id": raw}))
@@ -174,7 +187,9 @@ fn folder_pick(request: &Value) -> Result<Value, OpError> {
     let (now, zone) = (number(request, "now")?, zone(request)?);
     let count = request.get("count").and_then(Value::as_u64).unwrap_or(0) as usize;
     let next = rotation.next_turn(now, zone);
-    Ok(json!({"index": rotation.index(count, now, zone), "next_turn": next, "wait": wait_after(next, now)}))
+    Ok(
+        json!({"index": rotation.index(count, now, zone), "next_turn": next, "wait": wait_after(next, now)}),
+    )
 }
 
 fn rotation_choice(root: &Value) -> &'static str {
@@ -227,7 +242,8 @@ fn favorite_next(request: &Value) -> Result<Value, OpError> {
 
 fn favorite_rotated(request: &Value) -> Result<Value, OpError> {
     let root = request.get("root").ok_or_else(|| invalid("a `root`"))?;
-    let today = request.get("today").and_then(Value::as_str).ok_or_else(|| invalid("a string `today`"))?;
+    let today =
+        request.get("today").and_then(Value::as_str).ok_or_else(|| invalid("a string `today`"))?;
     let last_day = request.get("last_day").and_then(Value::as_str);
     match rotation_choice(root) {
         "off" => return Ok(json!({"next": null})),
@@ -235,7 +251,10 @@ fn favorite_rotated(request: &Value) -> Result<Value, OpError> {
         _ => {}
     }
     let current = at(root, &["appearance", "theme"]).and_then(Value::as_str);
-    if current.and_then(ThemeSpec::parse).is_some_and(|s| s.light != s.dark || current != Some(s.light.as_str())) {
+    if current
+        .and_then(ThemeSpec::parse)
+        .is_some_and(|s| s.light != s.dark || current != Some(s.light.as_str()))
+    {
         return Ok(json!({"next": null}));
     }
     Ok(json!({"next": next_after(current, &favorite_names(root))}))
@@ -264,7 +283,6 @@ fn title_area_contrast(request: &Value) -> Result<Value, OpError> {
     Ok(json!({"value": n.clamp(0.0, 2.0), "diagnostics": diagnostics}))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,7 +295,10 @@ mod tests {
     fn rotation_op_parses_and_turns() {
         assert_eq!(run("backdrop.rotation", json!({"rotation": "bogus"})), json!({}));
         assert_eq!(run("backdrop.rotation", json!({"rotation": 30.4}))["rotation"], "30");
-        let out = run("backdrop.rotation", json!({"rotation": "hourly", "now": 3_600.0 * 5.0 + 10.0, "count": 4}));
+        let out = run(
+            "backdrop.rotation",
+            json!({"rotation": "hourly", "now": 3_600.0 * 5.0 + 10.0, "count": 4}),
+        );
         assert_eq!(out["next_turn"], json!(3_600.0 * 6.0));
         assert_eq!(out["wait"], json!(3_600.0 - 10.0 + 1.0));
         assert_eq!(out["period"], 5);
@@ -288,7 +309,12 @@ mod tests {
         let root = json!({"appearance": {
             "displayBackgrounds": {"a": "none", "b": "daily", "c": "folder:/pics", "d": "file:/x.png", "e": "folder:rel"},
             "displayBackgroundRotations": {"c": "15m"}, "backgroundRotation": "hourly"}});
-        let go = |id: &str| run("backdrop.display_refresh", json!({"root": root, "display_id": id, "now": 1_000.0, "paintings": 150}));
+        let go = |id: &str| {
+            run(
+                "backdrop.display_refresh",
+                json!({"root": root, "display_id": id, "now": 1_000.0, "paintings": 150}),
+            )
+        };
         assert_eq!(go("a")["kind"], "none");
         assert_eq!(go("zz")["kind"], "inherit");
         assert_eq!(go("e")["kind"], "inherit");
@@ -297,36 +323,53 @@ mod tests {
         assert_eq!(daily["kind"], "daily");
         assert!(daily["index"].is_u64());
         let folder = go("c");
-        assert_eq!((folder["rotation"].as_str(), folder["next_turn"].as_f64()), (Some("15m"), Some(1_800.0)));
+        assert_eq!(
+            (folder["rotation"].as_str(), folder["next_turn"].as_f64()),
+            (Some("15m"), Some(1_800.0))
+        );
         assert_eq!(folder["path"], "/pics");
         // Without a display id the display inherits.
-        assert_eq!(run("backdrop.display_refresh", json!({"root": root, "now": 0.0}))["kind"], "inherit");
+        assert_eq!(
+            run("backdrop.display_refresh", json!({"root": root, "now": 0.0}))["kind"],
+            "inherit"
+        );
     }
 
     #[test]
     fn time_of_day_op_resolves() {
         let out = run("backdrop.time_of_day", json!({"entries": {"07:00": "daily"}, "now": 0.0}));
         assert_eq!(out["valid"], false);
-        let out = run("backdrop.time_of_day", json!({"entries": {"07:00": "desktop", "19:00": "system:/a.heic"},
-            "now": 8.0 * 3_600.0}));
+        let out = run(
+            "backdrop.time_of_day",
+            json!({"entries": {"07:00": "desktop", "19:00": "system:/a.heic"},
+            "now": 8.0 * 3_600.0}),
+        );
         assert_eq!(out["value"], "desktop");
         assert_eq!(out["next"], json!(19.0 * 3_600.0));
-        assert_eq!(run("backdrop.time_of_day", json!({"entries": {"7": "desktop"}, "now": 0.0}))["valid"], false);
+        assert_eq!(
+            run("backdrop.time_of_day", json!({"entries": {"7": "desktop"}, "now": 0.0}))["valid"],
+            false
+        );
     }
 
     #[test]
     fn favorites_port_the_swift_tests() {
         let root = |theme: Option<&str>, rotate: Option<&str>| {
             let mut appearance = json!({"favoriteThemes": ["Nord", "Dracula", "Nord", 1, "light:A,dark:B", " ", "Rose Pine"]});
-            if let Some(t) = theme { appearance["theme"] = json!(t) }
-            if let Some(r) = rotate { appearance["rotateFavoriteThemes"] = json!(r) }
+            if let Some(t) = theme {
+                appearance["theme"] = json!(t)
+            }
+            if let Some(r) = rotate {
+                appearance["rotateFavoriteThemes"] = json!(r)
+            }
             json!({"appearance": appearance})
         };
         let out = run("theme.favorites", json!({"root": root(None, None)}));
         assert_eq!(out["favorites"], json!(["Nord", "Dracula", "Rose Pine"]));
         assert_eq!(run("theme.favorites", json!({"root": {}}))["favorites"], json!([]));
         let next = |current: Option<&str>, list: Value| {
-            run("theme.favorite_next", json!({"current": current, "favorites": list}))["next"].clone()
+            run("theme.favorite_next", json!({"current": current, "favorites": list}))["next"]
+                .clone()
         };
         let three = json!(["Nord", "Dracula", "Rose Pine"]);
         assert_eq!(next(Some("Nord"), three.clone()), "Dracula");
@@ -337,9 +380,7 @@ mod tests {
         let rotated = |root: Value, today: &str, last: Option<&str>| {
             run("theme.favorite_rotated", json!({"root": root, "today": today, "last_day": last}))["next"].clone()
         };
-        let two = |theme: &str, rotate: &str| {
-            json!({"appearance": {"favoriteThemes": ["Nord", "Dracula"], "theme": theme, "rotateFavoriteThemes": rotate}})
-        };
+        let two = |theme: &str, rotate: &str| json!({"appearance": {"favoriteThemes": ["Nord", "Dracula"], "theme": theme, "rotateFavoriteThemes": rotate}});
         assert_eq!(rotated(root(Some("Nord"), None), "2026-10-20", None), Value::Null);
         assert_eq!(rotated(root(Some("Nord"), Some("bogus")), "2026-10-20", None), Value::Null);
         assert_eq!(rotated(two("Nord", "launch"), "2026-10-20", Some("2026-10-20")), "Dracula");
@@ -354,7 +395,9 @@ mod tests {
 
     #[test]
     fn title_area_contrast_clamps() {
-        let go = |v: Value| run("title_area.contrast", json!({"root": {"appearance": {"titleAreaContrast": v}}}));
+        let go = |v: Value| {
+            run("title_area.contrast", json!({"root": {"appearance": {"titleAreaContrast": v}}}))
+        };
         assert_eq!(go(json!(1.5))["value"], 1.5);
         let high = go(json!(3));
         assert_eq!(high["value"], 2.0);

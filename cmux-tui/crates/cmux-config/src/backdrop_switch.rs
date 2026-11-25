@@ -171,10 +171,7 @@ pub fn daily_stride(count: usize) -> usize {
     fn gcd(a: usize, b: usize) -> usize {
         if b == 0 { a } else { gcd(b, a % b) }
     }
-    [97, 89, 83, 79, 73, 71, 67, 61, 59, 53]
-        .into_iter()
-        .find(|s| gcd(*s, count) == 1)
-        .unwrap_or(1)
+    [97, 89, 83, 79, 73, 71, 67, 61, 59, 53].into_iter().find(|s| gcd(*s, count) == 1).unwrap_or(1)
 }
 
 /// A place on Earth, for the sun.
@@ -190,7 +187,10 @@ impl Location {
         let parts: Vec<&str> = text.split(',').map(crate::text::trim_whitespaces).collect();
         let [lat, lon] = parts[..] else { return None };
         let (latitude, longitude): (f64, f64) = (lat.parse().ok()?, lon.parse().ok()?);
-        (latitude.is_finite() && longitude.is_finite() && latitude.abs() <= 90.0 && longitude.abs() <= 180.0)
+        (latitude.is_finite()
+            && longitude.is_finite()
+            && latitude.abs() <= 90.0
+            && longitude.abs() <= 180.0)
             .then_some(Location { latitude, longitude })
     }
 }
@@ -239,7 +239,9 @@ impl Solar {
         let omega = (125.04 - 1_934.136 * century).to_radians();
         let apparent = mean_longitude + (center - 0.00569 - 0.00478 * omega.sin()).to_radians();
         let mean_obliquity = 23.0
-            + (26.0 + (21.448 - century * (46.815 + century * (0.00059 - century * 0.001813))) / 60.0) / 60.0;
+            + (26.0
+                + (21.448 - century * (46.815 + century * (0.00059 - century * 0.001813))) / 60.0)
+                / 60.0;
         let obliquity = (mean_obliquity + 0.00256 * omega.cos()).to_radians();
         let declination = (obliquity.sin() * apparent.sin()).asin();
         let y = (obliquity / 2.0).tan().powi(2);
@@ -272,16 +274,18 @@ impl Location {
         }
         let lat = self.latitude.to_radians();
         let declination = solar.declination;
-        let cos_zenith =
-            (lat.sin() * declination.sin() + lat.cos() * declination.cos() * hour_angle.to_radians().cos())
-                .clamp(-1.0, 1.0);
+        let cos_zenith = (lat.sin() * declination.sin()
+            + lat.cos() * declination.cos() * hour_angle.to_radians().cos())
+        .clamp(-1.0, 1.0);
         let zenith = cos_zenith.acos();
         let denominator = lat.cos() * zenith.sin();
         let mut azimuth = 180.0;
         if denominator.abs() > 1e-9 {
-            let cos_azimuth = ((lat.sin() * cos_zenith - declination.sin()) / denominator).clamp(-1.0, 1.0);
+            let cos_azimuth =
+                ((lat.sin() * cos_zenith - declination.sin()) / denominator).clamp(-1.0, 1.0);
             let angle = cos_azimuth.acos().to_degrees();
-            azimuth = if hour_angle > 0.0 { (angle + 180.0) % 360.0 } else { (540.0 - angle) % 360.0 };
+            azimuth =
+                if hour_angle > 0.0 { (angle + 180.0) % 360.0 } else { (540.0 - angle) % 360.0 };
         }
         SunPosition { altitude: 90.0 - zenith.to_degrees(), azimuth }
     }
@@ -373,7 +377,10 @@ impl When {
             return None;
         }
         let seconds = count as f64 * if unit == 'h' { 3_600.0 } else { 60.0 };
-        Some(When::Sun { event, offset: if text.as_bytes()[sign] == b'-' { -seconds } else { seconds } })
+        Some(When::Sun {
+            event,
+            offset: if text.as_bytes()[sign] == b'-' { -seconds } else { seconds },
+        })
     }
 }
 
@@ -406,14 +413,21 @@ impl TimeOfDay {
 
     /// The picture at `t` (the latest entry at or before it, across the week
     /// around it) and when it next changes. A sun entry needs `location`.
-    pub fn resolve(&self, t: f64, location: Option<Location>, zone: Zone) -> (Option<String>, Option<f64>) {
+    pub fn resolve(
+        &self,
+        t: f64,
+        location: Option<Location>,
+        zone: Zone,
+    ) -> (Option<String>, Option<f64>) {
         if self.entries.is_empty() {
             return (None, None);
         }
         let today = zone.date_at(t);
         let mut times: Vec<(f64, &str)> = Vec::new();
         for day in -3i64..=3 {
-            let Some(other) = today.checked_add_signed(chrono::Duration::days(day)) else { continue };
+            let Some(other) = today.checked_add_signed(chrono::Duration::days(day)) else {
+                continue;
+            };
             let start = zone.start_of_day(other);
             let sun = if self.uses_sun() { location.map(|l| l.sun_events(start)) } else { None };
             for (when, value) in &self.entries {

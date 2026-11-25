@@ -65,10 +65,27 @@ fn polar_days_skip_the_missing_events() {
 fn schedule_keys_parse() {
     assert_eq!(When::parse("07:00"), Some(When::Clock { minutes: 420 }));
     assert_eq!(When::parse("9:05"), Some(When::Clock { minutes: 545 }));
-    assert_eq!(When::parse("sunset-30m"), Some(When::Sun { event: SunEvent::Sunset, offset: -1_800.0 }));
-    assert_eq!(When::parse("sunrise+1h"), Some(When::Sun { event: SunEvent::Sunrise, offset: 3_600.0 }));
+    assert_eq!(
+        When::parse("sunset-30m"),
+        Some(When::Sun { event: SunEvent::Sunset, offset: -1_800.0 })
+    );
+    assert_eq!(
+        When::parse("sunrise+1h"),
+        Some(When::Sun { event: SunEvent::Sunrise, offset: 3_600.0 })
+    );
     assert_eq!(When::parse("dusk"), Some(When::Sun { event: SunEvent::Dusk, offset: 0.0 }));
-    for bad in ["24:00", "07:60", "7", "sunset-", "sunset+30s", "midnight", "Sunset", "sunrise+25h", "07:0", "٠٧:٠٠"] {
+    for bad in [
+        "24:00",
+        "07:60",
+        "7",
+        "sunset-",
+        "sunset+30s",
+        "midnight",
+        "Sunset",
+        "sunrise+25h",
+        "07:0",
+        "٠٧:٠٠",
+    ] {
         assert_eq!(When::parse(bad), None, "{bad}");
     }
 }
@@ -95,7 +112,8 @@ fn schedule_resolves_in_local_time() {
 #[test]
 fn daylight_saving_gaps_and_repeats() {
     let z = zone("America/Los_Angeles");
-    let spring = tod(&[("02:30", "late"), ("12:00", "day")]).resolve(at(z, 2026, 3, 8, 1, 0), None, z);
+    let spring =
+        tod(&[("02:30", "late"), ("12:00", "day")]).resolve(at(z, 2026, 3, 8, 1, 0), None, z);
     assert_eq!(spring.0.as_deref(), Some("day"));
     assert_eq!(spring.1, Some(1_772_964_000.0));
 
@@ -119,8 +137,14 @@ fn half_hour_daylight_saving_gap() {
 
 #[test]
 fn locations_parse() {
-    assert_eq!(Location::parse("37.77,-122.42"), Some(Location { latitude: 37.77, longitude: -122.42 }));
-    assert_eq!(Location::parse(" -33.87 , 151.21 "), Some(Location { latitude: -33.87, longitude: 151.21 }));
+    assert_eq!(
+        Location::parse("37.77,-122.42"),
+        Some(Location { latitude: 37.77, longitude: -122.42 })
+    );
+    assert_eq!(
+        Location::parse(" -33.87 , 151.21 "),
+        Some(Location { latitude: -33.87, longitude: 151.21 })
+    );
     for bad in ["", "37.77", "91,0", "0,181", "north,east", "1,2,3"] {
         assert_eq!(Location::parse(bad), None, "{bad}");
     }
