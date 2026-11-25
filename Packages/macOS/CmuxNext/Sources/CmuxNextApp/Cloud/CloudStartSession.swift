@@ -229,7 +229,7 @@ struct CloudStartSession {
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
-        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, agent = request.agent, model = request.model] in await setup.choose(harness: agent, model: model, account: nil).servedWithoutMacGateway } // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps; a chat its connection or the organization's key serves waits for none
         let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         // A machine this run made is its alone until the session runs: a start that fails for good deletes it and says so (hq#11835 row 8), as the composer's start does (CloudStartChat+Machine).
@@ -247,13 +247,11 @@ struct CloudStartSession {
         // From the connect until the agent runs, and through its first turn (``CloudStartGate/started(_:)``), the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
-        try await connected(session, request, account: account, byPerson: byPerson)
-        steps.done("connect"); try still(name)
-        // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected.
-        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
+        // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected. On a claimed spare already connecting they start beside the connect (Leo: "<30 seconds from starting a thing to having a response on cloud"), keeping no busy answer: a false one is asked again after the connect.
+        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned(early: !made && session.daemon.connection != nil, connect: { try await connected(session, request, account: account, byPerson: byPerson); steps.done("connect"); try still(name) }, prepare: { [services] early in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus, proceed: { account == services.cloud.account }, cacheBusy: !early) }) {
             let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
         }, cwd = copy?.chat ?? request.cwd
-        try still(name); steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
+        try still(name); steps.done("approvals"); let credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID; if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -280,6 +278,9 @@ struct CloudStartSession {
         do {
             let tabs = services.agentTabs
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
+            let credentials = tabs.cloudCredentials, logger = services.cloud.logger, model = request.model // the start's agent warms now (its own `~/chats/<id>` with no folder), beside the tab's listing and the start's connect, after the approvals' keyed restart that would end it; the start's own values (AgentTabs.runRemoteStart), so it takes it (cmux#45953)
+            CloudAgentPrewarm.begin(cwd: cwd, harness: agent, model: model, mode: nil, supports: { daemon.supports($0) }, surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
+                                    permissionMode: tabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: id, harness: agent, model: model))?.env }) { logger.info("cloud start-session prewarm: \($0, privacy: .public)") }
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id); a slow link lists it late, so 60 s, not 10 (a working start failed "not connected").
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
@@ -305,7 +306,7 @@ struct CloudStartSession {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), AgentRemoteStartRefusal.untrustedCopy(error, of: copy?.trusted == false ? request.fromFolder : nil)?.userMessage ?? Self.startFailure(error, name: name, id: id, agent: agent))
         }
         steps.done("start"); services.cloud.startGate.started(id)
-        _ = await gateway.awaited(marking: "gateway", on: steps) // up before the first turn; 0 ms when it came up beside the steps
+        _ = await gateway.awaited(marking: "gateway", on: steps, if: PersonalGateway.turnNeedsIt(credential: credential)) // up before the first turn; 0 ms when it came up beside the steps, or when the turn goes straight to the provider
         CloudStartStepRecord.current?.machine = started.phases
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }

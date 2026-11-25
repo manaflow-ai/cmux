@@ -152,6 +152,43 @@ def coloured(text):
     return "\n".join(f"2026-10-31T01:02:03.4567890Z {line}" for line in text.splitlines())
 
 
+class NestedCargoSummary(unittest.TestCase):
+    """#46751 job 137280817482: bwrap's captured child output closes before the parent binary."""
+
+    def nested(self, parent_failed=2, child_failed=1):
+        child = binary(("child", "FAILED")).replace("1 failed;", f"{child_failed} failed;")
+        parent = binary(("outer", "FAILED"), ("flaky", "FAILED"))
+        parent = parent.replace("2 failed;", f"{parent_failed} failed;")
+        return parent.replace("\nfailures:\n", "\nfailures:\n\n---- outer stdout ----\n" + child + "\n", 1)
+
+    def test_nested_summaries_keep_each_binarys_failures(self):
+        head = self.nested()
+        own, notes = verdict.judge(head, None, head, JOB)
+        self.assertFalse(own, notes)
+
+    def test_child_names_cannot_cover_an_unnamed_parent_failure(self):
+        head = self.nested(parent_failed=3)
+        self.assertTrue(verdict.judge(head, None, head, JOB)[0])
+
+    def test_parent_names_cannot_cover_an_unnamed_child_failure(self):
+        head = self.nested(child_failed=2)
+        self.assertTrue(verdict.judge(head, None, head, JOB)[0])
+
+    def test_parent_flakes_rewrite_only_the_parent_summary(self):
+        head = self.nested()
+        retry = binary(("flaky", "ok"))
+        base = binary(("outer", "FAILED"), ("child", "FAILED"))
+        own, notes = verdict.judge(head, retry, base, JOB)
+        self.assertFalse(own, notes)
+        rewritten = verdict.without_failures(head, {"flaky"})
+        self.assertIn("test result: FAILED. 0 passed; 1 failed;", rewritten)
+        self.assertIn("test result: FAILED. 1 passed; 1 failed;", rewritten)
+
+    def test_child_summary_cannot_close_an_unfinished_parent(self):
+        head = self.nested().rsplit("test result:", 1)[0]
+        self.assertTrue(verdict.judge(head, None, self.nested(), JOB)[0])
+
+
 class ColouredSummary(unittest.TestCase):
     """#41329's review F2: "scripts/ci/cargo_test_verdict.py:160: the summary rewrite searches the raw line, so ANSI
     codes around FAILED stop it matching. The flaky result drops out while its failure count stays, and judge() calls
@@ -311,6 +348,49 @@ class Scope(unittest.TestCase):
         self.assertFalse(starts_a_test("fn helper() {}\n"))
         self.assertTrue(starts_a_test(gate + "\n#[test]\nfn b() {}\n"))
         self.assertTrue(starts_a_test("    #[tokio::test]\n    async fn c() {}\n"))
+
+
+class BaseLogSave(unittest.TestCase):
+    """The base's own test log, which every red pull request run reads first (a test red there is the base's), is
+    saved by whichever event runs the job on feat-cmux-next. After #52321 that is only the post-merge batch (a
+    workflow_call from a workflow_dispatch, `inputs.sha` the tested tip); the save steps still asked for `push`, so
+    no log was saved, every red pull request retried and replayed the base's reds on a rebuilt merge parent (about
+    15 of a red run's 33 min), and a base test flaky there read as the change's own red."""
+
+    WORKFLOW = ROOT / ".github/workflows/cmux-tui-spec.yml"
+    BATCH = ROOT / ".github/workflows/cmux-next-post-merge.yml"
+
+    def steps(self, text, *names):
+        found = {}
+        for name in names:
+            match = re.search(rf"^      - name: {re.escape(name)}\n((?:        .*\n|\s*\n)+)", text, re.M)
+            self.assertIsNotNone(match, f"cmux-tui-spec.yml has no step {name!r}")
+            found[name] = match.group(1)
+        return found
+
+    def test_the_batch_that_tests_feat_cmux_next_saves_the_base_log(self):
+        text = self.WORKFLOW.read_text()
+        push_branches = re.search(r"^  push:\n    branches:\n((?:      .*\n)+?)    paths:", text, re.M).group(1)
+        batch = self.BATCH.read_text()
+        batch_calls_with_sha = re.search(r"uses: \./\.github/workflows/cmux-tui-spec\.yml\n    with:\n      sha: ", batch)
+        steps = self.steps(text, "Save this push's test log for pull requests", "Save the base's last test log")
+        for name, body in steps.items():
+            condition = re.search(r"^        if: \$\{\{(.*)\}\}$", body, re.M).group(1)
+            with self.subTest(step=name):
+                if "- feat-cmux-next" not in push_branches:
+                    self.assertTrue(batch_calls_with_sha, "the post-merge batch no longer calls cmux-tui-spec.yml with "
+                                                          "a sha: say which event tests feat-cmux-next, and save there")
+                    self.assertIn("github.event_name == 'workflow_dispatch' && inputs.sha != ''", condition,
+                                  f"{name!r} never runs on the post-merge batch, the only run of the job on "
+                                  "feat-cmux-next: pull requests find no base log")
+                # A bisect probe tests an old commit: its log, saved now, would read as the base's newest.
+                self.assertIn("inputs.only == ''", condition)
+                self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
+        # The tested commit names the log, so a pull request's exact merge-parent key finds the batch's run.
+        self.assertIn("key: acpmux-tests-base-log-${{ inputs.sha || github.sha }}",
+                      steps["Save the base's last test log"])
+        self.assertIn('"${TESTED_SHA:-$GITHUB_SHA}" > "$dir/sha"', steps["Save this push's test log for pull requests"])
+        self.assertIn("TESTED_SHA: ${{ inputs.sha }}", steps["Save this push's test log for pull requests"])
 
 
 class Cli(unittest.TestCase):

@@ -12,14 +12,14 @@
       "rows": [
         {
           "key": "labs.previewFeatures",
-          "note": "Surfaces still being shaped (the App Store, the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
+          "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces. The App Store has its own switch, labs.appStore.",
           "title": {
             "key": "settings.labs.previewFeatures",
             "text": "Show Preview Features"
           },
           "help": {
             "key": "settings.labs.previewFeatures.help",
-            "text": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
+            "text": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
           },
           "kind": "toggle",
           "default": false,
@@ -28,10 +28,29 @@
             "preview",
             "experimental",
             "beta",
-            "prototype",
+            "prototype"
+          ]
+        },
+        {
+          "key": "labs.appStore",
+          "note": "The App Store: its sidebar item, its actions in the palette, menus and context menus, and its page. Off by default until it is ready (David Beyer, Nov 20: \"don't show the app store until it's ready\"; Lawrence, Nov 23: \"get rid of app store from default for now\"). Its own switch, apart from Show Preview Features, so turning previews on for the music player, Click by Hint or Stats does not bring it back.",
+          "title": {
+            "key": "settings.labs.appStore",
+            "text": "Show App Store"
+          },
+          "help": {
+            "key": "settings.labs.appStore.help",
+            "text": "Browse, install and update apps for cmux. Still being shaped."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
             "app store",
             "apps",
-            "extensions"
+            "store",
+            "extensions",
+            "install"
           ]
         },
         {
@@ -252,6 +271,33 @@
             "agent",
             "agents",
             "config"
+          ]
+        },
+        {
+          "key": "labs.commentThreads",
+          "name": "commentThreads",
+          "note": "Opt-in comment threads from the browser pane and terminal selections (goal all-surface-comments-round-trip): a design mode card's Send, and Comment… on a terminal selection, save the comment on the session host and send it in a threaded diff.comments.send (diff-comments-threads-v1), so the agent's reply comes back into the same thread. Off by default: the browser card sends as a chip and Comment… on a terminal selection stays unavailable, as before. Off while Leo's UI merge hold stands (2026-11-24, ask-82b08b7ed7).",
+          "title": {
+            "key": "settings.labs.commentThreads",
+            "text": "Comment Threads in Browser and Terminal"
+          },
+          "help": {
+            "key": "settings.labs.commentThreads.help",
+            "text": "Send browser and terminal comments to the chat as threads that show the agent's reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "comment",
+            "comments",
+            "thread",
+            "threads",
+            "browser",
+            "terminal",
+            "design",
+            "reply",
+            "agent"
           ]
         },
         {

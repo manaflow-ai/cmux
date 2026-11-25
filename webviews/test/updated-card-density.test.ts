@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("updated-card-density.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -89,7 +89,13 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
        flushSync(() => root.render(createElement(UpdatedCard, { data, shape: "two-line", strings: createStrings(table), actions, closeButton: false, glass: false } as any)));
      };`,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser", format: "iife" });
+  const built = await Bun.build({
+    entrypoints: [entry],
+    target: "browser",
+    format: "iife",
+    // A classic script has no import.meta: modules the card reaches (toolMentions.ts, #53425) read import.meta.url.
+    define: { "import.meta.url": JSON.stringify("http://127.0.0.1/") },
+  });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
   const output = built.outputs.find((artifact) => artifact.kind === "entry-point" && artifact.path.endsWith(".js"));
@@ -108,7 +114,10 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
 
   const engines: [string, BrowserType][] = [
     ["chromium", chromium],
-    ["webkit", webkit],
+    // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+    ...((await probeEngineOrSkip("updated-card-density webkit", "webkit", webkit))
+      ? [["webkit", webkit] as [string, BrowserType]]
+      : []),
   ];
   for (const [name, engine] of engines) {
     describe(name, () => {
@@ -178,7 +187,7 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
 
       // The words follow the sidebar's density; the card's box is the composer's at every density
       // (Leo 2026-11-07: "it becomes the exact same height as the composer"): grid.md 5.1's one-line
-      // box (48) and corner (12).
+      // box (48), at least, and the composer's corner.
       for (const density of Object.keys(DENSITIES) as (keyof typeof DENSITIES)[]) {
         test(`at ${density} the card's words take the sidebar rows' tokens and its box is the composer's`, async () => {
           const want = DENSITIES[density];
@@ -186,7 +195,8 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
           expect(got.title).toBe(want.title);
           expect(got.note).toBe(want.note);
           expect(got.height).toBe(48);
-          expect(got.radius).toBe(12);
+          // The composer's own corner: the card is its twin (Lawrence 2026-11-23, back to the original look).
+          expect(got.radius).toBe(16);
           expect(got.cut).toEqual([]);
         });
 

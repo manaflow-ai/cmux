@@ -25,11 +25,14 @@ public nonisolated indirect enum SidebarPaneShape: Hashable, Sendable {
     public struct Pane: Hashable, Sendable {
         /// The kind of the pane's front tab; nil for a pane with no tab yet.
         public var kind: SidebarWorkspaceKind?
+        /// The pane's front tab, whose picture the tile shows (``SidebarTabThumbnails``); nil for a pane with no tab yet.
+        public var tab: TabID?
         /// The pane the workspace's focus is in.
         public var focused: Bool
 
-        public init(kind: SidebarWorkspaceKind?, focused: Bool = false) {
+        public init(kind: SidebarWorkspaceKind?, tab: TabID? = nil, focused: Bool = false) {
             self.kind = kind
+            self.tab = tab
             self.focused = focused
         }
     }
@@ -59,6 +62,12 @@ public nonisolated indirect enum SidebarPaneShape: Hashable, Sendable {
         case let .split(_, _, a, b): a.paneCount + b.paneCount
         case let .row(columns): columns.reduce(0) { $0 + $1.shape.paneCount }
         }
+    }
+
+    /// The front tabs of its panes that have one, in drawing order, once each.
+    public var tabs: [TabID] {
+        var seen = Set<TabID>()
+        return frames(in: .zero, gap: 0).compactMap(\.pane.tab).filter { seen.insert($0).inserted }
     }
 
     /// Each pane's frame in `rect`, in depth-first order (left before right, top before bottom), `gap` points apart.

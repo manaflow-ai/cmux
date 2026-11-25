@@ -1094,6 +1094,22 @@ fn relay_credentials_support_exact_route_scoped_forms() {
 }
 
 #[test]
+fn relay_credentials_take_more_routes_than_the_old_cap() {
+    // A client once refused more than 4 relay credential routes.
+    let count = 6;
+    let routes = client_relay_options(
+        None,
+        (0..count).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
+        (0..count).map(|index| format!("slot-{index}")).collect(),
+        (0..count)
+            .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(routes.len(), count);
+}
+
+#[test]
 fn connect_rejects_inline_invitation_and_ticket_arguments() {
     let marker = "inline-secret-marker";
     for args in [
@@ -1436,14 +1452,6 @@ fn remote_client_locale_fixture() {
             ],
         ),
         client_relay_options(None, vec!["relay+wss://one.example".into()], vec![], vec![]),
-        client_relay_options(
-            None,
-            (0..5).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
-            (0..5).map(|index| format!("slot-{index}")).collect(),
-            (0..5)
-                .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
-                .collect(),
-        ),
         client_relay_options(
             None,
             vec!["wss://not-a-relay.example".into()],
@@ -3215,4 +3223,21 @@ fn enroll_create_takes_a_via_machine_node_key() {
     assert!(parse_enroll_admin_args(&args(&["--via-machine"])).is_err());
     let pending = ["pending", "--via-machine", HUB_KEY].map(String::from);
     assert!(parse_enroll_admin_args(&pending).is_err());
+}
+
+/// `cmux remote <verb> --help` is that verb's help, not the whole remote help (the Cloud and
+/// remote command matrix): an app verb's from the catalog, a remote action's its own.
+#[test]
+fn each_remote_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let disconnect = remote_verb_help(&words("disconnect --help")).expect("app verb");
+    assert!(disconnect.starts_with("usage: cmux remote disconnect"), "{disconnect}");
+    let group = remote_verb_help(&words("new-group --help")).expect("app verb");
+    assert!(group.contains("--destination <value>"), "{group}");
+    assert_eq!(
+        remote_verb_help(&words("exec --help")).as_deref(),
+        Some(remote_help(Some("remote-exec")))
+    );
+    assert_eq!(remote_verb_help(&words("--help")), None);
+    assert_eq!(remote_verb_help(&words("no-such-verb --help")), None);
 }

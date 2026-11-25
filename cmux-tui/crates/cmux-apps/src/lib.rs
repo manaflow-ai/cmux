@@ -11,6 +11,7 @@
 //! [`system`] holds the real implementations, except HTTPS, which the CLI binary supplies.
 
 pub mod cli;
+pub mod frame;
 pub mod infer;
 pub mod io;
 pub mod platform;

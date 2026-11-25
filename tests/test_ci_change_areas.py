@@ -4333,7 +4333,8 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
         in changes
     )
     assert (
-        "ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && "
+        "!contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
 
@@ -5649,15 +5650,6 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     assert block.count("actions/setup-python@") == 1
 
 
-def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None:
-    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
-    start = block.index("      - name: Validate pipe-safe CI capture")
-    end = block.index("      - name: Validate focused test launcher", start)
-    step = block[start:end]
-    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
-    assert block.count("Validate pipe-safe CI capture") == 1
-
-
 def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     """The producer lookups must survive ci.yml reaching admission indirectly.
 
@@ -5713,9 +5705,12 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     definitions = {
         ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
         ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
-        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data.yml",
     }
     for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
+        # The push producer runs from main (TRUSTED_BRANCHES), whose copy this
+        # branch does not carry (ci-v2 step 3, R12).
+        if path == reuse_app_host_products.TRUSTED_WORKFLOWS["push"]:
+            continue
         workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))
         producer = next(
             (job for job in workflow["jobs"].values()

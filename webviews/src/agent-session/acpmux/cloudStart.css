@@ -274,3 +274,15 @@
 .acpmux-cloud-setup__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-setup__body { margin: 0; color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-setup__actions { flex-wrap: wrap; }
+/* The first-send setup strip (conversation/CloudSetupSteps.tsx): sign in, plan, model, at the top of each setup
+   card. `rail` (shipped) names every step in one row joined by a hairline; done steps carry a check, the current
+   one is in the normal ink with a filled mark, the rest are muted. `count` is one caption; `list` a row per step. */
+.acpmux-cloud-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); margin: 0 0 var(--ds-space-1); padding: 0; list-style: none; color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acpmux-cloud-steps[data-look="list"] { flex-direction: column; align-items: flex-start; gap: var(--ds-space-1); }
+.acpmux-cloud-steps__step { display: inline-flex; align-items: center; gap: calc(var(--ds-space-1) + var(--grid-half-step)); }
+.acpmux-cloud-steps[data-look="rail"] .acpmux-cloud-steps__step + .acpmux-cloud-steps__step::before { content: ""; width: var(--ds-space-3); height: var(--cmux-hairline); margin-right: var(--grid-half-step); background: currentColor; opacity: 0.4; }
+.acpmux-cloud-steps__mark { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-icon-16); height: var(--ds-icon-16); border-radius: 50%; border: var(--cmux-hairline-ring) solid currentColor; line-height: 1; font-variant-numeric: tabular-nums; }
+.acpmux-cloud-steps__step[data-step="done"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 10%, transparent); color: var(--agent-soft); }
+.acpmux-cloud-steps__step[data-step="current"] { color: var(--agent-text); font-weight: 600; }
+.acpmux-cloud-steps__step[data-step="current"] .acpmux-cloud-steps__mark { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 24%, transparent); color: var(--agent-text); }
+.acpmux-cloud-plan-team[data-setup-step] .acpmux-cloud-plan-team__title { color: var(--agent-text); }

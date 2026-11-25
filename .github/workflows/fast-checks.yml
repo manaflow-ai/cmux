@@ -34,6 +34,15 @@ on:
           label that started no job; any other value is ignored
         default: ''
 
+# Base-mode callers reuse the same tested commit across many PRs. Keep one run
+# active and one newest run waiting for each exact check. The command, setup,
+# and directory stay in the key so unrelated checks never replace one another.
+# A running check is allowed to finish. GitHub replaces only an older pending
+# duplicate, preserving one verdict for the tested tree.
+concurrency:
+  group: ${{ format('fast-checks-{0}-{1}-{2}-{3}', inputs.tested_sha || inputs.source_sha, inputs.command, inputs.directory, inputs.setup) }}
+  cancel-in-progress: false
+
 # Same read-only checkout scope as the existing Linux test jobs. No secrets,
 # environment, provider credentials or write token is passed to test commands.
 permissions:

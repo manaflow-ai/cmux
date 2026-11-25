@@ -11,7 +11,7 @@ const tsx = fs.readFileSync(path.join(dir, "UpdateSurfaces.tsx"), "utf8");
 test("the card's title never truncates", () => {
   const rule = css.match(/\.wn-updated \.wn-card-title \{[^}]*\}/)?.[0] ?? "";
   expect(rule).toContain("flex: none");
-  expect(rule).not.toContain("ellipsis");
+  expect(rule).not.toContain("text-overflow");
 });
 
 test("the What's New link has no arrow and sits after the title in the shipped row", () => {

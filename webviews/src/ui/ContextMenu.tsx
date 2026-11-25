@@ -3,7 +3,6 @@ import {
   isValidElement,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -11,6 +10,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
+  useId,
+  useMemo,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
@@ -18,11 +19,13 @@ import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
+import { pointerAnchor, usePointerMenuPosition } from "./pointerMenuPosition";
 import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
 import { trackHeldMenuRelease } from "./pressRelease";
+import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { menuStyleV2 } from "./menuStyleV2.experiment";
 import { menuRowStates } from "./menuRowStates.experiment";
@@ -186,13 +189,12 @@ export function ContextMenu({
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const edges = useScrollEdges();
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      menu.current = node;
-      if (host) setShown(node);
-    },
-    [host],
-  );
+  const keep = useCallback((node: HTMLDivElement | null) => {
+    menu.current = node;
+    setShown(node);
+  }, []);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attach = usePopupSettle<HTMLDivElement>(keep);
   useEffect(
     () => () => {
       heldPress.current?.();
@@ -202,42 +204,13 @@ export function ContextMenu({
     },
     [],
   );
-  // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
-  // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
-  useEscapingPopup(
-    host,
-    shown,
-    () =>
-      point && {
-        getBoundingClientRect: () => ({
-          left: point.x,
-          right: point.x,
-          top: point.y,
-          bottom: point.y,
-        }),
-      },
-    { side: "bottom", align: "start", gap: 0, shell: "self" },
-  );
-  // Where the menu sits, measured before it paints.
-  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
+  useEscapingPopup(host, shown, () => anchor, { side: "bottom", align: "start", gap: 0, shell: "self" });
+  const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
+  const placed = place !== null;
   useLayoutEffect(() => {
-    const node = menu.current;
-    if (!point || !node) {
-      setPlace(null);
-      return;
-    }
-    const { width, height } = node.getBoundingClientRect();
-    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
-    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
-    setPlace({
-      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
-      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
-    });
-  }, [point]);
-  // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
-  useLayoutEffect(() => {
-    if (place) menu.current?.focus();
-  }, [place]);
+    if (placed) menu.current?.focus();
+  }, [placed, point]);
   // The experiments' arms (a Settings flip redraws live); they shape only the page-drawn menu.
   const look = useExperimentArm(menuStyleV2);
   const states = useExperimentArm(menuRowStates);
@@ -429,9 +402,7 @@ export function ContextMenu({
           )
         : null;
     if (native && nativePopup.available) {
-      setNativeAnchor({
-        getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
-      });
+      setNativeAnchor(pointerAnchor(at.x, at.y));
       setNativeOpen(true);
       return;
     }
@@ -556,6 +527,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
+                data-pointer-menu=""
                 className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
                 // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
@@ -565,8 +537,11 @@ export function ContextMenu({
                 tabIndex={-1}
                 {...menuArms}
                 style={{
-                  position: "fixed",
-                  minWidth: 180,
+                  position: "absolute",
+                  minWidth: "min(180px, 100%)",
+                  maxWidth: "min(360px, 100%)",
+                  maxHeight: "100%",
+                  width: "max-content",
                   left: place?.left ?? point.x,
                   top: place?.top ?? point.y,
                   visibility: place ? undefined : "hidden",

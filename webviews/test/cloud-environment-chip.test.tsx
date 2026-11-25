@@ -472,7 +472,9 @@ test("New Cloud machine… runs New Cloud Machine with the picked environment, a
 
 test("New environment… makes one named after the folder, then picks it; Edit opens the current one", async () => {
   const editor = await import("../src/agent-session/acpmux/cloudEnvironment");
-  await mount({ flag: true, mode: "cloud" });
+  const render = await mount({ flag: true, mode: "cloud" });
+  const cwd = "/Users/you/src/cmux";
+  await render({ projectChoices: [{ cwd, label: "cmux", repo: { root: cwd, name: "cmux", github: "acme/cmux" } }] });
   await openChip();
   await act(async () => row(t("composer.envNew"))!.click());
   const request = editor.cloudEnvironmentRequest();

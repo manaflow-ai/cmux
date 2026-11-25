@@ -59,6 +59,66 @@ pub struct SessionRow {
     /// yet"). A hub that does not know the key drops it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// Names that still reach it (plans/cmux-next/message-delivery-successors.md, "Wire"): a bare
+    /// NAME is one of its own former names, `HOST/NAME` a session it took over (`acpmux
+    /// succeed`). At most [`MAX_FORMER_NAMES`], each 1..=[`MAX_FORMER_NAME`] chars.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_names: Vec<String>,
+    /// The role addresses it claimed (`acpmux role claim`), at most [`MAX_ROLES`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RoleClaim>,
+}
+
+/// The most `formerNames` one heartbeat row lists.
+pub const MAX_FORMER_NAMES: usize = 16;
+/// The longest name `formerNames` lists, in chars.
+pub const MAX_FORMER_NAME: usize = 160;
+/// The most role addresses one heartbeat row lists.
+pub const MAX_ROLES: usize = 16;
+
+/// A role address a session claimed: `goal:SLUG`, `area:NAME` or `topic:NAME`. The hub sends a
+/// message for the address to the session with the latest claim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleClaim {
+    pub address: String,
+    /// Ms since the epoch.
+    pub claimed_at: u64,
+}
+
+/// Whether `address` is a role address: `^(goal|area|topic):[A-Za-z0-9._-]{1,128}$`.
+pub fn valid_role(address: &str) -> bool {
+    let Some((kind, rest)) = address.split_once(':') else {
+        return false;
+    };
+    matches!(kind, "goal" | "area" | "topic")
+        && (1..=128).contains(&rest.len())
+        && rest.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// The `formerNames` a heartbeat lists for a session: its former names, then the sessions it
+/// took over, no repeat, each 1..=[`MAX_FORMER_NAME`] chars, the newest [`MAX_FORMER_NAMES`].
+pub fn heartbeat_former_names(former: &[String], succeeds: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in former.iter().chain(succeeds) {
+        let n = name.chars().count();
+        if (1..=MAX_FORMER_NAME).contains(&n) && !out.contains(name) {
+            out.push(name.clone());
+        }
+    }
+    let over = out.len().saturating_sub(MAX_FORMER_NAMES);
+    out.drain(..over);
+    out
+}
+
+/// The `roles` a heartbeat lists: valid addresses only, the newest [`MAX_ROLES`].
+pub fn heartbeat_roles(roles: &[RoleClaim]) -> Vec<RoleClaim> {
+    let mut out: Vec<RoleClaim> =
+        roles.iter().filter(|r| valid_role(&r.address)).cloned().collect();
+    out.sort_by_key(|r| r.claimed_at);
+    let over = out.len().saturating_sub(MAX_ROLES);
+    out.drain(..over);
+    out
 }
 
 /// The given handle of session `id` as a heartbeat lists it: none for an invalid one, or one that
@@ -143,6 +203,12 @@ pub struct BookSession {
     /// The session's given handle, as its heartbeat listed it (`SessionRow::handle`).
     #[serde(default)]
     pub handle: Option<String>,
+    /// Its heartbeat's `formerNames` (`SessionRow::former_names`), when the hub returns them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former_names: Vec<String>,
+    /// Its heartbeat's `roles` (`SessionRow::roles`), when the hub returns them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RoleClaim>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -232,7 +298,7 @@ pub enum Mode {
 }
 
 /// A message's kind: text for a session, or a request to its daemon (start, resume or stop a
-/// session, [`ControlHook`]). A kind this build does not know is refused.
+/// session, `server::mesh_relay::ControlHook`). A kind this build does not know is refused.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
@@ -319,9 +385,10 @@ impl OutMessage {
             (Kind::Control, Some("start" | "resume" | "stop" | "read")) => Ok(()),
             // A chat moved through the hub (`hub/transfer_pull.rs`).
             (Kind::Control, Some(crate::mesh_relay_config::MOVE_OP))
+            | (Kind::Control, Some(crate::mesh_relay_config::MOVE_OUT_OP))
             | (Kind::Control, Some(crate::mesh_relay_config::MOVE_FORGET_OP)) => Ok(()),
             (Kind::Control, _) => {
-                Err("control messages require op start, resume, stop, read, move or move_forget"
+                Err("control messages require op start, resume, stop, read, move, move_out or move_forget"
                     .into())
             }
             (Kind::Prompt, None) => Ok(()),
@@ -603,33 +670,6 @@ mod wire_tests {
         assert!(message(Kind::Control, Some("pause")).validate().is_err());
         assert!(message(Kind::Prompt, None).validate().is_ok());
         assert!(message(Kind::Prompt, Some("start")).validate().is_err());
-    }
-}
-
-/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
-/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
-/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
-/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
-/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
-/// comes back).
-pub trait ControlHook: Send + Sync {
-    fn control<'a>(
-        &'a self,
-        hub: &'a Arc<crate::hub::Hub>,
-        message: &'a InMessage,
-    ) -> BoxFuture<'a, Option<Ack>>;
-}
-
-/// The control hook of a daemon that runs no control messages: each one is refused.
-pub struct RefuseControl;
-
-impl ControlHook for RefuseControl {
-    fn control<'a>(
-        &'a self,
-        _hub: &'a Arc<crate::hub::Hub>,
-        _message: &'a InMessage,
-    ) -> BoxFuture<'a, Option<Ack>> {
-        Box::pin(async { Some(Ack::refused("this daemon runs no control messages")) })
     }
 }
 

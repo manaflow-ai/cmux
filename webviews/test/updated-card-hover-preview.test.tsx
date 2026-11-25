@@ -502,7 +502,7 @@ describe("the card", () => {
     expect(host.querySelector(".wn-card-primary")).toBeNull();
     expect(host.querySelector(".wn-card-version")?.textContent).toBe(data.version);
     const link = host.querySelector<HTMLButtonElement>(".wn-preview-whatsnew")!;
-    expect(link.textContent).toBe("What's New ↗");
+    expect(link.textContent).toBe("What's New");
     await act(async () => link.click());
     expect(opened).toEqual(["open"]);
   });

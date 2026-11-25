@@ -113,7 +113,9 @@ jobs:
         run: bunx tsc -p .
 
       - name: Tests (vitest on workerd)
-        run: bunx vitest run
+        # The pool's slower hosts spend ~130 s importing the suite, so a first request outlasts vitest's 5 s default
+        # (the dev deploy, run 45503849278); 30 s per test keeps a real hang a failure.
+        run: bunx vitest run --testTimeout=30000 --hookTimeout=30000
 
       - name: Deploy to prod
         id: deploy

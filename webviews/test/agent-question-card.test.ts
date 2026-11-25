@@ -109,19 +109,19 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     page.evaluate(() => document.activeElement?.closest(".acpmux-question") !== null);
 
   describe("agent question card", () => {
-    test("a prompt card is headed by the question under its bar; Dismiss folds it to a Needs your input pill", async () => {
-      // A Claude Code question is the Codex prompt card (#42247): a "Question" bar with Dismiss over
-      // the question, numbered options, "Type your answer" as the custom row and Send. The pill
-      // shows only while the card is folded.
+    test("a question card is headed by the question under its bar; Dismiss folds it to a Needs your input pill", async () => {
+      // Every pending ask is one card (2026-11-24): a "Needs your input" bar with Dismiss over the
+      // question, numbered options, "Type your answer" as the custom row and Send. The pill shows
+      // only while the card is folded.
       const page = await pendingQuestion();
       const pill = page.locator(".acpmux-question-status");
       expect(await pill.count()).toBe(0);
-      expect((await page.locator(".acpmux-question-bar").innerText()).trim()).toContain("Question");
+      expect((await page.locator(".acpmux-question-bar").innerText()).trim()).toContain("Needs your input");
       expect((await page.locator(".acpmux-question-prompt").innerText()).trim()).toBe(prompt);
       const labels = await page.locator(".acpmux-question-row .acpmux-question-label").allInnerTexts();
       expect(labels).toEqual(["OAuth 2.0", "API keys", "Passkeys", "Type your answer"]);
       expect(await page.locator(".acpmux-question-row[role=radio]").count()).toBe(4);
-      // The prompt card's Send draws no keycaps (its ⌘↩ hint stays in the markup, hidden).
+      // Send draws no keycaps (its ⌘↩ hint stays in the markup, hidden).
       expect((await page.locator(".acpmux-question-submit").innerText()).replace(/\s+/g, "")).toBe("Send");
 
       // Dismiss folds the card away and the pill brings it back; the ask stays pending and keeps the pick.
@@ -403,7 +403,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       expect(await page.locator(".acpmux-question-status").getAttribute("aria-expanded")).toBe("false");
       await page.locator(".acpmux-preview-controls select").selectOption("question-pending-multi");
       await page.locator(".acpmux-question-prompt", { hasText: "platforms" }).waitFor({ state: "attached" });
-      // Open, a prompt card draws no pill.
+      // Open, the card draws no pill.
       expect(await page.locator(".acpmux-question-status").count()).toBe(0);
       expect(await page.locator(".acpmux-question").isVisible()).toBe(true);
       await page.close();

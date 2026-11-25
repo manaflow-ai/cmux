@@ -166,6 +166,11 @@ export type TailGlide = {
   /// runs no row reads: transcript-fold-anchor.test.tsx).
   /// `pinned`: a row drawn against the chase itself (pinnedLiveLine.ts): it never glides. `carry`: the
   /// line let go this pass, drawn `y` back from the thread's offset: its glide starts from there.
+  /// `view`: the scroller's box. A row whose glide would start and end wholly outside it is drawn at
+  /// its place at once, and a row outside it is never clipped: nobody sees either play (cmuxterm-hq
+  /// docs/design/transcript-animation-rules.md: "An animation plays only for a change the reader
+  /// caused or is looking at, and only where the reader can see it"). Read once, only on a pass that
+  /// moves a row.
   place(
     thread: HTMLElement | null,
     glide: boolean,
@@ -174,6 +179,7 @@ export type TailGlide = {
     pinned?: string,
     carry?: PinCarry,
     placed?: PlacedRows,
+    view?: () => DOMRect | undefined,
   ): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
@@ -206,6 +212,12 @@ function drawnY(row: HTMLElement): number {
 /// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (its hover row,
 /// focus ring and shadows draw outside its box).
 const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
+
+/// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
+const VIEW_EDGE_PX = 1;
+/// Whether the span from `top` to `bottom` (drawn, in the page's coordinates) misses `view`.
+const missesView = (top: number, bottom: number, view: { top: number; bottom: number }) =>
+  bottom <= view.top + VIEW_EDGE_PX || top >= view.bottom - VIEW_EDGE_PX;
 
 export function createTailGlide(): TailGlide {
   let last: Placement | undefined;
@@ -313,6 +325,28 @@ export function createTailGlide(): TailGlide {
     animation.addEventListener("cancel", done, { once: true });
     return animation;
   };
+  /// At a pass's first frame: ends each of its glides whose path left to play (from where it is drawn
+  /// now to its place) misses the view, and each of its clips on a row out of the view.
+  const finishUnseen = (
+    readView: () => DOMRect | undefined,
+    slides: Map<HTMLElement, Animation>,
+    passClips: { row: HTMLElement; clip: Animation }[],
+  ) => {
+    const moving = [...slides].filter(([, slide]) => live(slide));
+    if (!moving.length && !passClips.some(({ clip }) => live(clip))) return;
+    const shown = readView();
+    if (!shown) return;
+    for (const [row] of moving) {
+      const box = row.getBoundingClientRect();
+      const by = drawnY(row);
+      if (missesView(box.top + Math.min(0, -by), box.bottom + Math.max(0, -by), shown)) cancelOn(row);
+    }
+    for (const { row, clip } of passClips) {
+      if (!live(clip)) continue;
+      const box = row.getBoundingClientRect();
+      if (missesView(box.top, box.bottom, shown)) clip.cancel();
+    }
+  };
   const stop = () => {
     const had = playing.size > 0;
     for (const animation of playing) animation.cancel();
@@ -347,7 +381,7 @@ export function createTailGlide(): TailGlide {
         if (box.bottom <= view.top || box.top >= view.bottom) cancelOn(row);
       }
     },
-    place(thread, glide, anchor, track = true, pinned, carry, placed) {
+    place(thread, glide, anchor, track = true, pinned, carry, placed, readView) {
       // A row the virtualizer unmounted mid-glide: its glide ends with it, and the clips it guarded
       // on the row above with it, so that row never stays clipped over nothing until the glide's
       // time runs out (its last lines hidden). O(playing).
@@ -443,6 +477,17 @@ export function createTailGlide(): TailGlide {
         for (const part of gliding) cancelOn(part.row);
         gliding.forEach((part, index) => (part.start += drawn[index]! - drawnY(part.row)));
       }
+      // Out of the view, a row is drawn at its place at once: no glide starts where nobody sees it play
+      // (Leo, 2026-11-22: "some bullshit ABOVE folds...? and plays an animation!?"). Its drawn box now
+      // (its place, under the follow chase's draw) and where its glide would start: a row whose span
+      // misses the view glides for no one. One view read and one box read per row that moves.
+      const shown = readView?.();
+      const seen = (part: Part) => {
+        if (!shown) return true;
+        const box = part.row.getBoundingClientRect();
+        return !missesView(box.top + Math.min(0, part.start), box.bottom + Math.max(0, part.start), shown);
+      };
+      if (shown) for (const part of parts) if (part.start !== 0 && !seen(part)) part.start = 0;
       const { ms, easing } = timing(
         thread,
         look,
@@ -453,6 +498,8 @@ export function createTailGlide(): TailGlide {
       const timed = { duration: ms, easing };
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
       const slides = new Map<HTMLElement, Animation>();
+      /// This pass's clips, by row: the first frame ends those on rows out of the view.
+      const passClips: { row: HTMLElement; clip: Animation }[] = [];
       for (const part of parts)
         if (Math.abs(part.start) >= MIN_MOVE_PX) {
           const slide = part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed);
@@ -507,8 +554,16 @@ export function createTailGlide(): TailGlide {
           const by = upper.start - lower.start - (lower.top - upper.bottom);
           if (by >= MIN_MOVE_PX) over.push({ glide: slides.get(lower.row), by });
         }
-        if (over.length) clipOn(upper.row, over, timed);
+        // A row out of the view is never clipped: nothing it draws over shows.
+        if (over.length && seen({ ...upper, start: 0 }))
+          passClips.push({ row: upper.row, clip: clipOn(upper.row, over, timed) });
       }
+      // The scroller can move between this pass and its first frame (the follow chase, a scroll in the
+      // same frame): at that frame, a glide whose path left to play misses the view ends drawn at its
+      // place, its clips with it, and a clip on a row out of the view ends. Once, one view read and a
+      // box read per row this pass animates.
+      if (readView && (slides.size || passClips.length))
+        thread.ownerDocument.defaultView?.requestAnimationFrame(() => finishUnseen(readView, slides, passClips));
     },
   };
 }
