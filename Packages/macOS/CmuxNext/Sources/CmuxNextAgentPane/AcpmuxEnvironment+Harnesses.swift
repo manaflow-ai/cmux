@@ -118,6 +118,9 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case connectionsRemove = "_acpmux/connections/remove"
     /// `{provider, secret: "keychain:ITEM", label?}`: an API-key connection; never the key itself.
     case connectionsKeyAdd = "_acpmux/connections/key.add"
+    /// `{provider, secret: "keychain:ITEM"}`: the key's shape, then one read of the provider (8 s), answering
+    /// `{result: ok|bad_shape|bad_key|unreachable, save, message}`; never the key itself.
+    case connectionsKeyCheck = "_acpmux/connections/key.check"
     /// A Claude setup token's `keychain:ITEM` reference (`{secret, label?}`) as a `claude-token` connection.
     case claudeTokenAdd = "_acpmux/connections/claude_token.add"
 
@@ -135,7 +138,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .add: .seconds(90)
         case .terminalTranscriptPage, .terminalTranscriptFind, .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
              .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
-        case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
+        case .routeAdd, .connectionsKeyAdd, .connectionsKeyCheck, .claudeTokenAdd: .seconds(20)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
         case .chatgptBegin, .connectionsRemove: .seconds(30)
         // The daemon holds a wait up to 25 s.

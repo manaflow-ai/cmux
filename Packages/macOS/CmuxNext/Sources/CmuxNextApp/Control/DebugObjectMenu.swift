@@ -15,6 +15,8 @@ import CmuxNextTabs
 ///   over the middle of the pane's tab strip.
 /// - `menu: "pane"`: the pane's menu, the one the tab strip's empty space opens (`.emptyStrip`).
 /// - `menu: "browserMore"`: the page's More menu on glass; `folders` open in place, `dismiss` closes it (no posted keys).
+/// - `menu: "browserProfile"`: the page's toolbar profile menu; `style` (`card`, `cardFlat`, `list`) opens a look of
+///   Settings > Experiments > Browser Profile Card whether it is on or not.
 /// - `menu: "customizations"`: the app menu's cmux > Customizations (``CustomizationsMenu``), a fresh copy of the item
 ///   AppDelegate puts there with the same closures, popped over the window's top left: the menu bar is outside the
 ///   window a clip records (What's New `customizations-menu`). `choose: "Agent Badges"` then flips that switch
@@ -75,7 +77,8 @@ enum DebugObjectMenu {
                 guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
                     return failure("the focused pane shows no browser page")
                 }
-                let shown = BrowserToolbarHandlers.profileMenu(for: entry, services: services)
+                let shown = BrowserToolbarHandlers.profileMenu(forTab: entry.key, services: services, style: // `style`: another look, to compare
+                    params["style"]?.stringValue.flatMap(BrowserProfileMenuStyle.init(rawValue:)))
                 let anchor: NSView = entry.chrome ?? pane.view
                 let at = NSPoint(x: anchor.bounds.maxX - 120, y: anchor.isFlipped ? 40 : anchor.bounds.maxY - 40)
                 DelayedPopUp(menu: shown, at: at, in: anchor).schedule()

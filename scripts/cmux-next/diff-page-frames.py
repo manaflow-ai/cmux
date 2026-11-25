@@ -46,6 +46,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
 import diff_tab_cells as cells  # noqa: E402
 from state_wait import wait_stable, wait_until  # noqa: E402
+# cmux NEXT's config folder: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+NEXT_DIR = "cmux-next" if sys.platform == "darwin" else "cmux"
 
 PAGE = cells.PAGE
 STUB = "#!/bin/sh\ncat >/dev/null\necho run >> \"$(dirname \"$0\")/summarizer.runs\"\necho 'Changes one constant value in this file.'\n"
@@ -188,8 +190,8 @@ def main() -> int:
         # acpmux complete/recipes.rs). A user profile file wins over the discovered `claude` for its id
         # (config/profiles.rs), and XDG_CONFIG_HOME names its folder, so the run's acpmux reads only it.
         xdg = os.path.join(work, "xdg")
-        os.makedirs(os.path.join(xdg, "cmux", "harnesses"), exist_ok=True)
-        with open(os.path.join(xdg, "cmux", "harnesses", "claude.toml"), "w") as handle:
+        os.makedirs(os.path.join(xdg, NEXT_DIR, "harnesses"), exist_ok=True)
+        with open(os.path.join(xdg, NEXT_DIR, "harnesses", "claude.toml"), "w") as handle:
             handle.write(profile_toml(stub))
         out["harness_add"] = "profile file"
         # The keyboard and the screen: the window comes to the front (no CMUX_NEXT_NO_ACTIVATE), as a person's.
