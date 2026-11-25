@@ -1,18 +1,18 @@
 public import CmuxNextDesign
 
-/// What a pinned workspace row with its own icon or color dot draws in the leading icon column, under Home's glyph
-/// (Debug `sidebar.pinnedRowLeading`). A pinned row with neither always draws its pin there.
+/// What a pinned workspace row or pinned group with its own icon or color dot draws in the leading icon column, under
+/// Home's glyph (Debug `sidebar.pinnedRowLeading`). A pinned row with neither always draws its pin there.
 ///
-/// https://github.com/manaflow-ai/cmux/issues/38061: Home's label and the pinned rows' titles must start at one x. With
-/// the pin first and the row's own icon one column after it, a pinned "🚀 Rocket" title started 29.5 pt right of
-/// "Home" (measured on a tagged build), so only the text-only pinned rows lined up.
+/// https://github.com/manaflow-ai/cmux/issues/38061 put the row's own icon in the pin's place so its title started at
+/// Home's label x. A pinned row with a site favicon ("Spotify", "standup") then showed no pin at all, so it read as an
+/// ordinary workspace (2026-11-16, https://github.com/manaflow-ai/cmux/issues/42431). Every pinned row now keeps its
+/// pin under Home's glyph, with its own icon in the next column.
 public nonisolated enum SidebarPinnedRowLeading: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default: the row's own icon (an emoji, a symbol, a favicon) or color dot takes the leading column in the
-    /// pin's place, its ink centered as Home's glyph is, and the title starts at Home's label x. The Pinned section
-    /// already says the row is pinned.
+    /// The row's own icon (an emoji, a symbol, a favicon) or color dot takes the leading column in the pin's place, and
+    /// the title starts at Home's label x. The row draws no pin. Kept for comparison.
     case ownIcon
-    /// The look before #38061's second pass: the pin in the leading column, the row's own icon or dot one column
-    /// after it, and the title after that, one column right of Home's label. Kept for comparison.
+    /// The default: the pin in the leading column, centered under Home's glyph, the row's own icon or dot centered in
+    /// the next column, and the title after that, one column right of Home's label.
     case pinThenIcon
 
     public var tunableTitle: String {
@@ -24,6 +24,6 @@ public nonisolated enum SidebarPinnedRowLeading: String, Sendable, CaseIterable,
 
     public static let tunable = Tunable<SidebarPinnedRowLeading>.choice(
         "sidebar.pinnedRowLeading", .sidebar, "Pinned row leading glyph",
-        help: "What a pinned workspace with its own icon or color draws under Home's glyph: that icon, so its title lines up with Home's label (default), or the pin with the icon after it.",
-        default: .ownIcon, code: "SidebarPinnedRowLeading.tunable")
+        help: "What a pinned workspace or group with its own icon or color draws under Home's glyph: the pin with the icon after it (default), or that icon in the pin's place, so its title lines up with Home's label but the row shows no pin.",
+        default: .pinThenIcon, code: "SidebarPinnedRowLeading.tunable")
 }
