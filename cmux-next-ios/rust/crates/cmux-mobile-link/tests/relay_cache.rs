@@ -37,7 +37,8 @@ impl Rig {
     }
 
     fn seal(&self, stream: &str, seq: u64, text: &str) -> Vec<u8> {
-        seal(&self.mac_key, &self.phone_key.public_key(), stream, Position { epoch: 7, seq }, text.as_bytes()).unwrap()
+        seal(&self.mac_key, &self.phone_key.public_key(), stream, Position { epoch: 7, seq }, text.as_bytes())
+            .unwrap()
     }
 
     async fn delta(&self, seq: u64, text: &str) {
@@ -58,7 +59,8 @@ async fn cold_open_reads_the_newest_snapshot_and_raises_the_floor() {
     assert!(none.is_none(), "no snapshot yet");
     rig.mac.put_snapshot(PHONE, STREAM, rig.seal(STREAM, 4, "four")).await.unwrap();
     rig.mac.put_snapshot(PHONE, STREAM, rig.seal(STREAM, 2, "older")).await.unwrap();
-    let opened = rig.phone.cold_open(MAC, &rig.source(), &rig.phone_key, STREAM, &mut floor).await.unwrap().unwrap();
+    let opened =
+        rig.phone.cold_open(MAC, &rig.source(), &rig.phone_key, STREAM, &mut floor).await.unwrap().unwrap();
     assert_eq!(opened.opened.plaintext, b"four");
     assert!(opened.cached_at_ms.is_some());
     assert_eq!(floor.position(), Some(Position { epoch: 7, seq: 4 }));
@@ -68,7 +70,8 @@ async fn cold_open_reads_the_newest_snapshot_and_raises_the_floor() {
 async fn cold_open_refuses_a_snapshot_from_another_key() {
     let rig = Rig::start(true).await;
     let other = SigningKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-    let forged = seal(&other, &rig.phone_key.public_key(), STREAM, Position { epoch: 9, seq: 9 }, b"x").unwrap();
+    let forged =
+        seal(&other, &rig.phone_key.public_key(), STREAM, Position { epoch: 9, seq: 9 }, b"x").unwrap();
     rig.mac.put_snapshot(PHONE, STREAM, forged).await.unwrap();
     let mut floor = Floor::default();
     let refused = rig.phone.cold_open(MAC, &rig.source(), &rig.phone_key, STREAM, &mut floor).await;
@@ -85,8 +88,13 @@ async fn resume_applies_deltas_in_order_then_acks() {
     }
     let mut floor = Floor::default();
     rig.phone.cold_open(MAC, &rig.source(), &rig.phone_key, STREAM, &mut floor).await.unwrap().unwrap();
-    let mut floors = vec![(STREAM.to_owned(), floor), ("chat/none".to_owned(), Floor::at(Position { epoch: 7, seq: 0 }))];
-    let resume = rig.phone.resume(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES).await.unwrap();
+    let mut floors =
+        vec![(STREAM.to_owned(), floor), ("chat/none".to_owned(), Floor::at(Position { epoch: 7, seq: 0 }))];
+    let resume = rig
+        .phone
+        .resume(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES)
+        .await
+        .unwrap();
     assert_eq!(resume.cut, vec!["chat/none".to_owned()], "nothing held for it: ask the Mac");
     let got = &resume.surfaces[0];
     let texts: Vec<_> = got.applied.iter().map(|o| String::from_utf8(o.plaintext.clone()).unwrap()).collect();
@@ -94,7 +102,11 @@ async fn resume_applies_deltas_in_order_then_acks() {
     assert!(got.stopped.is_none());
     assert_eq!(floors[0].1.position(), Some(Position { epoch: 7, seq: 5 }));
     assert_eq!(rig.phone.ack(MAC, STREAM, Position { epoch: 7, seq: 5 }).await.unwrap(), 4);
-    let again = rig.phone.resume(MAC, &rig.source(), &rig.phone_key, &mut floors[..1], DEFAULT_BUDGET_BYTES).await.unwrap();
+    let again = rig
+        .phone
+        .resume(MAC, &rig.source(), &rig.phone_key, &mut floors[..1], DEFAULT_BUDGET_BYTES)
+        .await
+        .unwrap();
     assert!(again.surfaces[0].applied.is_empty(), "current after the ack");
 }
 
@@ -102,14 +114,18 @@ async fn resume_applies_deltas_in_order_then_acks() {
 async fn resume_stops_at_the_first_delta_that_does_not_open() {
     let rig = Rig::start(true).await;
     rig.delta(1, "d1").await;
-    // Sealed on the snapshot stream, not `<stream>/delta`: does not open as a delta.
+    // Sealed on the snapshot stream, not `<stream>/delta`: the stream is signed, so it does not verify as a delta.
     rig.phone_slot_put_delta(rig.seal(STREAM, 2, "wrong stream")).await;
     rig.delta(3, "d3").await;
     let mut floors = vec![(STREAM.to_owned(), Floor::at(Position { epoch: 7, seq: 0 }))];
-    let resume = rig.phone.resume(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES).await.unwrap();
+    let resume = rig
+        .phone
+        .resume(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES)
+        .await
+        .unwrap();
     let got = &resume.surfaces[0];
     assert_eq!(got.applied.len(), 1);
-    assert!(matches!(got.stopped, Some(ApplyError::Seal(cmux_relay_snapshot::Error::Unopened))));
+    assert!(matches!(got.stopped, Some(ApplyError::Seal(cmux_relay_snapshot::Error::BadSignature))));
     assert_eq!(floors[0].1.position(), Some(Position { epoch: 7, seq: 1 }));
 }
 
@@ -120,11 +136,34 @@ async fn a_catch_up_over_the_budget_is_cut() {
     rig.delta(1, &big).await;
     rig.delta(2, &big).await;
     let mut floors = vec![(STREAM.to_owned(), Floor::at(Position { epoch: 7, seq: 0 }))];
-    let resume = rig.phone.resume(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES).await.unwrap();
+    let resume = rig
+        .phone
+        .resume(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES)
+        .await
+        .unwrap();
     assert!(resume.surfaces.is_empty());
     assert_eq!(resume.cut, vec![STREAM.to_owned()]);
     let bigger = rig.phone.resume(MAC, &rig.source(), &rig.phone_key, &mut floors, 256 * 1024).await.unwrap();
     assert_eq!(bigger.surfaces[0].applied.len(), 2);
+}
+
+#[tokio::test]
+async fn a_cut_surface_resumes_from_the_newest_snapshot() {
+    let rig = Rig::start(true).await;
+    let big = "x".repeat(40 * 1024);
+    rig.delta(1, &big).await;
+    rig.delta(2, &big).await;
+    rig.mac.put_snapshot(PHONE, STREAM, rig.seal(STREAM, 2, "state at two")).await.unwrap();
+    let mut floors = vec![(STREAM.to_owned(), Floor::at(Position { epoch: 7, seq: 0 }))];
+    let resume = rig
+        .phone
+        .resume_or_snapshot(MAC, &rig.source(), &rig.phone_key, &mut floors, DEFAULT_BUDGET_BYTES)
+        .await
+        .unwrap();
+    assert_eq!(resume.cut, vec![STREAM.to_owned()]);
+    assert_eq!(resume.snapshots.len(), 1);
+    assert_eq!(resume.snapshots[0].plaintext, b"state at two");
+    assert_eq!(floors[0].1.position(), Some(Position { epoch: 7, seq: 2 }));
 }
 
 #[tokio::test]

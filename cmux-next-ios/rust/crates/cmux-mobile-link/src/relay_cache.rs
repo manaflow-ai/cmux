@@ -151,6 +151,9 @@ pub struct Resume {
     pub cut: Vec<String>,
     /// Sealed bytes the relay sent.
     pub bytes: usize,
+    /// Newest snapshots opened for surfaces the catch-up cut or stopped
+    /// ([`RelayCache::resume_or_snapshot`]); empty from [`RelayCache::resume`].
+    pub snapshots: Vec<Opened>,
 }
 
 /// The relay cache as one device sees it: a phone reading its own slots, or the Mac (the source)
@@ -181,7 +184,8 @@ impl RelayCache {
     }
 
     fn path(&self, source: &str, what: &str, query: &[(&str, &str)]) -> String {
-        let mut path = format!("/v1/relay-cache/{}/{what}?deviceId={}", source.to_ascii_lowercase(), self.device);
+        let mut path =
+            format!("/v1/relay-cache/{}/{what}?deviceId={}", source.to_ascii_lowercase(), self.device);
         for (name, value) in query {
             path.push('&');
             path.push_str(name);
@@ -213,9 +217,14 @@ impl RelayCache {
 
     /// `GET snapshot`: this viewer's sealed snapshot of `stream` from `source`, unopened; `None`
     /// when the relay holds none (`404 no_snapshot`).
-    pub async fn snapshot(&self, source: &str, stream: &str) -> Result<Option<(Vec<u8>, Option<u64>)>, RelayCacheError> {
+    pub async fn snapshot(
+        &self,
+        source: &str,
+        stream: &str,
+    ) -> Result<Option<(Vec<u8>, Option<u64>)>, RelayCacheError> {
         self.on()?;
-        let request = self.api.request(reqwest::Method::GET, &self.path(source, "snapshot", &[("stream", stream)]));
+        let request =
+            self.api.request(reqwest::Method::GET, &self.path(source, "snapshot", &[("stream", stream)]));
         let response = match self.send(request).await {
             Ok(response) => response,
             Err(RelayCacheError::Refused { status: 404, .. }) => return Ok(None),
@@ -257,7 +266,8 @@ impl RelayCache {
             return Err(RelayCacheError::Bad(format!("{} surfaces is over {MAX_SURFACES}", asks.len())));
         }
         let body = serde_json::json!({ "surfaces": asks, "budgetBytes": budget_bytes.min(MAX_BUDGET_BYTES) });
-        let request = self.api.request(reqwest::Method::POST, &self.path(source, "catch-up", &[])).json(&body);
+        let request =
+            self.api.request(reqwest::Method::POST, &self.path(source, "catch-up", &[])).json(&body);
         let response = self.send(request).await?;
         response.json().await.map_err(|e| RelayCacheError::Bad(e.to_string()))
     }
@@ -301,25 +311,63 @@ impl RelayCache {
         Ok(resume)
     }
 
+    /// [`RelayCache::resume`], then for each surface the relay cut (over the budget, or its deltas
+    /// wrapped) or that stopped early, the newest snapshot instead: one catch-up and at most one
+    /// `GET snapshot` per such surface, so a long sleep still lands on the Mac's newest state.
+    pub async fn resume_or_snapshot(
+        &self,
+        source: &str,
+        source_key: &PublicKey,
+        viewer: &SecretKey,
+        floors: &mut [(String, Floor)],
+        budget_bytes: usize,
+    ) -> Result<Resume, RelayCacheError> {
+        let mut resume = self.resume(source, source_key, viewer, floors, budget_bytes).await?;
+        let mut behind: Vec<String> = resume.cut.clone();
+        behind.extend(resume.surfaces.iter().filter(|s| s.stopped.is_some()).map(|s| s.surface.clone()));
+        for surface in behind {
+            let Some((_, floor)) = floors.iter_mut().find(|(s, _)| *s == surface) else { continue };
+            let Some((envelope, _)) = self.snapshot(source, &surface).await? else { continue };
+            resume.bytes += envelope.len();
+            // A snapshot no newer than what the phone holds is stale: the deltas it has stand.
+            if let Ok(opened) = floor.open(viewer, source_key, &surface, &envelope) {
+                resume.snapshots.push(opened);
+            }
+        }
+        Ok(resume)
+    }
+
     /// `POST ack`: the viewer holds every delta of `stream` through `through`; the relay drains
     /// them. Returns how many it drained.
     pub async fn ack(&self, source: &str, stream: &str, through: Position) -> Result<u64, RelayCacheError> {
         self.on()?;
         let body = serde_json::json!({ "through": WirePosition(through) });
-        let request =
-            self.api.request(reqwest::Method::POST, &self.path(source, "ack", &[("stream", stream)])).json(&body);
+        let request = self
+            .api
+            .request(reqwest::Method::POST, &self.path(source, "ack", &[("stream", stream)]))
+            .json(&body);
         let reply: serde_json::Value =
             self.send(request).await?.json().await.map_err(|e| RelayCacheError::Bad(e.to_string()))?;
         Ok(reply.get("drained").and_then(serde_json::Value::as_u64).unwrap_or(0))
     }
 
     /// The source's `PUT snapshot` for `viewer` (this device is the source).
-    pub async fn put_snapshot(&self, viewer: &str, stream: &str, envelope: Vec<u8>) -> Result<(), RelayCacheError> {
+    pub async fn put_snapshot(
+        &self,
+        viewer: &str,
+        stream: &str,
+        envelope: Vec<u8>,
+    ) -> Result<(), RelayCacheError> {
         self.write(reqwest::Method::PUT, "snapshot", viewer, stream, envelope).await
     }
 
     /// The source's `POST delta` for `viewer`: one envelope sealed on `<stream>/delta`.
-    pub async fn append_delta(&self, viewer: &str, stream: &str, envelope: Vec<u8>) -> Result<(), RelayCacheError> {
+    pub async fn append_delta(
+        &self,
+        viewer: &str,
+        stream: &str,
+        envelope: Vec<u8>,
+    ) -> Result<(), RelayCacheError> {
         self.write(reqwest::Method::POST, "delta", viewer, stream, envelope).await
     }
 
@@ -363,7 +411,10 @@ mod tests {
         assert_eq!(p.0, Position { epoch: 3, seq: u64::MAX });
         assert!(serde_json::from_str::<WirePosition>(r#"{"epoch": "-1", "seq": 0}"#).is_err());
         assert!(serde_json::from_str::<WirePosition>(r#"{"epoch": "", "seq": 0}"#).is_err());
-        assert_eq!(serde_json::to_string(&WirePosition(Position { epoch: 1, seq: 2 })).unwrap(), r#"{"epoch":1,"seq":2}"#);
+        assert_eq!(
+            serde_json::to_string(&WirePosition(Position { epoch: 1, seq: 2 })).unwrap(),
+            r#"{"epoch":1,"seq":2}"#
+        );
     }
 
     #[test]
@@ -374,9 +425,13 @@ mod tests {
     #[tokio::test]
     async fn off_by_default_sends_nothing() {
         // Port 9 on loopback: a request would fail with Http, not Off.
-        let cache = RelayCache::new(ApiClient::new("http://127.0.0.1:9", "t"), "phone", RelayCacheConfig::default());
+        let cache =
+            RelayCache::new(ApiClient::new("http://127.0.0.1:9", "t"), "phone", RelayCacheConfig::default());
         assert!(matches!(cache.snapshot("mac", "s").await, Err(RelayCacheError::Off)));
         assert!(matches!(cache.put_snapshot("phone", "s", vec![1]).await, Err(RelayCacheError::Off)));
-        assert!(matches!(cache.ack("mac", "s", Position { epoch: 0, seq: 0 }).await, Err(RelayCacheError::Off)));
+        assert!(matches!(
+            cache.ack("mac", "s", Position { epoch: 0, seq: 0 }).await,
+            Err(RelayCacheError::Off)
+        ));
     }
 }

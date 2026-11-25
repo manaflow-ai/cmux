@@ -629,6 +629,13 @@ async fn answer_http(
         let mut bytes = response.into_bytes();
         bytes.extend_from_slice(&answer.body);
         let _ = stream.write_all(&bytes).await;
+        // Hold the socket until the client closes it (a real server's FIN comes after its reply
+        // is acked); a proxy in front (cmux-fault's shaper) ends a pair when either side ends.
+        let mut sink = [0u8; 512];
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+        })
+        .await;
         return;
     }
     let (status, reply) = if line.starts_with("GET /v1/health") {

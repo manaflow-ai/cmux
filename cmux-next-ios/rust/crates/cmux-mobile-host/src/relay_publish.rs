@@ -110,7 +110,14 @@ impl RelayPublisher {
         self.each(viewers, stream, position, change, true).await
     }
 
-    async fn each(&self, viewers: &[Viewer], stream: &str, position: Position, plaintext: &[u8], delta: bool) -> Published {
+    async fn each(
+        &self,
+        viewers: &[Viewer],
+        stream: &str,
+        position: Position,
+        plaintext: &[u8],
+        delta: bool,
+    ) -> Published {
         let mut published = Published { position: Some(position), ..Published::default() };
         let sealed_on = if delta { delta_stream(stream) } else { stream.to_owned() };
         for viewer in viewers {

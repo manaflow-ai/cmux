@@ -16,6 +16,8 @@ export interface Env {
   readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
   /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
   readonly LINK_RELAY_MODE?: string
+  /** `off` keeps no tail and replays nothing on a rejoin (RFD 0142 R3, src/link-relay.ts `RELAY_TAIL_MS`). */
+  readonly LINK_RELAY_TAIL?: string
   /** What one user may relay per minute across all sessions, MiB (default 480: src/relay-access.ts). */
   readonly LINK_RELAY_USER_MIB_PER_MIN?: string
   /** Test only (ENVIRONMENT=test): `1` makes the hub's relay budget call throw (an overloaded hub). */

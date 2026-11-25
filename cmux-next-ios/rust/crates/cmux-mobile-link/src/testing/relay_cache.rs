@@ -36,7 +36,12 @@ pub(super) struct Answer {
 }
 
 fn json_answer(status: &'static str, value: &Value) -> Answer {
-    Answer { status, content_type: "application/json", body: value.to_string().into_bytes(), headers: Vec::new() }
+    Answer {
+        status,
+        content_type: "application/json",
+        body: value.to_string().into_bytes(),
+        headers: Vec::new(),
+    }
 }
 
 fn refuse(status: &'static str, code: &str) -> Answer {
@@ -123,9 +128,10 @@ impl FakeRelayCache {
                     return refuse("413 Payload Too Large", "too_large");
                 }
                 let Ok(header) = peek(body) else { return refuse("400 Bad Request", "malformed") };
-                let stale = self.snapshots.get(&slot).and_then(|(held, _)| peek(held).ok()).is_some_and(|held| {
-                    held.source_key_id == header.source_key_id && header.position <= held.position
-                });
+                let stale =
+                    self.snapshots.get(&slot).and_then(|(held, _)| peek(held).ok()).is_some_and(|held| {
+                        held.source_key_id == header.source_key_id && header.position <= held.position
+                    });
                 if !stale {
                     self.snapshots.insert(slot, (body.to_vec(), now));
                 }
@@ -149,7 +155,9 @@ impl FakeRelayCache {
                     return refuse("413 Payload Too Large", "too_large");
                 }
                 match self.logs.entry(slot).or_default().append(body.to_vec(), now) {
-                    Ok(outcome) => json_answer("200 OK", &json!({"ok": true, "outcome": format!("{outcome:?}")})),
+                    Ok(outcome) => {
+                        json_answer("200 OK", &json!({"ok": true, "outcome": format!("{outcome:?}")}))
+                    }
                     Err(Error::WrongSource) => refuse("409 Conflict", "wrong_source"),
                     Err(_) => refuse("400 Bad Request", "malformed"),
                 }
@@ -175,8 +183,12 @@ impl FakeRelayCache {
 
     /// relay-cache.ts `catchUpMany`.
     fn catch_up(&mut self, source: &str, viewer: &str, body: &[u8], now: u64) -> Answer {
-        let Ok(request) = serde_json::from_slice::<Value>(body) else { return refuse("400 Bad Request", "bad_request") };
-        let Some(asks) = request.get("surfaces").and_then(Value::as_array).filter(|a| a.len() <= MAX_SURFACES) else {
+        let Ok(request) = serde_json::from_slice::<Value>(body) else {
+            return refuse("400 Bad Request", "bad_request");
+        };
+        let Some(asks) =
+            request.get("surfaces").and_then(Value::as_array).filter(|a| a.len() <= MAX_SURFACES)
+        else {
             return refuse("400 Bad Request", "bad_request");
         };
         let budget = request
@@ -188,7 +200,8 @@ impl FakeRelayCache {
         let mut cut = Vec::new();
         for ask in asks {
             let surface = ask.get("surface").and_then(Value::as_str).unwrap_or_default().to_owned();
-            let after = ask.get("after").cloned().and_then(|a| serde_json::from_value::<WirePosition>(a).ok());
+            let after =
+                ask.get("after").cloned().and_then(|a| serde_json::from_value::<WirePosition>(a).ok());
             let (true, Some(WirePosition(after))) = (valid_stream(&surface), after) else {
                 return refuse("400 Bad Request", "bad_request");
             };
@@ -205,8 +218,10 @@ impl FakeRelayCache {
             }
             left -= size;
             let head: Position = envelopes.last().and_then(|e| peek(e).ok()).map_or(after, |h| h.position);
-            let sealed: Vec<String> =
-                envelopes.iter().map(|e| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(e)).collect();
+            let sealed: Vec<String> = envelopes
+                .iter()
+                .map(|e| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(e))
+                .collect();
             surfaces.push(json!({"surface": surface, "sealed": sealed, "head": WirePosition(head)}));
         }
         json_answer("200 OK", &json!({"fromRelay": true, "surfaces": surfaces, "cut": cut}))

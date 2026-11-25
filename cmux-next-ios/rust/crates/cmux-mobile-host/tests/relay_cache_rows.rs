@@ -62,9 +62,15 @@ struct Load {
     every: Duration,
 }
 
-const IDLE: Load = Load { name: "idle", chats: 5, measured_turns: 20, other_turns: 20, every: Duration::from_secs(5) };
-const DURESS: Load =
-    Load { name: "duress", chats: 50, measured_turns: 5_000, other_turns: 20, every: Duration::from_millis(50) };
+const IDLE: Load =
+    Load { name: "idle", chats: 5, measured_turns: 20, other_turns: 20, every: Duration::from_secs(5) };
+const DURESS: Load = Load {
+    name: "duress",
+    chats: 50,
+    measured_turns: 5_000,
+    other_turns: 20,
+    every: Duration::from_millis(50),
+};
 
 fn record(seq: usize, role: &str) -> String {
     let text: String = format!("turn {seq} ").chars().cycle().take(RECORD_BYTES).collect();
@@ -102,14 +108,24 @@ struct Rig {
 
 impl Rig {
     async fn start(cache_on: bool, load: &Load, seed: u64) -> Self {
-        let server = FakeSignaling::start(FakeOptions { relay_cache: cache_on, ..FakeOptions::default() }).await;
+        let server =
+            FakeSignaling::start(FakeOptions { relay_cache: cache_on, ..FakeOptions::default() }).await;
         let upstream = server.base_url.trim_start_matches("http://").parse().expect("addr");
         let profile = ProfileFile::builtin().get(PROFILE).cloned().expect("lte profile");
         let shaper = Shaper::start(upstream, profile, seed, &Trace::new()).await.expect("shaper");
-        let mac = RelayCache::new(ApiClient::new(&server.base_url, "user:me"), MAC, RelayCacheConfig { enabled: true });
+        let mac = RelayCache::new(
+            ApiClient::new(&server.base_url, "user:me"),
+            MAC,
+            RelayCacheConfig { enabled: true },
+        );
         // The publisher is on in both arms: with the relay's switch off its puts are refused (503),
         // as they would be against today's Worker.
-        let publisher = RelayPublisher::new(mac, SigningKey::random(&mut OsRng), seed, RelayPublishConfig { enabled: true });
+        let publisher = RelayPublisher::new(
+            mac,
+            SigningKey::random(&mut OsRng),
+            seed,
+            RelayPublishConfig { enabled: true },
+        );
         let phone_key = SecretKey::random(&mut OsRng);
         let viewers = vec![Viewer { device: PHONE.into(), key: phone_key.public_key() }];
         let measured = chat(load.measured_turns);
@@ -149,7 +165,15 @@ impl Rig {
     }
 }
 
-fn cell(cell: &str, arm: &str, load: &str, run: usize, seed: u64, ms: Option<f64>, fields: serde_json::Value) {
+fn cell(
+    cell: &str,
+    arm: &str,
+    load: &str,
+    run: usize,
+    seed: u64,
+    ms: Option<f64>,
+    fields: serde_json::Value,
+) {
     let mut line = json!({"cell": cell, "arm": arm, "load": load, "profile": PROFILE, "run": run, "seed": seed,
                           "ms": ms.map(|v| (v * 10.0).round() / 10.0)});
     if let (Some(line), Some(fields)) = (line.as_object_mut(), fields.as_object()) {
@@ -204,7 +228,9 @@ async fn cold_open(load: &Load, cache_on: bool, n: usize) {
                 (Some(ms), json!({"bytes": open.bytes, "plaintext": open.opened.plaintext.len()}))
             }
             Ok(None) => (None, json!({"why": "no snapshot"})),
-            Err(RelayCacheError::RelayOff(code)) => (None, json!({"why": format!("{code}: no content until the Mac wakes")})),
+            Err(RelayCacheError::RelayOff(code)) => {
+                (None, json!({"why": format!("{code}: no content until the Mac wakes")}))
+            }
             Err(error) => panic!("cold open: {error}"),
         };
         cell("mac-asleep x cold-open", arm, load.name, run, seed, ms, fields);
@@ -238,18 +264,24 @@ async fn resume(load: &Load, cache_on: bool, n: usize) {
             Ok(resumed) => {
                 let applied: usize = resumed.surfaces.iter().map(|s| s.applied.len()).sum();
                 let newest = rig.measured.last().map(String::as_bytes).unwrap_or_default();
-                let shows_newest = resumed.surfaces.iter().any(|s| {
-                    s.applied.last().is_some_and(|o| o.plaintext.ends_with(newest))
-                }) || resumed.snapshots.iter().any(|o| o.plaintext.ends_with(&[newest, b"]"].concat()));
+                let shows_newest = resumed
+                    .surfaces
+                    .iter()
+                    .any(|s| s.applied.last().is_some_and(|o| o.plaintext.ends_with(newest)))
+                    || resumed.snapshots.iter().any(|o| o.plaintext.ends_with(&[newest, b"]"].concat()));
                 assert!(shows_newest, "resume must reach the Mac's last record");
                 samples.push(ms);
-                (Some(ms), json!({"records_missed": written, "held": held, "deltas": applied,
+                (
+                    Some(ms),
+                    json!({"records_missed": written, "held": held, "deltas": applied,
                                   "via": if resumed.snapshots.is_empty() { "catch-up" } else { "catch-up cut, snapshot" },
-                                  "bytes": resumed.bytes}))
+                                  "bytes": resumed.bytes}),
+                )
             }
-            Err(RelayCacheError::RelayOff(code)) => {
-                (None, json!({"why": format!("{code}: no content until the Mac wakes"), "records_missed": written}))
-            }
+            Err(RelayCacheError::RelayOff(code)) => (
+                None,
+                json!({"why": format!("{code}: no content until the Mac wakes"), "records_missed": written}),
+            ),
             Err(error) => panic!("resume: {error}"),
         };
         cell("lte x resume-after-sleep x relay", arm, load.name, run, seed, ms, fields);

@@ -32,15 +32,24 @@ async fn each_paired_phone_cold_opens_and_resumes_from_its_own_copy() {
     for (phone, key) in PHONES.iter().zip(&keys) {
         let point = hex(key.public_key().to_encoded_point(false).as_bytes());
         push_keys.set(phone, "identity", &point);
-        trust.devices.push(TrustedDevice { id: (*phone).to_owned(), identity_key: "identity".into(), ..TrustedDevice::default() });
+        trust.devices.push(TrustedDevice {
+            id: (*phone).to_owned(),
+            identity_key: "identity".into(),
+            ..TrustedDevice::default()
+        });
     }
     // A phone the Mac no longer pairs gets nothing.
-    push_keys.set("00000000-0000-4000-8000-0000000000b3", "gone", &hex(keys[0].public_key().to_encoded_point(false).as_bytes()));
+    push_keys.set(
+        "00000000-0000-4000-8000-0000000000b3",
+        "gone",
+        &hex(keys[0].public_key().to_encoded_point(false).as_bytes()),
+    );
     let viewers = viewers(&push_keys, &trust);
     assert_eq!(viewers.len(), 2);
 
     let mac = RelayCache::new(ApiClient::new(&server.base_url, "user:me"), MAC, on());
-    let publisher = RelayPublisher::new(mac, SigningKey::random(&mut OsRng), 5, RelayPublishConfig { enabled: true });
+    let publisher =
+        RelayPublisher::new(mac, SigningKey::random(&mut OsRng), 5, RelayPublishConfig { enabled: true });
     publisher.publish_delta(&viewers, STREAM, b"one").await;
     let snap = publisher.publish_snapshot(&viewers, STREAM, b"state after one").await;
     assert_eq!((snap.sent, snap.failed), (2, 0), "{:?}", snap.first_error);
@@ -51,10 +60,14 @@ async fn each_paired_phone_cold_opens_and_resumes_from_its_own_copy() {
     for (phone, key) in PHONES.iter().zip(&keys) {
         let client = RelayCache::new(ApiClient::new(&server.base_url, "user:me"), phone, on());
         let mut floor = Floor::default();
-        let opened = client.cold_open(MAC, &publisher.source_key(), key, STREAM, &mut floor).await.unwrap().unwrap();
+        let opened =
+            client.cold_open(MAC, &publisher.source_key(), key, STREAM, &mut floor).await.unwrap().unwrap();
         assert_eq!(opened.opened.plaintext, b"state after one");
         let mut floors = vec![(STREAM.to_owned(), floor)];
-        let resume = client.resume(MAC, &publisher.source_key(), key, &mut floors, DEFAULT_BUDGET_BYTES).await.unwrap();
+        let resume = client
+            .resume(MAC, &publisher.source_key(), key, &mut floors, DEFAULT_BUDGET_BYTES)
+            .await
+            .unwrap();
         let texts: Vec<_> = resume.surfaces[0].applied.iter().map(|o| o.plaintext.clone()).collect();
         assert_eq!(texts, [b"two".to_vec(), b"three".to_vec()]);
         assert!(resume.surfaces[0].stopped.is_none());
@@ -69,9 +82,11 @@ async fn each_paired_phone_cold_opens_and_resumes_from_its_own_copy() {
 async fn off_publishes_nothing() {
     let server = FakeSignaling::start(FakeOptions { relay_cache: true, ..FakeOptions::default() }).await;
     let mac = RelayCache::new(ApiClient::new(&server.base_url, "user:me"), MAC, on());
-    let publisher = RelayPublisher::new(mac, SigningKey::random(&mut OsRng), 1, RelayPublishConfig::default());
+    let publisher =
+        RelayPublisher::new(mac, SigningKey::random(&mut OsRng), 1, RelayPublishConfig::default());
     let phone = SecretKey::random(&mut OsRng);
-    let viewers = vec![cmux_mobile_host::relay_publish::Viewer { device: PHONES[0].into(), key: phone.public_key() }];
+    let viewers =
+        vec![cmux_mobile_host::relay_publish::Viewer { device: PHONES[0].into(), key: phone.public_key() }];
     assert_eq!(publisher.publish_snapshot(&viewers, STREAM, b"x").await.sent, 0);
     assert_eq!(publisher.publish_delta(&viewers, STREAM, b"y").await.sent, 0);
     assert_eq!(server.relay_cache_hits("snapshot PUT") + server.relay_cache_hits("delta POST"), 0);
