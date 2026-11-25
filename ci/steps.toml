@@ -1056,6 +1056,20 @@ inputs = [
 ]
 run = "python3 tests/test_terminal_hang_release_gate.py"
 
+[step.api-workerd-gate]
+job = "linux"
+timeout = 300
+title = "Backend test gate reruns API Worker shards that died without a verdict"
+about = "scripts/ci/api_workerd_infra_shards.py sorts real runs' shards into pass, fail and infra, and backend.yml's test gate reruns only the infra ones through scripts/ci/api-workerd-shard.sh (cmux#56511)"
+inputs = [
+  ".github/workflows/backend.yml",
+  "scripts/ci/api_workerd_infra_shards.py",
+  "scripts/ci/api-workerd-shard.sh",
+  "tests/fixtures/api_workerd_jobs/**",
+  "tests/test_ci_api_workerd_infra_shards.py",
+]
+run = "python3 tests/test_ci_api_workerd_infra_shards.py"
+
 [step.repair-nightly-appcast]
 job = "linux"
 timeout = 300

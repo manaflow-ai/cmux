@@ -179,33 +179,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
         working-directory: backend/apps/api
-        # A packed cmux-linux runner shares its VM's vCPUs with up to 3 others (#48644) but nproc still reports all
-        # 16, so vitest's default (one worker per vCPU) started 15 workerd isolates per job, 60 on 16 CPUs: imports took
-        # 40 to 100 s and 0.5 s cases ran past their 20 s bound (runs 45159322542, 45166603179, 45168037835,
-        # 45172851459). Measured on shard 2/6 pinned to 4 CPUs, 2026-11-23: 15 workers: 416 s, 2 files failed;
-        # 4 workers: 451 s, 228/228 passed. Even at 4, 6 shards still hit start and hook timeouts (45172479573), so:
-        # 12 shards of at most 3 workers. A load timeout on a busy VM is not the code's: the files that failed run once
-        # more and that run decides; a real failure fails both, and the first run's log stays above.
-        # The retry runs only the failed files, one at a time when 6 or fewer. Rerunning the whole shard on the same
-        # slow host (cmux-runner-pool-h*, where bun install takes 33 to 40 s against 1 to 4 s and a shard 1150 to 2160 s
-        # against about 190 s) timed out a different set of files the second time: shard 4/12 of run 45595544453
-        # failed 3 files, then 2 others; 5/12 and 7/12 of run 45588309799 the same (cmux#56145). A file alone is far
-        # from its bounds.
-        # With no failed file in the report (an unhandled error, a crash before the report), the whole shard reruns.
-        run: |
-          n=$(nproc); [ "$n" -gt 3 ] && n=3
-          report="$RUNNER_TEMP/api-workerd-${{ matrix.shard }}.json"
-          VITEST_JSON_OUT="$report" bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
-          failed=(); while IFS= read -r f; do failed+=("$f"); done < <(node -e 'for (const f of require(process.argv[1]).testResults) if (f.status === "failed") console.log(f.name)' "$report" 2>/dev/null || true)
-          if [ "${#failed[@]}" -eq 0 ]; then
-            echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once with no failed file in its report; running the whole shard again"
-            bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n"
-            exit
-          fi
-          w=1; [ "${#failed[@]}" -gt 6 ] && w="$n"
-          echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once in ${#failed[@]} files; running those again with $w worker(s) (a load timeout on a packed runner, or a real failure that fails again)"
-          printf '  %s\n' "${failed[@]}"
-          bun run test --maxWorkers="$w" "${failed[@]}"
+        # Worker count, the rerun of a shard's failed files and why: scripts/ci/api-workerd-shard.sh. The `test` job
+        # runs the same script for a shard whose job died before this step answered (cmux#56511).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/api-workerd-shard.sh" ${{ matrix.shard }} 12
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
@@ -216,7 +192,12 @@ jobs:
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
     # skipped LINUX_RUNNER: staging's test sat queued 25+ min (run 44637914493 attempt 3) with no 8 vCPU job running.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 55
+    # 55 for its own steps, plus up to 40 to rerun API Worker shards whose runner died (see that step).
+    timeout-minutes: 95
+    # actions: read lets the shard rerun step read this run's api-workerd jobs and their steps.
+    permissions:
+      contents: read
+      actions: read
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -341,12 +322,46 @@ jobs:
         run: |
           echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
           exit 1
+      # A shard whose job died before its tests answered is rerun here instead of failing the gate (cmux#56511).
+      # Of 35 completed feat-cmux-next runs (2026-11-24 20:54 to 2026-11-25 11:50 UTC), 10 had a shard that never
+      # reached a verdict: a pool runner lost mid-job (failure, no step finished, no log), setup-node or the Bun cache
+      # restore past its 5 min bound, bun install failing, or the 45 min job limit on a slow cmux-runner-pool-h* host
+      # (reported as cancelled). scripts/ci/api_workerd_infra_shards.py reads this run's jobs: a shard whose test
+      # step ended `failure` already had its own rerun of the failed files, so it stays a red; every other shard that
+      # is not green runs again here, through the same script, on this job's runner. More than 4 such shards is a
+      # pool outage, not a hiccup, and stays red rather than holding this runner for an hour.
+      - name: Rerun API Worker shards that died without a test verdict
+        id: shard-rerun
+        if: ${{ !cancelled() && (needs.api-workerd.result == 'failure' || needs.api-workerd.result == 'cancelled') }}
+        timeout-minutes: 40
+        working-directory: backend/apps/api
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MAX_INFRA_SHARDS: "4"
+        run: |
+          verdicts=$(python3 "$GITHUB_WORKSPACE/scripts/ci/api_workerd_infra_shards.py" --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID") || { echo "::warning::could not read this run's api-workerd jobs; the gate keeps the shards' result"; exit 0; }
+          infra=$(sed -n 's/^infra=//p' <<< "$verdicts"); fail=$(sed -n 's/^fail=//p' <<< "$verdicts")
+          if [ -n "$fail" ]; then
+            echo "::error title=API Worker tests::shard(s) $fail failed their tests (after their own rerun of the failed files); see those api-workerd jobs."
+            exit 0
+          fi
+          read -r -a shards <<< "$infra"
+          if [ "${#shards[@]}" -eq 0 ]; then echo "no api-workerd shard died without a verdict"; exit 0; fi
+          if [ "${#shards[@]}" -gt "$MAX_INFRA_SHARDS" ]; then
+            echo "::error title=API Worker tests::${#shards[@]} shards (${infra}) died without a test verdict, more than ${MAX_INFRA_SHARDS}: the runner pool is down; rerun the failed jobs once it is back."
+            exit 0
+          fi
+          for shard in "${shards[@]}"; do
+            echo "::warning::api-workerd shard ${shard}/12 died without a test verdict (runner or setup, see its job); running it here"
+            bash "$GITHUB_WORKSPACE/scripts/ci/api-workerd-shard.sh" "$shard" 12 || { echo "::error title=API Worker tests::shard ${shard}/12 failed its tests when rerun here"; exit 0; }
+          done
+          echo "verdict=pass" >> "$GITHUB_OUTPUT"
       - name: Fail on the API Worker shards
-        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && steps.shard-rerun.outputs.verdict != 'pass' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
         env:
           SHARDS: ${{ needs.api-workerd.result }}
         run: |
-          echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs."
+          echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs and the rerun step above."
           exit 1
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
