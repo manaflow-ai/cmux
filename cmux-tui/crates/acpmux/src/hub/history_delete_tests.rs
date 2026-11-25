@@ -94,6 +94,12 @@ async fn a_cold_archived_idle_chat_past_the_bound_is_deleted() {
     }
     let hub = open(&root.0);
     let session = hub.resolve("cold").unwrap();
+    let traces = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let t = traces.clone();
+    hub.store.on_rehydrate(Arc::new(move |id: &str| {
+        let bt = std::backtrace::Backtrace::force_capture();
+        t.lock().unwrap().push(format!("{id} {} {bt}", now_ms()));
+    }));
     hub.cold_archive_request(session.clone(), true).await.unwrap();
     assert!(hub.store.is_cold("cold"));
     eprintln!(
@@ -112,7 +118,12 @@ async fn a_cold_archived_idle_chat_past_the_bound_is_deleted() {
             hub.store.is_cold("cold")
         )
     });
-    assert_eq!(report["deleted"], 1, "{report} {state:?}");
+    assert_eq!(
+        report["deleted"],
+        1,
+        "{report} {state:?} {}",
+        traces.lock().unwrap().join("\n----\n")
+    );
     assert!(hub.resolve("cold").is_err());
     hub.shutdown_all().await;
 }
