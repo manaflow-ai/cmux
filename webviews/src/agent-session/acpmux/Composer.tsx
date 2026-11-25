@@ -493,6 +493,8 @@ type Props = {
   noProject?: boolean;
   sourceRepository?: { cwd: string; name: string };
   cloningRepository?: string;
+  /// A GitHub repository picked with This Mac picked, checked out when Return sends (cmux#53226).
+  pendingRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -706,8 +708,13 @@ function useRelayProps(props: Props): Props {
 /// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
+/// Function props the composer calls only from a send, never while drawing: held like its `on*` handlers. The
+/// pane passes `holdsSend` inline, so each pane render (every streamed tool-output chunk under a running tool
+/// call) handed the composer a new one and drew the composer and its box again, in the frames a typed key waits on.
+const CALL_TIME_PROPS = ["holdsSend"] as const;
+
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
@@ -781,6 +788,7 @@ function ComposerFrame({
   noProject,
   sourceRepository,
   cloningRepository,
+  pendingRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -2792,6 +2800,7 @@ function ComposerFrame({
       noProject={noProject}
       sourceRepository={sourceRepository}
       cloningRepository={cloningRepository}
+      {...(pendingRepository ? { pendingRepository } : {})}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
