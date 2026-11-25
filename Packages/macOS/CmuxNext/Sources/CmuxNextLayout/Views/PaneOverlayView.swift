@@ -74,6 +74,7 @@ final class PaneOverlayView: NSView {
             guard showsContentFrame != oldValue else { return }
             for layer in [border, ring, glowClip, focusFlash] { layer.isHidden = !showsContentFrame }
             wallpaperRim.suppressed = !showsContentFrame
+            accentGlowLayer?.isHidden = !showsContentFrame
         }
     }
     /// This pane was the focused one at the last update.

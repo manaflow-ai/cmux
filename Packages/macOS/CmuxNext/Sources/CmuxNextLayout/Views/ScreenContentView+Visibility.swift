@@ -43,7 +43,7 @@ extension ScreenContentView {
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
                 dim: multiple && !isFocused ? dim.amount : 0, dimFill: dim.fill,
-                focusRing: style.focusRing,
+                focusRing: style.focusRing, accentGlow: style.accentGlow,
                 ringAlphaOverride: style.focusRingAlphaOverride,
                 tabEmphasis: .forPane(isFocused: isFocused, paneCount: paneFrames.count, indicator: style.focusIndicator,
                                       style: style.inactiveTabStyle, strength: style.inactiveTabStrength),

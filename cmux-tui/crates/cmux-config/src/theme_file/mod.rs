@@ -105,7 +105,7 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// Info; and the transcript look and its tokens
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 45] = [
+const LOOK_KEYS: [&str; 47] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -151,6 +151,8 @@ const LOOK_KEYS: [&str; 45] = [
     "agentPane.display.senderIcon.badge",
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
+    "terminal.cursorStyle",
+    "terminal.cursorBlink",
 ];
 /// The workspace row's own keys (`sidebar.workspaceRow.<name>`: which
 /// elements show, their order, where the status mark sits, the row layout).
