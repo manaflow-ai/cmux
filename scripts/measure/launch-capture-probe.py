@@ -448,6 +448,33 @@ def wait_for(check, limit, what):
     raise frames.Unmeasurable(f"no {what} in {limit} s")
 
 
+def settle_for(check, limit, what):
+    """Best effort: check()'s first truthy value within `limit` s, else None and a log line naming what never came."""
+    deadline = time.monotonic() + limit
+    while True:
+        try:
+            got = check()
+        except Exception:  # noqa: BLE001 - the app or osascript may not answer yet
+            got = None
+        if got:
+            return got
+        if time.monotonic() >= deadline:
+            say("wait", f"no {what} in {limit} s; going on")
+            return None
+        time.sleep(0.1)  # test script: the poll interval
+
+
+def page_state(control, tab, script):
+    answer = control.call("browser.page.eval", {"tab": tab, "script": script}, timeout=5)
+    return answer.get("value") if isinstance(answer, dict) and not answer.get("error") else None
+
+
+def window_pids():
+    """The pids that own an on-screen window (CGWindowList), or None when it cannot be read."""
+    done = subprocess.run(["osascript", "-l", "JavaScript", "-e", WINDOWS_JXA], capture_output=True, text=True, timeout=10)
+    return {w.get("pid") for w in json.loads(done.stdout or "[]")}
+
+
 def build_workload(control, root):
     """A new workspace: the left pane's terminal prints red-backed text, the right pane shows a blue Chromium page."""
     before = {w.get("id") for w in control.topology().get("workspaces") or []}
@@ -458,7 +485,15 @@ def build_workload(control, root):
                                        if w.get("id") not in before), None), 30, "new workspace")
     left = wait_for(lambda: next((p for p in tabs_of(control, workspace) if p.get("tabs")), None), 30, "terminal")
     terminal = left["tabs"][0]["id"]
-    time.sleep(1.5)  # test script: the shell starts
+    # The shell starts: the new workspace's focused terminal shows its prompt, and the text holds still.
+    shown = lambda: ((control.call("surface.read_text") or {}).get("text") or "").rstrip()
+    if settle_for(shown, 15, "shell prompt in the left terminal"):
+        last, same = None, 0
+        deadline = time.monotonic() + 10
+        while same < 3 and time.monotonic() < deadline:
+            now = shown()
+            same, last = (same + 1 if now == last else 1), now
+            time.sleep(0.1)  # test script: the poll interval of the prompt text
     reply = control.action("terminal.sendText", target=f"tab:{terminal}", text=TERMINAL_TEXT)
     if reply.get("error"):
         raise frames.Unmeasurable(f"terminal.sendText: {reply['error']}")
@@ -477,7 +512,8 @@ def build_workload(control, root):
     chromium = wait_for(lambda: next((t.get("id") for p in tabs_of(control, workspace) for t in p.get("tabs") or []
                                       if t.get("id") not in known and not str(t.get("id")).startswith("pending_")),
                                      None), 30, "Chromium tab")
-    time.sleep(3)  # test script: the page loads and paints
+    # The page loads: its document is complete (a static page with nothing left to fetch).
+    settle_for(lambda: page_state(control, chromium, "document.readyState") == "complete", 30, "loaded Chromium page")
     return {"workspace": workspace, "left_pane": left["id"], "terminal": terminal, "right_pane": right["id"],
             "right_terminal": right_terminal, "chromium": chromium}
 
@@ -620,7 +656,8 @@ def main(argv=None):
         marker.quit()
         rect = ready["window"]
         report["window_points"] = rect
-        time.sleep(1.0)  # test script: the marker's window leaves the screen
+        # The marker's window leaves the screen: its pid owns no window in the window list.
+        settle_for(lambda: marker.process.pid not in window_pids(), 10, "marker window gone from the screen")
         # (b) The screen's own pixels of the window, then each of the app's pictures of it.
         screen_png = os.path.join(images, "screen-window.png")
         problem = screen_window(rect, screen_png)
@@ -657,7 +694,8 @@ def main(argv=None):
         report["timing_runs"] = runs
         # The page hidden behind the right pane's terminal: does Page.captureScreenshot still answer, and in how long.
         control.action("tab.focus", target=f"tab:{ids['right_terminal']}")
-        time.sleep(1.5)  # test script: the page hides
+        # The page hides: behind the terminal its document reports hidden.
+        settle_for(lambda: page_state(control, ids["chromium"], "document.visibilityState") == "hidden", 10, "hidden Chromium page")
         hidden = sources.measure("browser.page.screenshot", "hidden")
         if hidden["png"]:
             kept = os.path.join(images, "browser-page-screenshot-hidden.png")

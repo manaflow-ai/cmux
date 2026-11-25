@@ -68,8 +68,6 @@ pub(super) fn retry_delay(failures: u32) -> Duration {
 
 /// The layout document in the state directory.
 const LAYOUT_FILE: &str = "apps-widgets-layout.json";
-/// The most widgets one place holds.
-pub(super) const MAX_PER_PLACE: usize = 32;
 /// The largest settings object one tile keeps (serialized).
 pub(super) const MAX_SETTINGS_BYTES: usize = 4 * 1024;
 /// The longest instance id a page may mount with (a placed tile's, or a gallery preview's).
@@ -309,12 +307,8 @@ pub(super) fn apply(
                     format!("{app}'s widget has no size for the {}", place.as_str())
                 })?,
             };
-            if layout.place(place).len() >= MAX_PER_PLACE {
-                return Err(format!(
-                    "the {} holds at most {MAX_PER_PLACE} widgets",
-                    place.as_str()
-                ));
-            }
+            // No count limit: only a person's gesture adds a tile, a tile is one layout entry
+            // (settings at most MAX_SETTINGS_BYTES), and a tile that is not shown gets no tick.
             layout.next = layout.next.saturating_add(1);
             let item =
                 Item { instance: format!("w{}", layout.next), app, size, settings: Map::new() };
@@ -809,10 +803,17 @@ impl Supervisor {
             self.timers.cancel(timer);
         }
         if !visible {
+            // The signals this mount watches sleep while nobody sees it (`signals_cache.rs`).
+            self.signals_mount_visible_locked(&inner, &key, false);
             return Ok(json!({}));
         }
         mount.budget.settle(now, SETTLE);
-        if std::mem::take(&mut widget.retry_due) {
+        let retry_due = std::mem::take(&mut widget.retry_due);
+        let missed = widget.every.is_some_and(|every| {
+            now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
+        });
+        self.signals_mount_visible_locked(&inner, &key, true);
+        if retry_due {
             // The remount it missed while hidden runs now; its fresh mount starts a fresh clock.
             let outs = self.widget_remount_locked(&mut inner, &key);
             self.schedule_tick_locked(&mut inner, &key);
@@ -820,9 +821,6 @@ impl Supervisor {
             self.emit(outs);
             return Ok(json!({}));
         }
-        let missed = widget.every.is_some_and(|every| {
-            now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
-        });
         if missed {
             self.send_tick_locked(&mut inner, &key, now_ms);
         }

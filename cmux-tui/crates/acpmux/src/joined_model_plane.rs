@@ -129,6 +129,31 @@ pub(crate) fn secret_now() -> Option<Secret> {
     secret(&join, value)
 }
 
+/// This machine's join as `cmux github` asks the hub with it (`cmux_host::github_cli_joined`):
+/// [`now`]'s rules, with the credential kept for that one ask. None when not joined or the join
+/// is unusable (revoked, copied from another box, another hub's, malformed).
+#[cfg(unix)]
+pub fn github_machine() -> Option<cmux_host::github_cli_joined::JoinedMachine> {
+    let record = crate::machine_record::load().ok()??;
+    let join = Join::of(&record.hub_origin)?;
+    let credential =
+        Zeroizing::new(crate::cli::cloud_join::read_join_credential(join.origin()).ok()?);
+    Some(cmux_host::github_cli_joined::JoinedMachine {
+        hub_origin: join.origin().to_owned(),
+        credential,
+    })
+}
+
+/// Installs [`github_machine`] as this process's join reader for `cmux github` and the GitHub
+/// MCP bridge: with no Cloud agent socket, a joined machine asks its hub.
+#[cfg(unix)]
+pub fn install_github_source() {
+    cmux_host::github_cli_joined::set_joined_source(github_machine);
+    // A machine added from a Mac: its agent sessions ask the Mac through this daemon.
+    #[cfg(unix)]
+    cmux_host::github_cli_lane::set_lane_source(crate::github_lane_mint::ask);
+}
+
 /// Whether the launch opted in: `env_name` (`CMUX_CLAUDE_AUTH`, `CMUX_CODEX_AUTH`) pins `own` or
 /// `team`, else `cr use`'s recorded choice for `agent`. No choice is own.
 pub(crate) fn opted_in(inputs: &Inputs<'_>, env_name: &str, agent: &str) -> bool {

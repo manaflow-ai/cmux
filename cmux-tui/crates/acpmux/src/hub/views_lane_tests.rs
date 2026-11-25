@@ -179,11 +179,13 @@ fn a_summary_title_is_at_most_200_characters() {
 /// A peer's row heard as a census row is cut the same, whatever acpmux the peer runs.
 #[test]
 fn a_peers_census_row_cuts_its_title_too() {
-    let row =
-        json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true});
+    let row = json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true,
+        "timeBreakdown": {"totalMs": 1, "spans": [{"turnId": "t"}]}});
     let census = super::without_summary_tools(row);
     assert_eq!(census["title"].as_str().unwrap().chars().count(), super::TITLE_CHARS + 1);
     assert!(census.get("tools").is_none() && census.get("toolsMutable").is_none());
+    // An older peer lists its chats' time breakdowns; a census row here never carries one.
+    assert!(census.get("timeBreakdown").is_none(), "{census}");
     let short = super::without_summary_tools(json!({"sessionId": "p", "title": "a  b"}));
     assert_eq!(short["title"], "a  b");
 }

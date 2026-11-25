@@ -75,18 +75,19 @@ struct ChatSnapshotStoreTests {
             var session: String? = "s-2"
             let resources = AgentPageResources(session: { session }, allowed: { true })
             resources.themeKey = { "theme-1" }
+            resources.agentTheme = { ["accent": .string("rgba(1, 2, 3, 1)")] }
             let script = try #require(await Self.served(resources))
             #expect(script.hasPrefix("self.__cmuxChatSnapshot={"))
             #expect(script.contains(";self.__cmuxChatSnapshotWhy=\"kept\";"))
             #expect(script.contains("<main>chat</main>"))
             // With the theme the page gets now: a copy drawn under another one is not drawn.
             // Then the page's boot, as the script loads async and may come after it (chatSnapshot/boot.ts).
-            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=\"s-2\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"))
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotAgentTheme={\"accent\":\"rgba(1, 2, 3, 1)\"};self.__cmuxRestoredChat=\"s-2\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"))
             session = nil
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotAgentTheme={\"accent\":\"rgba(1, 2, 3, 1)\"};self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
             // A missing HTML copy still names its own chat for the independently retained event tail.
             session = "other"
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=\"other\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotAgentTheme={\"accent\":\"rgba(1, 2, 3, 1)\"};self.__cmuxRestoredChat=\"other\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
         }
     }
 
@@ -106,7 +107,7 @@ struct ChatSnapshotStoreTests {
             #expect(ready.mimeType == "text/javascript")
             let script = try #require(String(data: ready.data, encoding: .utf8))
             #expect(script.contains("<main>ready</main>"))
-            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxRestoredChat=\"s-7\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"))
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotAgentTheme=null;self.__cmuxRestoredChat=\"s-7\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"))
             // Taken once: a reload asks the usual way and reads the copy as it is then.
             #expect(resources.readyResource(for: request) == nil)
             // A page in an incognito window gets its null at once, with no copy.
@@ -208,7 +209,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-3", allowed: false) == .null)
             let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotAgentTheme=null;self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
         }
     }
 
@@ -234,7 +235,40 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-6") == .null)
             let resources = AgentPageResources(session: { "s-6" }, allowed: { true })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=\"s-6\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotAgentTheme=null;self.__cmuxRestoredChat=\"s-6\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
+        }
+    }
+
+    /// The prompt the chat's composer showed is served to its next document beside the copy, and with
+    /// no copy (one too large to keep) too: that composer holds it from its first frame (Leo,
+    /// 2026-11-22: "composer dips down then goes back up"). An empty or longer-than-kept prompt is
+    /// not served, and a write that forgets the copy forgets it.
+    @Test func theComposersPromptIsServedWithOrWithoutACopy() async throws {
+        try await Self.withDisk { disk in
+            let snapshots = AgentPaneTailCache.shared.snapshots
+            func put(_ fields: [String: JSONValue]) async throws {
+                _ = try await snapshots.reply("chat.snapshot.put", params: .object(fields.merging(["sessionId": .string("s-9")]) { a, _ in a }),
+                                              op: "cmux.agent.chat.snapshot.put", allowed: true,
+                                              pageGeneration: AgentPaneTailCache.shared.generation)
+                await disk.settled()
+            }
+            let resources = AgentPageResources(session: { "s-9" }, allowed: { true })
+            let tail = ";self.__cmuxRestoredDraft=\"half a \\\"thought\\\"\\n\\nmore\";self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();"
+            try await put(["v": .number(1), "html": .string("<main>a</main>"), "draft": .string("half a \"thought\"\n\nmore")])
+            #expect(await Self.served(resources)?.hasSuffix(";self.__cmuxRestoredChat=\"s-9\"" + tail) == true)
+            try await put(["miss": .string("too large"), "draft": .string("half a \"thought\"\n\nmore")])
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=\"s-9\"" + tail)
+            #expect(try await Self.get("s-9") == .null)
+            try await put(["miss": .string("too large"), "draft": .string(String(repeating: "x", count: AgentPaneChatSnapshots.draftMaxUnits + 1))])
+            #expect(await Self.served(resources)?.contains("__cmuxRestoredDraft") == false)
+            try await put(["miss": .string("too large"), "draft": .string("")])
+            #expect(await Self.served(resources)?.contains("__cmuxRestoredDraft") == false)
+            try await put(["v": .number(1), "html": .string("<main>a</main>"), "draft": .string("kept")])
+            try await put([:])
+            #expect(await Self.served(resources)?.contains("__cmuxRestoredDraft") == false)
+            // An incognito page is served no prompt.
+            let incognito = AgentPageResources(session: { "s-9" }, allowed: { false })
+            #expect(await Self.served(incognito)?.contains("__cmuxRestoredDraft") == false)
         }
     }
 

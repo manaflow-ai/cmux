@@ -1,5 +1,9 @@
 import CmuxConversationGeometry
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Foundation
 import Testing
 

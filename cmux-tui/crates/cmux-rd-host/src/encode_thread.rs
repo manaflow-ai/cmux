@@ -235,6 +235,7 @@ fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
 
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
+    source.set_picture(req.picture);
     let capture_start_us = now_ns() / 1000;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;
@@ -265,16 +266,29 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
 mod tests {
     use super::*;
     use cmux_rd_core::flow::Rect;
+    use cmux_rd_core::resolution::Picture;
 
-    /// Records every bitrate it is given.
+    /// Records every bitrate it is given, and the picture each capture was made for.
     struct Recorder {
         kbps: u32,
         set: Vec<u32>,
+        picture: Option<Picture>,
+        captured_for: Vec<Option<Picture>>,
+    }
+
+    impl Recorder {
+        fn new(kbps: u32) -> Self {
+            Self { kbps, set: Vec::new(), picture: None, captured_for: Vec::new() }
+        }
     }
 
     impl FrameSource for Recorder {
         fn capture(&mut self, _damage: Rect) -> Res<()> {
+            self.captured_for.push(self.picture);
             Ok(())
+        }
+        fn set_picture(&mut self, picture: Option<Picture>) {
+            self.picture = picture;
         }
         fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
             out.extend_from_slice(&[0, 0, 0, 1, 0x65]);
@@ -301,6 +315,7 @@ mod tests {
             force_idr: true,
             idr_reason: None,
             target_kbps,
+            picture: None,
             profile: Default::default(),
             refine: false,
         };
@@ -309,18 +324,30 @@ mod tests {
 
     #[test]
     fn the_frame_after_a_drop_encodes_at_half_the_rate() {
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut source = Recorder::new(8_000);
         let frame = encode_one(&mut source, &job(8_000, true)).expect("encode");
         assert_eq!(frame.kbps, 4_000, "the halve holds for this frame: {:?}", source.set);
         assert_eq!(source.set.last(), Some(&4_000));
         // A target already under half wins.
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut source = Recorder::new(8_000);
         encode_one(&mut source, &job(3_000, true)).expect("encode");
         assert_eq!(source.kbps, 3_000);
         // Without a drop the engine's target applies.
-        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut source = Recorder::new(8_000);
         encode_one(&mut source, &job(9_000, false)).expect("encode");
         assert_eq!(source.kbps, 9_000);
+    }
+
+    #[test]
+    fn the_ladders_picture_reaches_the_source_before_its_capture() {
+        let picture = Picture { width: 960, height: 540, eighths: 4, fps: 60, max_qp: Some(40) };
+        let mut source = Recorder::new(8_000);
+        let mut scaled = job(2_000, false);
+        scaled.req.picture = Some(picture);
+        encode_one(&mut source, &scaled).expect("encode");
+        // Without a ladder the next frame is the full stream again.
+        encode_one(&mut source, &job(2_000, false)).expect("encode");
+        assert_eq!(source.captured_for, vec![Some(picture), None]);
     }
 
     /// Takes `ms` to capture, as an XShm readback and conversion of a large rect does.
@@ -383,9 +410,9 @@ mod tests {
         }
         let mut ultra_job = job(8_000, false);
         ultra_job.req.profile = EncodeProfile::Ultra;
-        let mut plain = Recorder { kbps: 8_000, set: Vec::new() };
+        let mut plain = Recorder::new(8_000);
         assert_eq!(encode_one(&mut plain, &ultra_job).expect("encode").profile, None);
-        let mut able = Ultra(Recorder { kbps: 8_000, set: Vec::new() });
+        let mut able = Ultra(Recorder::new(8_000));
         assert_eq!(
             encode_one(&mut able, &ultra_job).expect("encode").profile,
             Some(EncodeProfile::Ultra)

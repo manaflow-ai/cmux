@@ -28,7 +28,9 @@ case "$code" in
       --purpose cmux-web-pieces --allow-expired > "$dir/current-payload.json"
     words+=(--current "$dir/current-payload.json")
     ;;
-  403 | 404) ;;
+  # Only a 404 is "no file yet" (files.cmux.com answers 404 for a missing file); a 403 or any
+  # other answer may hide a published file, and restarting its serial at 1 would be wrong.
+  404) ;;
   *)
     echo "web-pieces-publish: could not read $base/$name (HTTP $code); not guessing its serial" >&2
     exit 1

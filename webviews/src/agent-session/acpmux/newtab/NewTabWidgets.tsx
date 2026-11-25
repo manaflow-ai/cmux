@@ -28,7 +28,7 @@ import {
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
 import { Icon } from "../icons/Icon";
-import { pageHostClient } from "../pageHost";
+import { pageHostClient } from "../pageHostClient";
 import { AddWidgetGallery, type AddWidgetLook } from "./AddWidgetGallery";
 import { useNt } from "./strings";
 import { GridWidgetFrame, type WidgetEditLook } from "./WidgetEditing";
@@ -256,7 +256,7 @@ function TileBody({ tile, label }: { tile: WidgetTileMount; label: string }) {
   const stale = health.stale || status.state === "disconnected";
   return (
     <section
-      className="nt-widget-card"
+      className="nt-widget-card ui-glass"
       data-size={tile.placement.size}
       data-status={status.state}
       data-stale={stale || undefined}
@@ -294,7 +294,7 @@ function UnavailableNotice({ label }: { label: string }) {
 /** A tile that threw while it drew: its card, saying so, in the tile's own place. */
 function UnavailableCard({ size, label }: { size: WidgetTilePlacement["size"]; label: string }) {
   return (
-    <section className="nt-widget-card" data-size={size} data-status="failed" aria-label={label}>
+    <section className="nt-widget-card ui-glass" data-size={size} data-status="failed" aria-label={label}>
       <UnavailableNotice label={label} />
     </section>
   );

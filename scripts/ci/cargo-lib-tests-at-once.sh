@@ -3,8 +3,9 @@
 # logs one after another as `cargo test --lib --no-fail-fast` would: a `Running` line, the binary's own
 # libtest output, and cargo's `error: test failed` lines when it fails.
 #
-# usage: cargo-lib-tests-at-once.sh LOGDIR CARGO_TEST_ARGS...
+# usage: cargo-lib-tests-at-once.sh LOGDIR CARGO_TEST_ARGS... [-- TEST_BINARY_ARGS...]
 #   CARGO_TEST_ARGS are the `cargo test` arguments that select the packages (`--locked -p a -p b`);
+#   TEST_BINARY_ARGS, after `--`, go to every library binary as `cargo test -- ARGS` gives them (`--skip NAME`);
 #   `--lib --no-run --message-format=json` is added to list the built binaries (a fresh build: the
 #   caller builds first with the same packages, so cargo resolves the same features and rebuilds nothing).
 #
@@ -18,6 +19,17 @@ set -uo pipefail
 
 logdir="${1:?usage: cargo-lib-tests-at-once.sh LOGDIR CARGO_TEST_ARGS...}"
 shift
+cargo_args=() binary_args=()
+while (( $# )); do
+  if [[ "$1" == -- ]]; then
+    shift
+    binary_args=("$@")
+    break
+  fi
+  cargo_args+=("$1")
+  shift
+done
+set -- "${cargo_args[@]}"
 mkdir -p "$logdir"
 list="$logdir/binaries.tsv"
 cargo test "$@" --lib --no-run --message-format=json 2>"$logdir/list.err" | python3 -c '
@@ -57,7 +69,7 @@ run_one() {
   (
     cd "${roots[i]}" || exit 1
     CARGO_MANIFEST_DIR="${roots[i]}" CARGO_PKG_NAME="${pkgs[i]}" \
-      CARGO="${CARGO:-$(command -v cargo)}" exec "${exes[i]}"
+      CARGO="${CARGO:-$(command -v cargo)}" exec "${exes[i]}" "${binary_args[@]}"
   ) > "$logdir/$i.log" 2>&1
 }
 

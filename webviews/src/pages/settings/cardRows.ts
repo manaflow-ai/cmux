@@ -40,6 +40,7 @@ export const COMPUTER_USE_SWITCHES = [
   "computerUse.cursorTag",
   "computerUse.settle",
   "computerUse.livePreview",
+  "computerUse.whileLocked",
   "computerUse.allowForeground",
 ] as const;
 /** The schema rows the Computer Use card draws itself. */
@@ -102,6 +103,7 @@ export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
 export const SPACE_ROWS: ReadonlySet<string> = new Set([
   "sidebar.showSpaces",
   "sidebar.spacesPosition",
+  "appearance.metrics.spaceButtonSpacing",
   "sidebar.spacesVisibility",
 ]);
 

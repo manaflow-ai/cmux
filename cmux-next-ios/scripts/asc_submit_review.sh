@@ -9,38 +9,45 @@
 #
 # usage: cmux-next-ios/scripts/asc_submit_review.sh attach --app ID --version X.Y.Z --build-number N
 #        cmux-next-ios/scripts/asc_submit_review.sh submit --app ID --version X.Y.Z --build-number N
-#            (--dry-run | --confirm-submit)
+#            --config AppStore|TestFlight (--dry-run | --confirm-submit)
 #
 #   attach   find the processed build (version X.Y.Z, build N) and attach it to the
 #            App Store version X.Y.Z, which must already exist in App Store Connect
-#   submit   attach again (a no-op when it is attached), `asc validate --strict`, then
-#            `asc review submit`: --dry-run previews it, --confirm-submit submits.
+#   submit   attach again (a no-op when it is attached), write the --config record's
+#            App Review notes (asc_review_package.py sync-notes: AppStore
+#            review-notes-asc.txt, TestFlight review-notes-asc-internal.txt; --dry-run
+#            only compares), `asc validate --strict`, then `asc review submit`:
+#            --dry-run previews it, --confirm-submit submits.
 #            Submitting is a person's step: only ios-internal-submit.yml, dispatched
 #            by hand with its confirm input, passes --confirm-submit.
 #
-# Auth: the asc CLI's environment (ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH).
+# Auth: the asc CLI's environment (ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH),
+# which asc_review_package.py reads too.
 set -euo pipefail
 
 die() { echo "error: $*" >&2; exit 1; }
 note() { printf '\n==> %s\n' "$*"; }
 
 cmd=${1:-}; [[ $# -gt 0 ]] && shift
-app="" version="" build_number="" dry_run=0 confirm=0
+app="" version="" build_number="" config="" dry_run=0 confirm=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app) app=${2:-}; shift 2 ;;
     --version) version=${2:-}; shift 2 ;;
     --build-number) build_number=${2:-}; shift 2 ;;
+    --config) config=${2:-}; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     --confirm-submit) confirm=1; shift ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 case "$cmd" in
   attach) [[ $dry_run == 0 && $confirm == 0 ]] || die "attach takes no --dry-run or --confirm-submit" ;;
-  submit) [[ $((dry_run + confirm)) == 1 ]] || die "submit needs exactly one of --dry-run or --confirm-submit" ;;
-  -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+  submit)
+    [[ $((dry_run + confirm)) == 1 ]] || die "submit needs exactly one of --dry-run or --confirm-submit"
+    [[ $config == AppStore || $config == TestFlight ]] || die "submit needs --config AppStore or TestFlight (the record whose review notes go with it)" ;;
+  -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
   *) die "the first argument must be attach or submit" ;;
 esac
 [[ "$app" =~ ^[0-9]+$ ]] || die "--app must be the numeric App Store Connect app id"
@@ -69,6 +76,11 @@ version_id=$(asc versions list --app "$app" --version "$version" --platform IOS 
 note "attach build $build_number ($build_id) to App Store version $version ($version_id) of app $app"
 asc versions attach-build --version-id "$version_id" "$build_flag" "$build_id"
 [[ $cmd == submit ]] || exit 0
+
+notes=(sync-notes --version "$version")
+[[ $dry_run == 0 ]] || notes+=(--dry-run)
+note "App Review notes for the $config record: app $app, version $version"
+python3 -I "$(dirname "$0")/asc_review_package.py" --app "$app" --config "$config" "${notes[@]}"
 
 note "asc validate --strict: app $app, version $version"
 asc validate --app "$app" --version "$version" --platform IOS --strict --output table

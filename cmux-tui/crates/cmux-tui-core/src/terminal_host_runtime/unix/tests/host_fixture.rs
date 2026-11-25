@@ -77,6 +77,7 @@ pub(super) fn test_host_shared_with_budget(
             RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         )),
         exit_publish_requests,
+        exit_publisher: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),

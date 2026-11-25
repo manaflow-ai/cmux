@@ -15,6 +15,8 @@ name: git mirror bundle
 # the stable prefix: r2-cache.sh writes one pointer per dash-terminated prefix, and the
 # pruner keeps every pointer's target, so a dash there would pin each bundle for good.
 # r2_cache_prune.py keeps them a day, and always the one the pointer names.
+# The same run also writes raw bundles for VM guests' `git clone --bundle-uri` under
+# v1/any/git-bundle/ (see the last step); nothing CI restores reads them.
 #
 # It writes at most every BUNDLE_INTERVAL_HOURS: a push between finds the newest
 # bundle fresh and stops after one HEAD request. Measured 2026-10-27 on Blacksmith
@@ -47,7 +49,7 @@ jobs:
     name: Is a git mirror bundle due
     # Every push gets a cheap HEAD check; only the rare due=true run may take
     # the shared 32-vCPU Linux build pool. Keep fork-safe hosted routing.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 3
     permissions: {}
     outputs:
@@ -75,7 +77,7 @@ jobs:
     needs: probe
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.probe.outputs.due == 'true' }}
     name: Publish the git mirror bundle
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -101,6 +103,11 @@ jobs:
           git -C "$repo" bundle create --quiet "$RUNNER_TEMP/bundle/cmux.bundle" --branches
           git -C "$repo" bundle verify --quiet "$RUNNER_TEMP/bundle/cmux.bundle"
           echo "bundled in $((SECONDS - started)) s: $(du -m "$RUNNER_TEMP/bundle/cmux.bundle" | cut -f1) MB"
+          # The guests' blobless copy lives outside bundle/, so the archive CI restores is unchanged.
+          mkdir -p "$RUNNER_TEMP/guest"
+          started=$SECONDS
+          git -C "$repo" bundle create --quiet "$RUNNER_TEMP/guest/cmux-blobless.bundle" --filter=blob:none --branches
+          echo "blobless bundle in $((SECONDS - started)) s: $(du -m "$RUNNER_TEMP/guest/cmux-blobless.bundle" | cut -f1) MB"
 
       # The local cache-save action and the r2-cache.sh it runs.
       - name: Checkout the cache tooling
@@ -121,3 +128,57 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/bundle
           key: ${{ steps.fetch.outputs.key }}
+
+      # Raw bundles a VM guest's `git clone --bundle-uri=URL` reads directly, at fixed keys
+      # overwritten each publish (r2_cache_prune.py never touches keys outside objects/, and
+      # overwriting keeps one copy of each):
+      #   v1/any/git-bundle/cmux-full.bundle      the same cmux.bundle the archive holds; for a
+      #                                           clone without --filter
+      #   v1/any/git-bundle/cmux-blobless.bundle  commits and trees only; for --filter=blob:none
+      #   v1/any/git-bundle/cmux-full.list, cmux-blobless.list  one-entry bundle lists naming them
+      # Never pair the full bundle with --filter=blob:none: git 2.56 then repacks the whole
+      # bundle into a second promisor pack (measured 2026-11-23: 177 s, 6.2 GB .git). A filtered
+      # bundle without --filter leaves a clone with no blobs. These two lists carry no
+      # bundle.heuristic, so a later `git fetch` never downloads a whole bundle again.
+      # For later fetches (RFD 0056 part 3): cmux-blobless-rolling.list sets the creationToken
+      # heuristic over a weekly base and a delta since it (scripts/ci/git_bundle_list.py), so a
+      # guest's `git fetch` with fetch.bundleURI takes only the delta from the edge, then tops up
+      # from the code host.
+      - name: Publish the raw bundles for guests
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          set -euo pipefail
+          guest="$RUNNER_TEMP/guest"
+          ln -f "$RUNNER_TEMP/bundle/cmux.bundle" "$guest/cmux-full.bundle"
+          for flavor in full blobless; do
+            printf '[bundle]\n\tversion = 1\n\tmode = all\n[bundle "%s"]\n\turi = cmux-%s.bundle\n' \
+              "$flavor" "$flavor" > "$guest/cmux-$flavor.list"
+          done
+          put() { # <file> <content type> <cache control>
+            local url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/v1/$CI_CACHE_R2_NAMESPACE/git-bundle/$(basename "$1")"
+            local status
+            status="$(printf 'user = "%s:%s"\n' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" \
+              | curl --config - --silent --show-error --retry 3 --retry-delay 2 \
+                  --connect-timeout 15 --max-time 1800 --aws-sigv4 "aws:amz:auto:s3" \
+                  -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" -H "content-type: $2" -H "cache-control: $3" \
+                  -o /dev/null -w '%{http_code}' -T "$1" "$url")"
+            [[ "$status" == 200 ]] || { echo "::warning::upload of $(basename "$1") failed (HTTP $status)"; return 1; }
+            echo "published $CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/git-bundle/$(basename "$1")"
+          }
+          # Bundles before lists, so a list never names a bundle that is not there yet.
+          put "$guest/cmux-blobless.bundle" application/octet-stream no-cache
+          put "$guest/cmux-full.bundle" application/octet-stream no-cache
+          put "$guest/cmux-blobless.list" text/plain no-store
+          put "$guest/cmux-full.list" text/plain no-store
+          # The rolling list: its base (when it rotates) and delta first, the list last.
+          rolling="$RUNNER_TEMP/rolling"
+          python3 -I scripts/ci/git_bundle_list.py plan --repo "$RUNNER_TEMP/cmux.git" \
+            --built "$guest/cmux-blobless.bundle" --out "$rolling" \
+            --public "$CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/git-bundle" | tee "$RUNNER_TEMP/rolling.json"
+          for f in $(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["upload"]))' "$RUNNER_TEMP/rolling.json"); do
+            case "$f" in *.list) put "$rolling/$f" text/plain no-store ;; *) put "$rolling/$f" application/octet-stream no-cache ;; esac
+          done

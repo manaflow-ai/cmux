@@ -31,7 +31,12 @@ fn the_commands_parse() {
     );
     assert_eq!(
         parse(&words("screenshot --out /tmp/a.png --window w1")).unwrap(),
-        Request::Screenshot { out: "/tmp/a.png".into(), window: Some("w1".into()), machine: None }
+        Request::Screenshot {
+            out: "/tmp/a.png".into(),
+            window: Some("w1".into()),
+            display: None,
+            machine: None
+        }
     );
     assert_eq!(
         parse(&words("approvals forget com.apple.Notes")).unwrap(),
@@ -62,6 +67,184 @@ fn bad_commands_are_usage_errors() {
     let machine_in_args =
         vec!["call".to_owned(), "click".into(), "--args".into(), r#"{"machine":"x"}"#.into()];
     assert!(parse(&machine_in_args).is_err());
+}
+
+#[test]
+fn the_alerts_commands_parse() {
+    let list = |machine: Option<&str>| Request::Call {
+        tool: "list_alerts".into(),
+        args: json!({}),
+        machine: machine.map(str::to_owned),
+    };
+    assert_eq!(parse(&words("alerts")).unwrap(), list(None));
+    assert_eq!(parse(&words("alerts --json")).unwrap(), list(None));
+    assert_eq!(parse(&words("alerts --json --machine studio")).unwrap(), list(Some("studio")));
+    let args: Vec<String> =
+        ["alerts", "dismiss", "96", "--button", "Not Now", "--machine", "studio"]
+            .iter()
+            .map(|w| (*w).to_owned())
+            .collect();
+    assert_eq!(
+        parse(&args).unwrap(),
+        Request::Call {
+            tool: "dismiss_alert".into(),
+            args: json!({"alert_id": "96", "button": "Not Now"}),
+            machine: Some("studio".into()),
+        }
+    );
+    // No button named, no alert named, or a flag nobody knows: usage errors.
+    assert!(parse(&words("alerts dismiss 96")).is_err());
+    assert!(parse(&words("alerts dismiss --button OK")).is_err());
+    assert!(parse(&words("alerts dismiss")).is_err());
+    assert!(parse(&words("alerts dismiss 96 --button OK --force yes")).is_err());
+    assert!(parse(&words("alerts --all")).is_err());
+}
+
+#[test]
+fn displays_doctor_and_display_screenshots_parse() {
+    assert_eq!(
+        parse(&words("displays --machine studio")).unwrap(),
+        Request::Call {
+            tool: "list_displays".into(),
+            args: json!({}),
+            machine: Some("studio".into())
+        }
+    );
+    assert_eq!(
+        parse(&words("screenshot --out /tmp/a.png --display 69733382")).unwrap(),
+        Request::Screenshot {
+            out: "/tmp/a.png".into(),
+            window: None,
+            display: Some("69733382".into()),
+            machine: None
+        }
+    );
+    assert_eq!(parse(&words("doctor")).unwrap(), Request::Doctor { machine: None, json: false });
+    assert_eq!(
+        parse(&words("doctor --json --machine studio")).unwrap(),
+        Request::Doctor { machine: Some("studio".into()), json: true }
+    );
+    for bad in ["screenshot --out a --window w --display 1", "doctor --fix", "displays --all"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+mod doctor_checks {
+    use super::super::doctor::{Endpoint, Reply, evaluate, human};
+    use serde_json::json;
+
+    fn ready() -> Endpoint {
+        Endpoint::State(json!({"state": "ready", "pid": 7}))
+    }
+
+    fn healthy_status() -> serde_json::Value {
+        json!({
+            "platform": {"os": "macos"},
+            "permissions": {"accessibility": "granted", "screen_capture": "granted", "input": "granted"},
+            "mode": "fullAccess",
+            "allow_own_machines": true,
+            "screen_locked": false,
+            "worker": {"executable": "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly/computer-use/cmux Screen Sharing.app/Contents/MacOS/cmux-screen-sharing", "pid": 9},
+        })
+    }
+
+    fn one_display() -> Reply {
+        Reply::Ok(json!({"displays": [{"id": "1", "main": true, "scale": 2.0,
+            "frame": {"x": 0.0, "y": 0.0, "width": 1512.0, "height": 982.0}}]}))
+    }
+
+    fn failing(checks: &[super::super::doctor::Check]) -> Vec<&'static str> {
+        checks.iter().filter(|c| !c.ok).map(|c| c.name).collect()
+    }
+
+    #[test]
+    fn a_healthy_machine_passes_every_check() {
+        let checks = evaluate(None, &ready(), &Reply::Ok(healthy_status()), &one_display());
+        assert!(failing(&checks).is_empty(), "{checks:?}");
+        assert!(checks.iter().all(|c| c.fix.is_none()));
+        let helper = checks.iter().find(|c| c.name == "helper").unwrap();
+        assert!(
+            helper.detail.contains("staged") && helper.detail.contains("com.cmuxterm.app.nightly")
+        );
+        assert!(human(&checks, true).contains("can capture and act"));
+    }
+
+    /// The worker runs from `cmux_signed_bundle::helper_folder` (`cmux-next/helper/<id>/`) since
+    /// the stagers share one copy; doctor read only the older root and failed every good Mac.
+    #[test]
+    fn the_shared_helper_folder_is_the_staged_copy() {
+        let mut status = healthy_status();
+        status["worker"]["executable"] = json!(
+            "/Users/p/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
+        );
+        let checks = evaluate(None, &ready(), &Reply::Ok(status.clone()), &one_display());
+        assert!(failing(&checks).is_empty(), "{checks:?}");
+        let helper = checks.iter().find(|c| c.name == "helper").unwrap();
+        assert!(helper.detail.contains("com.cmuxterm.app.nightly.screen-sharing"), "{helper:?}");
+        // Run from inside the app instead: not the staged copy.
+        status["worker"]["executable"] = json!(
+            "/Applications/cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
+        );
+        let checks = evaluate(None, &ready(), &Reply::Ok(status), &one_display());
+        assert_eq!(failing(&checks), vec!["helper"]);
+    }
+
+    #[test]
+    fn each_failure_names_its_fix() {
+        let mut status = healthy_status();
+        status["permissions"]["screen_capture"] = json!("denied");
+        status["permissions"]["input"] = json!("unknown");
+        status["screen_locked"] = json!(true);
+        status["mode"] = json!("lookOnly");
+        status["worker"]["executable"] =
+            json!("/Applications/cmux NIGHTLY.app/Contents/Helpers/cmux-screen-sharing");
+        let checks =
+            evaluate(None, &ready(), &Reply::Ok(status), &Reply::Ok(json!({"displays": []})));
+        assert_eq!(
+            failing(&checks),
+            ["helper", "screen_capture", "input", "screen_locked", "mode", "displays"]
+        );
+        for c in checks.iter().filter(|c| !c.ok) {
+            assert!(c.fix.as_deref().is_some_and(|f| !f.is_empty()), "{c:?}");
+        }
+        assert!(human(&checks, false).contains("fix: "));
+    }
+
+    #[test]
+    fn an_unreachable_daemon_or_missing_helper_stops_early() {
+        let not_asked =
+            Reply::Failed { code: "daemon_unreachable".into(), message: "not asked".into() };
+        let checks =
+            evaluate(None, &Endpoint::Unreachable("no socket".into()), &not_asked, &not_asked);
+        assert_eq!(failing(&checks)[0], "daemon");
+
+        let no_helper = "This cmux build can't run Computer Use. Install the latest cmux.";
+        let endpoint = Endpoint::State(json!({"state": "unavailable", "reason": no_helper}));
+        let failed =
+            Reply::Failed { code: "computer_use_unavailable".into(), message: no_helper.into() };
+        let checks = evaluate(None, &endpoint, &failed, &failed);
+        let worker = checks.iter().find(|c| c.name == "worker").unwrap();
+        assert_eq!(worker.fix.as_deref(), Some(no_helper));
+    }
+
+    #[test]
+    fn off_and_other_machines() {
+        let checks = evaluate(
+            None,
+            &ready(),
+            &Reply::Ok(json!({"mode": "off", "reason": "set by the person"})),
+            &Reply::Off(String::new()),
+        );
+        assert_eq!(failing(&checks), ["mode"]);
+
+        let mut status = healthy_status();
+        status["allow_own_machines"] = json!(false);
+        status["platform"]["os"] = json!("linux");
+        status["permissions"] = json!({"accessibility": "granted", "screen_capture": "not_needed", "input": "not_needed"});
+        status["worker"]["executable"] = json!("/usr/bin/cmux");
+        let checks = evaluate(Some("box"), &Endpoint::Skipped, &Reply::Ok(status), &one_display());
+        assert_eq!(failing(&checks), ["own_machines"]);
+    }
 }
 
 #[test]
@@ -142,6 +325,7 @@ fn machine_after_the_command_reaches_the_command() {
         Request::Screenshot {
             out: "/tmp/a.png".into(),
             window: None,
+            display: None,
             machine: Some("studio".into())
         }
     );
@@ -162,4 +346,18 @@ fn machine_before_the_command_is_the_fallback() {
         Request::Call { tool: "status".into(), args: json!({}), machine: None }
     );
     assert!(split(&words("workspace list --machine m")).is_none());
+}
+
+/// `cmux --machine studio computer-use upgrade` swapped this Mac's helper and left studio's:
+/// the upgrade is local only, so a named machine is refused before anything changes.
+#[test]
+fn upgrade_on_a_named_machine_is_refused_before_anything_changes() {
+    for text in
+        ["--machine studio computer-use upgrade", "--machine studio computer-use upgrade --undo"]
+    {
+        let (global, rest) = split(&words(text)).expect("a computer-use command");
+        assert_eq!(global.machine.as_deref(), Some("studio"), "{text}");
+        assert_eq!(run(&global, &rest), 2, "{text}");
+    }
+    assert!(parse(&words("upgrade --machine studio")[..]).is_err());
 }

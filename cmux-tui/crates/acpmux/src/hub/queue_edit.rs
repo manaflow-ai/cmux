@@ -397,8 +397,10 @@ impl Hub {
                 return Err(super::queue::approved_error());
             }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
-            // Only `session/prompt` adds a hidden context (prompt_context.rs).
+            // Only `session/prompt` adds a client's hidden context (prompt_context.rs); the tools
+            // note follows the edited words (`tool_mentions.rs`), so it comes or goes with them.
             crate::prompt_context::strip_marks(&mut blocks);
+            crate::tool_mentions::add_note(&mut blocks);
             let text = prompt_text(&blocks);
             // Its images keep their names and their original files (`moved_display_parts`),
             // checked again against the blocks they name now.
