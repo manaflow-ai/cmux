@@ -145463,6 +145463,270 @@
         }
       }
     },
+    "tray.summary.inBackground": {
+      "comment": "Agent pane: the composer hat's summary, the background group in words ({kind} is a count such as \"2 tasks\"; reads \"2 tasks in background\")",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} u pozadini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} i baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} im Hintergrund"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{kind} in background"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} en segundo plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} in background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドで{kind}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} នៅផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드에서 {kind}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} i bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W tle: {kind}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} em segundo plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В фоне: {kind}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} ในพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka planda {kind}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У фоні: {kind}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} trong nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "后台 {kind}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景 {kind}"
+          }
+        }
+      }
+    },
+    "tray.summary.kindRunning": {
+      "comment": "Agent pane: the composer hat's summary, one running kind in words ({kind} is a count such as \"2 commands\"; reads \"2 commands running\")",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل {kind}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} laufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{kind} running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{kind} 件実行中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} កំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind}개 실행 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W toku: {kind}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполняется: {kind}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรัน {kind}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виконується: {kind}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} 个运行中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{kind} 個執行中"
+          }
+        }
+      }
+    },
     "summary.viewAll": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -146387,6 +146651,7 @@
         }
       }
     },
+    "switch.startTimedOut": {"comment":"Agent pane: the switch card's error when a new chat's agent did not start in time; Retry follows it. {agent} is the agent's name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"لم يبدأ {agent} خلال دقيقتين"}},"bs":{"stringUnit":{"state":"needs_review","value":"{agent} se nije pokrenuo u roku od 2 minute"}},"da":{"stringUnit":{"state":"needs_review","value":"{agent} startede ikke inden for 2 minutter"}},"de":{"stringUnit":{"state":"needs_review","value":"{agent} ist nicht innerhalb von 2 Minuten gestartet"}},"en":{"stringUnit":{"state":"translated","value":"{agent} did not start within 2 minutes"}},"es":{"stringUnit":{"state":"needs_review","value":"{agent} no se inició en 2 minutos"}},"fr":{"stringUnit":{"state":"needs_review","value":"{agent} n'a pas démarré en 2 minutes"}},"it":{"stringUnit":{"state":"needs_review","value":"{agent} non si è avviato entro 2 minuti"}},"ja":{"stringUnit":{"state":"needs_review","value":"{agent} が 2 分以内に開始しませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"{agent} មិនបានចាប់ផ្តើមក្នុងរយៈពេល 2 នាទីទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{agent}이(가) 2분 안에 시작되지 않았습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"{agent} startet ikke innen 2 minutter"}},"pl":{"stringUnit":{"state":"needs_review","value":"{agent} nie uruchomił się w ciągu 2 minut"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{agent} não iniciou em 2 minutos"}},"ru":{"stringUnit":{"state":"needs_review","value":"{agent} не запустился за 2 минуты"}},"th":{"stringUnit":{"state":"needs_review","value":"{agent} ไม่ได้เริ่มภายใน 2 นาที"}},"tr":{"stringUnit":{"state":"needs_review","value":"{agent} 2 dakika içinde başlamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"{agent} не запустився за 2 хвилини"}},"vi":{"stringUnit":{"state":"needs_review","value":"{agent} không khởi động trong vòng 2 phút"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{agent} 未在 2 分钟内启动"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{agent} 未在 2 分鐘內啟動"}}}},
     "switch.noSession": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -150079,6 +150344,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 阻止了變更此設定。這是 cmux 的錯誤，不是你的操作造成的。"
+          }
+        }
+      }
+    },
+    "transport.pathInvalid": {
+      "comment": "Agent pane: the app refused a folder or file that is not there (or not a folder)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد ذلك المجلد موجودًا. اختر مجلدًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj folder više ne postoji. Odaberi drugi folder."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den mappe findes ikke længere. Vælg en anden mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Ordner existiert nicht mehr. Wähle einen anderen Ordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder no longer exists. Pick another folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa carpeta ya no existe. Elige otra carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce dossier n’existe plus. Choisissez un autre dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quella cartella non esiste più. Scegli un’altra cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのフォルダーはもう存在しません。別のフォルダーを選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតនោះលែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den mappen finnes ikke lenger. Velg en annen mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten folder już nie istnieje. Wybierz inny folder."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essa pasta não existe mais. Escolha outra pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этой папки больше нет. Выберите другую папку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์นั้นไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O klasör artık yok. Başka bir klasör seç."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця папка більше не існує. Виберіть іншу папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục đó không còn tồn tại. Hãy chọn thư mục khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该文件夹已不存在。请选择其他文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該資料夾已不存在。請選擇其他資料夾。"
+          }
+        }
+      }
+    },
+    "transport.pathMissing": {
+      "comment": "Agent pane: the folder a chat was to start in no longer exists (a reboot wiped it, it was removed). {path} is its path.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد المجلد {path} موجودًا. اختر مجلدًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Folder {path} više ne postoji. Odaberi drugi folder."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mappen {path} findes ikke længere. Vælg en anden mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Ordner {path} existiert nicht mehr. Wähle einen anderen Ordner."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder {path} no longer exists. Pick another folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La carpeta {path} ya no existe. Elige otra carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le dossier {path} n’existe plus. Choisissez un autre dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cartella {path} non esiste più. Scegli un’altra cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォルダー {path} はもう存在しません。別のフォルダーを選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថត {path} លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{path} 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mappen {path} finnes ikke lenger. Velg en annen mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Folder {path} już nie istnieje. Wybierz inny folder."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pasta {path} não existe mais. Escolha outra pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папки {path} больше нет. Выберите другую папку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์ {path} ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{path} klasörü artık yok. Başka bir klasör seç."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папка {path} більше не існує. Виберіть іншу папку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục {path} không còn tồn tại. Hãy chọn thư mục khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件夹 {path} 已不存在。请选择其他文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "資料夾 {path} 已不存在。請選擇其他資料夾。"
           }
         }
       }
@@ -343659,6 +344188,138 @@
         }
       }
     },
+    "context.compactConversation": {
+      "comment": "Agent pane composer: the context ring card's row above Details that sends the agent's /compact (Compacting conversation… follows)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضغط المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažmi razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimer samtalen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung komprimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact conversation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactar la conversación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compacter la conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compatta la conversazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会話を圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្រួមការសន្ទនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimer samtalen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktuj rozmowę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactar a conversa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжать беседу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บีบอัดการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşmayı sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиснути розмову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu gọn cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "压缩对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "壓縮對話"
+          }
+        }
+      }
+    },
     "context.details": {
       "comment": "Agent pane composer: the context ring hover card's link that opens the Inspector at its Context section; a › follows it",
       "extractionState": "manual",
@@ -348285,6 +348946,9 @@
     "computerUse.preview.doneLabelNoApp":{"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended, when the app's name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة التطبيق، انتهى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije, završeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning af app, færdig"}},"de":{"stringUnit":{"state":"needs_review","value":"App-Vorschau, fertig"}},"en":{"stringUnit":{"state":"translated","value":"App preview, done"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app, terminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app, terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app, completato"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのプレビュー、完了"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុន រួចរាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"앱 미리보기, 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning av app, ferdig"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji, gotowe"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app, concluído"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения, готово"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอป เสร็จแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uygulama önizlemesi, bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку, готово"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng, đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"应用预览，已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"App 預覽，已完成"}}}},
     "computerUse.preview.runningLabel":{"comment":"Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، مباشر"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, uživo"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, live"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, live"}},"en":{"stringUnit":{"state":"translated","value":"{app}, live"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, en directo"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, en direct"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, dal vivo"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、ライブ"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} ផ្ទាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 실시간"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, direkte"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, na żywo"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, ao vivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, в реальном времени"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} สด"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, canlı"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, наживо"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, trực tiếp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，实时"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，即時"}}}},
     "computerUse.preview.doneLabel":{"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، انتهى"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, završeno"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, færdig"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, fertig"}},"en":{"stringUnit":{"state":"translated","value":"{app}, done"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, terminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, completato"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、完了"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} រួចរាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, ferdig"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, gotowe"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, concluído"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, готово"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} เสร็จแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, готово"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，已完成"}}}},
+    "computerUse.preview.show":{"comment":"Agent pane: the chip that brings back the live preview card the person hid (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المعاينة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži pregled"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis forhåndsvisning"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorschau einblenden"}},"en":{"stringUnit":{"state":"translated","value":"Show Preview"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar vista previa"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher l'aperçu"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra anteprima"}},"ja":{"stringUnit":{"state":"needs_review","value":"プレビューを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញការមើលជាមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"미리보기 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis forhåndsvisning"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż podgląd"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar prévia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать просмотр"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงตัวอย่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önizlemeyi göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати перегляд"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện bản xem trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示预览"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示預覽"}}}},
+    "computerUse.preview.fullSize":{"comment":"Agent pane: the live preview card's button that makes it fill the pane (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الحجم الكامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Puna veličina"}},"da":{"stringUnit":{"state":"needs_review","value":"Fuld størrelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Volle Größe"}},"en":{"stringUnit":{"state":"translated","value":"Full Size"}},"es":{"stringUnit":{"state":"needs_review","value":"Tamaño completo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Taille réelle"}},"it":{"stringUnit":{"state":"needs_review","value":"Dimensione piena"}},"ja":{"stringUnit":{"state":"needs_review","value":"フルサイズ"}},"km":{"stringUnit":{"state":"needs_review","value":"ទំហំពេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"전체 크기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Full størrelse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pełny rozmiar"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tamanho total"}},"ru":{"stringUnit":{"state":"needs_review","value":"Во весь размер"}},"th":{"stringUnit":{"state":"needs_review","value":"ขนาดเต็ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tam boyut"}},"uk":{"stringUnit":{"state":"needs_review","value":"На весь розмір"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kích thước đầy đủ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全尺寸"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全尺寸"}}}},
+    "computerUse.preview.exitFullSize":{"comment":"Agent pane: the live preview card's button that shrinks it back from filling the pane (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الخروج من الحجم الكامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izađi iz pune veličine"}},"da":{"stringUnit":{"state":"needs_review","value":"Afslut fuld størrelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Volle Größe beenden"}},"en":{"stringUnit":{"state":"translated","value":"Exit Full Size"}},"es":{"stringUnit":{"state":"needs_review","value":"Salir del tamaño completo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Quitter la taille réelle"}},"it":{"stringUnit":{"state":"needs_review","value":"Esci da dimensione piena"}},"ja":{"stringUnit":{"state":"needs_review","value":"フルサイズを終了"}},"km":{"stringUnit":{"state":"needs_review","value":"ចេញពីទំហំពេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"전체 크기 종료"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avslutt full størrelse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij pełny rozmiar"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sair do tamanho total"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выйти из полного размера"}},"th":{"stringUnit":{"state":"needs_review","value":"ออกจากขนาดเต็ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tam boyuttan çık"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вийти з повного розміру"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thoát kích thước đầy đủ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"退出全尺寸"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"結束全尺寸"}}}},
     "computerUse.preview.close": {
       "comment": "Agent pane: accessibility label of the live preview card's close button, which hides the card for that session (computerUse/ComputerUsePreviewCard.tsx)",
       "extractionState": "manual",
@@ -466249,6 +466913,26 @@
     "hybrid.waiting.label": {"comment":"Agent pane, the cloud button's visible name while every slot is taken and this chat waits for one","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"في انتظار خانة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka mjesto"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på en plads"}},"de":{"stringUnit":{"state":"needs_review","value":"Wartet auf Platz"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for a Slot"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando un hueco"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente d’une place"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di un posto"}},"ja":{"stringUnit":{"state":"needs_review","value":"スロット待ち"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំកន្លែង"}},"ko":{"stringUnit":{"state":"needs_review","value":"슬롯 대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på en plass"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czeka na miejsce"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando uma vaga"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидает места"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอช่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yer bekleniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікує місця"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ chỗ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待位置"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待位置"}}}},
     "hybrid.pin.local.help": {"comment":"Agent pane, the three-state cloud control: tooltip of the Only on This Mac choice","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعمل دائمًا على هذا الـ Mac. تتوقف مؤقتًا عند سكونه."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uvijek radi na ovom Macu. Pauzira se kada on spava."}},"da":{"stringUnit":{"state":"needs_review","value":"Kører altid på denne Mac. Sættes på pause, når den sover."}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft immer auf diesem Mac. Pausiert, wenn er schläft."}},"en":{"stringUnit":{"state":"translated","value":"Always runs on this Mac. Pauses when it sleeps."}},"es":{"stringUnit":{"state":"needs_review","value":"Siempre se ejecuta en este Mac. Se pausa cuando entra en reposo."}},"fr":{"stringUnit":{"state":"needs_review","value":"S’exécute toujours sur ce Mac. Se met en pause quand il est en veille."}},"it":{"stringUnit":{"state":"needs_review","value":"Viene sempre eseguita su questo Mac. Va in pausa quando è in stop."}},"ja":{"stringUnit":{"state":"needs_review","value":"常にこのMacで実行します。スリープ中は一時停止します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការលើ Mac នេះជានិច្ច។ ផ្អាកនៅពេលវាដេក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"항상 이 Mac에서 실행됩니다. 잠자기 상태에서는 일시 정지됩니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører alltid på denne Macen. Settes på pause når den sover."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zawsze działa na tym Macu. Wstrzymuje się, gdy on śpi."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sempre é executada neste Mac. Pausa quando ele entra em repouso."}},"ru":{"stringUnit":{"state":"needs_review","value":"Всегда работает на этом Mac. Приостанавливается, когда он спит."}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานบน Mac เครื่องนี้เสมอ หยุดชั่วคราวเมื่อพักเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Her zaman bu Mac’te çalışır. Mac uyuduğunda duraklar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Завжди працює на цьому Mac. Призупиняється, коли він спить."}},"vi":{"stringUnit":{"state":"needs_review","value":"Luôn chạy trên máy Mac này. Tạm dừng khi máy ngủ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"始终在这台 Mac 上运行。睡眠时暂停。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一律在這台 Mac 上執行。睡眠時暫停。"}}}},
     "hybrid.pin.cloud.help": {"comment":"Agent pane, the three-state cloud control: tooltip of the Only in Cloud choice","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعمل دائمًا على السحابة وتحجز خانة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Uvijek radi u oblaku i zauzima jedno mjesto."}},"da":{"stringUnit":{"state":"needs_review","value":"Kører altid i skyen og optager en plads."}},"de":{"stringUnit":{"state":"needs_review","value":"Läuft immer in der Cloud und belegt einen Platz."}},"en":{"stringUnit":{"state":"translated","value":"Always runs in Cloud and holds a slot."}},"es":{"stringUnit":{"state":"needs_review","value":"Siempre se ejecuta en la nube y ocupa un hueco."}},"fr":{"stringUnit":{"state":"needs_review","value":"S’exécute toujours dans le cloud et occupe une place."}},"it":{"stringUnit":{"state":"needs_review","value":"Viene sempre eseguita nel cloud e occupa un posto."}},"ja":{"stringUnit":{"state":"needs_review","value":"常にクラウドで実行し、スロットを1つ使います。"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការលើ Cloud ជានិច្ច ហើយកាន់កន្លែងមួយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"항상 클라우드에서 실행되며 슬롯 하나를 사용합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører alltid i skyen og opptar en plass."}},"pl":{"stringUnit":{"state":"needs_review","value":"Zawsze działa w chmurze i zajmuje jedno miejsce."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sempre é executada na nuvem e ocupa uma vaga."}},"ru":{"stringUnit":{"state":"needs_review","value":"Всегда работает в облаке и занимает одно место."}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานบนคลาวด์เสมอและใช้หนึ่งช่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Her zaman bulutta çalışır ve bir yer tutar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Завжди працює у хмарі та займає одне місце."}},"vi":{"stringUnit":{"state":"needs_review","value":"Luôn chạy trên đám mây và giữ một chỗ."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"始终在云端运行，占用一个位置。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一律在雲端執行，佔用一個位置。"}}}},
+    "hybrid.blocked.slept": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when this chat paused because this Mac slept; a click turns on Keep Running","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"توقفت أثناء سكون هذا الـ Mac"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pauzirano dok je ovaj Mac spavao"}},"da":{"stringUnit":{"state":"needs_review","value":"Sat på pause, mens denne Mac sov"}},"de":{"stringUnit":{"state":"needs_review","value":"Pausiert, während dieser Mac schlief"}},"en":{"stringUnit":{"state":"translated","value":"Paused While This Mac Slept"}},"es":{"stringUnit":{"state":"needs_review","value":"En pausa mientras este Mac dormía"}},"fr":{"stringUnit":{"state":"needs_review","value":"En pause pendant la veille de ce Mac"}},"it":{"stringUnit":{"state":"needs_review","value":"In pausa mentre questo Mac era in stop"}},"ja":{"stringUnit":{"state":"needs_review","value":"このMacのスリープ中に一時停止"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្អាក ពេល Mac នេះដេក"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac이 잠자는 동안 일시 정지됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Satt på pause mens denne Macen sov"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstrzymano, gdy ten Mac spał"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pausado Enquanto Este Mac Dormia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Приостановлен, пока этот Mac спал"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดชั่วคราวขณะ Mac เครื่องนี้พักเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac Uyurken Duraklatıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Призупинено, поки цей Mac спав"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã tạm dừng khi máy Mac này ngủ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 睡眠时已暂停"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 睡眠時已暫停"}}}},
+    "hybrid.blocked.slept.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when this chat paused because this Mac slept","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"توقفت هذه الدردشة عندما دخل هذا الـ Mac في السكون. شغّل «استمرار التشغيل» لتستمر في السحابة في المرة القادمة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ovaj chat se pauzirao kada je ovaj Mac zaspao. Uključite Nastavi raditi da sljedeći put nastavi u Cloudu."}},"da":{"stringUnit":{"state":"needs_review","value":"Denne chat blev sat på pause, da denne Mac gik i dvale. Slå Bliv ved med at køre til, så den fortsætter i Cloud næste gang."}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Chat wurde pausiert, als dieser Mac schlief. Schalte Weiterlaufen ein, damit er nächstes Mal in Cloud weiterläuft."}},"en":{"stringUnit":{"state":"translated","value":"This chat paused when this Mac slept. Turn on Keep Running so it continues in Cloud next time."}},"es":{"stringUnit":{"state":"needs_review","value":"Este chat se pausó cuando este Mac entró en reposo. Activa Seguir ejecutando para que continúe en Cloud la próxima vez."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ce chat s’est mis en pause quand ce Mac s’est mis en veille. Activez Continuer l’exécution pour qu’il continue dans Cloud la prochaine fois."}},"it":{"stringUnit":{"state":"needs_review","value":"Questa chat è andata in pausa quando questo Mac è entrato in stop. Attiva Continua l’esecuzione perché la prossima volta prosegua in Cloud."}},"ja":{"stringUnit":{"state":"needs_review","value":"このMacがスリープしたため、このチャットは一時停止しました。次回はCloudで続行するように「実行を継続」をオンにしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនេះបានផ្អាក ពេល Mac នេះដេក។ បើក បន្តដំណើរការ ដើម្បីឱ្យវាបន្តក្នុង Cloud លើកក្រោយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac이 잠자기 상태가 되어 이 채팅이 일시 정지되었습니다. 다음에는 Cloud에서 계속되도록 계속 실행을 켜세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne chatten ble satt på pause da denne Macen sov. Slå på Fortsett å kjøre, så fortsetter den i Cloud neste gang."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten czat został wstrzymany, gdy ten Mac przeszedł w uśpienie. Włącz Działaj dalej, aby następnym razem kontynuował w Cloud."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Este chat pausou quando este Mac entrou em repouso. Ative Continuar Rodando para que ele continue no Cloud da próxima vez."}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот чат приостановился, когда этот Mac уснул. Включите «Продолжать работу», чтобы в следующий раз он продолжил в Cloud."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทนี้หยุดชั่วคราวเมื่อ Mac เครื่องนี้พักเครื่อง เปิด ทำงานต่อ เพื่อให้ครั้งหน้าทำงานต่อใน Cloud"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac uyuduğunda bu sohbet duraklatıldı. Bir dahaki sefere Cloud’da devam etmesi için Çalışmaya Devam Et’i açın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей чат призупинився, коли цей Mac заснув. Увімкніть «Продовжувати роботу», щоб наступного разу він продовжив у Cloud."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện này đã tạm dừng khi máy Mac này ngủ. Bật Tiếp tục chạy để lần sau nó tiếp tục trong Cloud."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"这台 Mac 睡眠时此聊天已暂停。打开“保持运行”，下次它会在 Cloud 中继续。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"這台 Mac 睡眠時此聊天已暫停。開啟「保持執行」，下次它會在 Cloud 中繼續。"}}}},
+    "hybrid.blocked.trial-full": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when Cloud free trials are full for today","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التجارب ممتلئة اليوم"}},"bs":{"stringUnit":{"state":"needs_review","value":"Probe su danas popunjene"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøveperioder fulde i dag"}},"de":{"stringUnit":{"state":"needs_review","value":"Tests heute voll"}},"en":{"stringUnit":{"state":"translated","value":"Trials Full Today"}},"es":{"stringUnit":{"state":"needs_review","value":"Pruebas llenas hoy"}},"fr":{"stringUnit":{"state":"needs_review","value":"Essais complets aujourd’hui"}},"it":{"stringUnit":{"state":"needs_review","value":"Prove esaurite oggi"}},"ja":{"stringUnit":{"state":"needs_review","value":"本日のトライアルは満員"}},"km":{"stringUnit":{"state":"needs_review","value":"ការសាកល្បងពេញសម្រាប់ថ្ងៃនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"오늘 체험 마감"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøveperioder fulle i dag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Brak miejsc na próby dziś"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Testes Esgotados Hoje"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пробные места на сегодня закончились"}},"th":{"stringUnit":{"state":"needs_review","value":"การทดลองใช้เต็มแล้ววันนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Denemeler Bugün Dolu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пробні місця на сьогодні вичерпано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hôm nay hết lượt dùng thử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"今日试用已满"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"今日試用已滿"}}}},
+    "hybrid.blocked.trial-full.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when Cloud free trials are full for today","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تجارب السحابة ممتلئة اليوم. حاول مرة أخرى غدًا، أو ابدأ خطة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud probe su za danas popunjene. Pokušajte sutra ili započnite plan."}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-prøveperioder er fulde i dag. Prøv igen i morgen, eller start et abonnement."}},"de":{"stringUnit":{"state":"needs_review","value":"Cloud-Tests sind für heute voll. Versuche es morgen erneut oder starte einen Tarif."}},"en":{"stringUnit":{"state":"translated","value":"Cloud trials are full for today. Try again tomorrow, or start a plan."}},"es":{"stringUnit":{"state":"needs_review","value":"Las pruebas de Cloud están llenas hoy. Inténtalo mañana o inicia un plan."}},"fr":{"stringUnit":{"state":"needs_review","value":"Les essais Cloud sont complets pour aujourd’hui. Réessayez demain ou souscrivez un forfait."}},"it":{"stringUnit":{"state":"needs_review","value":"Le prove di Cloud sono esaurite per oggi. Riprova domani o attiva un piano."}},"ja":{"stringUnit":{"state":"needs_review","value":"本日のCloudトライアルは満員です。明日もう一度試すか、プランを開始してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការសាកល្បង Cloud ពេញសម្រាប់ថ្ងៃនេះ។ សូមព្យាយាមម្តងទៀតថ្ងៃស្អែក ឬចាប់ផ្តើមគម្រោង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"오늘 Cloud 체험이 마감되었습니다. 내일 다시 시도하거나 플랜을 시작하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-prøveperioder er fulle i dag. Prøv igjen i morgen, eller start et abonnement."}},"pl":{"stringUnit":{"state":"needs_review","value":"Na dziś brak miejsc na próby Cloud. Spróbuj jutro albo wybierz plan."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Os testes do Cloud estão esgotados hoje. Tente amanhã ou comece um plano."}},"ru":{"stringUnit":{"state":"needs_review","value":"Пробные места Cloud на сегодня закончились. Попробуйте завтра или оформите тариф."}},"th":{"stringUnit":{"state":"needs_review","value":"การทดลองใช้ Cloud เต็มแล้ววันนี้ ลองอีกครั้งพรุ่งนี้ หรือเริ่มแพ็กเกจ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud denemeleri bugün dolu. Yarın yeniden deneyin veya bir plan başlatın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Пробні місця Cloud на сьогодні вичерпано. Спробуйте завтра або оформіть тариф."}},"vi":{"stringUnit":{"state":"needs_review","value":"Hôm nay đã hết lượt dùng thử Cloud. Hãy thử lại vào ngày mai hoặc bắt đầu một gói."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"今日 Cloud 试用已满。请明天再试，或开始一个方案。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"今日 Cloud 試用已滿。請明天再試，或開始一個方案。"}}}},
+    "hybrid.blocked.signed-out": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when the person is not signed in to Cloud; a click opens sign-in","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجّل الدخول لاستخدام السحابة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijavite se za Cloud"}},"da":{"stringUnit":{"state":"needs_review","value":"Log ind for at bruge Cloud"}},"de":{"stringUnit":{"state":"needs_review","value":"Für Cloud anmelden"}},"en":{"stringUnit":{"state":"translated","value":"Sign In to Use Cloud"}},"es":{"stringUnit":{"state":"needs_review","value":"Inicia sesión para usar Cloud"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se connecter pour utiliser Cloud"}},"it":{"stringUnit":{"state":"needs_review","value":"Accedi per usare Cloud"}},"ja":{"stringUnit":{"state":"needs_review","value":"サインインしてCloudを使用"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលដើម្បីប្រើ Cloud"}},"ko":{"stringUnit":{"state":"needs_review","value":"로그인하여 Cloud 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Logg på for å bruke Cloud"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaloguj się, by używać Cloud"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entre para usar o Cloud"}},"ru":{"stringUnit":{"state":"needs_review","value":"Войдите, чтобы использовать Cloud"}},"th":{"stringUnit":{"state":"needs_review","value":"ลงชื่อเข้าใช้เพื่อใช้ Cloud"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud için Oturum Açın"}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійдіть, щоб користуватися Cloud"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập để dùng Cloud"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"登录以使用 Cloud"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"登入以使用 Cloud"}}}},
+    "hybrid.blocked.signed-out.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when the person is not signed in to Cloud","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يفتح تسجيل الدخول لتتمكن هذه الدردشة من العمل في السحابة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvara prijavu kako bi ovaj chat mogao raditi u Cloudu."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbner login, så denne chat kan køre i Cloud."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnet die Anmeldung, damit dieser Chat in Cloud laufen kann."}},"en":{"stringUnit":{"state":"translated","value":"Opens sign-in so this chat can run in Cloud."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre el inicio de sesión para que este chat pueda ejecutarse en Cloud."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvre la connexion pour que ce chat puisse s’exécuter dans Cloud."}},"it":{"stringUnit":{"state":"needs_review","value":"Apre l’accesso perché questa chat possa essere eseguita in Cloud."}},"ja":{"stringUnit":{"state":"needs_review","value":"サインインを開き、このチャットをCloudで実行できるようにします。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកការចូល ដើម្បីឱ្យការជជែកនេះអាចដំណើរការក្នុង Cloud។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅을 Cloud에서 실행할 수 있도록 로그인을 엽니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpner pålogging slik at denne chatten kan kjøre i Cloud."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwiera logowanie, aby ten czat mógł działać w Cloud."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abre o login para que este chat possa rodar no Cloud."}},"ru":{"stringUnit":{"state":"needs_review","value":"Открывает вход, чтобы этот чат мог работать в Cloud."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดการลงชื่อเข้าใช้ เพื่อให้แชทนี้ทำงานใน Cloud ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu sohbetin Cloud’da çalışabilmesi için oturum açmayı açar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриває вхід, щоб цей чат міг працювати в Cloud."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở đăng nhập để cuộc trò chuyện này có thể chạy trong Cloud."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开登录，让此聊天可以在 Cloud 中运行。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟登入，讓此聊天可以在 Cloud 中執行。"}}}},
+    "hybrid.blocked.no-plan": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when the person has no Cloud plan yet; a click starts the free trial","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ابدأ الفترة التجريبية المجانية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Započni besplatnu probu"}},"da":{"stringUnit":{"state":"needs_review","value":"Start gratis prøveperiode"}},"de":{"stringUnit":{"state":"needs_review","value":"Kostenlos testen"}},"en":{"stringUnit":{"state":"translated","value":"Start Free Trial"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciar prueba gratuita"}},"fr":{"stringUnit":{"state":"needs_review","value":"Commencer l’essai gratuit"}},"it":{"stringUnit":{"state":"needs_review","value":"Inizia la prova gratuita"}},"ja":{"stringUnit":{"state":"needs_review","value":"無料トライアルを開始"}},"km":{"stringUnit":{"state":"needs_review","value":"ចាប់ផ្តើមការសាកល្បងឥតគិតថ្លៃ"}},"ko":{"stringUnit":{"state":"needs_review","value":"무료 체험 시작"}},"nb":{"stringUnit":{"state":"needs_review","value":"Start gratis prøveperiode"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozpocznij bezpłatny okres próbny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciar Teste Gratuito"}},"ru":{"stringUnit":{"state":"needs_review","value":"Начать бесплатный пробный период"}},"th":{"stringUnit":{"state":"needs_review","value":"เริ่มทดลองใช้ฟรี"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ücretsiz Denemeyi Başlat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Почати безкоштовний пробний період"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bắt đầu dùng thử miễn phí"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"开始免费试用"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開始免費試用"}}}},
+    "hybrid.blocked.no-plan.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when the person has no Cloud plan yet","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يفتح إعداد السحابة لبدء فترة تجريبية مجانية."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvara podešavanje Clouda za početak besplatne probe."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbner Cloud-opsætning for at starte en gratis prøveperiode."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnet die Cloud-Einrichtung, um einen kostenlosen Test zu starten."}},"en":{"stringUnit":{"state":"translated","value":"Opens Cloud setup to start a free trial."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre la configuración de Cloud para iniciar una prueba gratuita."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvre la configuration de Cloud pour commencer un essai gratuit."}},"it":{"stringUnit":{"state":"needs_review","value":"Apre la configurazione di Cloud per iniziare una prova gratuita."}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloudの設定を開き、無料トライアルを開始します。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកការរៀបចំ Cloud ដើម្បីចាប់ផ្តើមការសាកល្បងឥតគិតថ្លៃ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 설정을 열어 무료 체험을 시작합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpner Cloud-oppsett for å starte en gratis prøveperiode."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwiera konfigurację Cloud, aby rozpocząć bezpłatny okres próbny."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abre a configuração do Cloud para iniciar um teste gratuito."}},"ru":{"stringUnit":{"state":"needs_review","value":"Открывает настройку Cloud, чтобы начать бесплатный пробный период."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดการตั้งค่า Cloud เพื่อเริ่มทดลองใช้ฟรี"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ücretsiz deneme başlatmak için Cloud kurulumunu açar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриває налаштування Cloud, щоб почати безкоштовний пробний період."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở thiết lập Cloud để bắt đầu dùng thử miễn phí."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开 Cloud 设置以开始免费试用。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟 Cloud 設定以開始免費試用。"}}}},
+    "hybrid.blocked.no-cloud": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when the person has a plan but no Cloud machine yet; a click sets one up","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعداد السحابة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Podesi Cloud"}},"da":{"stringUnit":{"state":"needs_review","value":"Konfigurer Cloud"}},"de":{"stringUnit":{"state":"needs_review","value":"Cloud einrichten"}},"en":{"stringUnit":{"state":"translated","value":"Set Up Cloud"}},"es":{"stringUnit":{"state":"needs_review","value":"Configurar Cloud"}},"fr":{"stringUnit":{"state":"needs_review","value":"Configurer Cloud"}},"it":{"stringUnit":{"state":"needs_review","value":"Configura Cloud"}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloudを設定"}},"km":{"stringUnit":{"state":"needs_review","value":"រៀបចំ Cloud"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 설정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Konfigurer Cloud"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skonfiguruj Cloud"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Configurar o Cloud"}},"ru":{"stringUnit":{"state":"needs_review","value":"Настроить Cloud"}},"th":{"stringUnit":{"state":"needs_review","value":"ตั้งค่า Cloud"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud’u Kur"}},"uk":{"stringUnit":{"state":"needs_review","value":"Налаштувати Cloud"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thiết lập Cloud"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"设置 Cloud"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"設定 Cloud"}}}},
+    "hybrid.blocked.no-cloud.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when the person has no Cloud machine yet","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يفتح إعداد السحابة لإنشاء جهازك السحابي."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvara podešavanje Clouda za kreiranje vaše Cloud mašine."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbner Cloud-opsætning for at oprette din Cloud-maskine."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnet die Cloud-Einrichtung, um deine Cloud-Maschine zu erstellen."}},"en":{"stringUnit":{"state":"translated","value":"Opens Cloud setup to create your Cloud machine."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre la configuración de Cloud para crear tu máquina de Cloud."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvre la configuration de Cloud pour créer votre machine Cloud."}},"it":{"stringUnit":{"state":"needs_review","value":"Apre la configurazione di Cloud per creare la tua macchina Cloud."}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloudの設定を開き、Cloudマシンを作成します。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកការរៀបចំ Cloud ដើម្បីបង្កើតម៉ាស៊ីន Cloud របស់អ្នក។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 설정을 열어 Cloud 머신을 만듭니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpner Cloud-oppsett for å opprette Cloud-maskinen din."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwiera konfigurację Cloud, aby utworzyć maszynę Cloud."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abre a configuração do Cloud para criar sua máquina no Cloud."}},"ru":{"stringUnit":{"state":"needs_review","value":"Открывает настройку Cloud, чтобы создать вашу машину Cloud."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดการตั้งค่า Cloud เพื่อสร้างเครื่อง Cloud ของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud makinenizi oluşturmak için Cloud kurulumunu açar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриває налаштування Cloud, щоб створити вашу машину Cloud."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở thiết lập Cloud để tạo máy Cloud của bạn."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开 Cloud 设置以创建你的 Cloud 机器。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟 Cloud 設定以建立你的 Cloud 機器。"}}}},
+    "hybrid.blocked.hours-spent": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when the plan's Cloud hours for this period are used up","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نفدت ساعات السحابة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloud sati potrošeni"}},"da":{"stringUnit":{"state":"needs_review","value":"Cloud-timer brugt op"}},"de":{"stringUnit":{"state":"needs_review","value":"Cloud-Stunden aufgebraucht"}},"en":{"stringUnit":{"state":"translated","value":"Cloud Hours Used Up"}},"es":{"stringUnit":{"state":"needs_review","value":"Horas de Cloud agotadas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Heures Cloud épuisées"}},"it":{"stringUnit":{"state":"needs_review","value":"Ore Cloud esaurite"}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloud時間を使い切りました"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ោង Cloud បានអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud 시간 소진"}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloud-timer brukt opp"}},"pl":{"stringUnit":{"state":"needs_review","value":"Godziny Cloud wykorzystane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Horas do Cloud Esgotadas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Часы Cloud исчерпаны"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้ชั่วโมง Cloud หมดแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud Saatleri Bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Години Cloud вичерпано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã dùng hết giờ Cloud"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Cloud 时长已用完"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Cloud 時數已用完"}}}},
+    "hybrid.blocked.hours-spent.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when the plan's Cloud hours are used up","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يفتح خطتك لإضافة ساعات السحابة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvara vaš plan za dodavanje Cloud sati."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbner dit abonnement for at tilføje Cloud-timer."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnet deinen Tarif, um Cloud-Stunden hinzuzufügen."}},"en":{"stringUnit":{"state":"translated","value":"Opens your plan to add Cloud hours."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre tu plan para añadir horas de Cloud."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvre votre forfait pour ajouter des heures Cloud."}},"it":{"stringUnit":{"state":"needs_review","value":"Apre il tuo piano per aggiungere ore Cloud."}},"ja":{"stringUnit":{"state":"needs_review","value":"プランを開いてCloud時間を追加します。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកគម្រោងរបស់អ្នក ដើម្បីបន្ថែមម៉ោង Cloud។"}},"ko":{"stringUnit":{"state":"needs_review","value":"플랜을 열어 Cloud 시간을 추가합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpner abonnementet ditt for å legge til Cloud-timer."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwiera Twój plan, aby dodać godziny Cloud."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abre seu plano para adicionar horas do Cloud."}},"ru":{"stringUnit":{"state":"needs_review","value":"Открывает ваш тариф, чтобы добавить часы Cloud."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดแพ็กเกจของคุณเพื่อเพิ่มชั่วโมง Cloud"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud saati eklemek için planınızı açar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриває ваш тариф, щоб додати години Cloud."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở gói của bạn để thêm giờ Cloud."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开你的方案以添加 Cloud 时长。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟你的方案以新增 Cloud 時數。"}}}},
+    "hybrid.blocked.trial-ended": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when the person's free Cloud trial is over and no plan follows it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"انتهت الفترة التجريبية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Proba je završena"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøveperiode slut"}},"de":{"stringUnit":{"state":"needs_review","value":"Testphase beendet"}},"en":{"stringUnit":{"state":"translated","value":"Trial Ended"}},"es":{"stringUnit":{"state":"needs_review","value":"Prueba terminada"}},"fr":{"stringUnit":{"state":"needs_review","value":"Essai terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"Prova terminata"}},"ja":{"stringUnit":{"state":"needs_review","value":"トライアル終了"}},"km":{"stringUnit":{"state":"needs_review","value":"ការសាកល្បងបានបញ្ចប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"체험 종료"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøveperioden er over"}},"pl":{"stringUnit":{"state":"needs_review","value":"Okres próbny zakończony"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Teste Encerrado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пробный период окончен"}},"th":{"stringUnit":{"state":"needs_review","value":"สิ้นสุดการทดลองใช้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Deneme Sona Erdi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пробний період завершено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã hết dùng thử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"试用已结束"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"試用已結束"}}}},
+    "hybrid.blocked.trial-ended.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when the free Cloud trial is over","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يفتح خطتك لمواصلة استخدام السحابة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvara vaš plan kako biste nastavili koristiti Cloud."}},"da":{"stringUnit":{"state":"needs_review","value":"Åbner dit abonnement, så du kan blive ved med at bruge Cloud."}},"de":{"stringUnit":{"state":"needs_review","value":"Öffnet deinen Tarif, um Cloud weiter zu nutzen."}},"en":{"stringUnit":{"state":"translated","value":"Opens your plan to keep using Cloud."}},"es":{"stringUnit":{"state":"needs_review","value":"Abre tu plan para seguir usando Cloud."}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvre votre forfait pour continuer à utiliser Cloud."}},"it":{"stringUnit":{"state":"needs_review","value":"Apre il tuo piano per continuare a usare Cloud."}},"ja":{"stringUnit":{"state":"needs_review","value":"プランを開いてCloudを使い続けます。"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកគម្រោងរបស់អ្នក ដើម្បីបន្តប្រើ Cloud។"}},"ko":{"stringUnit":{"state":"needs_review","value":"플랜을 열어 Cloud를 계속 사용합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpner abonnementet ditt slik at du kan fortsette å bruke Cloud."}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwiera Twój plan, aby dalej używać Cloud."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abre seu plano para continuar usando o Cloud."}},"ru":{"stringUnit":{"state":"needs_review","value":"Открывает ваш тариф, чтобы продолжить пользоваться Cloud."}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดแพ็กเกจของคุณเพื่อใช้ Cloud ต่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud’u kullanmaya devam etmek için planınızı açar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкриває ваш тариф, щоб і далі користуватися Cloud."}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở gói của bạn để tiếp tục dùng Cloud."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"打开你的方案以继续使用 Cloud。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"開啟你的方案以繼續使用 Cloud。"}}}},
+    "hybrid.blocked.offline": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when this Mac cannot reach Cloud (no network)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"غير متصل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Van mreže"}},"da":{"stringUnit":{"state":"needs_review","value":"Offline"}},"de":{"stringUnit":{"state":"needs_review","value":"Offline"}},"en":{"stringUnit":{"state":"translated","value":"Offline"}},"es":{"stringUnit":{"state":"needs_review","value":"Sin conexión"}},"fr":{"stringUnit":{"state":"needs_review","value":"Hors ligne"}},"it":{"stringUnit":{"state":"needs_review","value":"Offline"}},"ja":{"stringUnit":{"state":"needs_review","value":"オフライン"}},"km":{"stringUnit":{"state":"needs_review","value":"គ្មានអ៊ីនធឺណិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"오프라인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Frakoblet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Offline"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Offline"}},"ru":{"stringUnit":{"state":"needs_review","value":"Нет сети"}},"th":{"stringUnit":{"state":"needs_review","value":"ออฟไลน์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Çevrimdışı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Немає мережі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ngoại tuyến"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"离线"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"離線"}}}},
+    "hybrid.blocked.offline.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when this Mac cannot reach Cloud","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يحاول الوصول إلى السحابة مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovo pokušava doći do Clouda."}},"da":{"stringUnit":{"state":"needs_review","value":"Prøver at nå Cloud igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Versucht erneut, Cloud zu erreichen."}},"en":{"stringUnit":{"state":"translated","value":"Tries to reach Cloud again."}},"es":{"stringUnit":{"state":"needs_review","value":"Intenta conectar con Cloud de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Essaie de joindre Cloud à nouveau."}},"it":{"stringUnit":{"state":"needs_review","value":"Prova di nuovo a raggiungere Cloud."}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloudへの接続を再試行します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមភ្ជាប់ទៅ Cloud ម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloud에 다시 연결을 시도합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøver å nå Cloud igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponownie próbuje połączyć się z Cloud."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tenta alcançar o Cloud de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Снова пытается подключиться к Cloud."}},"th":{"stringUnit":{"state":"needs_review","value":"พยายามเชื่อมต่อ Cloud อีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloud’a yeniden ulaşmayı dener."}},"uk":{"stringUnit":{"state":"needs_review","value":"Знову намагається під’єднатися до Cloud."}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử kết nối lại với Cloud."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"再次尝试连接 Cloud。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"再次嘗試連線 Cloud。"}}}},
+    "hybrid.blocked.move-failed": {"comment":"Agent pane, the three-state cloud control by the composer: its visible name when the chat's last move to or from Cloud failed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر النقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Premještanje nije uspjelo"}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke flytte"}},"de":{"stringUnit":{"state":"needs_review","value":"Verschieben fehlgeschlagen"}},"en":{"stringUnit":{"state":"translated","value":"Could Not Move"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo mover"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déplacement impossible"}},"it":{"stringUnit":{"state":"needs_review","value":"Spostamento non riuscito"}},"ja":{"stringUnit":{"state":"needs_review","value":"移動できませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចផ្លាស់ទីបាន"}},"ko":{"stringUnit":{"state":"needs_review","value":"이동하지 못함"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke flytte"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się przenieść"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não Foi Possível Mover"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось перенести"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้ายไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Taşınamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося перенести"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể chuyển"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法移动"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法移動"}}}},
+    "hybrid.blocked.move-failed.help": {"comment":"Agent pane, the three-state cloud control: tooltip, what a click does when the chat's last move failed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يعرض سبب فشل النقل ويتيح لك المحاولة مرة أخرى."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikazuje zašto premještanje nije uspjelo i omogućava novi pokušaj."}},"da":{"stringUnit":{"state":"needs_review","value":"Viser, hvorfor flytningen mislykkedes, og lader dig prøve igen."}},"de":{"stringUnit":{"state":"needs_review","value":"Zeigt, warum das Verschieben fehlschlug, und lässt dich es erneut versuchen."}},"en":{"stringUnit":{"state":"translated","value":"Shows why the move failed and lets you try again."}},"es":{"stringUnit":{"state":"needs_review","value":"Muestra por qué falló el traslado y te deja intentarlo de nuevo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Indique pourquoi le déplacement a échoué et permet de réessayer."}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra perché lo spostamento non è riuscito e ti permette di riprovare."}},"ja":{"stringUnit":{"state":"needs_review","value":"移動に失敗した理由を表示し、再試行できるようにします。"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញមូលហេតុដែលការផ្លាស់ទីបរាជ័យ ហើយអនុញ្ញាតឱ្យអ្នកព្យាយាមម្តងទៀត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이동에 실패한 이유를 보여 주고 다시 시도할 수 있게 합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Viser hvorfor flyttingen mislyktes, og lar deg prøve igjen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokazuje, dlaczego przeniesienie się nie udało, i pozwala spróbować ponownie."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostra por que a mudança falhou e permite tentar de novo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Показывает, почему перенос не удался, и позволяет повторить попытку."}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงสาเหตุที่ย้ายไม่สำเร็จ และให้คุณลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Taşımanın neden başarısız olduğunu gösterir ve yeniden denemenizi sağlar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Показує, чому перенесення не вдалося, і дає змогу спробувати ще раз."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cho biết lý do chuyển thất bại và cho phép bạn thử lại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示移动失败的原因，并让你重试。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示移動失敗的原因，並讓你重試。"}}}},
+    "hybrid.holders.label": {"comment":"Agent pane, the three-state cloud control: heading of the menu listing the chats that hold every Cloud slot","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"دردشات تشغل الخانات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Chatovi koji drže mjesta"}},"da":{"stringUnit":{"state":"needs_review","value":"Chats med pladser"}},"de":{"stringUnit":{"state":"needs_review","value":"Chats mit Plätzen"}},"en":{"stringUnit":{"state":"translated","value":"Chats Holding Slots"}},"es":{"stringUnit":{"state":"needs_review","value":"Chats que ocupan huecos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Chats occupant les places"}},"it":{"stringUnit":{"state":"needs_review","value":"Chat che occupano i posti"}},"ja":{"stringUnit":{"state":"needs_review","value":"スロットを使用中のチャット"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកដែលកាន់កន្លែង"}},"ko":{"stringUnit":{"state":"needs_review","value":"슬롯을 사용 중인 채팅"}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatter som har plasser"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czaty zajmujące miejsca"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chats Ocupando Vagas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Чаты, занимающие места"}},"th":{"stringUnit":{"state":"needs_review","value":"แชทที่ใช้ช่องอยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yer Tutan Sohbetler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Чати, що займають місця"}},"vi":{"stringUnit":{"state":"needs_review","value":"Các cuộc trò chuyện đang giữ chỗ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"占用位置的聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"佔用位置的聊天"}}}},
+    "hybrid.holders.trade": {"comment":"Agent pane, the three-state cloud control's slot menu: a row under another chat's name; a click moves that chat's Cloud slot to this chat","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"امنح هذه الدردشة خانتها"}},"bs":{"stringUnit":{"state":"needs_review","value":"Daj ovom chatu njegovo mjesto"}},"da":{"stringUnit":{"state":"needs_review","value":"Giv denne chat dens plads"}},"de":{"stringUnit":{"state":"needs_review","value":"Diesem Chat den Platz geben"}},"en":{"stringUnit":{"state":"translated","value":"Give This Chat Its Slot"}},"es":{"stringUnit":{"state":"needs_review","value":"Dar su hueco a este chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Donner sa place à ce chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Dai il suo posto a questa chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"このチャットにスロットを渡す"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្តល់កន្លែងរបស់វាទៅការជជែកនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 채팅에 슬롯 넘기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gi denne chatten plassen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Oddaj jego miejsce temu czatowi"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dar a Vaga a Este Chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отдать место этому чату"}},"th":{"stringUnit":{"state":"needs_review","value":"ให้ช่องนี้กับแชทนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yerini Bu Sohbete Ver"}},"uk":{"stringUnit":{"state":"needs_review","value":"Віддати місце цьому чату"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhường chỗ cho cuộc trò chuyện này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"把位置让给此聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"把位置讓給此聊天"}}}},
     "turnFrames.title": {"comment":"Agent pane: label of the strip of live frames the agent captured during a turn","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Frames"}},"bs":{"stringUnit":{"state":"needs_review","value":"Frames"}},"da":{"stringUnit":{"state":"needs_review","value":"Frames"}},"de":{"stringUnit":{"state":"needs_review","value":"Frames"}},"en":{"stringUnit":{"state":"translated","value":"Frames"}},"es":{"stringUnit":{"state":"needs_review","value":"Frames"}},"fr":{"stringUnit":{"state":"needs_review","value":"Frames"}},"it":{"stringUnit":{"state":"needs_review","value":"Frames"}},"ja":{"stringUnit":{"state":"needs_review","value":"Frames"}},"km":{"stringUnit":{"state":"needs_review","value":"Frames"}},"ko":{"stringUnit":{"state":"needs_review","value":"Frames"}},"nb":{"stringUnit":{"state":"needs_review","value":"Frames"}},"pl":{"stringUnit":{"state":"needs_review","value":"Frames"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Frames"}},"ru":{"stringUnit":{"state":"needs_review","value":"Frames"}},"th":{"stringUnit":{"state":"needs_review","value":"Frames"}},"tr":{"stringUnit":{"state":"needs_review","value":"Frames"}},"uk":{"stringUnit":{"state":"needs_review","value":"Frames"}},"vi":{"stringUnit":{"state":"needs_review","value":"Frames"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Frames"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Frames"}}}},
     "turnFrames.alt": {"comment":"Agent pane: alt text of one captured frame, n is its position","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"de":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"en":{"stringUnit":{"state":"translated","value":"Frame {n}"}},"es":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"it":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"ja":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"km":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"ko":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}}}},
     "turnFrames.resize": {"comment":"Agent pane: label of the corner grip that resizes the floating preview window","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Resize"}},"bs":{"stringUnit":{"state":"needs_review","value":"Resize"}},"da":{"stringUnit":{"state":"needs_review","value":"Resize"}},"de":{"stringUnit":{"state":"needs_review","value":"Resize"}},"en":{"stringUnit":{"state":"translated","value":"Resize"}},"es":{"stringUnit":{"state":"needs_review","value":"Resize"}},"fr":{"stringUnit":{"state":"needs_review","value":"Resize"}},"it":{"stringUnit":{"state":"needs_review","value":"Resize"}},"ja":{"stringUnit":{"state":"needs_review","value":"Resize"}},"km":{"stringUnit":{"state":"needs_review","value":"Resize"}},"ko":{"stringUnit":{"state":"needs_review","value":"Resize"}},"nb":{"stringUnit":{"state":"needs_review","value":"Resize"}},"pl":{"stringUnit":{"state":"needs_review","value":"Resize"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Resize"}},"ru":{"stringUnit":{"state":"needs_review","value":"Resize"}},"th":{"stringUnit":{"state":"needs_review","value":"Resize"}},"tr":{"stringUnit":{"state":"needs_review","value":"Resize"}},"uk":{"stringUnit":{"state":"needs_review","value":"Resize"}},"vi":{"stringUnit":{"state":"needs_review","value":"Resize"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Resize"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Resize"}}}},

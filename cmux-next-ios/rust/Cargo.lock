@@ -606,6 +606,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
  "cmux-terminal-sizing",
+ "serde_json",
 ]
 
 [[package]]
@@ -626,7 +627,9 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-tab-snapshots",
+ "cmux-terminal-projection",
  "cmux-transport",
+ "cmux-wg",
  "flate2",
  "futures-util",
  "hkdf",
@@ -672,6 +675,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-protocol",
+ "cmux-terminal-projection",
  "cmux-transport",
  "cmux-wg",
  "flate2",
@@ -788,6 +792,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

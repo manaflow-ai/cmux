@@ -102,6 +102,34 @@ fn computer_use_upgrade_unsaved_receipt_puts_the_helper_back() {
     assert!(blocker.is_dir(), "nothing claims an upgrade happened");
 }
 
+/// The swap is done and its receipt saved when the history line is written: a history that
+/// can't be written is noted in the answer, and the upgrade still stands and can be undone.
+#[test]
+fn computer_use_upgrade_unwritable_history_still_reports_the_swap() {
+    let (fixture, unpacked) = helper_fixture();
+    let signing = signing(unpacked, true);
+    let host = host(&[100, 200, 300, 400]);
+    // A folder where the history goes: the append fails.
+    fs::create_dir_all(fixture.store.root.join("history.jsonl").join("in-the-way")).unwrap();
+    let receipt = cu_upgrade::upgrade_with(
+        &fixture.app,
+        &wanted(&fixture),
+        &fixture.store,
+        &signing,
+        &host,
+        false,
+        build(),
+    )
+    .unwrap();
+    assert_eq!(receipt["did"], "swapped", "{receipt}");
+    assert!(receipt["history_not_saved"].is_string(), "{receipt}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(NEW_HELPER));
+    let undone = cu_upgrade::undo_with(&fixture.store, &host, false).unwrap();
+    assert_eq!(undone["did"], "restored", "{undone}");
+    assert!(undone["history_not_saved"].is_string(), "{undone}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+}
+
 /// The checked bundle replaces the app's helper, the worker's copy is restaged from it, the
 /// receipt says the worker restarted, and the bundle from before is kept for undo.
 #[test]

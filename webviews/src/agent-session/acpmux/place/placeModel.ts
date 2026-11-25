@@ -193,7 +193,8 @@ export function evacuateOf(value: unknown): EvacuateState | undefined {
     total: num(raw.total, 0),
     ...(chats ? { chats } : {}),
     ...(raw.direction === "toLocal" ? { direction: "toLocal" as const } : {}),
-    ...(typeof raw.canBringBack === "number" && Number.isFinite(raw.canBringBack) && raw.canBringBack > 0
+    // An explicit 0 is the app's answer (none left to bring back), never a cue to fall back to the last run's count.
+    ...(typeof raw.canBringBack === "number" && Number.isFinite(raw.canBringBack) && raw.canBringBack >= 0
       ? { canBringBack: Math.floor(raw.canBringBack) }
       : {}),
     // `startedMs` is rebased as in `moveOf`: the app's value is its monotonic clock, so it is ignored.
