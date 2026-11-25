@@ -9,7 +9,10 @@
      thirty lines or 60% of the pane, which reached about 55% of his pane. One token, shared by every
      composer field (styles.css --acpmux-composer-max-height); short panes still give up height
      (bottomStack.css). */
-  max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
+  --acpmux-md-max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
+  /* The attachment strip above the prompt takes its height out of this one (composerAttachments.css
+     --acpmux-attach-band), so adding an attachment never makes a capped card taller. */
+  max-height: calc(var(--acpmux-md-max-height) - var(--acpmux-attach-band, 0px));
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
@@ -43,7 +46,24 @@
   --acpmux-md-fade-top: var(--acpmux-md-fade-band);
 }
 .acpmux-md-field[data-fade-bottom] {
-  --acpmux-md-fade-bottom: var(--acpmux-md-fade-band);
+  --acpmux-md-fade-bottom: var(--acpmux-md-foot-band, var(--acpmux-md-fade-band));
+}
+/* The foot of a scrolled-up draft (draftFoot.experiment.ts). Leo, 2026-11-22, of a long draft
+   scrolled up, paraphrased: too much solid and blur at the bottom of the box; show more there, keep
+   some blur. The field's bottom padding sat inside an 18 px fade to nothing, so the box's last 18 px
+   read as a blank strip over its rim. The shipped foot (ghost) lets the draft run to the box's bottom
+   edge and fades it only to half its ink; the top edge keeps its fade to nothing. */
+.acpmux-md-field {
+  --acpmux-md-foot-ink: transparent;
+}
+.acpmux-md-field[data-draft-foot="ghost"] {
+  --acpmux-md-foot-ink: rgb(0 0 0 / 0.5); /* colour-allow: a mask stop's alpha only, never painted */
+}
+.acpmux-md-field[data-draft-foot="short"] {
+  --acpmux-md-foot-band: 8px;
+}
+.acpmux-md-field[data-draft-foot="clip"] {
+  --acpmux-md-foot-band: 0px;
 }
 .acpmux-md-field[data-fade-top],
 .acpmux-md-field[data-fade-bottom] {
@@ -53,7 +73,7 @@
       transparent,
       #000 var(--acpmux-md-fade-top),
       #000 calc(100% - var(--acpmux-md-fade-bottom)),
-      transparent
+      var(--acpmux-md-foot-ink)
     ),
     linear-gradient(#000, #000);
   mask-image:
@@ -62,7 +82,7 @@
       transparent,
       #000 var(--acpmux-md-fade-top),
       #000 calc(100% - var(--acpmux-md-fade-bottom)),
-      transparent
+      var(--acpmux-md-foot-ink)
     ),
     linear-gradient(#000, #000);
   -webkit-mask-size:
@@ -580,6 +600,7 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
   color: var(--acpmux-base, Canvas);
 }
+[data-composer-buttons-visible] .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
 .acpmux-md-inline-chip[data-state="failed"] .acpmux-md-inline-remove {

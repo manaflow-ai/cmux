@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window."
+}

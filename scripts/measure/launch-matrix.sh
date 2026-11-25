@@ -45,7 +45,10 @@
 # --phase after: refuses (exit 3) unless kern.boottime changed since before and the boot is < 600 s old; then one
 # measured launch, scenario after-reboot.
 # --growth MINUTES: the app opened once and kept up; one LM-GROWTH line per minute (procs, threads, rss, footprint,
-# cpu %, wakeups/s, disk read and written per minute) into OUT/growth.log as well as stdout.
+# cpu %, wakeups/s, disk read and written per minute) into OUT/growth.log as well as stdout. Each line's "top" names
+# the minute's top spenders in the tree (process name, pid, cpu %, MB written, top 3 threads by name; LM_GROWTH_TOP,
+# default 5); at the end launch-matrix-growth.py prints LM-GROWTH-BURST per burst minute (the tree at >= 50 % of a
+# core) with its owner, LM-GROWTH-OWNER per process, and LM-GROWTH-VERDICT: the process that spends the bursts.
 # The probe skips an app already running (not ours to quit), and quits only what it opened.
 set -uo pipefail
 
@@ -123,6 +126,7 @@ lm_main() {
     local dir; dir="$(clone_profile growth)"
     # shellcheck disable=SC2046
     console "$PROBE" growth "$APP" growth "$growth" $(profile_args "$dir") 2>>"$OUT/probe.log" | tee -a "$OUT/growth.log"
+    python3 -I "$LM_DIR/launch-matrix-growth.py" "$OUT/growth.log" | tee "$OUT/growth-owners.log"
     return 0
   fi
   prime || exit 3

@@ -1,3 +1,4 @@
+import CmuxEgress
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -17,7 +18,7 @@ public protocol VoiceCallHTTP: Sendable {
 public struct URLSessionVoiceCallHTTP: VoiceCallHTTP {
     let session: URLSession
 
-    public init(session: URLSession = .shared) {
+    public init(session: URLSession = CmuxEgress.shared(site: "CmuxMobileRealtime.RealtimeCallsAPI")) {
         self.session = session
     }
 

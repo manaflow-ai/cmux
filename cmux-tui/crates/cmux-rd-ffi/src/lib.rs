@@ -44,7 +44,7 @@ pub use session_ffi::*;
 pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -90,6 +90,8 @@ pub struct CmuxRdStats {
     pub frames_lost: u64,
     pub acked_frame: u32,
     pub need_recovery: bool,
+    /// Frames a newer keyframe replaced on the ready queue (ABI 9).
+    pub frames_skipped: u64,
 }
 
 /// The opaque receiver handle (`CmuxRdReceiver`).
@@ -457,6 +459,7 @@ pub unsafe extern "C" fn cmux_rd_receiver_stats(
             frames_lost: s.frames_lost,
             acked_frame: s.acked_frame,
             need_recovery: s.need_recovery,
+            frames_skipped: s.frames_skipped,
         };
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
@@ -509,6 +512,8 @@ mod input_tests;
 mod line_reader_tests;
 #[cfg(test)]
 mod rb_client_tests;
+#[cfg(test)]
+mod receiver_tests;
 #[cfg(test)]
 mod record_tests;
 #[cfg(test)]
