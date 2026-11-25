@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+#if canImport(UserNotifications)
 import UserNotifications
+#endif
 @testable import CmuxMobileNotifications
 
 /// The long look's history (`PushHistory`) and its buttons: the notified
@@ -87,6 +89,7 @@ import UserNotifications
         #expect(history.messages == [.init(role: .agent, text: "Working on it"), .init(role: .system, text: "rate limited")])
     }
 
+    #if canImport(UserNotifications)
     @Test func theReplyFieldReplacesTheReplyButton() throws {
         let payload = chief(body: reply, tail: [reply])
         // Chief keeps Reply even beside the field: without it the user read the alert as unrepliable (2026-10-30).
@@ -99,6 +102,7 @@ import UserNotifications
                               questions: [PushQuestion(question: "Deploy?", options: [.init(label: "Yes"), .init(label: "No")])])
         #expect(PushActions().extensionActions(for: ask, replyField: true)?.map(\.title) == ["Yes", "No"])
     }
+    #endif
 
     @Test func aSnapshotKeepsChiefsAvatarAndAnOlderFileStillReads() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("push-history-\(UUID().uuidString)", isDirectory: true)

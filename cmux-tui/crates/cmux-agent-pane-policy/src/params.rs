@@ -76,6 +76,87 @@ pub fn breaks_params_rule(
     method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
 }
 
+/// P0, before the params rule: `object` with every key the method's lists
+/// do not name removed, and those keys' paths (`limit`, `_meta.other`,
+/// `_meta.acpmux.peerRowBatches`), sorted; None when it names none (the
+/// frame goes unchanged). A page newer than this host may send a field the
+/// host has never heard of (cmux#46563 sent `initialize`
+/// `_meta.acpmux.peerRowBatches`, and a relay that refused it refused every
+/// chat's open; cmux#42185 `settled` and cmux#42460 `hold` had done the same
+/// to every attach). Dropped, the field never reaches the daemon, which then
+/// answers as it did before the field existed: what is sent is a part of the
+/// page's frame that the params rule passes on its own, so the strip never
+/// grants more than refusing would.
+///
+/// It keeps what the params rule refuses on purpose, so that rule still
+/// refuses it: a daemon `modeFields` name outside set_mode and
+/// set_config_option, a `params`, `_meta` or `_meta.acpmux` that is not an
+/// object, and the `_meta` of a frame that redeems a gesture ticket (R1, the
+/// setting methods with the ticket, `_acpmux/permission_respond`,
+/// `_acpmux/plan/build`, `chat.fix_from_link`: nothing but the ticket).
+/// An unknown method is the allowlist's, never this strip's.
+pub fn stripping_unknown_params(
+    object: &Map<String, Value>,
+    mode_fields: Option<&BTreeSet<String>>,
+) -> Option<(Map<String, Value>, Vec<String>)> {
+    let p = policy();
+    let method = object.get("method").and_then(Value::as_str)?;
+    let params = object.get("params")?.as_object()?;
+    let none = crate::data::KnownParams::default();
+    let known = p.known_params.get(method).unwrap_or(&none);
+    let setting = contains(&p.setting_methods, method);
+    let empty = BTreeSet::new();
+    let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };
+    let keep = |list: &BTreeSet<String>, k: &str| contains(list, k) || contains(denied, k);
+    let mut dropped = Vec::new();
+    let mut params = params.clone();
+    // A `_meta` that is not an object is a forged shape, not a newer key: it
+    // stays for the params rule to refuse.
+    params.retain(|k, v| {
+        let kept = keep(&known.params, k) || (k == "_meta" && !v.is_object());
+        if !kept {
+            dropped.push(k.clone());
+        }
+        kept
+    });
+    let ticket_only = matches!(
+        method,
+        "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link"
+    );
+    if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut)
+        && !ticket_only
+        && !(setting && meta.contains_key(&p.gesture_ticket_key))
+    {
+        let prompt = method == "session/prompt";
+        meta.retain(|k, _| {
+            let kept = k == "acpmux" || (prompt && *k == p.gesture_ticket_key);
+            if !kept {
+                dropped.push(format!("_meta.{k}"));
+            }
+            kept
+        });
+        if let Some(acpmux) = meta.get_mut("acpmux").and_then(Value::as_object_mut) {
+            // A credential ([`INITIALIZE_REFUSED_ACPMUX`]) is a forgery, not a newer
+            // key: it stays for the params rule to refuse.
+            acpmux.retain(|k, _| {
+                let kept =
+                    keep(&known.acpmux, k) || INITIALIZE_REFUSED_ACPMUX.contains(&k.as_str());
+                if !kept {
+                    dropped.push(format!("_meta.acpmux.{k}"));
+                }
+                kept
+            });
+        }
+    }
+    if dropped.is_empty() {
+        return None;
+    }
+    dropped.sort();
+    let mut object = object.clone();
+    object.insert("params".into(), Value::Object(params));
+    Some((object, dropped))
+}
+
 /// The `_meta.acpmux` keys an `initialize` may never carry, even as an opt-in
 /// the relay does not know: the LocalApp token is the host's alone and the
 /// person key never crosses the socket (cx-fcaq). They stay refused, as does a
