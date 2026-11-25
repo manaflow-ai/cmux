@@ -71,7 +71,6 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderSt
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
-import { ChatSummaryLine } from "../header/ChatSummaryLine";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
 import { cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
@@ -341,6 +340,9 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
+    /// subagent, never its chat's title and summary.
+    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -373,6 +375,8 @@ export type PaneBodyDeps = NewTabShown &
     turnWorking: boolean;
     summaryPanel: React.JSX.Element;
     underHeader: UnderHeaderLines;
+    /// An Auto chat's line and kept-changes notice, built by App.tsx; null when there is none.
+    autoBanner: React.JSX.Element | null;
     checkpoints: ReturnType<typeof useCheckpoints>;
     cloudUnavailable: ChatUnavailable | undefined;
     cloudRecovery: ReturnType<typeof useCloudChatRecovery>;
@@ -615,6 +619,7 @@ export function drawPaneBody({
   parkedVisible,
   chatName,
   renameFromTitle,
+  heading,
   tabRowTools,
   liveTreeEnabled,
   readLiveTree,
@@ -646,6 +651,7 @@ export function drawPaneBody({
   turnWorking,
   summaryPanel,
   underHeader,
+  autoBanner,
   checkpoints,
   cloudUnavailable,
   cloudRecovery,
@@ -1275,13 +1281,11 @@ export function drawPaneBody({
                       <span className="acpmux-header-status-content">
                         <ThreadTitle
                           key={snapshot.sessionId}
-                          title={chatName}
-                          onRename={renameFromTitle}
-                          icon={snapshot.summary?.icon}
-                          formerNames={snapshot.summary?.formerNames}
+                          title={heading.title}
+                          onRename={heading.renamable ? renameFromTitle : undefined}
+                          icon={heading.renamable ? snapshot.summary?.icon : undefined}
+                          formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1307,13 +1311,7 @@ export function drawPaneBody({
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
@@ -1485,6 +1483,7 @@ export function drawPaneBody({
                     noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
+                {underHeader.autoSession && autoBanner}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
                       mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
                 <ComputerUsePreviewCard
@@ -1588,6 +1587,8 @@ export function drawPaneBody({
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
                     {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>

@@ -75,7 +75,7 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
           expect(card.open).toBe("true");
           expect(card.command).toContain("cd webviews && bun test test/background-tasks-open.test.tsx");
           expect(card.output).toContain("41 pass");
-          expect(await heads(page)).toEqual([{ text: "Running1", open: "true" }]);
+          expect(await heads(page)).toEqual([{ text: "1", open: "true" }]);
           expect(errors).toEqual([]);
         } finally {
           await page.close();
@@ -123,7 +123,7 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
       try {
         await page.locator(".acpmux-bg-card").first().waitFor({ timeout: 30_000 });
         expect(await heads(page)).toEqual([
-          { text: "Running1", open: "true" },
+          { text: "1", open: "true" },
           { text: "Finished3", open: "false" },
         ]);
         expect(await page.locator(".acpmux-bg-card").count()).toBe(1);
