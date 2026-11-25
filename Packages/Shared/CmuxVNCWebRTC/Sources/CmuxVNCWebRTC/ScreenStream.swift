@@ -1167,9 +1167,19 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
         inputSink.yield(input)
     }
 
+    /// A viewer's pointer fraction as a pixel on the display: kept on the display, and the display's origin for a
+    /// fraction that is no number. The fraction comes off the wire; `Int(_:)` of a huge or non-finite product traps
+    /// (the class of the screen-share host SIGTRAP, hq#22239).
+    static func pixel(_ fraction: Double?, from origin: CGFloat, across length: CGFloat) -> Int {
+        guard let fraction, fraction.isFinite else { return Int(exactly: origin.rounded(.down)) ?? 0 }
+        let value = origin + CGFloat(min(max(fraction, 0), 1)) * length
+        return Int(exactly: value.rounded(.towardZero)) ?? 0
+    }
+
     private func apply(_ input: ScreenInput, client: VNCClient) async {
         let display = lock.withLock { displays.indices.contains(current) ? displays[current] : .zero }
-        let x = Int(display.minX + (input.x ?? 0) * display.width), y = Int(display.minY + (input.y ?? 0) * display.height)
+        let x = Self.pixel(input.x, from: display.minX, across: display.width)
+        let y = Self.pixel(input.y, from: display.minY, across: display.height)
         switch input.t {
         case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
         case "scroll":
