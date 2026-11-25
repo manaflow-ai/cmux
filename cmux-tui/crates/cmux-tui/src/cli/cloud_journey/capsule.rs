@@ -43,22 +43,26 @@ pub(super) async fn capsule_steps(
 
     // upload capsule
     let t0 = Instant::now();
-    let mut files: Vec<(String, Vec<u8>, u32)> = vec![
-        (script::DIFF_FILE.to_owned(), capsule.diff.clone().into_bytes(), 0o600),
-        ("red.sh".to_owned(), script::runner(capsule, false).into_bytes(), 0o700),
+    // 0644: `/fs/write` writes as the file service's user, not the exec user, so a 0600 or 0700 file is
+    // unreadable to the replay ("bash: red.sh: Permission denied" on staging). The scripts run as
+    // `bash FILE`, so read is enough, and a capsule holds nothing secret (`create` scrubs it).
+    const MODE: u32 = 0o644;
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        (script::DIFF_FILE.to_owned(), capsule.diff.clone().into_bytes()),
+        ("red.sh".to_owned(), script::runner(capsule, false).into_bytes()),
     ];
     if let Some(candidate) = &job.candidate {
-        files.push((script::CANDIDATE_FILE.to_owned(), candidate.clone().into_bytes(), 0o600));
-        files.push(("green.sh".to_owned(), script::runner(capsule, true).into_bytes(), 0o700));
+        files.push((script::CANDIDATE_FILE.to_owned(), candidate.clone().into_bytes()));
+        files.push(("green.sh".to_owned(), script::runner(capsule, true).into_bytes()));
     }
     if let Err(error) = exec.run(&format!("mkdir -p {}", script::quote(&dir)), 30_000).await {
         j.fail("upload capsule", t0, &error);
         return Err(());
     }
     let mut bytes = 0;
-    for (name, data, mode) in &files {
+    for (name, data) in &files {
         bytes += data.len();
-        if let Err(error) = exec.write(&format!("{dir}/{name}"), data, *mode).await {
+        if let Err(error) = exec.write(&format!("{dir}/{name}"), data, MODE).await {
             j.fail("upload capsule", t0, &error);
             return Err(());
         }
