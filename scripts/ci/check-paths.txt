@@ -54,6 +54,7 @@ scripts/cmux-next/prepush-gate.py
 scripts/ci/crash_class_fast_gate.py
 scripts/ci/crash-class-gate.sh
 scripts/ci/pr_owned_findings.py
+scripts/ci/settings_catalog_keys.py
 # the panic-ratchet job a dispatch runs when a baseline row went down (its baseline is above)
 .github/scripts/cmux-tui-clippy-changed.py
 .github/scripts/cmux-tui-fmt-changed.py
