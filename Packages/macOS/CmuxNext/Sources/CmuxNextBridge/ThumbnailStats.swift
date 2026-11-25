@@ -19,9 +19,9 @@ public struct ThumbnailStats: Equatable, Sendable {
     public var detailPixels: Int
 
     /// A pixel this far from the ground is content (JPEG noise and a theme's faint gradient stay under it).
-    public static let detailDelta = 12
+    public nonisolated static let detailDelta = 12
     /// At least this many content pixels make a picture: two short lines on a 1800 px pane are about 19; a lone prompt glyph is under it.
-    public static let detailMinimum = 6
+    public nonisolated static let detailMinimum = 6
     public var isBlank: Bool { detailPixels < Self.detailMinimum }
 
     /// Computes the stats on a background task.
