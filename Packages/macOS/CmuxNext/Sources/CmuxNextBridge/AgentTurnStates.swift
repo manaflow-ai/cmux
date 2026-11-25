@@ -77,6 +77,8 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The prompts waiting behind the chat's turn (acpmux `queued`); 0 from an older acpmux.
+    public var queued = 0
     /// The chat's latest subagents, oldest first (at most 8, acpmux `recentSubagents`), and how many it started in
     /// all (`subagentsSeen`): the sidebar lists them under the chat's row. Empty and 0 from an older acpmux.
     public var subagents: [Subagent] = []
@@ -191,6 +193,7 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         if detail.archived { detail.archivedAtMs = archivedAtMs(summary) }
         detail.subagents = subagents(summary["recentSubagents"])
         detail.subagentsSeen = count(summary["subagentsSeen"])
+        detail.queued = count(summary["queued"])
         return detail == AgentChatDetail() ? nil : detail
     }
 

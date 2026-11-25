@@ -1023,7 +1023,8 @@ impl Hub {
                             let previous = old.remove(&id);
                             let previous = previous.as_ref().map(|r| &r.summary);
                             let summary =
-                                PeerRow::new(&Self::retain_summary_tools(summary, previous));
+                                PeerRow::new(&Self::retain_summary_tools(summary, previous))
+                                    .keeping_time_breakdown(previous);
                             // A row back as it was before its link dropped keeps that row's
                             // text, which its outage's announcements share too.
                             let summary = match live.get(&id) {
@@ -1202,7 +1203,13 @@ impl Hub {
                         announced = row.clone();
                         map.insert(
                             id.clone(),
-                            RemoteSession { peer: peer.clone(), summary: row, receipt },
+                            RemoteSession {
+                                peer: peer.clone(),
+                                // The chart it had stays in the copy kept, never in the notice.
+                                summary: row
+                                    .keeping_time_breakdown(previous.as_ref().map(|r| &r.summary)),
+                                receipt,
+                            },
                         );
                         let created = summary.get("createdAt").and_then(Value::as_u64);
                         if self.peer_snapshots.allows(generation) {

@@ -429,10 +429,10 @@ public final class AgentChatStore {
 
     /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
     /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes). A
-    /// history still loading counts as a wait too, so a slow catch-up says "Loading chat…" once
-    /// the bound passes (``loadingTextShows``); the lines that name the link still check the link.
+    /// history still loading on a live link does not feed it: its spinner says nothing, since a
+    /// waiting word there is the limbo Leo asked to drop (2026-11-24, #54994).
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || source.isOffline || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -441,7 +441,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline || source.loadsHistory)
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
         // What the source already holds (a kept transcript) goes in now, so the chat's first
         // frame draws it; the rest streams in.
         let (head, stream) = source.eventsWithHead()

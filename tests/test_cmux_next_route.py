@@ -616,6 +616,8 @@ class PullRequestTiers(unittest.TestCase):
             # Push tier only (#54763): no pull request starts them.
             "fast-tier": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
             "fast-tier-fleet": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            # The Mac fallback of the push-only fleet fast tier: it runs only after that job reports unavailable.
+            "fast-tier-fleet-mac": "needs.fast-tier-fleet.outputs.verdict == 'unavailable'",
             "swift-canary": "github.event_name != 'pull_request'",
             "swift-canary-fleet": "github.event_name != 'pull_request'",
             "daemon-test": "needs.path_route.outputs.tree_state == 'ready'",
@@ -978,6 +980,12 @@ class UnreadDocs(unittest.TestCase):
         self.assertEqual(mac_tiers(result), [])
         self.assertEqual(result["macos"], "false")
         self.assertEqual(result["swift_targets"], "")
+
+    def test_a_sidebar_owner_entry_file_alone_runs_no_mac_tier(self):
+        """New entries are one file each under plans/cmux-next/sidebar-owner/ (scripts/ci/entry_logs.py)."""
+        result = tiers(["plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md"])
+        self.assertEqual(mac_tiers(result), [])
+        self.assertEqual(result["macos"], "false")
 
     def test_a_note_beside_swift_keeps_the_swift_route(self):
         result = tiers(["plans/cmux-next/sidebar-owner.md", *PR_17470])

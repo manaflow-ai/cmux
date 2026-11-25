@@ -11,6 +11,30 @@
       "note": "Settings > Advanced > Experiments: taste prototypes, each behind its own switch, all off by default.",
       "rows": [
         {
+          "key": "experiments.appFontChrome",
+          "note": "Taste prototype: native chrome text (the sidebar, tabs, titlebar, menus cmux draws; CheckedFont.system) draws in appearance.appFont too, not only the web pages. Off by default; off keeps the system font in native chrome.",
+          "title": {
+            "key": "settings.experiments.appFontChrome",
+            "text": "App Font in Native Chrome"
+          },
+          "help": {
+            "key": "settings.experiments.appFontChrome.help",
+            "text": "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "font",
+            "app font",
+            "sidebar",
+            "tabs",
+            "chrome"
+          ]
+        },
+        {
           "key": "experiments.glassToolbarGroups",
           "note": "Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch(\"glassToolbarGroups\")). Off by default; off keeps today's header.",
           "title": {
@@ -78,6 +102,85 @@
             "chips",
             "mention",
             "send"
+          ]
+        },
+        {
+          "key": "experiments.paletteV2",
+          "note": "Taste prototype: the native command palette (CmuxNextPalette, PaletteV2Look) groups its results under Workspaces, Sessions, Commands and Agents, regrouping as you type, the top match selected, an Esc chip in the field. A: grouped list; B: a category rail with counts; C: grouped with a scope bar (All, This Workspace, Sessions) and typed tokens. Read on every open (PaletteSourcesBridge). Off by default; off keeps today's palette.",
+          "title": {
+            "key": "settings.experiments.paletteV2",
+            "text": "Command Palette v2"
+          },
+          "help": {
+            "key": "settings.experiments.paletteV2.help",
+            "text": "Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.paletteV2.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.paletteV2.flat",
+                "text": "A: Grouped List"
+              }
+            },
+            {
+              "value": "rail",
+              "title": {
+                "key": "settings.choice.paletteV2.rail",
+                "text": "B: Category Rail"
+              }
+            },
+            {
+              "value": "scoped",
+              "title": {
+                "key": "settings.choice.paletteV2.scoped",
+                "text": "C: Grouped with Scope Bar"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "command palette",
+            "palette",
+            "groups",
+            "scope",
+            "rail",
+            "search"
+          ]
+        },
+        {
+          "key": "experiments.palettePreview",
+          "note": "Taste prototype: the native command palette shows a detail pane beside the results with the selected workspace's or session's facts (PaletteItem.facts, built for the selected row only), and a footer pill with the primary action, a Return glyph and Actions with Command-K, which opens the Actions menu. Off by default; off keeps today's palette.",
+          "title": {
+            "key": "settings.experiments.palettePreview",
+            "text": "Command Palette Preview"
+          },
+          "help": {
+            "key": "settings.experiments.palettePreview.help",
+            "text": "Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "command palette",
+            "palette",
+            "preview",
+            "details",
+            "actions"
           ]
         },
         {
@@ -283,6 +386,32 @@
           ]
         },
         {
+          "key": "experiments.composerHatGroups",
+          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks, and aligns the hat's leading column with the composer's plus glyph (webviews experiments subagent-tray-fold-head, arm groups, and subagent-tray-column, arm glyph). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally and chip look (hostSettings.ts SETTING_OFF_ARMS).",
+          "title": {
+            "key": "settings.experiments.composerHatGroups",
+            "text": "Composer Hat: Two Groups"
+          },
+          "help": {
+            "key": "settings.experiments.composerHatGroups.help",
+            "text": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "labs",
+            "experiments",
+            "experimental",
+            "prototype",
+            "composer",
+            "hat",
+            "subagents",
+            "background",
+            "groups",
+            "glyph"
+          ]
+        },
+        {
           "key": "experiments.toastsV2",
           "note": "Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch(\"toastsV2\")). Off by default; off keeps today's toasts.",
           "title": {
@@ -478,6 +607,57 @@
             "questions",
             "agents",
             "team"
+          ]
+        },
+        {
+          "key": "experiments.foldSummaryCounts",
+          "note": "Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed \"Worked for\" names the work it hides after its time, as the tool runs name theirs: \"Worked for 36s · ran 4 commands, edited 2 files\", failed calls as the runs' \"(1 failed)\" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch(\"foldSummaryCounts\")). Off by default until Leo picks; off keeps today's duration-only line.",
+          "title": {
+            "key": "settings.experiments.foldSummaryCounts",
+            "text": "Fold Summary Counts"
+          },
+          "help": {
+            "key": "settings.experiments.foldSummaryCounts.help",
+            "text": "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "chat",
+            "worked for",
+            "fold",
+            "summary",
+            "counts",
+            "commands",
+            "edited",
+            "files"
+          ]
+        },
+        {
+          "key": "experiments.cloudDiskBar",
+          "note": "Taste prototype (RFD 0068 disk bar): the Cloud page's machine card and detail draw the disk as a bar, used over allocated, split into system, project and caches from the guest's sample (webviews useExperimentSwitch(\"cloudDiskBar\"), pages/cloud/DiskHealth.tsx). Off by default; off keeps today's free and used line. `cmux cloud ls` prints the same numbers either way.",
+          "title": {
+            "key": "settings.experiments.cloudDiskBar",
+            "text": "Cloud Disk Bar"
+          },
+          "help": {
+            "key": "settings.experiments.cloudDiskBar.help",
+            "text": "Cloud machine cards show disk use as a bar split into system, project and caches."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "cloud",
+            "disk",
+            "storage",
+            "bar",
+            "caches"
           ]
         }
       ]

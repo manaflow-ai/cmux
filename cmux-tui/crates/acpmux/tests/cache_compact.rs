@@ -83,8 +83,10 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     std::fs::create_dir_all(root.join("claude")).unwrap();
     let settings = root.join("cmux-next.json");
     let set_at = |on: bool, percent: u64| {
-        let doc =
-            json!({"agents": {"cacheCompact": {"enabled": on, "minContextPercent": percent}}});
+        // The token bar out of reach, so the percent decides.
+        let doc = json!({"agents": {"cacheCompact": {
+            "enabled": on, "minContextPercent": percent, "minContextTokens": 500_000
+        }}});
         std::fs::write(&settings, doc.to_string()).unwrap();
     };
     let set = |on: bool| set_at(on, 50);

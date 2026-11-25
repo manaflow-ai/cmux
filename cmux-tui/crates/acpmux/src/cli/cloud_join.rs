@@ -435,7 +435,7 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
 }
 
 /// Adds the `sameUser` entry to a joined `meshRelay` that has none, or marks the one an older
-/// join wrote with its `maxPolicy` ([`upgrade_join_entries`]). True when it changed config.json.
+/// join wrote with its `maxPolicy` ([`crate::mesh_relay_config::upgrade_join_entries`]). True when it changed config.json.
 /// A relay that is not the join's, or none, is left alone.
 fn add_same_user_control() -> Result<bool> {
     let _lock = join_lock()?;
@@ -444,7 +444,7 @@ fn add_same_user_control() -> Result<bool> {
     if relay.credential.as_deref() != Some("join") {
         return Ok(false);
     }
-    let upgraded = upgrade_join_entries(&mut relay.control_from);
+    let upgraded = crate::mesh_relay_config::upgrade_join_entries(&mut relay.control_from);
     if relay.control_from.iter().any(|entry| entry.same_user) {
         if upgraded {
             config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
@@ -463,23 +463,11 @@ fn joined_control_from(
     previous: Option<crate::mesh_http::MeshRelayConfig>,
 ) -> Vec<crate::mesh_http::MeshControlFrom> {
     let mut control_from = previous.map(|relay| relay.control_from).unwrap_or_default();
-    upgrade_join_entries(&mut control_from);
+    crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
     if !control_from.iter().any(|entry| entry.same_user) {
         control_from.push(crate::mesh_http::MeshControlFrom::same_user());
     }
     control_from
-}
-
-/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
-/// the one a join writes now, so the person's own machines keep starting chats on each other in
-/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
-fn upgrade_join_entries(control_from: &mut [crate::mesh_http::MeshControlFrom]) -> bool {
-    let mut changed = false;
-    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
-        *entry = crate::mesh_http::MeshControlFrom::same_user();
-        changed = true;
-    }
-    changed
 }
 
 fn mesh_relay_configured() -> bool {

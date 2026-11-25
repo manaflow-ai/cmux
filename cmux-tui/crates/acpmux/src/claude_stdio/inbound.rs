@@ -415,6 +415,21 @@ impl Translator {
                     out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
                 }
             }
+            // A Stop hook that blocked the stop: Claude Code writes its reason as a synthetic user
+            // line, `Stop hook feedback:\n<reason>`, and the agent goes on. The chat draws it as one
+            // quiet line, so what the agent writes next reads as the hook's doing, not the agent
+            // saying it again (Leo, 2026-11-22: "i assume you got re-prompted here. i thought we
+            // removed those. you also basically said the same thing, so there didnt seem to be a
+            // point to that. if you did get hooked, i think it should get displayed better.").
+            "user"
+                if parent.is_none()
+                    && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && stop_hook_feedback(line).is_some() =>
+            {
+                if let Some(reason) = stop_hook_feedback(line) {
+                    out.push(upd(json!({"sessionUpdate": "stop_hook_feedback", "text": reason})));
+                }
+            }
             "user" => {
                 for c in line
                     .pointer("/message/content")
@@ -1332,6 +1347,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
         _ => return None,
     };
     (!text.trim().is_empty()).then_some(text)
+}
+
+/// The reason of a Stop hook's block, from the synthetic user line Claude Code writes for it
+/// (`Stop hook feedback:\n<reason>`); None for any other line, and for a head with no reason.
+pub(super) fn stop_hook_feedback(line: &Value) -> Option<String> {
+    const HEAD: &str = "Stop hook feedback:";
+    let text = compaction_summary_text(line)?;
+    let reason = text.trim_start().strip_prefix(HEAD)?.trim();
+    (!reason.is_empty()).then(|| reason.to_owned())
 }
 
 /// The output file a background Bash launch's result names ("… Output is
