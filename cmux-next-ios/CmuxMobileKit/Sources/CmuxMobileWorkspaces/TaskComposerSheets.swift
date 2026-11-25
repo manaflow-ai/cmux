@@ -205,6 +205,7 @@ struct TaskComposerDraftsSheet: View {
                 if !creator.taskDrafts.isLoaded {
                     CmuxSpinner(label: Text("Loading drafts…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .placeholderBound("drafts.loading", .milliseconds(2000))
                 } else if drafts.isEmpty {
                     ContentUnavailableView {
                         Label("No Other Drafts", systemImage: "tray")

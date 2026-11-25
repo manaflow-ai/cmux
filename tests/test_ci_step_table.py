@@ -305,6 +305,26 @@ class SetupTest(unittest.TestCase):
             code, out = self.run_job(t, "linux", None)
         self.assertEqual(code, 0, out)
 
+    def test_an_unremovable_tool_dir_does_not_fail_green_steps(self) -> None:
+        # A sudo zig install left root-owned files in $CI_TOOLS; cleanup raised PermissionError and a job whose
+        # steps all passed exited 1 (pr pipeline / linux, run 45474768809).
+        t = table('''
+            [step.a]
+            job = "linux"
+            run = "echo step-ok"
+        ''')
+        real = tempfile.TemporaryDirectory._rmtree
+
+        def rmtree(name, ignore_errors=False, repeated=False):
+            if not ignore_errors:
+                raise PermissionError(1, "Operation not permitted", name)
+            return real(name, ignore_errors=ignore_errors, repeated=repeated)
+
+        with mock.patch.object(tempfile.TemporaryDirectory, "_rmtree", staticmethod(rmtree)):
+            code, out = self.run_job(t, "linux")
+        self.assertEqual(code, 0, out)
+        self.assertIn("step-ok", out)
+
     def test_a_failed_setup_fails_the_job_and_runs_no_step(self) -> None:
         t = table('''
             [setup]
@@ -648,8 +668,8 @@ class PipelineTest(unittest.TestCase):
         # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["security-holes"]["if"],
-                         "${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' "
-                         "|| github.workflow == 'docs-only fallback') }}")
+                         "${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
+                         "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}")
         holes = steps["security-holes"]
         self.assertEqual(holes.job, "linux")
         self.assertEqual(holes.inputs, ("**",))

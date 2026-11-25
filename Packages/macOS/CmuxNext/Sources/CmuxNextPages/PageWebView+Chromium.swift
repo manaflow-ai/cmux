@@ -140,6 +140,8 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        // First, while the old document still draws: its host can take its picture now.
+        onDocumentWillChange?(.reload)
         // At once, before WebKit's provisional start or Chromium's bridge: health must not read the
         // crash this reload answers, or the old document's silence, as a page to repair.
         documentStarted()
@@ -303,6 +305,8 @@ extension PageWebView {
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false, level: OSLogType = .error) {
         // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
         guard !isClosed else { return }
+        // The browser ended: the page it drew went with it, and the WebKit view shows nothing until it loads.
+        if ended { onDocumentWillChange?(.contentEnded) }
         chromiumStart?.cancel()
         chromiumStart = nil
         logger.log(level: level, "page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
