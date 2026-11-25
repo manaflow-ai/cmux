@@ -7800,5 +7800,13 @@
     "remixTitle": "Fork and customize {name}",
     "remixIntro": "Opening cmux with an agent ready to copy {name} into a repo of your own and change it the way you want.",
     "notListed": "{name} is not listed on cmux.com, so the cmux team has not reviewed it. cmux shows what it can access before you install it."
+  },
+  "analyticsConsent": {
+    "label": "Analytics",
+    "message": "May we use analytics to see how the site is used? Nothing is collected and no analytics cookie is set unless you allow it.",
+    "privacy": "Privacy policy",
+    "accept": "Allow",
+    "decline": "No thanks",
+    "settings": "Analytics settings"
   }
 }
