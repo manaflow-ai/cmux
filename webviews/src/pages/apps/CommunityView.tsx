@@ -8,6 +8,7 @@ import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { GitHubMarkdown } from "../github/GitHubMarkdown";
 import { Select } from "../../ui/Select";
+import { intl } from "../../ui/intl";
 import {
   COMMUNITY_SITE,
   COMMUNITY_SORTS,
@@ -65,7 +66,7 @@ const KIND_FILTER_LABELS: Record<CommunityKind, string> = {
 
 /** `12,400 downloads` in the page's language. */
 export function downloadsText(downloads: number, strings: Strings): string {
-  return strings.format("store.community.downloadCount", new Intl.NumberFormat(strings.language).format(downloads));
+  return strings.format("store.community.downloadCount", intl.NumberFormat(strings.language).format(downloads));
 }
 
 /** The date part of an ISO 8601 time in the page's language; undefined when it does not parse. */
@@ -73,7 +74,7 @@ export function dateText(iso: string | undefined, strings: Strings): string | un
   if (!iso) return undefined;
   const time = Date.parse(iso);
   if (Number.isNaN(time)) return undefined;
-  return new Intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeZone: "UTC" }).format(time);
+  return intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeZone: "UTC" }).format(time);
 }
 
 export function CommunityView({
@@ -363,7 +364,7 @@ function CommunityDetailView({
   const kind = kindLabel(row.kind, strings);
   const facts: [string, string][] = [
     [t("store.detail.developer"), row.author],
-    [t("store.community.downloads"), new Intl.NumberFormat(strings.language).format(row.downloads)],
+    [t("store.community.downloads"), intl.NumberFormat(strings.language).format(row.downloads)],
   ];
   if (updated) facts.push([t("store.community.lastUpdated"), updated]);
   if (version) facts.push([t("store.detail.version"), version]);
