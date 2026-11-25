@@ -104,7 +104,12 @@ export function EditDiffFrame({
   const painted = useDiffPainted(hunks);
   useMoreBelowOn(body, painted);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap} data-flat={flat || undefined} style={EDIT_DIFF_VARS as CSSProperties}>
+    <div
+      className="cv-edit-diff"
+      data-wrap={wrap}
+      data-flat={flat || undefined}
+      style={EDIT_DIFF_VARS as CSSProperties}
+    >
       <div className="cv-edit-diff__header">
         <span className="cv-edit-diff__name" data-path={file.path}>
           {name}
