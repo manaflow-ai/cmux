@@ -27,6 +27,7 @@ import PackageDescription
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
+//   CmuxNextAgentPane -> CmuxNextAgentPanePlacement (pure right-column placement, no dependency; re-exported)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
@@ -464,6 +465,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTabs",
                 "CmuxNextTaskManagerPage",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalComments",
                 "CmuxNextTerminalFind",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextUpdater",
@@ -685,6 +687,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextAgentList",
+                "CmuxNextAgentPanePlacement",
                 "CmuxNextApps",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
@@ -703,6 +706,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+                .product(name: "CmuxPagePushBound", package: "CmuxPagePushBound"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -732,6 +736,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWindowRules",
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Where the agent pane opens things on the right of a chat (RightColumnPlacement) and
+        // the subagent panes that use it: pure placement logic, out of CmuxNextAgentPane so its
+        // tests build without the pane's Apple frameworks (the Linux shape below).
+        // CmuxNextAgentPane re-exports it.
+        .target(
+            name: "CmuxNextAgentPanePlacement",
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPanePlacementTests",
+            dependencies: ["CmuxNextAgentPanePlacement"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -892,6 +909,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextOnboarding",
                 "CmuxNextSettings",
             ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1112,6 +1130,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextWindowRules",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings
@@ -1381,6 +1400,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextFiles",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Comment… on a terminal selection (comment-threads-v1): the card over a terminal that shows
+        // its comment threads and the agent's replies, and the per-host thread models (CmuxNextDiff).
+        .target(
+            name: "CmuxNextTerminalComments",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextDiff",
             ],
             resources: [
                 .process("Resources"),
@@ -2050,8 +2084,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .copy("Resources/WhatsNew"),
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
-                // The relaunch's afterimage, run by /usr/bin/osascript (RelaunchAfterimage).
-                .copy("Resources/relaunch-afterimage.js"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2313,6 +2345,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -3021,7 +3054,32 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
     ] + [appFFI]
 
-let package = Package(
+// The Linux shape: the Linux package jobs (scripts/ci/swift-linux-packages.txt) set
+// CMUX_SWIFTPM_TARGET_LINUX and get only the targets below, which build without Apple
+// frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC); ChromiumRuntime
+// hashes with its PortableSHA256 where CryptoKit is missing. Only those Linux jobs set the variable; every
+// other build keeps every target. A runtime read, not a compile-time branch: scripts/ci/app_ffi_pin.py
+// refuses conditional compilation in this manifest.
+let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
+
+/// Targets in the Linux shape, each with every dependency it names also in it.
+let linuxTargetNames: Set<String> = [
+    "CmuxNextAgentPanePlacement",
+    "CmuxNextAgentPanePlacementTests",
+    "CmuxNextChromiumRuntime",
+    "CmuxNextChromiumRuntimeTests",
+    "CmuxNextHostPressure",
+    "CmuxNextHostPressureTests",
+]
+
+let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }
+
+let linuxPackageDependencies: [Package.Dependency] = [
+    .package(path: "../../Shared/CmuxEgress"),
+]
+
+// The Apple shape comes first: scripts/cmux-next/arch_counts.py reads the first Package call.
+let package = !targetsLinux ? Package(
     name: "CmuxNext",
     defaultLocalization: "en",
     platforms: [
@@ -3047,6 +3105,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),
+        // What the host may feed a chat page that does not drain (hung-page backpressure).
+        .package(path: "../../Shared/CmuxPagePushBound"),
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
@@ -3066,4 +3126,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
     ],
     targets: packageTargets,
+) : Package(
+    name: "CmuxNext",
+    defaultLocalization: "en",
+    dependencies: linuxPackageDependencies,
+    targets: linuxTargets,
 )
