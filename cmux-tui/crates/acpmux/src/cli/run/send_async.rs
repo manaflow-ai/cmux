@@ -124,7 +124,7 @@ async fn queue_once(
     if json_out {
         print_json(&handoff_json(&handoff, &key, &id, &prompt_id.id, &status, superseding));
     } else {
-        warn_host_pressure(&status["accepted"]);
+        warn_host_pressure(&status["accepted"], crate::cli::host_budget::Done::Queued);
         for line in handoff_lines(&handoff, &key, &id, &status, superseding) {
             println!("{line}");
         }

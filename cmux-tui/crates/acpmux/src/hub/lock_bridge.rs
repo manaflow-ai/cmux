@@ -200,20 +200,35 @@ fn setting_now() -> bool {
     }
 }
 
-/// The worker's wake (a status change), and what it last decided, for `status` views.
+/// The worker's wake (a status change), what it last decided, and whether it reads now (a session
+/// runs or waits), for `status` views.
 struct Bridge {
     wake: Notify,
     state: std::sync::Mutex<Value>,
+    reading: std::sync::atomic::AtomicBool,
 }
 
 static BRIDGE: LazyLock<Bridge> = LazyLock::new(|| Bridge {
     wake: Notify::new(),
     state: std::sync::Mutex::new(json!({"lock": "unknown", "on": false, "holding": false})),
+    reading: std::sync::atomic::AtomicBool::new(false),
 });
 
-/// What the lock bridge last saw and decided: `{lock, on, holding, lockedForS}`.
+/// What the lock bridge sees and decides: `{lock, on, holding, lockedForS}`. While the worker
+/// reads, its last reading (at most [`TICK`] old, and a status change reads at once). While it is
+/// idle it reads nothing, so its last reading would go stale: the lock and the setting are read
+/// now, nothing is held, and `lockedForS` is left out (the worker counts a stretch only while a
+/// session runs or waits).
 pub(crate) fn state() -> Value {
-    BRIDGE.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    if BRIDGE.reading.load(std::sync::atomic::Ordering::Acquire) {
+        return BRIDGE.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    }
+    idle_state(crate::mac_lock::lock(), setting_now())
+}
+
+/// The status of an idle worker: `lock` and `on` as read now, nothing held.
+fn idle_state(lock: Lock, on: bool) -> Value {
+    json!({"lock": lock.as_str(), "on": on, "holding": false})
 }
 
 impl Hub {
@@ -240,6 +255,7 @@ impl Hub {
             let mut tracker = Tracker::new(Instant::now(), crate::mac_lock::lock());
             loop {
                 BRIDGE.wake.notified().await;
+                BRIDGE.reading.store(true, std::sync::atomic::Ordering::Release);
                 let mut hold: Option<IdleSleepHold> = None;
                 loop {
                     let Some(strong) = hub.upgrade() else { return };
@@ -272,10 +288,8 @@ impl Hub {
                 if hold.take().is_some() {
                     tracing::info!("lock bridge: released (no session runs or waits)");
                 }
-                let mut state = BRIDGE.state.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(state) = state.as_object_mut() {
-                    state.insert("holding".to_owned(), json!(false));
-                }
+                // `state` reads the lock and the setting itself while the worker is idle.
+                BRIDGE.reading.store(false, std::sync::atomic::Ordering::Release);
             }
         });
     }
@@ -294,6 +308,13 @@ mod tests {
             since_running: Duration::ZERO,
             locked_for: Duration::from_secs(60),
         }
+    }
+
+    #[test]
+    fn an_idle_worker_reports_no_hold_and_no_stretch() {
+        let idle = idle_state(Lock::Locked, true);
+        assert_eq!(idle, json!({"lock": "locked", "on": true, "holding": false}));
+        assert!(idle.get("lockedForS").is_none(), "no stretch is counted while idle: {idle}");
     }
 
     #[test]
