@@ -90,7 +90,19 @@ APPS = {}
 for tag in TAGS:
     created = rpc(tag, "action.run", {"action": "workspace.newAtBottom", "focus": True, "wait": True})
     APPS[tag] = {"ws": created["result"]["created"][0]}
-time.sleep(1.5)
+# Each new workspace is shown in a window (snapshot.get) and its daemon session runs, read next.
+def shown(tag):
+    windows = rpc(tag, "snapshot.get").get("result", {}).get("topology", {}).get("windows") or []
+    running = subprocess.run(["pgrep", "-f", f"session cmux-app-{tag} "], capture_output=True).returncode == 0
+    return running and any(w.get("workspace") == APPS[tag]["ws"] for w in windows)
+
+
+for tag in TAGS:
+    deadline = time.monotonic() + 15
+    while not shown(tag):
+        if time.monotonic() > deadline:
+            raise SystemExit(f"{tag}: workspace {APPS[tag]['ws']} not shown in a window (or no daemon) after 15 s")
+        time.sleep(0.05)
 for tag in TAGS:
     APPS[tag]["window"] = rpc(tag, "snapshot.get")["result"]["topology"]["windows"][0]["key"]
     APPS[tag]["sock"] = daemon_socket(tag)

@@ -31,7 +31,8 @@ Home, launch reopens where you were) and their reasons: cmuxterm-hq `decisions/j
 
 ## Check a change in five minutes (from a Linux lane VM)
 
-Push first: the fleet builds the pushed SHA. "here" is the lane VM. Running the app needs a Mac.
+Push first: the fleet builds the pushed SHA. "here" is the lane VM. Running the app needs a Mac; a web or daemon
+change needs no app build there (`cmux app try .`, or `cmux-ci hot-verify N --look` from here).
 
 | What | Command | Where |
 |---|---|---|
@@ -49,7 +50,7 @@ On a Mac, Swift that only changes function bodies goes into a running app with n
 One suite or test, on a fleet Mac: `cmux-ci run --class light --script scripts/ci/package-test-lane.sh --ref SHA
 --arg=suite --arg=Packages/macOS/CmuxNext --arg=CmuxNextSettingsTests` (filter `TARGET`, `TARGET.Suite` or
 `TARGET/test`; a comma list runs after one build). `cmux-ci test` runs Linux, only for the packages in
-`scripts/ci/swift-linux-packages.txt`. The whole `cmux-next swift test` job took 28 min ([timing](../../docs/ci/cmux-next-swift-test-timing.md)).
+`scripts/ci/swift-linux-packages.txt`. The whole `cmux-next swift test` job took 28 min.
 
 ## What CI gates a Mac Swift PR
 

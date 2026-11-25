@@ -78,14 +78,36 @@ jobs:
       helper_key: ${{ steps.helper.outputs.helper_key }}
       helper_needed: ${{ steps.helper.outputs.helper_needed }}
     steps:
+      - name: Check the commit is a full sha
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
+
+      - name: Checkout this workflow's tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: tools
+          sparse-checkout: scripts/ci
+
+      # As cmux-tui-artifacts.yml's dispatch: a gh call GitHub refuses for the installation's rate limit
+      # waits for the reset and tries again (runs 45423971003 and 45422219117 failed here with "API rate
+      # limit exceeded for installation"). At most 5 minutes, inside the job's 10.
+      - name: Wait through a rate-limited gh call
+        env:
+          GH_BUDGET_WAIT_MAX_SECONDS: '300'
+        run: bash tools/scripts/ci/gh_budget_wait.sh --install
+
       - name: Check the commit
         env:
           COMMIT: ${{ inputs.commit }}
           GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: '300'
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
           # On feat-cmux-next: the commit is feat-cmux-next's head or behind it.
           status="$(gh api "repos/$REPO/compare/$COMMIT...feat-cmux-next" --jq .status)"
           case "$status" in
@@ -100,14 +122,6 @@ jobs:
           ref: ${{ inputs.commit }}
           path: source
           fetch-depth: 1
-
-      - name: Checkout this workflow's tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: tools
-          sparse-checkout: scripts/ci
 
       - name: Read the tree key and whether its Team-signed set is published
         id: plan
@@ -143,7 +157,7 @@ jobs:
     name: build the Screen Sharing helper
     needs: plan
     if: needs.plan.outputs.helper_needed == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -160,6 +174,8 @@ jobs:
 
       # build-screen-sharing-helper.sh (arm64: the NEXT app is arm64 only), wrapped as the nightly wraps it
       # (bundle-screen-sharing-helper.sh --app) in a stub app with the nightly's id and name, signed ad hoc.
+      # The bundle is "cmux NIGHTLY Helper.app" (SUFFIX, since 5167d1f0); a commit from before the rename
+      # makes "cmux NIGHTLY Screen Sharing.app" (screen_sharing_helper_release.py HELPER_NAMES, in this order).
       - name: Build and bundle the helper
         env:
           KEY: ${{ needs.plan.outputs.helper_key }}
@@ -174,9 +190,13 @@ jobs:
           app="$(python3 scripts/ci/screen_sharing_helper_release.py stub-app "$stub")"
           CMUX_NEXT_SCREEN_HELPER_BIN="$bin" CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 \
             scripts/cmux-next/bundle-screen-sharing-helper.sh --app "$app"
+          helper=""
+          for name in "cmux NIGHTLY Helper.app" "cmux NIGHTLY Screen Sharing.app"; do
+            if [[ -d "$app/Contents/Library/$name" ]]; then helper="$app/Contents/Library/$name"; break; fi
+          done
+          [[ -n "$helper" ]] || { echo "::error::the bundle script made no cmux NIGHTLY Helper.app"; ls -la "$app/Contents/Library"; exit 1; }
           mkdir -p helper-unsigned
-          /usr/bin/ditto -c -k --norsrc --keepParent "$app/Contents/Library/cmux NIGHTLY Screen Sharing.app" \
-            helper-unsigned/helper.zip
+          /usr/bin/ditto -c -k --norsrc --keepParent "$helper" helper-unsigned/helper.zip
 
       - name: Upload the unsigned helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -214,13 +234,20 @@ jobs:
           name: screen-sharing-helper-unsigned-${{ needs.plan.outputs.helper_key }}
           path: helper-unsigned
 
+      # One bundle, by either name build-helper zips (screen_sharing_helper_release.py HELPER_NAMES).
       - name: Unpack the helper
+        id: unpacked
         run: |
           set -euo pipefail
           mkdir helper
           /usr/bin/ditto -x -k --norsrc --noqtn helper-unsigned/helper.zip helper
-          [[ -d "helper/cmux NIGHTLY Screen Sharing.app" && "$(ls -A helper | wc -l)" -eq 1 ]] \
-            || { echo "::error::the artifact is not one cmux NIGHTLY Screen Sharing.app"; ls -la helper; exit 1; }
+          helper=""
+          for name in "cmux NIGHTLY Helper.app" "cmux NIGHTLY Screen Sharing.app"; do
+            if [[ -d "helper/$name" ]]; then helper="helper/$name"; break; fi
+          done
+          [[ -n "$helper" && "$(ls -A helper | wc -l)" -eq 1 ]] \
+            || { echo "::error::the artifact is not one cmux NIGHTLY Helper.app"; ls -la helper; exit 1; }
+          echo "helper=$helper" >> "$GITHUB_OUTPUT"
 
       - name: Import the Developer ID certificate
         env:
@@ -236,10 +263,11 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          HELPER: ${{ steps.unpacked.outputs.helper }}
         run: |
           set -euo pipefail
           [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "::error::release-next has no APPLE_SIGNING_IDENTITY"; exit 1; }
-          helper="helper/cmux NIGHTLY Screen Sharing.app"
+          helper="$HELPER"
           ./scripts/codesign-retry.sh --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$helper"
           /usr/bin/codesign --verify --strict --deep --verbose=2 "$helper"
           team="$(/usr/bin/codesign -dv "$helper" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
@@ -258,12 +286,13 @@ jobs:
           KEY: ${{ needs.plan.outputs.helper_key }}
           TEAM: ${{ steps.signed.outputs.team }}
           COMMIT: ${{ inputs.commit }}
+          HELPER: ${{ steps.unpacked.outputs.helper }}
         run: |
           set -euo pipefail
           mkdir helper-signed
-          /usr/bin/ditto -c -k --norsrc --keepParent "helper/cmux NIGHTLY Screen Sharing.app" helper-signed/helper.zip
+          /usr/bin/ditto -c -k --norsrc --keepParent "$HELPER" helper-signed/helper.zip
           python3 scripts/ci/screen_sharing_helper_release.py record --zip helper-signed/helper.zip \
-            --helper "helper/cmux NIGHTLY Screen Sharing.app" --team "$TEAM" --key "$KEY" --commit "$COMMIT" \
+            --helper "$HELPER" --team "$TEAM" --key "$KEY" --commit "$COMMIT" \
             --out helper-signed/helper.json
 
       - name: Upload the signed helper

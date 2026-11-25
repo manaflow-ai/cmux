@@ -181,6 +181,41 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(decision.build)
         self.assertIn("submittable build run 4", decision.reason)
 
+    def test_does_not_replace_a_waiting_yolo_build(self):
+        waiting = dict(run(B, status="pending", conclusion=None, minutes_ago=1, run_id=4), yolo=True)
+        decision = self.plan(runs=[waiting, run(A, status="in_progress", conclusion=None, minutes_ago=5 * 60, run_id=3),
+                                   run(A, minutes_ago=6 * 60, run_id=2)])
+        self.assertFalse(decision.build)
+        self.assertIn("YOLO build run 4", decision.reason)
+
+    def test_a_yolo_upload_is_never_the_nightly_base(self):
+        decision = self.plan(runs=[dict(run(B, minutes_ago=4 * 60, run_id=3), yolo=True),
+                                   run(A, minutes_ago=8 * 60, run_id=2)])
+        self.assertTrue(decision.build, decision.reason)
+        self.assertEqual(decision.base, A)
+
+    def test_a_yolo_upload_counts_for_the_upload_gap(self):
+        decision = self.plan(runs=[dict(run(B, minutes_ago=30, run_id=3), yolo=True),
+                                   run(A, minutes_ago=8 * 60, run_id=2)])
+        self.assertFalse(decision.build)
+        self.assertIn("run 3", decision.reason)
+
+    def test_failed_yolo_builds_do_not_back_off_the_nightly(self):
+        failures = [dict(run(B, conclusion="failure", minutes_ago=10 + i, run_id=10 - i), yolo=True) for i in range(3)]
+        decision = self.plan(runs=[*failures, run(A, minutes_ago=8 * 60, run_id=2)])
+        self.assertTrue(decision.build, decision.reason)
+        self.assertEqual(decision.base, A)
+
+    def test_marks_runs_whose_sha_is_a_yolo_stack(self):
+        runs = ib.mark_yolo([{"sha": A}, {"sha": B}], {B})
+        self.assertEqual([r["yolo"] for r in runs], [False, True])
+
+    def test_reads_yolo_stack_tips(self):
+        refs = json.dumps([{"ref": "refs/heads/ios-yolo/20261123T1030Z-1", "object": {"sha": B, "type": "commit"}}])
+        self.assertEqual(ib.yolo_shas(runner=FakeGh((0, refs, "")), sleep=lambda _s: None), {B})
+        self.assertEqual(ib.yolo_shas(runner=FakeGh((1, "", "gh: Not Found (HTTP 404)")), sleep=lambda _s: None),
+                         set())
+
     def test_a_running_submittable_build_does_not_hold_the_next_head(self):
         running = dict(run(B, status="in_progress", conclusion=None, minutes_ago=3 * 60 + 5, run_id=3), submittable=True)
         decision = self.plan(runs=[running, run(A, run_id=2)])
@@ -651,6 +686,7 @@ class PackagesLiveInTheAppTests(unittest.TestCase):
             out = Path(tmp) / "out"
             out.write_text("")
             with mock.patch.object(ib, "builder_runs", return_value=[]), \
+                    mock.patch.object(ib, "yolo_shas", return_value=set()), \
                     mock.patch.object(ib, "builder_has_script", return_value=True), \
                     mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
                 code = ib.cmd_plan(head, str(work))
@@ -668,11 +704,9 @@ class TriggerRunnerTests(unittest.TestCase):
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
-        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
-        # It holds a write token, so it reads only the ephemeral_only pool (tests/test_ci_ephemeral_pool_readers.py).
+        # The one cmux-linux label (cmux#48644), never a pool variable.
         self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux)", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
         """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""

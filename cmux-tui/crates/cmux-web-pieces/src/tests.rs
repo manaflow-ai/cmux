@@ -33,12 +33,7 @@ fn file(serial: u64, pieces: Value, refuse: Value) -> Value {
 
 fn opened(payload: &Value) -> Result<Switches, Refusal> {
     let pair = pair(7);
-    open(
-        envelope(&pair, payload).as_bytes(),
-        &keys(&pair),
-        "every-merge",
-        0,
-    )
+    open(envelope(&pair, payload).as_bytes(), &keys(&pair), "every-merge", 0)
 }
 
 #[test]
@@ -91,10 +86,7 @@ fn another_kind_of_signed_file_is_refused() {
 fn another_channels_file_is_refused() {
     let mut nightly = file(1, json!({}), json!([]));
     nightly["channel"] = json!("nightly");
-    assert_eq!(
-        opened(&nightly).unwrap_err(),
-        Refusal::WrongChannel("nightly".to_owned())
-    );
+    assert_eq!(opened(&nightly).unwrap_err(), Refusal::WrongChannel("nightly".to_owned()));
 }
 
 #[test]
@@ -104,10 +96,7 @@ fn an_older_file_is_refused_and_the_same_one_is_taken_again() {
     let keys = keys(&pair);
     assert_eq!(
         open(body.as_bytes(), &keys, "every-merge", 6).unwrap_err(),
-        Refusal::Stale {
-            serial: 5,
-            floor: 6
-        }
+        Refusal::Stale { serial: 5, floor: 6 }
     );
     assert!(open(body.as_bytes(), &keys, "every-merge", 5).is_ok());
 }
@@ -121,10 +110,7 @@ fn a_refuse_entry_that_is_no_key_is_refused() {
 #[test]
 fn an_oversized_file_is_refused_before_it_is_parsed() {
     let body = vec![b' '; MAX_BYTES + 1];
-    assert_eq!(
-        open(&body, &[], "every-merge", 0).unwrap_err().code(),
-        "too_large"
-    );
+    assert_eq!(open(&body, &[], "every-merge", 0).unwrap_err().code(), "too_large");
 }
 
 #[test]
@@ -170,16 +156,10 @@ fn a_finer_id_switches_its_whole_piece() {
 #[test]
 fn no_file_serves_the_active_update_everywhere() {
     let plan = plan(None, Some(A), &[B]);
-    assert!(plan
-        .pieces
-        .iter()
-        .all(|(_, source)| *source == Source::Update(A.to_owned())));
+    assert!(plan.pieces.iter().all(|(_, source)| *source == Source::Update(A.to_owned())));
     assert!(!plan.refused_active);
     let bundled = super::plan(None, None, &[]);
-    assert!(bundled
-        .pieces
-        .iter()
-        .all(|(_, source)| *source == Source::Bundled));
+    assert!(bundled.pieces.iter().all(|(_, source)| *source == Source::Bundled));
 }
 
 #[test]
@@ -200,25 +180,14 @@ fn one_piece_is_switched_out_and_the_rest_stay_live() {
 
 #[test]
 fn last_good_skips_refused_updates_and_ends_at_the_bundle() {
-    let switches = opened(&file(
-        1,
-        json!({"pages": {"serve": "last-good"}}),
-        json!([B]),
-    ))
-    .unwrap();
+    let switches = opened(&file(1, json!({"pages": {"serve": "last-good"}}), json!([B]))).unwrap();
     assert_eq!(
         plan(Some(&switches), Some(A), &[B, C]).source("pages"),
         &Source::Update(C.to_owned())
     );
-    assert_eq!(
-        plan(Some(&switches), Some(A), &[B]).source("pages"),
-        &Source::Bundled
-    );
+    assert_eq!(plan(Some(&switches), Some(A), &[B]).source("pages"), &Source::Bundled);
     // The active update is never its own last good one.
-    assert_eq!(
-        plan(Some(&switches), Some(A), &[A]).source("pages"),
-        &Source::Bundled
-    );
+    assert_eq!(plan(Some(&switches), Some(A), &[A]).source("pages"), &Source::Bundled);
 }
 
 #[test]
@@ -226,15 +195,9 @@ fn a_refused_active_update_rolls_every_piece_back() {
     let switches = opened(&file(1, json!({}), json!([A]))).unwrap();
     let plan = plan(Some(&switches), Some(A), &[B]);
     assert!(plan.refused_active);
-    assert!(plan
-        .pieces
-        .iter()
-        .all(|(_, source)| *source == Source::Update(B.to_owned())));
+    assert!(plan.pieces.iter().all(|(_, source)| *source == Source::Update(B.to_owned())));
     let none_kept = super::plan(Some(&switches), Some(A), &[]);
-    assert!(none_kept
-        .pieces
-        .iter()
-        .all(|(_, source)| *source == Source::Bundled));
+    assert!(none_kept.pieces.iter().all(|(_, source)| *source == Source::Bundled));
 }
 
 #[test]
@@ -242,11 +205,7 @@ fn evaluate_takes_a_file_and_gives_the_host_its_next_state() {
     let pair = pair(7);
     let body = envelope(
         &pair,
-        &file(
-            4,
-            json!({"agent-pane": {"serve": "last-good", "reason": "cmux#1"}}),
-            json!([]),
-        ),
+        &file(4, json!({"agent-pane": {"serve": "last-good", "reason": "cmux#1"}}), json!([])),
     );
     let reply = evaluate_with(
         &json!({"envelope": body, "channel": "every-merge", "floor": 3, "active": A,
@@ -327,10 +286,7 @@ fn the_last_switches_of_another_channel_are_not_used() {
 
 #[test]
 fn the_production_keys_refuse_a_test_signed_file() {
-    let body = envelope(
-        &pair(7),
-        &file(1, json!({"pages": {"serve": "bundled"}}), json!([])),
-    );
+    let body = envelope(&pair(7), &file(1, json!({"pages": {"serve": "bundled"}}), json!([])));
     let reply = evaluate(&json!({"envelope": body, "channel": "every-merge", "active": A}));
     assert_eq!(reply["taken"], false);
     assert_eq!(reply["refusal"]["code"], "unsigned");
@@ -355,13 +311,7 @@ fn keys_match_the_web_update_keys() {
 #[test]
 fn pieces_are_the_web_bundle_outputs() {
     let script = repo("scripts/cmux-next/web-bundle-key.py");
-    let list = script
-        .split("OUTPUTS = [")
-        .nth(1)
-        .unwrap()
-        .split(']')
-        .next()
-        .unwrap();
+    let list = script.split("OUTPUTS = [").nth(1).unwrap().split(']').next().unwrap();
     let outputs: Vec<&str> = list
         .lines()
         .map(|line| line.trim().trim_matches(|c| c == '"' || c == ','))

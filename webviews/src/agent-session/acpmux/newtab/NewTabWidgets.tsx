@@ -28,7 +28,7 @@ import {
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
 import { Icon } from "../icons/Icon";
-import { pageHostClient } from "../pageHost";
+import { pageHostClient } from "../pageHostClient";
 import { AddWidgetGallery, type AddWidgetLook } from "./AddWidgetGallery";
 import { useNt } from "./strings";
 import { GridWidgetFrame, type WidgetEditLook } from "./WidgetEditing";

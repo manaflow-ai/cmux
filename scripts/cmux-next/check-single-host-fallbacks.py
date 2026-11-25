@@ -230,6 +230,14 @@ class Reads:
 # a placement job or a dispatch picks at run time, whose own policy is the job's business.
 SETTLED_READS = {"vars": 2, "inputs": 2, "needs": 4}
 
+# CI v2's scheduler-granted label (cmuxterm-hq docs/design/ci-v2.md, "The queue and the grant"): one label per run
+# and attempt, which nothing but the one-job JIT runner the scheduler starts for that run carries (hq
+# tools/fleet-reconcilers/runner_pool.py scheduler_plan). It is never a single host, and its fallback is the
+# overflow switch the same runs-on reads first (vars.CI_OVERFLOW_LINUX, declared in variables). Only this exact
+# form is settled; any other format() stays a finding.
+SCHEDULER_GRANT = re.compile(
+    r"format\(\s*'cmux-\{0\}-\{1\}-(?:linux|mac)'\s*,\s*github\.run_id\s*,\s*github\.run_attempt\s*\)")
+
 
 def _split_top(text: str, operator: str) -> list[str]:
     """TEXT split at OPERATOR (`||`, `&&`) outside string literals and brackets, by tokens."""
@@ -285,6 +293,8 @@ def _settled_operand(operand: str) -> bool:
         else:
             return settled(operand[spans[0].end:spans[-1].start])
     if len(stream) == 1 and stream[0][0] == "string":
+        return True
+    if SCHEDULER_GRANT.fullmatch(operand.strip()):
         return True
     head = stream[0][1].lower() if stream[0][0] == "name" else ""
     if head == "fromjson" and len(stream) >= 3 and stream[1] == ("op", "("):

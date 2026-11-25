@@ -57,10 +57,34 @@ describe("reading settings to CSS", () => {
       documentElement: root,
       head: { append() {} },
       getElementById: (id: string) => styles.get(id) ?? null,
-      createElement: () => ({ id: "", textContent: "" }),
+      createElement: () => ({ id: "", textContent: "", dataset: {} }),
     } as unknown as Document;
     applyMarkdownLook({ tables: "wrap", theme: "light" }, "", doc);
     expect(root.dataset).toMatchObject({ cmuxMdTables: "wrap", cmuxMdTheme: "light" });
+  });
+
+  test("theme.css is any CSS, but one that loads something by address keeps the last good one", () => {
+    const styles = new Map<string, { id: string; textContent: string; dataset: Record<string, string> }>();
+    const doc = {
+      documentElement: { dataset: {} },
+      head: {
+        append(style: { id: string; textContent: string; dataset: Record<string, string> }) {
+          styles.set(style.id, style);
+        },
+      },
+      getElementById: (id: string) => styles.get(id) ?? null,
+      createElement: () => ({ id: "", textContent: "", dataset: {} }),
+    } as unknown as Document;
+    applyMarkdownLook({}, "article h1 { letter-spacing: -0.01em }", doc);
+    expect(styles.get("cmux-md-theme")?.textContent).toBe("article h1 { letter-spacing: -0.01em }");
+    applyMarkdownLook({}, "@import 'https://x.example/a.css';", doc);
+    expect(styles.get("cmux-md-theme")).toMatchObject({
+      textContent: "article h1 { letter-spacing: -0.01em }",
+      dataset: { refused: "it has an @import" },
+    });
+    applyMarkdownLook({}, "", doc);
+    expect(styles.get("cmux-md-theme")?.textContent).toBe("");
+    expect(styles.get("cmux-md-theme")?.dataset.refused).toBeUndefined();
   });
 
   test("the popover shows each value, clamped, else the default", () => {

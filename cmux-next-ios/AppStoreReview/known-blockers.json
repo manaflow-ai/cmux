@@ -4,11 +4,5 @@
     "A push or pull request fails only on a blocker whose key is not listed here. Remove an entry in the PR that fixes it; never add one to get a change past the gate.",
     "A submission (dispatch, or the production pipeline's call) ignores this file and refuses every blocker."
   ],
-  "blockers": [
-    {
-      "key": "metadata.screenshots|cmux-next-ios/AppStoreReview/screenshots/en-US/iphone",
-      "finding": "no iphone screenshots",
-      "fix": "#40927 (iPhone 6.9-inch screenshots)"
-    }
-  ]
+  "blockers": []
 }

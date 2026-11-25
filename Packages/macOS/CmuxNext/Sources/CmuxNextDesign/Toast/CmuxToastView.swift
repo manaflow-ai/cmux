@@ -74,7 +74,7 @@ public final class CmuxToastView: NSView {
     /// The surface's corner radius now: the geometry's outer corner, at most half the height (a capsule's is
     /// always half).
     public var cornerRadius: CGFloat {
-        look.shape == .capsule ? bounds.height / 2 : geometry.outerRadius(fitting: bounds.size)
+        look.shape == .capsule ? bounds.height / 2 : look.flat ? Metrics.buttonCornerRadius : geometry.outerRadius(fitting: bounds.size)
     }
     private var pointerHover: PointerHover?
     /// Whether the pointer is on the toast now (as of the last refresh).
@@ -125,6 +125,24 @@ public final class CmuxToastView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The glass a toast in `look` draws on with `tuning`: the toast role's tone and the toasts' glass
+    /// (the look's, else Debug Settings > Toasts), opaque under Reduce Transparency. Every toast draws on it,
+    /// and so does a toast-shaped card the center does not draw (the Import from Chrome card,
+    /// ``Glass/makeSurface(toastOf:cornerRadius:reduceTransparency:)``), so the two never show two kinds of glass (Leo
+    /// 2026-11-24: "oh yeah the import from chrome popup/toast is there too...with yet another kind of
+    /// \"glass\"").
+    public static func makeSurface(look: CmuxToastLook, tuning: CmuxToastTuning, cornerRadius: CGFloat,
+                                   reduceTransparency: ReduceTransparency = .shared) -> OverlaySurfaceView {
+        let surface = OverlaySurfaceView(material: look.solid ? .opaque : nil, interactive: true, cornerRadius: cornerRadius, // concentric-allow: the caller's corner (a toast's concentric outerRadius; the card's toast role corner)
+                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone,
+                                         glassVariant: (look.glass ?? tuning.glass).variant)
+        // The overlay panel is a clear window of its own: before macOS 26 the blur samples what is
+        // behind it (the window's content). Liquid Glass and the opaque surface ignore this.
+        surface.samplesBehindWindow = true
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        return surface
+    }
 
     /// The concentric geometry of a toast in `look` built with `tuning`.
     static func geometry(look: CmuxToastLook, tuning: CmuxToastTuning) -> ConcentricContainer {
@@ -255,23 +273,18 @@ public final class CmuxToastView: NSView {
         let content = NSView()
         content.addSubview(row)
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
-        // The toast role's glass; the material follows this Mac (opaque under Reduce Transparency).
-        let surface = OverlaySurfaceView(material: look.solid ? .opaque : nil, interactive: true, cornerRadius: geometry.outerRadius,
-                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone,
-                                         glassVariant: (look.glass ?? tuning.glass).variant)
-        // The overlay panel is a clear window of its own: before macOS 26 the blur samples what is
-        // behind it (the window's content). Liquid Glass and the opaque surface ignore this.
-        surface.samplesBehindWindow = true
-        surface.translatesAutoresizingMaskIntoConstraints = false
+        let surface = Self.makeSurface(look: look, tuning: tuning, cornerRadius: geometry.outerRadius,
+                                       reduceTransparency: reduceTransparency)
         self.surface = surface
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
         content.frame = surface.contentView.bounds
         surface.contentView.addSubview(content)
         addSubview(surface)
+        if look.flat { addFlatFill(in: content) }
         if look.accentBar { addAccentBar(in: content) }
         if look.showsCountdown, toast.duration != CmuxToast.untilClosed { addCountdownRing(in: content) }
-        castShadow()
+        if !look.flat { castShadow() }
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -477,6 +490,20 @@ public final class CmuxToastView: NSView {
 
     /// The accent bar's width (``CmuxToastLook/accentBar``).
     static let accentBarWidth: CGFloat = 4
+
+    /// The flat style's fill (``CmuxToastLook/flat``): the window's background color under the content, inside the
+    /// opaque surface's 1 px edge.
+    private func addFlatFill(in content: NSView) {
+        let fill = ThemeChangeView()
+        fill.wantsLayer = true
+        fill.frame = content.bounds
+        fill.autoresizingMask = [.width, .height]
+        fill.onThemeChange = { [weak fill] in
+            guard let fill else { return }
+            fill.layer?.backgroundColor = fill.performWithTheme { Palette.windowBackground.cgColor }
+        }
+        content.addSubview(fill, positioned: .below, relativeTo: nil)
+    }
 
     /// A bar in the tone's color along the leading edge, under the glass's rounded corner.
     private func addAccentBar(in content: NSView) {

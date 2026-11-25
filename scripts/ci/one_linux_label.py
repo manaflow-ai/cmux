@@ -84,7 +84,6 @@ _SUBMODULES = ("checks out without submodules and has no stale-submodule reset; 
 FRESH_VM_JOBS = {
     **{key: _SIGNING for key in (("ios-appstore-upload.yml", "set-testflight-notes"), ("ios-appstore-upload.yml", "assign-internal"),
                                  ("ios-testflight.yml", "set-testflight-notes"), ("ios-testflight.yml", "assign-internal-group"))},
-    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it reads none (signing keychain rule 7)",
     ("sdk-release-cut.yml", "cut-tags"): "holds the release app's signing key (#48337); a `# ephemeral-required` tag would "
                                          "need a JIT lead (tests/test_ci_write_token_jit_label.py)",
     ("cmux-next-dev-kick.yml", "kick"): "holds a write token; tests/test_cmux_next_dev_kick.py keeps it on the ephemeral_only pool",
