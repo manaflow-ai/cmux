@@ -738,11 +738,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         endHistory()
     }
 
-    /// The kept copy is too old to catch up from: this source forgets it and everything it applied,
-    /// its readers stop (a store showing the kept turns would otherwise get the newest page on top
+    /// The kept copy is too old to catch up from, or a reattach's hole is too wide to read
+    /// (``CatchUpPages/holeTooWide``): this source forgets it and everything it applied, its
+    /// readers stop (a store showing the held turns would otherwise get the newest page on top
     /// of them), the chat's store is rebuilt, and the next read is a first attach.
     private func dropKept() {
-        log.info("kept copy of \(self.sessionID, privacy: .public) too old at \(self.lastSeq, privacy: .public): opening on the newest page")
+        log.info("held records of \(self.sessionID, privacy: .public) too far behind at \(self.lastSeq, privacy: .public): opening on the newest page")
         keptRestored = false
         gapTask?.cancel()
         gapTask = nil
@@ -1687,8 +1688,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attaching = false
         refillPending = false
         held = []
-        // A gap still filling stays open: the next attach that catches up reads on from
-        // where it stopped (`startGapFill`).
+        // A gap still filling stays open: the next attach that catches up reads it whole,
+        // from its start (`startGapFill`).
         gapTask?.cancel()
         gapTask = nil
         saveKept()
@@ -1814,7 +1815,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// A catch-up from kept records found more than one page since them: nothing was read past
         /// the attach reply, and the chat opens on its newest page instead (``dropKept()``).
         var keptTooOld = false
+        /// A reattach found the hole between the records the chat holds and the newest ones wider
+        /// than ``bridgeMaxSeqs``: it is not read. The held turns go (``dropKept()``), and `page`,
+        /// the newest records from a prompt, opens the chat as a first attach's would, with older
+        /// history from scrolling up. An empty `page`: the chat is read again as a first attach.
+        var holeTooWide = false
     }
+
+    /// The widest hole a reattach reads to join the records the chat holds to the newest ones: one
+    /// page's records. A narrower hole is read whole and goes in at once (`startGapFill`). A wider
+    /// one (hours away from a busy chat) is not read: the chat opens on its newest page, as a first
+    /// open does (`holeTooWide`). Reading it forward page by page drew each page in turn above the
+    /// newest turn, so everything above it moved again and again while the chat waited on all of
+    /// them (Leo, 2026-11-17, on the Mac's agent pane, the same reconnect). Constant cost, whatever
+    /// was missed.
+    static let bridgeMaxSeqs = pageSize
+    /// The most seqs a reattach reads forward past its first page: a hole of ``bridgeMaxSeqs``
+    /// and a page past it (the newest page is read forward when it starts inside a turn), and
+    /// what was written meanwhile. A reattach that needs more (a Mac that pages only forward, or
+    /// one gap filling already, after a long time away) opens fresh (`holeTooWide`), as a wide
+    /// hole does, instead of reading everything it missed.
+    static let forwardMaxSeqs = 2 * bridgeMaxSeqs
 
     /// The next catch-up of attach `generation`, or nil when it is no longer current.
     private func nextRead(_ generation: Int) -> CatchUpRead? {
@@ -1896,10 +1917,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // moves `lastSeq` past the rest of the gap, and the chat never sees what was in it (a
             // turn's end, a decision made on the Mac). A page that holds them all (no
             // `hasMore`) is applied as it is. A longer gap is read tail-first: the newest page
-            // shows now, and the records before it fill in afterwards (`startGapFill`).
-            // Without that (one gap filling already, a Mac that pages forward only, a newest
-            // page inside one turn longer than itself) the reattach pages forward from the
-            // last record applied until a page reaches the log's end, as it always did.
+            // shows now, and the records before it go in at once when all are read
+            // (`startGapFill`); a gap wider than ``bridgeMaxSeqs`` is not read, and the chat
+            // opens on the newest page (`holeTooWide`). Without a gap (one gap filling already, a
+            // Mac that pages forward only, a newest page inside one turn longer than itself) the
+            // reattach pages forward from the last record applied to the log's end, at most
+            // ``forwardMaxSeqs`` on; past that it opens on the newest page too.
             if read.fromKept, out.result["hasMore"] == .bool(true) {
                 // The kept copy is more than a page behind: open on the newest page instead
                 // (``dropKept()``), not on a gap after an old copy.
@@ -1928,8 +1951,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                         more = nextMore
                     } else if let tail = tailStart(page, after: read.after) {
                         out.page = Array(page[tail.index...]) + events
-                        out.gap = tail.gap
                         more = nextMore
+                        if tail.gap.seq - read.after - 1 > bridgeMaxSeqs {
+                            // Too wide to read: the page opens the chat (`holeTooWide`).
+                            out.holeTooWide = true
+                        } else {
+                            out.gap = tail.gap
+                        }
+                    } else if Int(first) - read.after - 1 > bridgeMaxSeqs {
+                        // The newest page is inside one turn longer than itself, past a hole too
+                        // wide to read: the chat opens again as a first attach, which reads that
+                        // turn's prompt.
+                        out.holeTooWide = true
+                        return out
                     } else {
                         // The newest page is inside one turn longer than itself: it has no
                         // prompt to start at, so the gap is read forward first.
@@ -1939,7 +1973,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     out.page = page
                 }
                 cursor = cursor ?? out.page.last?["seq"]?.numberValue
+                let loopStart = cursor.map { Int($0) } ?? read.after
                 while more, let from = cursor {
+                    if Int(from) - loopStart > forwardMaxSeqs {
+                        // Still not at the log's end (`forwardMaxSeqs`): the rest is not read
+                        // either. The chat opens again as a first attach.
+                        out.page = []
+                        out.gap = nil
+                        out.holeTooWide = true
+                        return out
+                    }
                     let next = try await request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "afterSeq": .number(from),
                         "limit": .number(Double(pageSize)), "kinds": kinds(hub),
@@ -1993,6 +2036,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             dropKept()
             return true
         }
+        if pages.holeTooWide {
+            // The turns held before the hole go before the newest page draws, never a read of the
+            // hole drawn page by page above the newest turn (`bridgeMaxSeqs`).
+            dropKept()
+            guard !pages.page.isEmpty else { return true }
+            // The page is the newest records from a prompt, with older ones on the Mac: it opens
+            // the chat as a first attach's page does, and scrolling up reads what is before it.
+            var opened = pages
+            opened.holeTooWide = false
+            opened.gap = nil
+            opened.earlier = true
+            return caughtUp(opened, CatchUpRead(sessionID: sessionID, after: 0), generation)
+        }
         guard apply(pages, read) else {
             attaching = false
             attachTask = nil
@@ -2029,8 +2085,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let end: Int
     }
 
-    /// The gap being filled, until its last page is in. It outlives a link drop: the next
-    /// attach that catches up reads on from `cursor`.
+    /// The gap being filled, until all of it is in. It outlives a link drop: the next attach
+    /// that catches up reads it whole again, from `cursor` (its start: nothing of it goes in
+    /// before all of it is read).
     private(set) var gapFill: GapFill?
     /// The reads filling it, after the newest records showed; cancelled when the link drops
     /// or another attach starts.
@@ -2038,58 +2095,76 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Each gap page's byte cap, as an older page's.
     static let gapBytes = olderBytes
 
-    /// Reads the gap oldest first, one bounded page at a time, while live records go on
-    /// arriving (they are newer than anything in it). A page that fails stops the fill; the
-    /// next attach that catches up (the link back, a lag) starts it again from `cursor`.
+    /// Reads the whole gap oldest first, in bounded pages, while live records go on arriving
+    /// (they are newer than anything in it), then sends it to the chat once (`applyGap`): the
+    /// turns above the newest one change one time, not once a page. The gap is at most
+    /// ``bridgeMaxSeqs`` wide (a wider one opens no gap: `holeTooWide`), so this is a few reads
+    /// at most. A page that fails stops the fill with nothing of it shown; the next attach that
+    /// catches up (the link back, a lag) reads it again from its start.
     private func startGapFill() {
-        guard gapTask == nil, gapFill != nil, attached, let hub, hub.isReady else { return }
+        guard gapTask == nil, let fill = gapFill, attached, let hub, hub.isReady else { return }
         let generation = generation
         let sessionID = sessionID
         // The task holds the source only between its requests, never across one.
         gapTask = Task { [weak self] in
-            while let fill = self?.gapFill, self?.generation == generation, !Task.isCancelled {
+            var cursor = fill.cursor
+            var gapRecords: [JSONValue] = []
+            while self?.gapFill == fill, self?.generation == generation, !Task.isCancelled {
                 let page: JSONValue
                 do {
                     page = try await hub.request("_acpmux/events", .object([
-                        "sessionId": .string(sessionID), "afterSeq": .number(Double(fill.cursor)),
+                        "sessionId": .string(sessionID), "afterSeq": .number(Double(cursor)),
                         "limit": .number(Double(Self.pageSize)), "maxBytes": .number(Double(Self.gapBytes)),
                         "toolOutputMaxBytes": .number(Double(Self.toolOutputMaxBytes)), "kinds": Self.kinds(hub),
                     ]), timeout: Self.pageTimeout)
                 } catch {
                     if self?.generation == generation {
-                        log.info("gap \(sessionID, privacy: .public) after \(fill.cursor, privacy: .public): page failed, waits for the next attach")
+                        log.info("gap \(sessionID, privacy: .public) after \(fill.cursor, privacy: .public): page after \(cursor, privacy: .public) failed, waits for the next attach")
                         self?.gapTask = nil
                     }
                     return
                 }
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
-                self.applyGap(page, fill)
+                let part = Self.gapPart(page, after: cursor, end: fill.end)
+                gapRecords += part.records
+                cursor = part.cursor
+                if part.done {
+                    self.applyGap(gapRecords, fill)
+                    break
+                }
             }
             if self?.generation == generation { self?.gapTask = nil }
         }
     }
 
-    /// Sends one gap page to the chat: its records before the gap's end, in order, each once.
-    private func applyGap(_ page: JSONValue, _ fill: GapFill) {
-        guard gapFill == fill else { return }
+    /// One gap page's records after `after` and before the gap's `end`, in order, each once; the
+    /// last seq they reach; and whether the gap is all read.
+    static func gapPart(_ page: JSONValue, after: Int, end: Int) -> (records: [JSONValue], cursor: Int, done: Bool) {
         let events = page["events"]?.arrayValue ?? []
-        var cursor = fill.cursor
+        var cursor = after
         var done = events.isEmpty || page["hasMore"] != .bool(true)
-        var gapRecords: [JSONValue] = []
+        var records: [JSONValue] = []
         for record in events {
             guard let number = record["seq"]?.numberValue else { continue }
             let seq = Int(number)
-            if seq >= fill.end {
+            if seq >= end {
                 done = true
                 break
             }
             guard seq > cursor else { continue }
-            gapRecords.append(record)
+            records.append(record)
             cursor = seq
         }
         // A page that moves nothing on while promising more would be read forever.
-        if !done, cursor == fill.cursor { done = true }
-        gapFill = done ? nil : GapFill(cursor: cursor, end: fill.end)
+        if !done, cursor == after { done = true }
+        return (records, cursor, done)
+    }
+
+    /// Sends the whole gap to the chat as one page: its records before the gap's end, in
+    /// order, each once.
+    private func applyGap(_ gapRecords: [JSONValue], _ fill: GapFill) {
+        guard gapFill == fill else { return }
+        gapFill = nil
         var mapped: [AgentSessionEvent] = []
         for record in gapRecords {
             for event in records.map(record) {
@@ -2106,16 +2181,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 mapped.append(event)
             }
         }
-        log.info("gap \(self.sessionID, privacy: .public) after \(fill.cursor, privacy: .public): \(gapRecords.count, privacy: .public) records, through \(cursor, privacy: .public), done \(done, privacy: .public)")
-        // A later reader of this source gets the gap's records where they belong: before
-        // the marker, which goes once the gap is filled.
+        log.info("gap \(self.sessionID, privacy: .public) after \(fill.cursor, privacy: .public): \(gapRecords.count, privacy: .public) records, through \(gapRecords.last?["seq"]?.numberValue ?? 0, privacy: .public)")
+        // A later reader of this source gets the gap's records where they belong: where the
+        // marker was, which goes now that the gap is filled.
         flushOpenChunk()
         if let marker = replay.lastIndex(where: { if case .gapOpened = $0 { true } else { false } }) {
             replay.insert(contentsOf: mapped, at: marker)
-            if done { replay.remove(at: marker + mapped.count) }
+            replay.remove(at: marker + mapped.count)
         }
-        guard !mapped.isEmpty || done else { return }
-        for continuation in continuations.values { continuation.yield(.gapPage(mapped, done: done)) }
+        for continuation in continuations.values { continuation.yield(.gapPage(mapped, done: true)) }
     }
 
     /// Applies what a catch-up read as one batch. False when a request failed: a reattach

@@ -9,12 +9,12 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
@@ -95,7 +95,6 @@ import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices } from "./startedProject";
 import {
-  exactMatch,
   canonicalAddress,
   defaultSelection,
   isAddress,
@@ -110,6 +109,7 @@ import {
   type ScreenRow,
   pageChatCards,
   returnRow,
+  exactMatch,
 } from "./screenModel";
 import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
 import { Icon } from "../icons/Icon";
@@ -3008,6 +3008,8 @@ export function NewTabScreen(props: Props) {
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
+          // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
+          popupSettle="results"
           initialFocus={false}
           finalFocus={false}
         >
