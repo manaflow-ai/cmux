@@ -1313,6 +1313,18 @@ channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
 export GHOSTTY_ZIG_SOURCE=ghostty-next
+# A persistent pool runner keeps this step's target between its jobs, with the recorded mtimes of every
+# source whose bytes are unchanged, so cargo rebuilds only what a change reaches (scripts/ci/pool-warm-target.sh,
+# as cmux-next.yml's fast tier (cargo)). Cold, the test compile was most of a 50-60 minute linux job on every
+# cmux-tui pull request from 17Z 11-24 (#54107). `alone` keeps the other steps off the checkout while it
+# backdates mtimes. Elsewhere (fsr-, Blacksmith) it does nothing and the build is cold as before.
+# No incremental state: it only fills the kept tree (#53426), and the tree's 16 GiB bound restarts it cold.
+export CARGO_INCREMENTAL=0
+warm_env="$(mktemp /tmp/cmux-next-warm-env.XXXXXX)"
+GITHUB_ENV="$warm_env" GITHUB_OUTPUT=/dev/null bash ../scripts/ci/pool-warm-target.sh restore cmux-next-daemon-tests || true
+warm_target="$(sed -n 's/^CARGO_TARGET_DIR=//p' "$warm_env" | tail -n 1)"
+rm -f "$warm_env"
+[ -z "$warm_target" ] || export CARGO_TARGET_DIR="$warm_target"
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
 export ACPMUX_HOME="$home" ACPMUX_SOCKET=""
 log="$(mktemp /tmp/cmux-next-tests.XXXXXX.txt)"
@@ -1336,6 +1348,8 @@ for attempt in 1 2 3; do
   fi
   [ "$attempt" -lt 3 ] && sleep $((attempt * 10))
 done
+# Pass or fail: the manifest of the checkout this tree was just built from, for the next job on this runner.
+[ -z "$warm_target" ] || bash ../scripts/ci/pool-warm-target.sh record cmux-next-daemon-tests || true
 # End the daemon of this home and its agents, then delete the home (a path this step made).
 acpmux="$(command -v acpmux || true)"
 [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
