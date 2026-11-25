@@ -734,6 +734,28 @@ fn folder_repo(local: &str) -> Option<String> {
 
 /// The git directory that holds the config of the repository `folder` is in: the nearest `.git` at or above
 /// it, followed through a worktree's `gitdir:` file and its `commondir`.
+/// The project id a folder's agent memory is keyed by (`cmux link memory plan`): the folder's
+/// normalised git remote, else, with a ledger, this installation's folder id in it (the one a
+/// start-chat copy records). `None`: not a folder, or no remote and no ledger.
+pub(in crate::link) fn memory_project_id(
+    ledger: Option<&Path>,
+    folder: &Path,
+) -> anyhow::Result<Option<String>> {
+    let Some(local) = folder.to_str() else { return Ok(None) };
+    match ledger {
+        Some(ledger) => project::folder_key(ledger, local),
+        None => Ok(git_common_dir(folder)
+            .and_then(|dir| std::fs::read_to_string(dir.join("config")).ok())
+            .and_then(|config| origin_url(&config))
+            .and_then(|remote| project::remote_key(&remote))),
+    }
+}
+
+/// The start-chat ledger this Mac keeps, if it has a state folder.
+pub(in crate::link) fn default_ledger() -> Option<PathBuf> {
+    ledger::path()
+}
+
 fn git_common_dir(folder: &Path) -> Option<PathBuf> {
     let dot_git =
         folder.ancestors().map(|dir| dir.join(".git")).find(|dot_git| dot_git.exists())?;
