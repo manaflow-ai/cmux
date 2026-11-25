@@ -334,6 +334,19 @@ fn a_lazy_tree_is_sized_without_fetching_a_file_blob() {
     assert_eq!(missing_count(&mirror, &commit), files + 1, "the clone holds no blob");
     let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
     assert_eq!(tree.links_fetched, 1, "only the link's text is fetched");
+    // git cat-file gained remote-object-info in Git 2.56. Older clients take the
+    // documented batched fallback even when upload-pack advertises object-info.
+    let version = run(&mirror, &["version"]);
+    let mut numbers = version.split_whitespace().nth(2).unwrap().split('.');
+    let major: u32 = numbers.next().unwrap().parse().unwrap();
+    let minor: u32 = numbers.next().unwrap().parse().unwrap();
+    if (major, minor) < (2, 56) {
+        assert_eq!((tree.sizes.remote, tree.sizes.fetched), (0, files));
+        assert_eq!(missing_count(&mirror, &commit), 0);
+        assert_eq!(tree.items, ls_tree(&dir.path().join("work/.git"), &commit).unwrap());
+        return;
+    }
+    assert_eq!(tree.sizes.remote, files);
     assert_eq!(tree.missing.len(), files);
     assert_eq!(missing_count(&mirror, &commit), files, "no file blob was fetched to size it");
     let full = ls_tree(&dir.path().join("work/.git"), &commit).unwrap();
@@ -443,8 +456,9 @@ fn listing_sizes_reads_both_formats_and_keeps_only_wanted_blobs() {
 
 #[test]
 fn a_lazy_read_fetches_its_folder_in_one_request_and_nothing_else() {
-    let (_dir, mirror, commit) = blobless(true);
-    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
+    let (dir, mirror, commit) = blobless(false);
+    let sizes = SizeSources { stores: vec![dir.path().join("work/.git")], ..Default::default() };
+    let tree = lazy_tree(&mirror, &commit, &sizes).unwrap();
     let mut book = Book::default();
     let links = link_texts(&mirror, &tree.items).unwrap();
     let layout = Layout {
@@ -480,12 +494,13 @@ fn a_lazy_mount_of_a_bare_blobless_mirror_is_a_clean_worktree_that_fetches_what_
         println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
         return;
     }
-    let (dir, mirror, commit) = blobless(true);
+    let (dir, mirror, commit) = blobless(false);
     // As the lane mirrors have it: bare, with per-worktree config.
     run(&mirror, &["config", "extensions.worktreeConfig", "true"]);
     let at = dir.path().join("mnt");
     std::fs::create_dir_all(&at).unwrap();
-    let tree = lazy_tree(&mirror, &commit, &SizeSources::default()).unwrap();
+    let sizes = SizeSources { stores: vec![dir.path().join("work/.git")], ..Default::default() };
+    let tree = lazy_tree(&mirror, &commit, &sizes).unwrap();
     let links = link_texts(&mirror, &tree.items).unwrap();
     let admin = mirror.join("worktrees").join("projected");
     let real_root = dir.path().join("real");
