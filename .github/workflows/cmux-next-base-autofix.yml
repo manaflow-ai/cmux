@@ -147,6 +147,11 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - scripts/cmux-next/cargo-locks.py
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh --ios-ffi).
+      - cmux-next-ios/rust/crates/**
+      - cmux-next-ios/rust/rust-toolchain.toml
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**
+      - scripts/ios-ffi-bindings.sh
 
 permissions: {}
 
@@ -945,6 +950,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt
@@ -1051,6 +1057,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt
