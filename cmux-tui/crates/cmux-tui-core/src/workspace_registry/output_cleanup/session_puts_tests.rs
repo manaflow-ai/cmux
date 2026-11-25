@@ -460,6 +460,42 @@ fn a_registry_the_v1_cleanup_finished_compacts_its_put_flood_once() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn an_all_output_journal_swaps_to_an_empty_rebuilt_journal() {
+    let root = temp_root("empty-rebuilt");
+    let db_path = {
+        let mux = open(&root);
+        let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path();
+        mux.shutdown();
+        db_path.unwrap()
+    };
+    seed_output(&db_path);
+
+    let outcome = stage_registry(
+        &db_path,
+        &StageControl {
+            on_pending: &|| {},
+            next_segment: &|| true,
+            catch_up: &|| false,
+            stopped: Arc::new(|| false),
+        },
+    )
+    .unwrap();
+    assert_eq!(outcome, StageOutcome::Built);
+    assert!(swap_at_open(&db_path, &|_| Ok(())), "the empty rebuilt journal did not swap");
+
+    let db = Connection::open(&db_path).unwrap();
+    assert_eq!(query_journal_head(&db).unwrap(), 1);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(db.query_row("SELECT COUNT(*) FROM journal_pruned_ranges", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+    let page = query_session_journal_after(&db, 0, 16).unwrap();
+    assert_eq!(page.head_sequence, 1);
+    assert!(page.records.is_empty());
+    drop(db);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn record(sequence: u64, session: &str, created: bool) -> StagedRecord {
     let json = json!({
         "sequence": sequence,
