@@ -1,4 +1,5 @@
 import { composerHealthHarness } from "./composerPickerEntries";
+import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { readUnread, subscribeUnread } from "./conversation/unreadState";
@@ -159,6 +160,7 @@ import {
   type CloudIdentityView,
   sameNewChat,
 } from "./cloudTypingPrewarm";
+import { CloudWakeHint } from "./cloudWakeHint";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { useComposerKeyboard } from "./composerFocus";
 import { type AutomationCompose } from "./automation";
@@ -215,6 +217,8 @@ import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
   useComputerUsePreview,
+  computerUsePreviewDocked,
+  useComputerUsePreviewControls,
   useComputerUsePreviewRoom,
 } from "./computerUse/computerUsePreview";
 import {
@@ -267,6 +271,7 @@ import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
+import { HybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -346,6 +351,11 @@ import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { shotTurnId, TurnShotCache, type TurnShotsReader } from "./turnChanges/turnShots";
 import { SessionEditsAndShots } from "./turnChanges/TurnShotsPair";
+import { setCustomizeRunner } from "./conversation/customizeRun";
+import { FramesDock } from "./liveFrames/FramesDock";
+import { framesPaneKey } from "./liveFrames/dockState";
+import { TurnFramesCache } from "./liveFrames/framesCache";
+import type { TurnFramesReader } from "./liveFrames/turnFrames";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows } from "./changes/turnCheckpointSource";
 import { useComposerSettings } from "./composerSettings";
@@ -680,6 +690,8 @@ import {
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { evacuateActions } from "./place/usePlace";
+import { PlaceChip } from "./place/PlaceMounts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import {
   copyShowsRunningTurn,
@@ -992,7 +1004,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
   const t = useT();
-  const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition, cloudLeaseOnOpen } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -1286,6 +1298,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts, native: postNativePaneToast }),
     [paneToasts],
   );
+  const chatListPlace = useMemo(() => evacuateActions(notices.transient), [notices]);
+  const chatListEvacuate = useHeaderState().evacuate;
   /// Computer Use on this Mac, for a send that names `@computer-use` (toolMentions.ts, CMUX-682), and
   /// the notice such a send raised (computerUse/ComputerUseSetupNotice.tsx): where the held send's
   /// chat runs, undefined while no notice shows.
@@ -3997,6 +4011,48 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     };
   }, [turnShotCache, latestSummary, snapshot.sessionId]);
+  // A turn's frames (liveFrames/): the strip under its edited-files card reads them once per turn;
+  // the preview window polls the newest while a turn runs. Both settle empty on an acpmux without
+  // `turn-frames-v1`, which draws nothing.
+  const [turnFramesCache] = useState(() => new TurnFramesCache());
+  const turnFrames = useMemo<TurnFramesReader>(() => {
+    const sessionId = snapshot.sessionId;
+    const turnOf = (rowId: string) => (sessionId ? shotTurnId(turnRowsRef.current, rowId) : undefined);
+    return {
+      version: latestSummary,
+      peek: (rowId) => {
+        const turnId = turnOf(rowId);
+        return turnId ? turnFramesCache.peek(`${sessionId}\u0000${turnId}`) : { frames: [] };
+      },
+      read: (rowId) => {
+        const turnId = turnOf(rowId);
+        if (!turnId) return Promise.resolve([]);
+        return turnFramesCache.read(
+          `${sessionId}\u0000${turnId}`,
+          () => directClient.current?.turnFrames(turnId) ?? Promise.resolve([]),
+        );
+      },
+      full: async (rowId, index) => {
+        const turnId = turnOf(rowId);
+        if (!turnId) return undefined;
+        return directClient.current?.turnFrameFull(turnId, index).catch(() => undefined);
+      },
+    };
+  }, [turnFramesCache, latestSummary, snapshot.sessionId]);
+  const latestFrame = useCallback(
+    (since: number) => directClient.current?.latestFrame(since) ?? Promise.resolve({ seq: since }),
+    // A new identity per session restarts the preview's poll on the new chat's client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot.sessionId],
+  );
+  // A wrap-up card's Try it on, Keep and Revert run through the chat's acpmux.
+  useEffect(() => {
+    setCustomizeRunner({
+      available: () => directClient.current?.servesCustomizeRun === true,
+      run: (run) => directClient.current?.customizeRun(run) ?? Promise.resolve({ ok: false, output: "" }),
+    });
+    return () => setCustomizeRunner(undefined);
+  }, []);
   const turnCheckpoints = useTurnCheckpoints(readTurn, snapshot.sessionId);
   const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
   const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
@@ -4429,12 +4485,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const autoOn = autoPick?.page === newTabGeneration ? autoPick.on : autoRemembered;
   const autoOffered = cloudOfferable && !onOtherMachinePage;
   const autoPicked = autoOn && autoOffered && (!snapshot.sessionId || emptyLocalChat);
+  /// Read by the Where effect (sandbox.mode): with Auto picked, a mode that is not Cloud keeps Auto's lease.
+  const autoPickedNow = useRef(autoPicked);
+  autoPickedNow.current = autoPicked;
   const pickAuto = (on: boolean) => {
     setAutoArrival(undefined);
     autoDecided.current = undefined;
     setAutoPick({ page: newTabGeneration, on });
     // Off by another row's pick: that row remembers its own place after this.
     rememberNewChatPlace(on ? { kind: "auto" } : { kind: "local" });
+    // Picking Auto (AutoCloud) leases a warm Cloud machine now, as a Cloud pick does: Auto may send there, and a
+    // Send that does wait for nothing (Leo, 2026-11-25: "the new tab page. so when you select cloud/autocloud.
+    // that's when it can start."). Local prewarm keeps going too (Auto may run here). Auto deciding this Mac, or
+    // another row's pick, gives the machine back (the effect on `autoPicked` below). Off with CLOUD_LEASE_ON_OPEN=0.
+    if (on && cloudLeaseOnOpen && cloudOffered && autoSignedIn !== false)
+      cloudReservation.selected(cloudReserveReplaces, false, true);
   };
   const pickAutoRef = useRef(pickAuto);
   pickAutoRef.current = pickAuto;
@@ -4486,16 +4551,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// never holds the composer.
   const [checkedOutGitHub, setCheckedOutGitHub] = useState<{ cwd: string; name: string }>();
   const [cloudSourceWaiting, setCloudSourceWaiting] = useState(false);
-  // A folder the person picked here (and the host granted, `pickedProject`) goes to Cloud as itself, copied
-  // to the machine, when it is no clone of a GitHub repository (cmux#53226). Never an inherited folder: a tab's
-  // start folder once went as a 23 GB copy (#53186), so one nobody picked still starts with none.
+  // A folder the person picked here (and the host granted, `pickedProject`) goes to Cloud as itself, projected or
+  // copied to the machine, a checkout of a GitHub repository too: its own branch and changes, and no GitHub access
+  // needed on the machine (cmux#55104; a clone of it ended "Connect GitHub so Cloud can clone"). A folder nobody picked
+  // here goes as its GitHub repository when it is a checkout of one, else as none: a tab's start folder once went as a
+  // 23 GB copy (#53186).
   const cloudSourcePick = (cwd: string | undefined) =>
+    (cwd !== undefined && cwd === pickedProject.current ? cwd : undefined) ??
     cloudRepositoryPick(
       cwd,
       checkedOutGitHub?.cwd === cwd
         ? checkedOutGitHub?.name
         : directProjects.find((item) => item.cwd === cwd)?.repo?.github,
-    ) ?? (cwd !== undefined && cwd === pickedProject.current ? cwd : undefined);
+    );
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
     if (mode !== sandboxModeRows.mode) {
@@ -4622,6 +4690,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What was typed during a start that failed, now after its prompt in the composer: Retry and Run
   /// on This Mac send the prompt alone and leave this in the composer (`sendStartPrompt`).
   const cloudTypedDuringStart = useRef<CloudStartDraft | undefined>(undefined);
+  /// What Return sent during the start it keys ("just go", Leo 2026-11-25: "playable vs fully
+  /// installed/downloaded. do we want loading indicators? or just go"): the host joins it to the started
+  /// chat's first prompt (`chat.cloudStartQueue`); a start that fails puts it back in the composer
+  /// (useCloudSend). A ref, so two Returns before a render both keep their text.
+  const cloudStartQueued = useRef<{ key: string; texts: string[] } | undefined>(undefined);
+  const queueCloudStartSend = (text: string): boolean => {
+    const start = cloudStart;
+    if (!start || start.state !== "starting" || start.signingIn || !cloudStartGoes()) return false;
+    const before = cloudStartQueued.current?.key === start.key ? cloudStartQueued.current.texts : [];
+    const texts = [...before, text];
+    cloudStartQueued.current = { key: start.key, texts };
+    setCloudStart((current) => (current?.key === start.key ? { ...current, queued: texts } : current));
+    void callNative("chat.cloudStartQueue", { text: texts.join("\n\n") }).catch(() => undefined);
+    return true;
+  };
   /// Sends the failed start's prompt (Retry, Run on This Mac) as Return would. What was typed during
   /// the start stays in the composer after it and never goes with it, while the composer still holds
   /// that prompt and that text (`promptBeforeTyped`); once the person changed it, what shows goes.
@@ -4823,6 +4906,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     dropCloudPlanWait,
     cloudSignInSend,
     cloudTypedDuringStart,
+    cloudStartQueued,
     lastCloudAttempt,
     cloudStartHeld,
     newTabCloudSent,
@@ -4877,6 +4961,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPageDraft.current = undefined;
     cloudStartHeld.current = undefined;
     cloudTypedDuringStart.current = undefined;
+    cloudStartQueued.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
@@ -4885,10 +4970,36 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudShownView.current = view;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm, cloudReservation]);
+  /// A composer that opens with Cloud already its target (remembered, or New Tab on a Cloud pane) leases its
+  /// machine now, not at the first key (CLOUD_LEASE_ON_OPEN, cloudComposeReservation.ts `opened`). Again per
+  /// shown page: a pooled spare's lease the host refused is asked once more when a tab takes that page.
+  const cloudOpenEligible = cloudPicked && cloudOfferable;
+  /// A New Tab page that opens with Auto (AutoCloud) remembered leases too (Leo, 2026-11-25: "the new tab page. so
+  /// when you select cloud/autocloud. that's when it can start."); its local prewarm keeps going, as Auto may run here.
+  const autoOpenEligible = !cloudOpenEligible && autoPicked && cloudOffered && autoSignedIn !== false;
+  useEffect(() => {
+    if (!cloudLeaseOnOpen || runModePicked.current) return;
+    if (cloudOpenEligible) {
+      newChatPrewarm.abandon();
+      cloudReservation.opened(cloudReserveReplaces);
+    } else if (autoOpenEligible) cloudReservation.opened(cloudReserveReplaces, true);
+  }, [
+    cloudLeaseOnOpen,
+    cloudOpenEligible,
+    autoOpenEligible,
+    cloudReserveReplaces,
+    newTabGeneration,
+    cloudReservation,
+    newChatPrewarm,
+  ]);
+  /// Auto unpicked for a place that is not Cloud: its lease goes back (a Cloud pick keeps the same compose key).
+  useEffect(() => {
+    if (!autoPicked && sandbox.mode !== "cloud") cloudReservation.abandon();
+  }, [autoPicked, sandbox.mode, cloudReservation]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
-      cloudReservation.abandon();
+      if (!autoPickedNow.current) cloudReservation.abandon();
       cloudSwitchTeam.reset();
       cloudPlanHeld.current = undefined;
       cloudPlanStore.reset();
@@ -4928,9 +5039,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Auto's choice, not the person's: Cloud is not remembered as their pick.
         if (sandbox.mode !== "cloud") applyRunMode("cloud");
         else setAutoArrival({ page, landing });
-      } else if (sandbox.mode !== "persistent") {
-        runModePicked.current = true;
-        sandbox.setMode("persistent");
+      } else {
+        // Auto runs this one here: the machine it leased at the pick goes back.
+        cloudReservation.abandon();
+        if (sandbox.mode !== "persistent") {
+          runModePicked.current = true;
+          sandbox.setMode("persistent");
+        }
       }
     });
   };
@@ -5114,7 +5229,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
-  // A subagent's own pane heads with the subagent, not its chat's title and summary (paneHeading).
+  // A subagent's own pane heads with the subagent, not its chat's title (paneHeading).
   const heading = paneHeading(
     ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
     { title: chatName },
@@ -5431,6 +5546,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : undefined,
     [quick, sessionInfoLocal, remoteControlState],
   );
+  // Session Info's cloud controls (RFD 0075): where the chat may run, through chatPlace.set. Where
+  // the app reports a place they stand in Remote Control's row.
+  const sessionInfoCloud = useSessionInfoCloud(snapshot.sessionId, notices.transient);
   // Compact from Session Info's Context sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
@@ -5501,6 +5619,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     remoteControl: sessionInfoRemoteControl,
+    cloud: quick ? undefined : sessionInfoCloud,
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
     onCompact: compactChat,
@@ -7074,11 +7193,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const startsChat = entry.chat === undefined;
     if (startsChat) {
       claimShellRuns.current = true;
-      if (projectDraft) {
+      const pick = heldPick(snapshot);
+      if (projectDraft && pick.harness) {
+        // A held pick's start (a deferred switch) waits for a prompt: the prompt queues on it in
+        // the same turn, and the switch owns the start's failure and trust (pane/firstSend.ts).
+        void callNative<unknown>("chat.new", {
+          cwd: projectDraft,
+          peer: directClient.current?.newChatPeer(),
+          ...pick,
+        }).catch(() => undefined);
+      } else if (projectDraft) {
         const started = await callNative<unknown>("chat.new", {
           cwd: projectDraft,
           peer: directClient.current?.newChatPeer(),
-          ...heldPick(snapshot),
+          ...pick,
         }).catch((error: unknown) => {
           if (isTrustRefusal(error)) trustAsk.refused(error, heldGoesAfterTrust);
           throw error;
@@ -7157,7 +7285,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
-      // the message to this chat).
+      // the message to this chat): a pick of another harness's model starts a chat on it
+      // (ComposerPickers `switchHarness`, cmux#55750).
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
@@ -8898,6 +9027,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [newChatPrewarm, cloudReservation],
   );
+  // Wake on intent (cloudWakeHint.ts): this Cloud chat's page becoming focused or visible hints its
+  // machine before any key. The host's Rust rules decide (hidden setting, default off).
+  const [cloudWakeHint] = useState(
+    () => new CloudWakeHint({ call: (method, params) => callNative<unknown>(method, params) }),
+  );
+  const cloudWakeTarget = useRef<() => string | undefined>(() => undefined);
+  cloudWakeTarget.current = () =>
+    cloudTypingMachineID(cloudDraftMachineID.current, cloudIdentityBound.current ? cloudChatIdentity?.id : undefined);
+  useEffect(() => {
+    const focused = () => {
+      if (document.visibilityState === "visible") cloudWakeHint.signal(cloudWakeTarget.current());
+    };
+    window.addEventListener("focus", focused);
+    document.addEventListener("visibilitychange", focused);
+    return () => {
+      window.removeEventListener("focus", focused);
+      document.removeEventListener("visibilitychange", focused);
+    };
+  }, [cloudWakeHint]);
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
       newTabFieldEdited(text);
@@ -9193,7 +9341,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
-  const previewBeside = previewShown && !(sessionInfo.shown && sessionInfoPushes);
+  const previewMovable = useComputerUsePreviewControls();
+  // Moved, larger or hidden, the card no longer sits beside the column: the column takes its room back.
+  const previewBeside =
+    previewShown &&
+    computerUsePreview !== null &&
+    computerUsePreviewDocked(computerUsePreview, previewMovable) &&
+    !(sessionInfo.shown && sessionInfoPushes);
   // The Environment card and the changes pill (session-info/EnvironmentCard.tsx), off by default: a
   // look turns them on. The card takes the chat's top right only when the gutter beside the column
   // holds it, and gives the place to Session Info and the computer use preview, which sit there too.
@@ -9277,7 +9431,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
                     <RunInBackgroundContext.Provider value={backgroundHint}>
                       <TurnCountsContext.Provider value={turnCountsFor}>
-                        <SessionEditsAndShots edits={editRows} shots={turnShots}>
+                        <SessionEditsAndShots edits={editRows} shots={turnShots} frames={turnFrames}>
                           <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
                               <SubagentNavContext.Provider value={navigateSubagent}>
@@ -9386,6 +9540,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                               true,
                                                                             ) ?? Promise.resolve()
                                                                         : undefined
+                                                                  }
+                                                                  onLoadFold={
+                                                                    !childRows
+                                                                      ? (fold: number) =>
+                                                                          directClient.current?.loadFold(fold) ??
+                                                                          Promise.resolve()
+                                                                      : undefined
                                                                   }
                                                                   canLoadNewer={
                                                                     !workflowTranscript.rows &&
@@ -10034,6 +10195,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setTakenOverAt(Date.now());
     composerHandle.current?.focus();
   };
+  // A started chat's Local, Cloud, Auto chips beside the composer's picker (the floating chat has none), built
+  // once per chat: inline in drawPaneComposer it was a new `placeControl` on every pane render, and each
+  // streamed chunk under a running turn drew the composer and its box again in the frames a typed key waits on
+  // (composer-typing L1/L3: 190 composer renders per 500 keys, all `placeControl`). A move asks what it would
+  // strand at click time, through the refs.
+  const placeSession = quick ? undefined : snapshot.sessionId;
+  const placeControl = useMemo(() => {
+    if (!placeSession) return undefined;
+    const claims = () => ({
+      queued: snapshotRef.current?.queue.length ?? 0,
+      hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+    });
+    return (
+      <>
+        <PlaceChip session={placeSession} say={notices.transient} claims={claims} />
+        <HybridChip session={placeSession} say={notices.transient} claims={claims} />
+      </>
+    );
+  }, [placeSession, notices.transient]);
   const composer = drawPaneComposer({
     markDockEdge,
     hostOverload,
@@ -10067,6 +10247,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chatSignIns,
     switchLoginCommand,
     composerHandle,
+    placeControl,
     healthStale,
     connectMachine,
     chooseWorkspaceFolder,
@@ -10134,6 +10315,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     changesPillNode,
     openImage,
     cloudStarting,
+    onCloudStartQueue: queueCloudStartSend,
     composerDrawn,
     guestsHere,
     composerSnapshot,
@@ -10144,6 +10326,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ComposerChips,
     reconnectPeer,
     sessionInfo,
+    compactChat,
     draft,
     setDraftSettled,
     onNewChatDraft,
@@ -10550,7 +10733,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }}
     />
   );
+  const framesDock = quick ? undefined : (
+    <FramesDock
+      pane={framesPaneKey(snapshot.sessionId)}
+      latest={latestFrame}
+      working={snapshot.isWorking === true}
+      onOpen={openImage}
+    />
+  );
   const pane = drawPaneBody({
+    framesDock,
     knowsWhatItIs,
     shortcuts,
     setShell,
@@ -10765,6 +10957,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDock,
     dockFoot,
     paneToasts,
+    chatListPlace,
+    chatListEvacuate,
     toastTop,
     asks,
     hostLine,

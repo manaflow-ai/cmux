@@ -15,6 +15,16 @@
 //!
 //! A chat that names a model connection (a credential in its key), or runs with
 //! `CMUX_AGENT_DISPLAYS=per-workspace` (the workspace id is in the key), misses and starts cold.
+//!
+//! Personal spares (ask-30d56720f6; on by default, off with `ACPMUX_SPARE_PERSONAL=0`): the
+//! default harness and model is only one person's pick. With the switch on, a reserve also
+//! warms, in the reserved
+//! folder, a spare (`Role::Spare`, the harness's one spare) for each shape the app names
+//! (`shapes`: the harnesses and models this person set up) and each harness a home chat on this
+//! machine used, so a Codex chat or a chat on a picked model takes a running agent, MCP servers
+//! started, as the default one does. The shapes are remembered in `pool-spares.json` with the
+//! reserved folder as their folder; each refill moves them to the next folder, and a home chat's
+//! own use keeps its harness's spare in the next folder, never the one it took.
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +34,73 @@ use super::*;
 const TICKET: &str = ".reserved";
 /// How long a reserve waits for its agent to come up when asked to.
 const READY_WAIT: Duration = Duration::from_secs(45);
+/// Most shapes one reserve takes (the harnesses a person sets up are a handful).
+const MAX_SHAPES: usize = 4;
+
+/// One harness and model a person set up, as the app names it in `shapes`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HomeShape {
+    pub harness: String,
+    pub preset: Option<String>,
+    pub model: Option<String>,
+}
+
+/// `shapes` of a `reserveHome` prewarm: at most [`MAX_SHAPES`] of
+/// `{"harness": ID, "preset"?: NAME, "model"?: ID}`; a harness or preset id is 1 to 64 of
+/// `[A-Za-z0-9._-]`, a model 1 to 200 printable characters. Absent: none.
+pub fn parse_shapes(value: Option<&Value>) -> Result<Vec<HomeShape>, RpcError> {
+    let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let bad = |why: &str| RpcError::invalid_params(format!("shapes: {why}"));
+    let list = value.as_array().ok_or_else(|| bad("not a list"))?;
+    if list.len() > MAX_SHAPES {
+        return Err(bad("more than 4"));
+    }
+    let id = |v: &Value, k: &str| -> Result<Option<String>, RpcError> {
+        match v.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s))
+                if (1..=64).contains(&s.len())
+                    && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) =>
+            {
+                Ok(Some(s.clone()))
+            }
+            Some(_) => Err(bad(&format!("{k} is not an id"))),
+        }
+    };
+    let mut shapes = Vec::new();
+    for v in list {
+        let harness = id(v, "harness")?.ok_or_else(|| bad("a shape has no harness"))?;
+        let preset = id(v, "preset")?;
+        let model = match v.get("model") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(m))
+                if (1..=200).contains(&m.len()) && !m.chars().any(char::is_control) =>
+            {
+                Some(m.clone())
+            }
+            Some(_) => return Err(bad("model is not a model id")),
+        };
+        let shape = HomeShape { harness, preset, model };
+        if !shapes.contains(&shape) {
+            shapes.push(shape);
+        }
+    }
+    Ok(shapes)
+}
+
+/// Whether `cwd` is a home chat's folder that a reserve made: `<home>/chats/r<32 hex>`.
+pub(super) fn is_home_chat_folder(home: &Path, cwd: &Path) -> bool {
+    cwd.parent().is_some_and(|p| p == home.join("chats"))
+        && cwd.file_name().and_then(|n| n.to_str()).is_some_and(is_reserved_name)
+}
+
+/// [`ensure_folder`] one at a time in this daemon: a refill and a home chat's use asking at once
+/// get the same next folder, never two.
+pub(super) fn ensure_folder_serial(home: &Path) -> Option<PathBuf> {
+    static ONE: StdMutex<()> = StdMutex::new(());
+    let _one = lock(&ONE);
+    ensure_folder(home)
+}
 
 /// A fresh reserved folder name: `r` and 32 hex digits, never a surface id.
 fn fresh_name() -> String {
@@ -98,8 +175,14 @@ impl Hub {
     /// machine and start a pooled agent in it. Idempotent: a folder not yet taken is kept and
     /// its entry wanted again. `wait`: answer once the agent is ready (or failed, or the wait
     /// ran out). Local, trusted callers only (the handler checks).
-    pub async fn reserve_home_warm(self: &Arc<Self>, wait: bool) -> Result<Value, RpcError> {
-        self.reserve_home_warm_after(None, wait).await
+    /// `shapes`: the harnesses and models the person set up, warmed beside it when personal
+    /// spares are on (the module doc).
+    pub async fn reserve_home_warm(
+        self: &Arc<Self>,
+        wait: bool,
+        shapes: Vec<HomeShape>,
+    ) -> Result<Value, RpcError> {
+        self.reserve_home_warm_after(None, wait, shapes).await
     }
 
     /// A home chat just took the reserved entry for `taken`: reserve the next folder and warm it,
@@ -107,7 +190,7 @@ impl Hub {
     pub(super) fn refill_reserved_home(&self, taken: PathBuf) {
         let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
         self.scope.spawn_named("pool-reserve-refill", async move {
-            match hub.reserve_home_warm_after(Some(taken), false).await {
+            match hub.reserve_home_warm_after(Some(taken), false, Vec::new()).await {
                 Ok(answer) => tracing::info!(%answer, "the next home chat's folder is reserved"),
                 Err(error) => {
                     tracing::info!(?error, "the next home chat's folder was not reserved")
@@ -122,6 +205,7 @@ impl Hub {
         self: &Arc<Self>,
         taken: Option<PathBuf>,
         wait: bool,
+        shapes: Vec<HomeShape>,
     ) -> Result<Value, RpcError> {
         if crate::launch_policy::agent_launch_disabled() {
             return Ok(
@@ -138,7 +222,8 @@ impl Hub {
         let Some(home) = dirs::home_dir() else {
             return Ok(json!({"accepted": false, "reason": "this machine has no home folder"}));
         };
-        let folder = tokio::task::spawn_blocking(move || ensure_folder(&home))
+        let at = home.clone();
+        let folder = tokio::task::spawn_blocking(move || ensure_folder_serial(&at))
             .await
             .ok()
             .flatten()
@@ -151,18 +236,37 @@ impl Hub {
         }
         self.wait_startup().await;
         // The default harness and model, as a home chat's `session/new` with no pick takes them.
-        let spec = self.pool_spec_in(None, None, folder, None, &PrewarmShape::default()).await?;
+        let spec =
+            self.pool_spec_in(None, None, folder.clone(), None, &PrewarmShape::default()).await?;
         let key = spec.key.clone();
         self.pool_want(Role::Reserved, spec).await;
+        let personal = if crate::config::spare_personal_enabled() {
+            self.spare_home_shapes(&home, &folder, &key, shapes).await
+        } else {
+            Vec::new()
+        };
         let mut state = self.reserved_state(&key);
+        let mut states: Vec<_> = personal.iter().map(|k| self.reserved_state(k)).collect();
         if wait {
             let end = tokio::time::Instant::now() + READY_WAIT;
-            while state == "warming" && tokio::time::Instant::now() < end {
+            while (state == "warming" || states.contains(&"warming"))
+                && tokio::time::Instant::now() < end
+            {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 state = self.reserved_state(&key);
+                states = personal.iter().map(|k| self.reserved_state(k)).collect();
             }
         }
-        Ok(json!({"accepted": true, "state": state, "cwd": key.cwd}))
+        let spares: Vec<Value> = personal
+            .iter()
+            .zip(&states)
+            .map(|(k, s)| json!({"harness": k.harness, "state": s}))
+            .collect();
+        let mut answer = json!({"accepted": true, "state": state, "cwd": key.cwd});
+        if !spares.is_empty() {
+            answer["spares"] = Value::Array(spares);
+        }
+        Ok(answer)
     }
 
     /// The state of the entry for `key`: `ready`, `warming`, `empty` or `none`.
@@ -212,5 +316,37 @@ mod tests {
         assert_eq!(ensure_folder(&home), None);
         assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn shapes_are_a_short_list_of_harness_ids_with_optional_models() {
+        assert_eq!(parse_shapes(None).unwrap(), vec![]);
+        let v = json!([
+            {"harness": "codex", "model": "gpt-5.5"},
+            {"harness": "claude", "preset": "work", "model": "claude-opus-5-5[1m]"},
+            {"harness": "codex", "model": "gpt-5.5"}
+        ]);
+        let got = parse_shapes(Some(&v)).unwrap();
+        assert_eq!(got.len(), 2, "a repeated shape counts once");
+        assert_eq!(got[1].preset.as_deref(), Some("work"));
+        assert_eq!(got[1].model.as_deref(), Some("claude-opus-5-5[1m]"));
+        for bad in [
+            json!({"harness": "codex"}),
+            json!([{"model": "x"}]),
+            json!([{"harness": "../codex"}]),
+            json!([{"harness": "codex", "model": "a\nb"}]),
+            json!([{"harness": "a"}, {"harness": "b"}, {"harness": "c"}, {"harness": "d"}, {"harness": "e"}]),
+        ] {
+            assert!(parse_shapes(Some(&bad)).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_a_reserved_folder_in_home_chats_is_a_home_chat_folder() {
+        let home = Path::new("/home/p");
+        let name = "r0123456789abcdef0123456789abcdef";
+        assert!(is_home_chat_folder(home, &home.join("chats").join(name)));
+        assert!(!is_home_chat_folder(home, &home.join("chats/12345")), "a surface id folder");
+        assert!(!is_home_chat_folder(home, &home.join("src").join(name)));
     }
 }

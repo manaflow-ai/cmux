@@ -1508,7 +1508,7 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+            .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
             if still {
