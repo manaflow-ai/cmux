@@ -48,6 +48,9 @@ public final class AgentLaunchPictures {
         cooldownTimer.cancel()
     }
 
+    /// The quit that stopped them did not happen (a relaunch whose install failed): saves answer paints again.
+    public func resume() { stopped = false }
+
     /// Asks for one save `delay` from now, or at the cooldown's end when one is running; a save already pending
     /// keeps its time.
     public func request(after delay: Duration) {

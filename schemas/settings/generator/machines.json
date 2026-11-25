@@ -6,6 +6,7 @@
     "computerUse": ["computerUse", "ComputerUseSettings"],
     "freeModel": ["freeModel", "FreeModelSettings"],
     "sshLinks": ["sshLinks", "SSHLinkHostsSetting"],
+    "hosts": ["hosts", "HostsSetting"],
     "cloud": ["cloud", "CloudNewWorkspaceSetting"],
     "storage": ["storage", "MachineSettingsSchema"],
     "mobile": ["mobile", "MobileSettings"],
@@ -13,6 +14,7 @@
     "macScreenViewing": ["macScreenViewing", "MacScreenSettings"],
     "macScreenDebug": ["macScreenDebug", "MacScreenDebugSettings"],
     "remote": ["remote", "RemoteSettings"],
+    "remoteDesktop": ["remoteDesktop", "RemoteDesktopDefaults"],
     "deviceHub": ["deviceHub", "DeviceHubSettings"],
     "imessage": ["imessage", "CmuxConfigSnapshot"]
   }

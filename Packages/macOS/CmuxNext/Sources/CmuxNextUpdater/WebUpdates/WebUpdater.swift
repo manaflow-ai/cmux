@@ -1,3 +1,4 @@
+public import CmuxEgress
 import CmuxNextWakeups
 public import Foundation
 import Observation
@@ -142,7 +143,7 @@ public final class WebUpdater {
     public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(60), backgroundInterval: Duration = WebUpdater.defaultBackgroundInterval,
                 clock: any Clock<Duration> = ContinuousClock(),
-                fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
+                fetch: @escaping Fetch = { try await CmuxEgress.shared(site: "CmuxNextUpdater.WebUpdater").data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
         self.app = app
@@ -445,7 +446,7 @@ public final class WebUpdater {
 
     /// Downloads to a temporary file the caller removes.
     @concurrent public nonisolated static func downloadToFile(_ request: URLRequest) async throws -> URL {
-        let (file, response) = try await URLSession.shared.download(for: request)
+        let (file, response) = try await CmuxEgress.shared(site: "CmuxNextUpdater.WebUpdater").download(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             try? FileManager.default.removeItem(at: file)
             throw WebUpdateRefusal.transfer("archive status \((response as? HTTPURLResponse)?.statusCode ?? 0)")

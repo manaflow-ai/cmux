@@ -14,6 +14,7 @@
 // never crowds a narrow one.
 import { useLayoutEffect, useRef } from "react";
 import { declareMove } from "../layout/motionContract";
+import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import "./SplitEdge.css";
 
 /** How long a one-off split resize (a pane opening or closing beside another, a double-click reset) is
@@ -146,6 +147,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
     <div
       ref={handle}
       className="ui-split-edge"
+      {...RESIZE_HANDLE_PROPS}
       data-side={side}
       // A pointer affordance, as a native split divider and Session Info's edge are; the panes keep
       // their own keyboard paths.

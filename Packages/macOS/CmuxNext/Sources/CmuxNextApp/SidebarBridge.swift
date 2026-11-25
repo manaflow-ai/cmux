@@ -18,7 +18,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel()); let machineSections = SidebarMachineSections()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -80,11 +80,9 @@ final class SidebarBridge {
         container.sidebarView.driveMenuItem = Self.driveMenuItem(services)
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
-        // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
-        // a group or a machine list.
-        container.sidebarView.removesOnDragOut = { [weak model] id in
-            (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.ref == .builtIn(.chief)
-        }
+        wireSubagentOpen()
+        // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
+        container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
             _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
         }
@@ -108,6 +106,7 @@ final class SidebarBridge {
             guard let found = services?.machines.workspace(id: id.rawValue) else { return [] }
             return timelines.entries(found.0, agents: found.1.store.agents, limit: limit)
         }
+        container.sidebarView.tabPictures = { [weak services] in await services?.previews.previewImage(for: .init($0.rawValue), maxPixelSize: $1) }; container.sidebarView.tabPicturesRefreshInterval = PanePictures.isEnabled ? .seconds(1) : .seconds(3)  // #51768
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
@@ -121,6 +120,10 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        machineSections.bind(host: services.hostsSidebar, visible: { [weak state] in state?.sidebarHidden == false },
+            socketPath: QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath,
+            displayName: { [weak services] peer in services?.machines.machineName(peer: peer) },
+            open: { [weak services] lane in guard let services else { return }; SidebarPriorityFeed.open(lane, services: services) })
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -135,6 +138,7 @@ final class SidebarBridge {
         sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        machineSections.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }

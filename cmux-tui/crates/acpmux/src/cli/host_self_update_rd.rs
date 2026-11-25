@@ -21,7 +21,8 @@
 //!   setting the host up again restarts it, which ends a share. So an installed cmux-rd is replaced at most once per
 //!   [`REPLACE_EVERY`] (its modification time is when it was installed), unless `--now`, and
 //!   never while the on-demand virtual display runs (a share, or a window on it, in its last
-//!   ten minutes): the next run after does it.
+//!   ten minutes; an older cmux-rd's always-on display says nothing, `virtual_display_runs`):
+//!   the next run after does it.
 //! - It never fails the self-update: its outcome is one more line, and `cmuxRd` in `--json`.
 
 use super::Channel;
@@ -94,9 +95,33 @@ fn machine_joined() -> bool {
     }
 }
 
+/// Whether a share may be live on the virtual display. A display unit that is not enabled at
+/// boot is the on-demand one: the host starts it for a share or a window and stops it after ten
+/// idle minutes, so its running is the answer. One enabled at boot was written by a cmux-rd from
+/// before on-demand displays (the one this replacement exists to retire): it always runs and that
+/// host never stops it, so its running says nothing about a share, and it never counts. Waiting
+/// on it deferred every replacement for good (78 of 78 runs on a lane VM, hq
+/// docs/findings/2026-11-23-screen-host-restart-loop.md) while the old cmux-rd went on restarting
+/// the host, cutting any share, at every daemon start; the replacement's own enable makes the
+/// display on-demand, so this can cut a share once, not every hour.
 fn virtual_display_runs() -> bool {
+    display_busy(
+        systemctl_ok(&["is-active", "--quiet", DISPLAY_UNIT]),
+        systemctl_ok(&["is-enabled", "--quiet", DISPLAY_UNIT]),
+    )
+}
+
+/// [`virtual_display_runs`] from its facts: whether the display unit is active, and whether it
+/// is enabled at boot (the always-on display of an older cmux-rd).
+pub(crate) fn display_busy(active: bool, always_on: bool) -> bool {
+    active && !always_on
+}
+
+/// `systemctl --user ARGS` exits 0.
+fn systemctl_ok(args: &[&str]) -> bool {
     std::process::Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", DISPLAY_UNIT])
+        .arg("--user")
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

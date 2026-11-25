@@ -11,7 +11,10 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { callDescription } from "../src/agent-session/acpmux/direct";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import {
+  resetTranscriptDisclosure,
+  ViewContext,
+} from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const shell = (id: string, extra: Partial<Tool> = {}): AcpmuxActivity => ({
@@ -64,29 +67,67 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a known command reads as what it did without the setup, read off the command, not its description", () => {
-  const html = renderToStaticMarkup(
-    <CommandRow item={shell("x", { command: 'export PATH="/a:$PATH"; bun test', description: "Run the web tests" })} />,
-  );
-  // Leo, 2026-11-07: "you ran a specific thing" (commandActions.ts); the table reads what ran.
-  expect(words(html)).toContain("Ran tests with bun");
-  expect(words(html)).not.toContain("Run the web tests");
-  expect(html).not.toContain("export PATH");
-  const plain = renderToStaticMarkup(<CommandRow item={shell("y")} />);
-  expect(words(plain)).toContain("Ran echo y");
+test("a collapsed shell row shows its description as prose", () => {
+  for (const [title, command, description] of [
+    ["Bash", "timeout 30 acpmux session inbox session-id", "Read the three non-notice inbox threads"],
+    ["exec_command", "git status --short", "Check the worktree before merging"],
+  ] as const) {
+    for (const status of ["in_progress", "completed"]) {
+      const item = shell(title, { title, command, description, status });
+      for (const Row of [CommandRow, ToolRow]) {
+        const collapsed = renderToStaticMarkup(<Row item={item} />);
+        expect(words(collapsed)).toContain(description);
+        expect(words(collapsed)).not.toContain(command);
+        expect(collapsed).not.toMatch(/<code\b/);
+      }
+    }
+  }
 });
 
-test("a lone shell call the table does not know reads as its description, else its command, never the bare tool name", () => {
+test("the command display looks all keep descriptions on collapsed rows", () => {
+  const overrides = globalThis.cmuxExperiments;
+  const description = "Check the working tree";
+  const command = "git status --short";
+  try {
+    for (const look of ["command", "cleaned", "verbs", "description", "verbs-command"]) {
+      globalThis.cmuxExperiments = { ...overrides, "command-label-look": look };
+      const item = shell("status", { command, description });
+      for (const Row of [CommandRow, ToolRow]) {
+        const text = words(renderToStaticMarkup(<Row item={item} />));
+        expect(text).toContain(description);
+        expect(text).not.toContain(command);
+      }
+    }
+  } finally {
+    if (overrides) globalThis.cmuxExperiments = overrides;
+    else delete globalThis.cmuxExperiments;
+  }
+});
+
+test("native read, edit and grep calls draw explicit descriptions as prose", () => {
+  for (const [title, kind, input, description] of [
+    ["Read", "read", { file_path: "foo.ts" }, "Read the request parser"],
+    ["Edit", "edit", { file_path: "foo.ts", old_string: "one", new_string: "two" }, "Fix the request parser"],
+    ["Grep", "search", { pattern: "retry", path: "src" }, "Find retry handling"],
+  ] as const) {
+    const item = shell(title, { title, kind, command: undefined, description, inputSummary: JSON.stringify(input) });
+    const collapsed = renderToStaticMarkup(<ToolRow item={item} />);
+    expect(words(collapsed)).toContain(description);
+    expect(collapsed).not.toMatch(/<code\b/);
+  }
+});
+
+test("a lone shell call the table does not know reads as its description, else its command", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
   expect(words(described)).toContain("List the build folder");
   expect(words(renderToStaticMarkup(<ToolRow item={shell("x")} />))).toContain("Ran echo x");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
-  expect(words(bare)).not.toMatch(/\bBash\b/);
   const running = renderToStaticMarkup(
     <ToolRow item={shell("z", { command: undefined, status: "in_progress", endedAt: undefined })} />,
   );
-  expect(words(running)).toContain("Running a command");
+  expect(words(running)).toContain("Bash");
+  expect(words(running)).not.toContain("Running");
 });
 
 test("Claude Code's Bash description is read from the call's raw input", () => {

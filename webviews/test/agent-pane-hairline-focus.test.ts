@@ -62,6 +62,13 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+    // The card's ring eases on box-shadow (composerStates.css, HOVER GLASS RING): these reads judge
+    // the looks a state comes to rest in, so the eases run in no time, as the host's zero motion
+    // tokens run them.
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--agent-motion-in", "0ms");
+      document.documentElement.style.setProperty("--agent-motion-out", "0ms");
+    });
     return page;
   }
 
