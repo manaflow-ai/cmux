@@ -3357,7 +3357,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // runs or a command is known to run (the hook stays on while one it knows runs, so its end
   // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
   // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
-  // chat sends no `_acpmux/process/list`.
+  // chat sends one `_acpmux/process/list` as it opens (so a command still running from an earlier
+  // turn is in the hat before the next send) and none after, unless that read finds one running.
   // The same pass finds what Session Info's Background tasks lists (the palette's Show Background Tasks).
   const transcriptWork = useMemo(() => transcriptBackground(snapshot.rows), [snapshot.rows]);
   const transcriptTasks = transcriptWork.tasks;

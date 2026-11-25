@@ -43,10 +43,12 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
   const webviews = path.resolve(import.meta.dir, "..");
 
   const SESSION = "0190a000-0000-7000-8000-0000000000e3";
-  // CMUX_HAT_MODE=idle: the same send from an idle chat, a fresh prompt that starts the turn (the hat
-  // turns to working as the composer clears), instead of a steer into a running one.
-  const idle = process.env.CMUX_HAT_MODE === "idle";
-  let running = !idle;
+  // `idle`: the same send from an idle chat, a fresh prompt that starts the turn, instead of a steer
+  // into a running one. The background command still runs from the turn before: the hat shows it
+  // before the send (the registry is read as the chat opens), so the turn the send starts brings
+  // nothing in a beat after the composer cleared.
+  let idle = false;
+  let running = true;
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/sun",
@@ -305,54 +307,54 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
 
   const LINES = ["Hat line one", "Hat line two", "Hat line three", "Hat line four", "Hat line five"];
   for (const [name] of engines)
-    test(`${name}: a steer's send moves the hat with the composer, in the same frame`, async () => {
-      history();
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
-      await installPaintedFrames(page);
-      const { port } = vite!.httpServer!.address() as { port: number };
-      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`, {
-        timeout: 180_000,
+    for (const mode of ["steer", "idle"] as const)
+      test(`${name}: ${mode === "steer" ? "a steer's send" : "a send from an idle chat"} moves the hat with the composer, in the same frame`, async () => {
+        idle = mode === "idle";
+        history();
+        const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+        await installPaintedFrames(page);
+        const { port } = vite!.httpServer!.address() as { port: number };
+        const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+        await page.goto(
+          `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+          {
+            timeout: 180_000,
+          },
+        );
+        await page.getByText("History paragraph 13.").waitFor();
+        await page.locator(".acpmux-running-tray").first().waitFor({ timeout: 120_000 });
+        // fixed-wait: the opened chat settles (its fades end) before the frames under test.
+        await page.waitForTimeout(800);
+        const field = page.locator(".acpmux-composer-box .ProseMirror").first();
+        await field.click();
+        for (const [index, line] of LINES.entries()) {
+          await page.keyboard.type(line, { delay: 4 });
+          if (index < LINES.length - 1) await page.keyboard.press("Shift+Enter");
+        }
+        // fixed-wait: the typed lines' growth comes to rest before the send's window opens.
+        await page.waitForTimeout(500);
+        await sample(page);
+        await page.keyboard.press("Enter");
+        await page.locator(".cv-user__bubble", { hasText: "Hat line five" }).first().waitFor({ timeout: 120_000 });
+        // fixed-wait: the send's motion comes to rest.
+        await page.waitForTimeout(900);
+        const frames = await stop(page);
+        const report = analyze(frames);
+        console.log(
+          `HAT_SEND_REPORT ${JSON.stringify({ engine: name, mode, ...report, methods: [...new Set(methods)] })}`,
+        );
+        if (process.env.CMUX_HAT_FRAMES)
+          for (const [index, frame] of frames.entries())
+            console.log(`HAT_FRAME ${name} ${mode} ${index} ${JSON.stringify(frame)}`);
+        await page.close();
+        expect(report.frames).toBeGreaterThan(30);
+        expect(report.hatShown).toBe(0);
+        expect(report.hatGoneFrames).toBe(0);
+        expect(report.hatGapFrames).toBe(0);
+        expect(report.hatHeightFrames).toBe(0);
+        expect(report.hatMoves).toBeLessThanOrEqual(1);
+        // The rows move once, one way: never down into the composer's room and then up by the bubble.
+        expect(report.rowMoves).toBeLessThanOrEqual(1);
+        expect(report.upDown).toBeLessThanOrEqual(1);
       });
-      await page.getByText("History paragraph 13.").waitFor();
-      if (!idle) await page.locator(".acpmux-running-tray").first().waitFor({ timeout: 120_000 });
-      // fixed-wait: the opened chat settles (its fades end) before the frames under test.
-      await page.waitForTimeout(800);
-      const field = page.locator(".acpmux-composer-box .ProseMirror").first();
-      await field.click();
-      for (const [index, line] of LINES.entries()) {
-        await page.keyboard.type(line, { delay: 4 });
-        if (index < LINES.length - 1) await page.keyboard.press("Shift+Enter");
-      }
-      // fixed-wait: the typed lines' growth comes to rest before the send's window opens.
-      await page.waitForTimeout(500);
-      await sample(page);
-      await page.keyboard.press("Enter");
-      await page.locator(".cv-user__bubble", { hasText: "Hat line five" }).first().waitFor({ timeout: 120_000 });
-      if (idle)
-        await page
-          .locator(".acpmux-running-tray")
-          .first()
-          .waitFor({ timeout: 20_000 })
-          .catch(() => {});
-      // fixed-wait: the send's motion comes to rest.
-      await page.waitForTimeout(900);
-      const frames = await stop(page);
-      const report = analyze(frames);
-      console.log(`HAT_SEND_REPORT ${JSON.stringify({ engine: name, ...report, methods: [...new Set(methods)] })}`);
-      if (process.env.CMUX_HAT_FRAMES)
-        for (const [index, frame] of frames.entries())
-          console.log(`HAT_FRAME ${name} ${index} ${JSON.stringify(frame)}`);
-      await page.close();
-      expect(report.frames).toBeGreaterThan(30);
-      // An idle send is read, not judged here: its hat comes in with the turn.
-      if (idle) return;
-      expect(report.hatGoneFrames).toBe(0);
-      expect(report.hatGapFrames).toBe(0);
-      expect(report.hatHeightFrames).toBe(0);
-      expect(report.hatMoves).toBeLessThanOrEqual(1);
-      // The rows move once, one way: never down into the composer's room and then up by the bubble.
-      expect(report.rowMoves).toBeLessThanOrEqual(1);
-      expect(report.upDown).toBeLessThanOrEqual(1);
-    });
 });
