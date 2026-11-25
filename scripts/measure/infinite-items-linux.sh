@@ -11,7 +11,7 @@
 #     change's before and after from one harness on one runner in one job.
 #   With before=ref:REF, dhat=1 counts=1000 days=6 --park-idle --terminal-host-model=holder --window=5 profiles
 #   cmux-tui on each arm. Marks after open, day 1 and the final day put the retained growth in heap.3.
-#   FAST_CHECKS_OUT holds each arm's raw heap windows, measurements and allocation-site report.
+#   FAST_CHECKS_OUT (otherwise artifacts/infinite-items-heap) holds each arm's windows, samples and site report.
 #   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
 #     cmux-tui-host per terminal), then the product default (also hosts while the holder is off by default).
 #   infinite-items-linux.sh ... --terminal-host-model=holder: measures the one holder (the harness ignores the caller's env).
@@ -114,6 +114,9 @@ echo "INFINITE-BUILD flavor=$([[ "$musl" == 1 ]] && echo musl || echo glibc) bin
 cd "$root"
 if [ -n "${FAST_CHECKS_OUT:-}" ]; then
   out="$FAST_CHECKS_OUT"
+elif [[ "$dhat" == 1 ]]; then
+  out="$root/artifacts/infinite-items-heap"
+  mkdir -p "$out"
 else
   out="$(mktemp -d)"
   trap 'rm -rf "$out"' EXIT
@@ -172,7 +175,7 @@ elif [[ "$before" == ref:* ]]; then
     echo "infinite-items-linux.sh: $base_sha pins another ghostty-next; before=ref: needs the same pin" >&2
     exit 2
   fi
-  trap 'git restore --source=HEAD --staged --worktree -- cmux-tui; rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
+  trap 'git restore --source=HEAD --staged --worktree -- cmux-tui; rm -rf "$ab"; [[ -n "${FAST_CHECKS_OUT:-}" || "$dhat" == 1 ]] || rm -rf "$out"' EXIT
   git restore --source="$base_sha" --staged --worktree -- cmux-tui
   base_status=0
   (cd "$root/cmux-tui" && cargo build --locked --release "${profile_flags[@]}" -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui \
@@ -189,8 +192,7 @@ elif [[ "$before" == ref:* ]]; then
       tag="$(echo "$arm" | tr a-z A-Z) r$i"
       arm_command=(python3 scripts/measure/infinite-items.py)
       if [[ "$dhat" == 1 ]]; then
-        profile_dir="$out/$arm-r$i"
-        mkdir "$profile_dir"
+        profile_dir="$(mktemp -d "$out/$arm-r$i.XXXXXX")"
         arm_command=(env CMUX_TUI_DHAT_OUT="$profile_dir/heap.json" CMUX_TUI_DHAT_MARKS=1
           python3 scripts/measure/infinite-items.py --dhat-mark-days "0,1,$days" --out "$profile_dir/measure.json")
       fi
