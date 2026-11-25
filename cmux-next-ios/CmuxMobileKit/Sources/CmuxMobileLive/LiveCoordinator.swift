@@ -1419,7 +1419,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10) {
+    var holdWindow: Duration = .milliseconds(Int64(clamping: chatPromptDefaultHoldMs())) {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
@@ -1432,7 +1432,7 @@ final class PendingAgentSource: AgentSessionSource {
     #if canImport(CmuxMobileLinkFFI)
     /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
     /// up): their order, their hold, and the ones given back past it.
-    private let outbox = ChatPromptOutbox(holdMs: 10_000, seed: 0)
+    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
     private var wake: Task<Void, Never>?
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
