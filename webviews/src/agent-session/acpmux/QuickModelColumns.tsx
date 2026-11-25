@@ -173,11 +173,12 @@ function useRowInView(list: React.RefObject<HTMLDivElement | null>, key: unknown
 
 type QuickSurfaceProps = React.ComponentProps<typeof QuickModelMenu>;
 
-/// The model button's menu: columns where it has a rail, else the list menu (a menu with no rail,
-/// or the Chief's, which picks its own model).
+/// The model button's menu: columns where it has a rail, else the list menu (a menu with no rail).
+/// A chat on the Chief, which picks its own model, keeps the columns: its tab says so (Lucas
+/// 2026-11-25: a click on Chief "takes you back to the other design").
 export function QuickModelColumns(props: QuickSurfaceProps) {
   const { families } = props.menu;
-  if (!families || props.menu.ownModel) return <QuickModelMenu {...props} />;
+  if (!families) return <QuickModelMenu {...props} />;
   return <Columns {...props} menu={{ ...props.menu, families }} />;
 }
 
@@ -624,7 +625,13 @@ function Columns({
     setWasOpen(open);
     if (open) {
       // A held pick of another harness opens on its tab: the menu shows what the next message runs.
-      const first = heldTab(families) ?? families.current ?? list.find((family) => !family.starred)?.id;
+      // Else the chat's tab, on the route it opens on (leadRoute): a New Tab on a Gemini CLI that cannot
+      // start opens on Antigravity, as a click on the tab does.
+      const currentTab = familyTabs(list).find((tab) => tab.routes.some((route) => route.id === families.current));
+      const first =
+        heldTab(families) ??
+        (currentTab ? leadRoute(currentTab, families.current).id : families.current) ??
+        list.find((family) => !family.starred)?.id;
       setTab(first);
       setQuery("");
       setCol(1);
@@ -1719,8 +1726,8 @@ function Columns({
                     >
                       {family.starred ? (
                         <StarIcon filled={selected} />
-                      ) : symbolOf(family) ? (
-                        <AgentMark agent={family.mark} size={16} />
+                      ) : symbolOf({ mark: entry.mark ?? family.mark }) ? (
+                        <AgentMark agent={entry.mark ?? family.mark} size={16} />
                       ) : (
                         <span className="acpmux-cols-initial" aria-hidden="true">
                           {initialOf(entry.name)}

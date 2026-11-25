@@ -131,7 +131,14 @@ export function QuickModelMenu({
     setWasOpen(open);
     if (open) {
       // A held pick of another harness opens on its tab: the menu shows what the next message runs.
-      setTab(heldTab(families) ?? families?.current ?? families?.list.find((family) => !family.starred)?.id);
+      const currentTab = families
+        ? familyTabs(families.list).find((tab) => tab.routes.some((route) => route.id === families.current))
+        : undefined;
+      setTab(
+        heldTab(families) ??
+          (currentTab ? leadRoute(currentTab, families?.current).id : families?.current) ??
+          families?.list.find((family) => !family.starred)?.id,
+      );
       setQuery("");
       setMoreFor(undefined);
       setHeldFast(undefined);
@@ -1188,8 +1195,8 @@ export function QuickModelMenu({
                     >
                       {family.starred ? (
                         <StarIcon />
-                      ) : symbolOf(family) ? (
-                        <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
+                      ) : symbolOf({ mark: entry.mark ?? family.mark }) ? (
+                        <AgentMark agent={entry.mark ?? family.mark} size={16} tint={placement === "symbols"} />
                       ) : placement === "symbols" ? (
                         <span className="acpmux-quick-rail-initial" aria-hidden="true">
                           {initialOf(name)}

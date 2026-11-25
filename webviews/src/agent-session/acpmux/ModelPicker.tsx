@@ -47,7 +47,7 @@ import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
-import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
+import { type QuickFamily, type QuickModel, hostTabBrand } from "./quickModelMenuModel";
 import { QuickModelColumns } from "./QuickModelColumns";
 import { EffortPicker } from "./EffortPicker";
 import { PickerChoiceGroup } from "./PickerChoiceGroup";
@@ -145,9 +145,12 @@ function sectionsFor(
   const cached = choiceCache.get(entry);
   if (cached?.lang === lang) return cached.sections;
   const seen = new Set<string>();
+  // A route of another brand's tab (Antigravity in Gemini's) lists only that brand's models.
+  const hostBrand = hostTabBrand(entry.mark ?? entry.id);
   const choices = entry.models.flatMap((model): ModelChoice[] => {
     const defaultChoice = entry.family === "prime" && isDefaultChoice(model);
     if (isDefaultChoice(model) && !defaultChoice) return [];
+    if (hostBrand && agentBrand(model.id) !== hostBrand) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
@@ -1233,6 +1236,21 @@ export function ModelPicker(props: ModelPickerProps) {
       // A harness this machine does not have lists its catalog models, none of them pickable, with
       // its Install… row.
       const missing = !!entry.notInstalled;
+      // A harness that reports no model of its own, only its default (Chief: "the same chat as
+      // Home"), lists none: its tab starts it, as a launch setup's does, never "No models yet".
+      // The Chief is listed only for a chat that runs on it (composerPickerEntries): its tab says why
+      // it lists no model, in the Chief's own words.
+      const ownModelless = !missing && !signedOutHere && picksOwnModel(entry.family);
+      // One whose probe failed (Gemini CLI with no API key) says so on its tab and its Account row.
+      // A started chat that runs on it keeps it plain: the chat works there, and its tab opens on it
+      // (leadRoute skips an unavailable route). So does a named launch
+      // setup ("Claude (work)"), whose tab still starts it (railByHarness).
+      const unavailableHere =
+        !!entry.unavailable &&
+        !missing &&
+        !signedOutHere &&
+        !launchSuffix(entry.id) &&
+        !(forkHarnesses && entry.ids.includes(harness ?? ""));
       // With onSetUpPick a pick of one installs the harness first, so its rows stay pickable.
       const tabRow = (model: ModelChoice) =>
         missing && !onSetUpPick ? { ...row(entry, model), disabled: true } : row(entry, model);
@@ -1244,7 +1262,9 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
-        ...(entry.unavailable ? { unavailable: true } : {}),
+        ...(entry.unavailable && !(forkHarnesses && entry.ids.includes(harness ?? "")) ? { unavailable: true } : {}),
+        ...(ownModelless ? { note: t("picker.chiefOwnModel") } : {}),
+        ...(unavailableHere ? { note: unavailableText } : {}),
         ...(missing ? { note: t("harnesses.notInstalled") } : {}),
         ...(missing && onAddAgent ? { setUp: onAddAgent } : {}),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
@@ -1293,6 +1313,7 @@ export function ModelPicker(props: ModelPickerProps) {
     props.profiles,
     signedOut,
     claudeConnect,
+    unavailableText,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.

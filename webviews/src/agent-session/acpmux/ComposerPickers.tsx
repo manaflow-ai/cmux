@@ -1131,7 +1131,12 @@ export function ComposerPickers({
   // no full-access mode, start_mode.rs): a new chat starts in the harness's own start mode, which
   // the chip names.
   const reportedRows = chipCatalogEntry?.reportedModes ?? [];
-  const ownStartRow = asksStart ? reportedRows.find((row) => row.id === chipCatalogEntry?.ownStartMode) : undefined;
+  // Only once acpmux answered that it sets none (`null`): before its answer the "Mode" placeholder
+  // holds the place, so a start mode acpmux does set never renames the chip.
+  const ownStartRow =
+    asksStart && startAnswer === null
+      ? reportedRows.find((row) => row.id === chipCatalogEntry?.ownStartMode)
+      : undefined;
   const ownStart: KeptStartMode | undefined = ownStartRow
     ? { modeId: ownStartRow.id, ...(ownStartRow.name ? { name: ownStartRow.name } : {}) }
     : undefined;

@@ -230,3 +230,203 @@ describe("harnesses this machine does not have", () => {
     expect(added).toBe(1);
   });
 });
+
+// Lucas 2026-11-25: "reconcile everything and sort of package it and organize it". A harness that
+// reports only its default (Chief) is a tab that starts it, never "No models yet"; one whose probe
+// failed (Gemini CLI with no API key) says Unavailable on its tab.
+describe("harnesses that cannot list models", () => {
+  test("an unavailable harness says so on its tab", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const geminiCli = {
+      id: "gemini",
+      name: "Gemini CLI",
+      models: [{ id: "gemini-3.8-flash", name: "3.8 Flash" }],
+      pickable: true,
+      unavailable: "Gemini API key is missing or not configured.",
+    };
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[claude, geminiCli]}
+          harness="claude"
+          model="opus"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={() => {}}
+          onCombo={() => {}}
+          onHarness={() => {}}
+          onEffort={() => {}}
+          quick={{}}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    await settle();
+    const titles = [...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-cols-tab[role="tab"]')].map(
+      (tab) => tab.title,
+    );
+    expect(titles).toContain("Gemini CLI · Unavailable");
+  });
+
+  // Lucas 2026-11-25: "we should also remove chief as a harness".
+  test("the Chief is no harness of a New Tab's picker; a chat on it keeps it", async () => {
+    const { composerPickerEntries } = await import("../src/agent-session/acpmux/composerPickerEntries");
+    const picker = {
+      provisional: false,
+      harnesses: [
+        { id: "claude", name: "Claude Code", acpmuxHarness: "claude", installed: true, pickable: true, models: [] },
+        {
+          id: "chief",
+          name: "Chief",
+          family: "chief",
+          acpmuxHarness: "chief",
+          installed: true,
+          pickable: true,
+          models: [],
+        },
+      ],
+    };
+    const ids = (harness: string) =>
+      composerPickerEntries(
+        { catalog: [], summary: { sessionId: "", harness, turnCount: 0 } } as never,
+        picker as never,
+      ).map((entry) => entry.id);
+    expect(ids("claude")).toEqual(["claude"]);
+    expect(ids("chief")).toEqual(["claude", "chief"]);
+  });
+});
+
+// Lucas 2026-11-25: "inside of Gemini, I can see there's Claude opus 5.5 and Claude Sonnet 5.5".
+// Antigravity is a route of the Gemini tab and lists only Gemini models there; and a chat on the
+// Chief keeps the columns menu ("it takes you back to the other design").
+describe("every tab lists only its own models", () => {
+  test("the Gemini tab's Antigravity route lists no Claude or GPT-OSS model, also in search", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const antigravity = {
+      id: "antigravity",
+      name: "Antigravity",
+      mark: "antigravity",
+      pickable: true,
+      models: [
+        { id: "gemini-4-neon", name: "Gemini 4 Neon" },
+        { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+        { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
+        { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)" },
+      ],
+    };
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[claude, antigravity]}
+          harness="antigravity"
+          model="gemini-4-neon"
+          label="Gemini 4 Neon"
+          efforts={[]}
+          recents={[]}
+          onLand={() => {}}
+          onCombo={() => {}}
+          onHarness={() => {}}
+          onEffort={() => {}}
+          quick={{}}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    await settle();
+    const doc = dom.window.document;
+    const options = () =>
+      [...doc.querySelectorAll<HTMLElement>('.acpmux-cols [role="option"]')].map((row) => row.textContent?.trim());
+    const gemini = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Gemini"]')!;
+    await act(async () => gemini.click());
+    await settle();
+    expect(options()).toEqual(["Gemini 4 Neon", "Gemini 3.8 Flash"]);
+    const input = doc.querySelector<HTMLInputElement>(".acpmux-cols input")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "opus");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await settle();
+    const groups = [...doc.querySelectorAll<HTMLElement>(".acpmux-cols-group")].map((row) => row.textContent?.trim());
+    expect(groups.some((name) => name?.startsWith("Gemini"))).toBe(false);
+  });
+
+  test("a chat on the Chief keeps the columns menu, and its tab says it picks its own model", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const chief = {
+      id: "chief",
+      name: "Chief",
+      family: "chief",
+      models: [{ id: "default", name: "default (agent's choice)" }],
+      pickable: true,
+    };
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[claude, chief]}
+          harness="chief"
+          model="default"
+          label="Chief"
+          efforts={[]}
+          recents={[]}
+          onLand={() => {}}
+          onCombo={() => {}}
+          onHarness={() => {}}
+          onEffort={() => {}}
+          quick={{}}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    await settle();
+    const doc = dom.window.document;
+    expect(doc.querySelector(".acpmux-cols")).not.toBeNull();
+    const tab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Chief"]')!;
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(doc.querySelector('.acpmux-cols [role="listbox"]')?.textContent).toContain(
+      "Your Chief picks its own model.",
+    );
+  });
+});
+
+// Review (2026-11-25): a harness whose probe has not answered lists only acpmux's "default" row;
+// its tab waits ("No models yet"), and a click on it starts nothing.
+test("a harness whose models are still loading is no launch tab", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  const picked: string[] = [];
+  const loading = { id: "opencode", name: "OpenCode", models: [{ id: "default", name: "default" }], pickable: true };
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ModelPicker
+        catalog={[claude, loading]}
+        harness="claude"
+        model="opus"
+        label="Opus 5.5"
+        efforts={[]}
+        recents={[]}
+        onLand={() => {}}
+        onCombo={() => {}}
+        onHarness={(id) => picked.push(id)}
+        onEffort={() => {}}
+        quick={{}}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  await settle();
+  const doc = dom.window.document;
+  const tab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="OpenCode"]')!;
+  await act(async () => tab.click());
+  await settle();
+  expect(picked).toEqual([]);
+  expect(doc.querySelector('.acpmux-cols [role="listbox"]')?.textContent).toContain("No models yet");
+});

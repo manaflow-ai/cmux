@@ -93,14 +93,17 @@ const AGY_MODES = [
 ];
 
 /// Renders a New Tab composer's chips on the `antigravity` harness, whose catalog row is `entry`.
-async function render(entry: Partial<Snapshot["catalog"][number]>) {
+async function render(
+  entry: Partial<Snapshot["catalog"][number]>,
+  answer: () => Promise<undefined> = async () => undefined,
+) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
   // acpmux sets no start mode on Antigravity (`modeId: null`).
-  setStartModeSource(async () => undefined);
+  setStartModeSource(answer);
   const catalog = [
     {
       id: "antigravity",
@@ -165,5 +168,10 @@ test("with no own start mode known the menu is still live, and says Mode", async
   await render({ reportedModes: AGY_MODES });
   expect(chip()).not.toBeNull();
   expect(chip()!.classList.contains("acpmux-chip-pending")).toBe(false);
+  expect(label()).toBe("Mode");
+});
+
+test("before acpmux answers, the chip keeps the Mode placeholder, never the harness's own mode", async () => {
+  await render({ reportedModes: AGY_MODES, ownStartMode: "default" }, () => new Promise<undefined>(() => {}));
   expect(label()).toBe("Mode");
 });
