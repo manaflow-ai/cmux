@@ -111,7 +111,7 @@ import Testing
         let on = try #require(Self.fixtures.first(where: { $0.name == "connecting" }))
         let onRows = HostsSidebar.rows(machines: on.rows, expanded: true)
         #expect(onRows.contains { $0.info.title == "Hosts" })
-        #expect(onRows.contains { $0.info.caption == "Connecting…" })
+        #expect(!onRows.contains { $0.info.caption == "Connecting…" })
         let off = try #require(Self.fixtures.first(where: { $0.name == "labs-off" }))
         let disabled = HostsSidebar(host: .init(rows: { off.rows }, add: {}, openConnected: { _ in }, openJoined: { _ in },
                                                  enabled: { off.labsEnabled }))
