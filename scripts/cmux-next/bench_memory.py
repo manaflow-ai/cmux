@@ -922,10 +922,33 @@ class FakeChats:
 
     @staticmethod
     def acpmux_socket(bundle: str) -> str:
+        # The daemon's own home socket: `~/.acpmux/builds/<bundle id>/acpmux.sock`. A Debug
+        # build's daemon may not carry `bin/acpmux` in its command line (it can run as the
+        # multi-call `bin/cmux`, or under the DEV Files helper), so the process match below
+        # alone missed a daemon that was up and serving.
+        home_socket = None
+        try:
+            with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+                bundle_id = plistlib.load(handle).get("CFBundleIdentifier")
+            if bundle_id:
+                import pwd
+                home_socket = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".acpmux", "builds", bundle_id, "acpmux.sock")
+        except (OSError, plistlib.InvalidFileException):
+            pass
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
+            if home_socket and os.path.exists(home_socket):
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    probe.settimeout(2)
+                    probe.connect(home_socket)
+                    return home_socket
+                except OSError:
+                    pass
+                finally:
+                    probe.close()
             for pid, _, cmd in process_table():
-                if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
+                if in_bundle(cmd, bundle) is not None and " daemon run" in cmd:
                     listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
                                             capture_output=True, text=True, timeout=30).stdout
                     # `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<hash>.sock` when that path is too long.
@@ -937,7 +960,7 @@ class FakeChats:
         # Say why, so a fleet step's log answers it: which acpmux processes run (the bundle's
         # and any other), and the newest acpmux daemon.log tails under ~/.acpmux.
         for pid, ppid, cmd in process_table():
-            if "acpmux" in cmd or "cmux-files-host" in cmd:
+            if "acpmux" in cmd or "cmux-files-host" in cmd or " daemon run" in cmd or in_bundle(cmd, bundle) is not None:
                 mark = "bundle" if in_bundle(cmd, bundle) is not None else "other"
                 print(f"   bench-memory: acpmux process ({mark}) pid={pid} ppid={ppid} {cmd[:300]}",
                       file=sys.stderr, flush=True)
