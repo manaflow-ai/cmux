@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ServerEventInput } from "../services/analytics/serverEvents";
-import { appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "../services/billing/apple/config";
+import {
+  appleEnvironmentGrantsEntitlement,
+  appleProductFor,
+  appleProductId,
+  appleSandboxGrantNeedsAccountEmail,
+  appleUsdListPrice,
+  planIdForAppleProduct,
+} from "../services/billing/apple/config";
 import { appleSubscriptionGrantsAccess, bestAppleEntitlement } from "../services/billing/apple/entitlement";
 import type { AppleServerApi } from "../services/billing/apple/serverApi";
 import {
@@ -705,8 +712,45 @@ describe("Apple entitlement policy", () => {
     expect(best?.originalTransactionId).toBe("2");
   });
 
+  test("NEXT and classic plans are picked separately, each family's highest plan winning", () => {
+    const rows = [
+      row,
+      { ...row, originalTransactionId: "2", planId: "next_plus" },
+      { ...row, originalTransactionId: "3", planId: "next_pro" },
+      { ...row, originalTransactionId: "4", planId: "next_max", status: "expired" },
+    ];
+    expect(bestAppleEntitlement(rows, NOW, {})?.originalTransactionId).toBe("1");
+    expect(bestAppleEntitlement(rows, NOW, {}, undefined, "classic")?.originalTransactionId).toBe("1");
+    expect(bestAppleEntitlement(rows, NOW, {}, undefined, "next")?.originalTransactionId).toBe("3");
+    // A NEXT subscription alone never counts as a classic plan, and the reverse.
+    expect(bestAppleEntitlement([{ ...row, planId: "next_max" }], NOW, {})).toBeNull();
+    expect(bestAppleEntitlement([row], NOW, {}, undefined, "next")).toBeNull();
+  });
+
   test("an active row past its expiry does not grant", () => {
     expect(appleSubscriptionGrantsAccess({ ...row, expiresAt: new Date(NOW.getTime() - 1) }, NOW, {})).toBe(false);
+  });
+});
+
+describe("the one price book (RFD 0037a)", () => {
+  test("App Store list prices are the web price / 0.7 rounded up to .99", () => {
+    expect(appleUsdListPrice("next_plus", "monthly")).toBe(29.99);
+    expect(appleUsdListPrice("next_pro", "monthly")).toBe(74.99);
+    expect(appleUsdListPrice("next_max", "monthly")).toBe(299.99);
+    expect(appleUsdListPrice("go", "monthly")).toBe(21.99);
+    expect(appleUsdListPrice("pro", "monthly")).toBe(74.99);
+    expect(appleUsdListPrice("max", "monthly")).toBe(299.99);
+  });
+
+  test("each NEXT product grants exactly its own plan, monthly only, and old products keep granting", () => {
+    for (const planId of ["next_plus", "next_pro", "next_max"] as const) {
+      expect(appleProductId("com.cmux.app", planId, "monthly")).toBe(`com.cmux.app.${planId}.monthly`);
+      expect(planIdForAppleProduct(`com.cmux.app.${planId}.monthly`, "com.cmux.app")).toBe(planId);
+      expect(planIdForAppleProduct(`dev.cmux.app.internal.${planId}.monthly`, "dev.cmux.app.internal")).toBe(planId);
+      expect(appleProductFor(`com.cmux.app.${planId}.yearly`, "com.cmux.app")).toBeNull();
+    }
+    expect(planIdForAppleProduct("com.cmux.app.go.monthly", "com.cmux.app")).toBe("go");
+    expect(planIdForAppleProduct("com.cmux.app.max.monthly", "com.cmux.app")).toBe("max");
   });
 });
 
