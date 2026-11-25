@@ -10,7 +10,13 @@ import Testing
 struct AgentPaneGitHubRequestTests {
     @Test func decodesTheThreeMethodsAndRefusesOtherParams() {
         #expect(AgentPaneRequest(body: ["method": "github.status", "params": [String: Any]()]) == .gitHub(.status))
-        #expect(AgentPaneRequest(body: ["method": "github.connect"]) == .gitHub(.connect))
+        #expect(AgentPaneRequest(body: ["method": "github.connect"]) == .gitHub(.connect(repo: nil)))
+        // #55104: a Cloud start card's Connect names the repository its machine could not clone; nothing else passes.
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["repo": "manaflow-ai/cmuxterm-hq"]]) == .gitHub(.connect(repo: "manaflow-ai/cmuxterm-hq")))
+        #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["repo": NSNull()]]) == .gitHub(.connect(repo: nil)))
+        for bad: Any in ["https://github.com/acme/api", "acme", "acme/api/x", 4] {
+            #expect(AgentPaneRequest(body: ["method": "github.connect", "params": ["repo": bad]]) == .unsupported("github.connect"), "\(bad)")
+        }
         #expect(AgentPaneRequest(body: ["method": "github.repos.list", "params": ["query": "cm"]]) == .gitHub(.repos(query: "cm")))
         #expect(AgentPaneRequest(body: ["method": "github.repos.list", "params": ["query": NSNull()]]) == .gitHub(.repos(query: nil)))
         #expect(AgentPaneRequest(body: ["method": "github.repos.list"]) == .gitHub(.repos(query: nil)))

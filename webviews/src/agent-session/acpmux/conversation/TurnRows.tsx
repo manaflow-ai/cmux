@@ -9,6 +9,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
@@ -55,9 +56,19 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT, type Translate } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
+import {
+  failureCopy,
+  failureKind,
+  failureRecovery,
+  isAccountLimit,
+  isTeamMachineSignIn,
+  type FailureRoute,
+} from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
+import { capacityWaitLook } from "./capacityWait.experiment";
+import { CapacityWaitContext, waitsFor } from "../capacityWait";
+import { CapacityWaitCard } from "./CapacityWaitCard";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction } from "./CodeRouterOffer";
 import { useCodeRouterChoice } from "./codeRouterOfferModel";
@@ -413,6 +424,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
+  // A turn acpmux holds for capacity and goes on with by itself (its `capacityWait`, hub/
+  // capacity_wait.rs) draws one calm wait instead of the failed card, its mark or red footer (RFD
+  // model-overload-smoothing §3.8; Leo, 2026-11-24: "fix 529s properly with better designs").
+  const capacityWait = useContext(CapacityWaitContext);
+  const waitLook =
+    failed && !row.recovered && waitsFor(capacityWait, row.turnId) ? experimentArm(capacityWaitLook) : "off";
+  const waiting = waitLook !== "off" && capacityWait !== undefined;
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
@@ -435,7 +453,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // (failedTurnMark.experiment.ts), so a failed turn with nothing to copy still ends on a row that
   // reads as its end, never a bare line of hover controls. No tooltip: the row carries no time or
   // Worked for (Lawrence and Lucas, 2026-11-11 standup).
-  const failedLook = failed ? experimentArm(failedTurnMark) : undefined;
+  const failedLook = failed && !waiting ? experimentArm(failedTurnMark) : undefined;
   const endMark = failedLook && (
     <span
       className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
@@ -529,7 +547,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // stays for the turn that is still the chat's last.
   const chat = useContext(SteerChatContext);
   const dismissed = useFailureDismissed(chat, row.id);
-  const showsCard = failed && !row.recovered && !dismissed;
+  const showsCard = failed && !waiting && !row.recovered && !dismissed;
   const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
   if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
@@ -538,6 +556,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
+      {waiting && capacityWait && <CapacityWaitCard wait={capacityWait} look={waitLook} />}
       {showsCard && (
         <TurnFailure
           onDismiss={() => dismissFailure(chat, row.id)}
@@ -561,9 +580,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           retryNote={retryNote}
         />
       )}
+      {row.githubConnect && (
+        <GitHubConnectCard need={row.githubConnect} phaseKey={`${row.id}:${row.githubConnect.callId}`} />
+      )}
       <div
         className={
-          failed
+          failed && !waiting
             ? "cv-turn-actions cv-turn-actions--failed"
             : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
               ? "cv-turn-actions cv-turn-actions--empty"
@@ -703,6 +725,8 @@ function TurnFailure({
     switchModel &&
     [
       "rate-limited",
+      "usage-limit",
+      "account-disabled",
       "unreachable",
       "invalid-key",
       "proxy-auth",
@@ -786,13 +810,20 @@ function TurnFailure({
       !signInFirst &&
       !cloudSignInLeads &&
       !compactFirst);
+  // The agent's account is out of usage or turned off (cmux#55066): Use another agent leads, and
+  // Sign in with another account follows it, outlined: the agent's own login here, its sign-in on
+  // the machine for a Cloud chat (only Use an API key on a team machine, which takes no personal login).
+  const accountLimit = isAccountLimit(kind);
+  const otherAccount = accountLimit ? cloudSignIn : undefined;
+  const otherAccountKeyOnly = route?.hostKind === "cloud" && route.teamMachine === true;
+  const otherAccountHere = accountLimit && otherAccount === undefined ? reauthenticate : undefined;
   const switchButton = offersSwitch && (
     <button
       type="button"
       className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
-      {t("turn.failure.switchModel")}
+      {accountLimit ? t("turn.failure.useAnotherAgent") : t("turn.failure.switchModel")}
     </button>
   );
   return (
@@ -823,6 +854,22 @@ function TurnFailure({
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
         {switchFirst && switchButton}
+        {otherAccountHere && (
+          <button type="button" className="cv-turn-auth-action" onClick={otherAccountHere}>
+            {t("turn.failure.signInAnotherAccount")}
+          </button>
+        )}
+        {otherAccount && (
+          <CloudSignIn
+            signIn={otherAccount}
+            rowId={retryRowId}
+            prompt={prompt}
+            keyOnly={otherAccountKeyOnly}
+            another
+            gateway={offersGateway(message)}
+            actionsRef={actionsRef}
+          />
+        )}
         {compactFirst && (
           <button
             type="button"

@@ -11,8 +11,8 @@ import type { BuildSpace, Env, RawEnv } from "./env.ts"
  *
  * Every Durable Object class takes the raw env in its constructor and re-derives its own space from its name
  * (`envForObject`), so its calls to other objects, its alarms, crons and outbox deliveries stay in its space.
- * Production never enters a dev space: it ignores the header (spaceOf), and an object named into a dev space there
- * refuses to start (envForObject).
+ * Production never enters a dev space: it refuses a request that names one (spaceOf, 403 `build_space.not_allowed`,
+ * as cmux-mobile-api does), and an object named into a dev space there refuses to start (envForObject).
  *
  * scripts/cmux-next/check-build-spaces.py (pre-push gate) refuses a Durable Object binding that is in neither list,
  * or in both, and raw env access to a per-build binding.
@@ -82,17 +82,25 @@ export const DEV_SPACE_ENVIRONMENTS: ReadonlySet<string> = new Set(["local", "te
 const devSpacesAllowed = (env: Pick<RawEnv, "ENVIRONMENT">) => DEV_SPACE_ENVIRONMENTS.has(env.ENVIRONMENT)
 
 /**
- * The space of a request, from its header. Production ignores the header (base space, so a dev build pointed at
- * production behaves as the production build it talks to and never creates dev data there). Elsewhere a value that is
- * not a space is refused, never read as the base space: a dev build with a broken tag must not land in nightly's data.
+ * The space of a request, from its header. No header (or an empty one) is the base space everywhere. A value that is
+ * not a space is refused (400), never read as the base space: a dev build with a broken tag must not land in nightly's
+ * data. A dev space is refused (403) by every environment outside DEV_SPACE_ENVIRONMENTS, production included, rather
+ * than served as the base space: a dev build pointed at production would otherwise read and change the person's real
+ * (nightly) data under its own session. It fails on its first request instead, before auth or any read, as it does at
+ * cmux-mobile-api (cmux-next-ios/backend/src/index.ts spaceOf).
  */
 export const spaceOf = (request: Request, env: Pick<RawEnv, "ENVIRONMENT">): { ok: true; space: BuildSpace } | { ok: false; response: Response } => {
-  if (!devSpacesAllowed(env)) return { ok: true, space: BASE_SPACE }
   const space = parseBuildSpace(request.headers.get(BUILD_SPACE_HEADER))
-  if (space !== null) return { ok: true, space }
+  if (space === null) {
+    return {
+      ok: false,
+      response: Response.json({ error: { code: "build_space.invalid", message: "X-Cmux-Build-Space must be dev:<slug> (lowercase letters, digits and dashes, at most 64)" } }, { status: 400 })
+    }
+  }
+  if (space === BASE_SPACE || devSpacesAllowed(env)) return { ok: true, space }
   return {
     ok: false,
-    response: Response.json({ error: { code: "build_space.invalid", message: "X-Cmux-Build-Space must be dev:<slug> (lowercase letters, digits and dashes, at most 64)" } }, { status: 400 })
+    response: Response.json({ error: { code: "build_space.not_allowed", message: "dev build spaces are not served by the production API; use the dev or staging API" } }, { status: 403 })
   }
 }
 
