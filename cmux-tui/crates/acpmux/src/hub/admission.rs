@@ -32,7 +32,8 @@
 //! remains accepted for compatibility; floors and caps never refuse a session. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
 //! the composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
 //! send, a resume, a restart, an adopt that never forks, a side chat (`btw.rs`)
-//! and a handoff target never are. An admitted create counts as live until it ends, so of concurrent
+//! and a handoff target never are. A Claude create while the sr2 model pool is short starts with a
+//! warning that suggests Codex when it has room (`pool_pressure.rs`). An admitted create counts as live until it ends, so of concurrent
 //! creates at the cap every one past it is warned.
 
 use super::*;
@@ -379,9 +380,11 @@ impl Hub {
             let hosted = Hub::live_host_sessions();
             // This machine's readings for the shadow verdict: none of them waits.
             let here = crate::shadow_admission::local_candidate();
-            (flag, registry, unreadable, source, machine, hosted, here)
+            // The sr2 pool's pressure, from sr2_pool's cache file (`pool_pressure.rs`).
+            let pool = super::pool_pressure::current();
+            (flag, registry, unreadable, source, machine, hosted, here, pool)
         });
-        let (flag, registry, unreadable, source, machine, hosted, here) =
+        let (flag, registry, unreadable, source, machine, hosted, here, pool) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
         let (verdict, fillers, mut admitted) = {
@@ -478,6 +481,25 @@ impl Hub {
             warning.set("underFloor", json!(true));
             admitted.warning = Some(warning);
         }
+        if let Some(pressure) = pool {
+            let family = self.admission_family(ask.harness.as_deref()).await;
+            if super::pool_pressure::is_claude(&family) {
+                let text = super::pool_pressure::warning(&pressure);
+                tracing::warn!(
+                    caller = ask.who,
+                    family,
+                    "session/new admitted under pool pressure: {text}"
+                );
+                let mut warning = admitted.warning.take().unwrap_or_else(|| json!({}));
+                let combined = match warning.get("warning").and_then(Value::as_str) {
+                    Some(before) => format!("{before} {text}"),
+                    None => text,
+                };
+                warning.set("warning", json!(combined));
+                warning.set("poolPressure", super::pool_pressure::field(&pressure));
+                admitted.warning = Some(warning);
+            }
+        }
         tracing::debug!(
             caller = ask.who,
             name = ask.name.as_deref(),
@@ -490,6 +512,16 @@ impl Hub {
 }
 
 impl Hub {
+    /// The family of harness `name` (a family or profile name), or of the default harness.
+    async fn admission_family(&self, name: Option<&str>) -> String {
+        let cfg = self.config.read().await;
+        let Some(name) = name.map(str::to_owned).or_else(|| cfg.default_harness.clone()) else {
+            // acpmux's own default is Claude Code.
+            return "claude".to_owned();
+        };
+        cfg.resolve_harness(&name).ok().and_then(|profile| cfg.family(&profile)).unwrap_or(name)
+    }
+
     /// Where the placement engine would put a create from the connected peers' last
     /// readings (`server/place.rs` `pick` weighs the same hosts, this one too), with
     /// the shadow verdict of its pick (`shadow_admission.rs`).
@@ -578,6 +610,9 @@ pub(crate) struct Ask<'a> {
     /// The create asked to start on a peer when this host has no room, and nothing ties
     /// it here (`admission_redirect.rs` `movable`).
     pub redirect: bool,
+    /// The harness (family or profile) asked for; None: the default harness. A Claude one
+    /// is warned while the sr2 pool is short (`pool_pressure.rs`).
+    pub harness: Option<String>,
 }
 
 #[cfg(test)]

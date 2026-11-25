@@ -202,14 +202,19 @@ impl Hub {
 
     /// The idle period of `session`: [`MOVE_AFTER`] when its host moves (`idle.rs`
     /// `quiet_respawn` when it is marked to restart once quiet, `Session::respawn_when_quiet`),
-    /// else `idle`.
+    /// else `pool_pressure::SHED_IDLE` for background work while the sr2 pool sheds
+    /// (`pool_pressure.rs`), else `idle`.
     pub(super) fn idle_period(
         &self,
         session: &Session,
         idle: std::time::Duration,
     ) -> std::time::Duration {
         if !self.host_moves(session) {
-            idle
+            if self.pool_pressure_sleeps(session) {
+                super::pool_pressure::SHED_IDLE.min(idle)
+            } else {
+                idle
+            }
         } else if session.respawn_when_quiet.load(Ordering::Relaxed) {
             super::idle::quiet_respawn().min(idle)
         } else {

@@ -583,6 +583,7 @@ impl Hub {
                 name: None,
                 // A family lives on one daemon: a child starts beside its parent.
                 redirect: false,
+                harness: Some(harness.clone()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
