@@ -134,24 +134,40 @@ pub(super) fn claude_spawn_mode(
     policy_mode(policy, "claude", &offered)
 }
 
-/// The modes a new chat a remote connection started on the Codex bridge settles in, the start
-/// first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an enrolled peer of this
-/// host started (`peer`) under deny-all (`policy`: the chat's narrower policy) settles in the
-/// policy's own `read-only` (`policy_mode`) when the harness offers it: its sandbox refuses every
-/// write and the network, and deny-all refuses every escalation out of it, where in `ask`
-/// deny-all refuses every command Codex asks about, reads included. Anything else, the Web and
-/// a paired device included, settles in the bridge's asking modes
+/// The modes a new chat a remote connection started on the Codex bridge settles in, in the order
+/// they are tried, the start first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an
+/// enrolled peer of this host started (`peer`) under deny-all (`policy`: the chat's narrower
+/// policy) settles in the policy's own `read-only` (`policy_mode`) when the harness offers it: its
+/// sandbox refuses every write and the network, and deny-all refuses every escalation out of it,
+/// where in `ask` deny-all refuses every command Codex asks about, reads included.
+///
+/// A chat at its caller's VM boundary (`vm_boundary`: `vm_boundary.rs`
+/// `vm_boundary_peer_approves` held for it, and full access is allowed here) with no narrower
+/// policy settles in `agent-full-access` when the harness offers it, the asking modes after it:
+/// the VM is the boundary, as for a Claude Code chat there (`remote_sandbox.rs`
+/// `boundary_plan`). In `ask` Codex's own workspace-write sandbox keeps every write outside the
+/// chat's folder and `/tmp` read-only and the network off, so a lane there could not take a
+/// checkout (`wt new` and its mirror's `fetch.lock`), write `~/.local/state` or `~/.cache`, or
+/// reach the daemon's socket (`acpmux send`).
+///
+/// Anything else, the Web and a paired device included, settles in the bridge's asking modes
 /// (`web_modes::BRIDGE_ASKING_MODES`).
 pub(crate) fn bridge_settle_modes(
     peer: bool,
     policy: Option<PermissionPolicy>,
     offered: &[String],
+    vm_boundary: bool,
 ) -> Vec<String> {
     const READ_ONLY: &str = "read-only";
+    const FULL_ACCESS: &str = "agent-full-access";
     if peer && policy == Some(PermissionPolicy::DenyAll) && offered.iter().any(|m| m == READ_ONLY) {
         return vec![READ_ONLY.to_owned()];
     }
-    crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned()).collect()
+    let asking = crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned());
+    if peer && vm_boundary && policy.is_none() && offered.iter().any(|m| m == FULL_ACCESS) {
+        return std::iter::once(FULL_ACCESS.to_owned()).chain(asking).collect();
+    }
+    asking.collect()
 }
 
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
@@ -167,12 +183,24 @@ fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
 
 impl Hub {
     /// [`bridge_settle_modes`] for `session`, which an enrolled peer started when `peer`: its
-    /// narrower policy (its own, else a deny-all default) and the modes its harness offers.
+    /// narrower policy (its own, else a deny-all default), the modes its harness offers, and
+    /// whether it is at a VM boundary this machine takes (`vm_boundary.rs`) where full access is
+    /// allowed (`sessions.allowFullAccess`, MDM).
     pub(crate) async fn bridge_settle_modes(&self, session: &Session, peer: bool) -> Vec<String> {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let offered = super::start_mode::offered_ids(&meta);
-        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered)
+        let vm_boundary = super::vm_boundary_peer_approves(
+            self.vm_boundary_unsandboxed(&meta).await,
+            cfg!(target_os = "macos"),
+            peer,
+            self.approve_all_allowed(),
+        ) && self.off_latch().allows_full_access()
+            // Its own approve-all (asked, or the vmHost grant `requests.rs` gives first), never a
+            // chat that only has no narrower policy (a switched fork that took none).
+            && meta.permission_policy.as_deref().and_then(|p| p.parse().ok())
+                == Some(PermissionPolicy::ApproveAll);
+        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered, vm_boundary)
     }
 
     /// `session`'s policy mode when its policy is narrower than approve-all (module docs):
@@ -623,6 +651,16 @@ impl Hub {
 /// (`stop_unheld`) calls it. `cfg`: the daemon's config now, its default policy and the harness
 /// entries an `asksBeforeTools` claim is judged against ([`claim_distrust`]).
 pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), RpcError> {
+    require_enforced_as(meta, cfg, false)
+}
+
+/// `require_enforced`; `new`: the chat is being created, and a refusal discards it, so its fix is
+/// a flag of the next start, not a command on this chat (`unenforceable`).
+pub(super) fn require_enforced_as(
+    meta: &SessionMeta,
+    cfg: &Config,
+    new: bool,
+) -> Result<(), RpcError> {
     let Some(policy) = narrow_policy(meta, cfg.permission_policy) else { return Ok(()) };
     if super::policy_gate::has_gate(meta)
         || asks_before_tools(meta, cfg)
@@ -643,7 +681,8 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
     if held {
         return Ok(());
     }
-    let mut why = match policy_mode(policy, &family, &offered) {
+    let wanted = policy_mode(policy, &family, &offered);
+    let mut why = match &wanted {
         Some(wanted) => format!("it does not run in its mode that asks ({wanted})"),
         None => crate::web_modes::NO_ASKING_MODE.to_owned(),
     };
@@ -654,7 +693,7 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
             "; it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config ({distrust})"
         ));
     }
-    Err(unenforceable(policy, &meta.harness, &why))
+    Err(unenforceable(&Refused { policy, meta, wanted: wanted.as_deref(), new }, &why))
 }
 
 /// Whether `meta`'s agent said at `initialize` that it asks the client
@@ -710,23 +749,126 @@ pub(super) fn refusal_record(e: &RpcError) -> Value {
     record
 }
 
-/// The typed error of a start under a policy that harness `harness` cannot keep
-/// (`require_enforced`): `data.reason` is `policy_unenforceable`, with the policy, the harness
-/// and a hint.
-pub(super) fn unenforceable(policy: PermissionPolicy, harness: &str, why: &str) -> RpcError {
-    let hint = format!(
-        "start it with --policy approve-all, or on a harness that keeps {policy} (Claude Code, the Codex bridge)"
-    );
-    RpcError::invalid_params(format!(
-        "permission policy {policy} cannot be enforced on harness {harness}: {why}. The chat did not start; {hint}"
-    ))
-    .with_data(json!({
+/// What `require_enforced` refused: chat `meta` under `policy`, on a harness whose mode that keeps
+/// it is `wanted` (None: it has none). `new`: the chat is being created.
+pub(super) struct Refused<'a> {
+    pub policy: PermissionPolicy,
+    pub meta: &'a SessionMeta,
+    pub wanted: Option<&'a str>,
+    pub new: bool,
+}
+
+/// The typed error of a start under a policy that its harness cannot keep (`require_enforced`):
+/// `data.reason` is `policy_unenforceable`, with the policy, the harness, `why`, and the one
+/// action that runs this chat (`fix`, a command; `hint`, that action in words). Leo, 2026-11-17:
+/// "changed things shouldn't be so weirdly errored". The message says what is wrong and that
+/// action, never a harness the chat is already on. acpmux moves a chat to its policy's mode at
+/// every start (`hold_policy_mode`), so a chat refused with a `wanted` mode is one whose agent did
+/// not take it (a mode pinned in its harness entry, an agent that reports no mode): switching the
+/// mode again (`acpmux set ID mode=...`) starts the same agent, so the fix named is the policy
+/// (`acpmux set ID policy=approve-all`, `_acpmux/set_policy`, person-only), which needs no start. A chat being
+/// created is discarded by the refusal, so its fix is the start's `--policy`.
+pub(super) fn unenforceable(refused: &Refused, why: &str) -> RpcError {
+    let Refused { policy, meta, wanted, new } = *refused;
+    let harness = &meta.harness;
+    let (fix, hint) = if new {
+        ("--policy approve-all".to_owned(), "start it with `--policy approve-all`".to_owned())
+    } else {
+        let fix = format!("acpmux set {} policy=approve-all", meta.id);
+        // approve-all widens what runs without asking, which only the person may do
+        // (`hub/person.rs`): `acpmux set` from an agent or a script is refused, so the hint says
+        // where it is accepted. On 2026-11-25 Leo's chief chat sat dead for a day after an update
+        // while every agent that read this hint ran the command and was refused.
+        let hint = format!(
+            "only you can set its policy to approve-all, in the cmux app (`{fix}` from an agent or a script is refused)"
+        );
+        (fix, hint)
+    };
+    let problem = match wanted {
+        Some(wanted) => {
+            let runs = match crate::web_modes::mode_of(meta) {
+                Some(current) => format!("its agent stayed in {current}"),
+                None => "its agent reports no mode to switch to".to_owned(),
+            };
+            format!(
+                "Harness {harness} keeps permission policy {policy} only in its mode {wanted}, and {runs}"
+            )
+        }
+        None => format!(
+            "Harness {harness} cannot ask before tools, so a chat on it runs only under permission policy approve-all, and this one's is {policy}"
+        ),
+    };
+    RpcError::invalid_params(format!("{problem}: {hint}.")).with_data(json!({
         "reason": "policy_unenforceable",
         "policy": policy.to_string(),
         "harness": harness,
         "why": why,
         "hint": hint,
+        "fix": fix,
     }))
+}
+
+/// What a `policy_unenforceable` refusal of `meta` depends on: its harness, its own policy, its
+/// mode, the daemon's default policy (`default`) and the launch of its harness entry as
+/// configured (`launch_digest`, `Spawn::launch_digest`). A chat refused under one key is refused
+/// again under it (`RefusalLatch`).
+pub(super) fn refusal_key(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+    launch_digest: &str,
+) -> String {
+    json!([
+        meta.harness,
+        meta.permission_policy,
+        crate::web_modes::mode_of(meta),
+        default.to_string(),
+        launch_digest,
+    ])
+    .to_string()
+}
+
+/// Whether `e` is a `policy_unenforceable` refusal (`unenforceable`).
+pub(super) fn is_unenforceable(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+        == Some("policy_unenforceable")
+}
+
+/// A chat's last `policy_unenforceable` refusal and its `refusal_key` (`Session::policy_refusal`).
+/// Leo, 2026-11-17: "it shouldnt have errored in the first place". A chief chat with its own `ask`
+/// was started again by every wake, every 30 s, and each start spawned its harness, was refused
+/// and logged `wake failed` (3,819 lines in two days). While the key is unchanged a start fails
+/// with the refusal it had, starting nothing and logging nothing (`Hub::ensure_child`); a change
+/// of the chat's policy, mode or harness (or its entry, or the default policy) changes the key,
+/// and the person's own prompt clears it (`Session::person_wrote`), so either tries once more.
+#[derive(Default)]
+pub(crate) struct RefusalLatch(std::sync::Mutex<Option<(String, RpcError)>>);
+
+impl RefusalLatch {
+    /// The refusal held under `key`, or None; one held under another key is dropped.
+    pub(super) fn held(&self, key: &str) -> Option<RpcError> {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match held.as_ref() {
+            Some((k, e)) if k == key => Some(e.clone()),
+            Some(_) => {
+                *held = None;
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// Holds refusal `e` under `key`. Returns whether it was not held already (the first one).
+    pub(super) fn hold(&self, key: String, e: &RpcError) -> bool {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let first = held.as_ref().is_none_or(|(k, _)| *k != key);
+        *held = Some((key, e.clone()));
+        first
+    }
+
+    /// Drops the held refusal: the next start tries again.
+    pub(crate) fn clear(&self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
 }
 
 /// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
@@ -762,129 +904,5 @@ fn full_access_ended() -> RpcError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// An `asksBeforeTools` claim is believed only from an agent started from a harness entry of
-    /// the config that still launches what it started from (`claim_distrust`).
-    #[test]
-    fn a_policy_claim_is_believed_only_from_an_unchanged_config_entry() {
-        let mut cfg: Config =
-            serde_json::from_value(json!({"harnesses": {"lane": {"argv": ["lane-acp"]}}})).unwrap();
-        let mut meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "lane",
-            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
-            "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
-        }))
-        .unwrap();
-        // A copy of the claim (a fork before its start, a moved chat): no launch recorded.
-        assert_eq!(claim_distrust(&meta, &cfg), Some("not_started_here"));
-        assert!(!asks_before_tools(&meta, &cfg));
-        meta.launch_digest = Some(cfg.harnesses["lane"].launch_digest());
-        assert_eq!(claim_distrust(&meta, &cfg), None);
-        assert!(asks_before_tools(&meta, &cfg));
-        // In a mode that skips approvals, a believed claim still does not hold.
-        meta.modes = Some(json!({"currentModeId": "bypassPermissions"}));
-        assert!(!asks_before_tools(&meta, &cfg));
-        meta.modes = None;
-        let lane = cfg.harnesses.get_mut("lane").unwrap();
-        lane.env.insert("LANE_FLAG".to_owned(), "1".to_owned());
-        assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
-        assert!(!asks_before_tools(&meta, &cfg));
-        // A folder profile, or an entry removed since.
-        meta.harness = "acme".to_owned();
-        assert_eq!(claim_distrust(&meta, &cfg), Some("not_a_config_entry"));
-        // No claim at all: nothing to believe.
-        meta.harness = "lane".to_owned();
-        meta.agent_capabilities = Some(json!({}));
-        assert!(!claims_asks(&meta));
-    }
-
-    /// The claim is judged by the recorded launch alone, with no look at the filesystem: a start
-    /// records the digest of its config entry as the entry is written, a remote start too (lead,
-    /// 2026-11-09). A launch whose program is some other path than the entry's (here the
-    /// canonical path a remote start resolves the entry's bare program to) is another launch.
-    #[test]
-    fn a_launch_with_another_program_path_is_not_the_entrys_launch() {
-        let cfg: Config =
-            serde_json::from_value(json!({"harnesses": {"py": {"argv": ["python3", "agent.py"]}}}))
-                .unwrap();
-        let mut resolved = cfg.harnesses["py"].clone();
-        super::super::resolve::fix_remote_executable(&mut resolved).unwrap();
-        assert_ne!(resolved.argv, cfg.harnesses["py"].argv, "python3 resolves to a path");
-        let meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "py",
-            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
-            "launchDigest": resolved.launch_digest(),
-            "agentCapabilities": {"_meta": {"acpmux": {"asksBeforeTools": true}}},
-        }))
-        .unwrap();
-        assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
-    }
-
-    fn ids(modes: &[&str]) -> Vec<String> {
-        modes.iter().map(|m| (*m).to_owned()).collect()
-    }
-
-    #[test]
-    fn each_policy_maps_onto_a_codex_mode_that_keeps_it() {
-        let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
-        for (policy, mode) in [
-            (PermissionPolicy::Ask, "ask"),
-            (PermissionPolicy::ApproveReads, "ask"),
-            (PermissionPolicy::ApproveEdits, "ask"),
-            (PermissionPolicy::DenyAll, "read-only"),
-        ] {
-            assert_eq!(policy_mode(policy, "codex", &codex).as_deref(), Some(mode), "{policy}");
-        }
-    }
-
-    /// A remote start on the bridge settles in `read-only` only for an enrolled peer under
-    /// deny-all, and in `ask` from anyone else, under any other policy, or when the harness offers
-    /// no `read-only`.
-    #[test]
-    fn a_remote_bridge_start_settles_in_read_only_only_for_a_peer_under_deny_all() {
-        let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
-        let deny_all = Some(PermissionPolicy::DenyAll);
-        assert_eq!(bridge_settle_modes(true, deny_all, &codex), ids(&["read-only"]));
-        assert_eq!(bridge_settle_modes(false, deny_all, &codex), ids(&["ask"]));
-        assert_eq!(bridge_settle_modes(true, deny_all, &ids(&["ask", "agent"])), ids(&["ask"]));
-        assert_eq!(bridge_settle_modes(true, deny_all, &[]), ids(&["ask"]));
-        for policy in [
-            None,
-            Some(PermissionPolicy::Ask),
-            Some(PermissionPolicy::ApproveReads),
-            Some(PermissionPolicy::ApproveEdits),
-        ] {
-            assert_eq!(bridge_settle_modes(true, policy, &codex), ids(&["ask"]), "{policy:?}");
-        }
-    }
-
-    /// Muse Code through muse-acp offers `default`, `readOnly` and `plan`, and asks through its
-    /// approval option, not a mode: deny-all holds in `readOnly`; the asking policies have no
-    /// mode that keeps them.
-    #[test]
-    fn muse_deny_all_runs_read_only() {
-        let muse = ids(&["default", "readOnly", "plan"]);
-        assert_eq!(
-            policy_mode(PermissionPolicy::DenyAll, "muse", &muse).as_deref(),
-            Some("readOnly")
-        );
-        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &muse), None);
-    }
-
-    #[test]
-    fn claude_asks_in_default_and_opencode_and_a_modeless_harness_cannot_keep_a_policy() {
-        let claude = ids(&["default", "acceptEdits", "plan", "bypassPermissions"]);
-        for policy in [
-            PermissionPolicy::Ask,
-            PermissionPolicy::ApproveReads,
-            PermissionPolicy::ApproveEdits,
-            PermissionPolicy::DenyAll,
-        ] {
-            assert_eq!(policy_mode(policy, "claude", &claude).as_deref(), Some("default"));
-            assert_eq!(policy_mode(policy, "opencode", &ids(&["build", "plan", "ask"])), None);
-            assert_eq!(policy_mode(policy, "pi", &[]), None);
-        }
-    }
-}
+#[path = "policy_mode_tests.rs"]
+mod tests;

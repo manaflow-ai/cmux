@@ -36,6 +36,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// The lane hosts as one cell (RFD 0181): each one's live sessions against its lane cap,
+    /// the hosts past it, and the ones fleet-registry.json keeps work off (held or stopped)
+    /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
+    /// and the registry, and changes nothing.
+    Cells,
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -54,7 +59,20 @@ pub enum PeerCmd {
     /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
-    Load,
+    /// `--watch`: sample once a second and print one JSON line each time a line
+    /// is crossed (memory available under 25% / 10%, an OOM kill, CPU saturated
+    /// 5 minutes, disk under 10% or 2 GiB), until stdout closes.
+    Load {
+        /// Sample once a second and print an event line when a line is crossed.
+        #[arg(long)]
+        watch: bool,
+        #[command(flatten)]
+        lines: crate::host_load_watch::Lines,
+    },
+    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
+    /// it in the background when the last split is old.
+    #[command(name = "disk-walk", hide = true)]
+    DiskWalk,
     /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
     /// stdin: one JSON object, or an array of them, in; the verdict (or an
     /// array of verdicts) out, as JSON. Pure: reads no host and starts no
@@ -143,8 +161,8 @@ pub enum PeerCmd {
         #[arg(long)]
         user_id: Option<String>,
     },
-    /// Request screen/control consent through the daemon. Changing it requires
-    /// the local app's person proof; a shell or agent cannot grant consent.
+    /// Screen/control consent. From the cmux app (its person proof), or as this Mac's admin
+    /// with sudo (`sudo acpmux machine consent grant --control`); a plain shell is refused.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
@@ -191,6 +209,11 @@ pub enum PeerCmd {
         /// commit than this one (the machine refuses that otherwise).
         #[arg(long)]
         allow_downgrade: bool,
+        /// Restart the daemon even when an update restarted it in the last
+        /// hour. Without it the machine refuses inside that hour, in its own
+        /// install step, and nothing is changed.
+        #[arg(long)]
+        now: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -214,6 +237,12 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+        /// Restart the daemon even when an update (this one, another machine's,
+        /// or the machine's own acpmux-update.timer) restarted it in the last
+        /// hour. Without it such a machine is left alone (`busy`, reason
+        /// `restartWindow`) until the hour is over.
+        #[arg(long)]
+        now: bool,
         /// Install the pushed binary even when the machine's acpmux is built
         /// from a newer commit. Without it the machine refuses that move back
         /// (`current`, reason `newerInstalled`) in its own install step, so a
@@ -243,11 +272,22 @@ pub enum PeerCmd {
     /// the installed ~/.local/bin/acpmux differs from the channel's, download
     /// this machine's binary, check its sha256, install it and restart the
     /// daemon, agents kept; a daemon that does not come back on it is rolled
-    /// back. Prints the row `machine update` prints for a machine.
+    /// back. An update restarts the daemon at most once an hour, whichever
+    /// update it is (this one or `machine update` from another machine);
+    /// within the hour the machine is left alone until the next run. Prints
+    /// the row `machine update` prints for a machine.
     SelfUpdate {
         /// The channel to follow.
         #[arg(long, default_value = "feat-cmux-next")]
         channel: String,
+        /// Restart the daemon even when an update restarted it in the last hour.
+        #[arg(long)]
+        now: bool,
+        /// Install the channel's build even when the installed one is built
+        /// from a newer commit (pulling a bad channel build back). Without
+        /// it the newer installed build is kept.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -311,6 +351,20 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// A unix socket here that reaches OWNER's lane-gh broker over the held carrier link (RFD
+    /// 0127 cut 2) instead of an `ssh -R` forward: one carrier stream per connection, so
+    /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
+    /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
+    BrokerForward {
+        /// The machines whose broker to reach (names in the hub's address book), in order of
+        /// preference: each connection goes to the first whose broker answered its last
+        /// progress check, and fails over before any of its bytes are sent.
+        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
+        owners: Vec<String>,
+        /// Where to listen (a stale socket there is replaced; a served one is left alone).
+        #[arg(long, value_name = "PATH")]
+        socket: std::path::PathBuf,
+    },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
     /// ed25519 key when this machine has none (never over an existing key).
@@ -361,6 +415,11 @@ pub enum VaultCmd {
     },
     /// Remove a kept key (`keep`) from this machine.
     Drop { name: String },
+    /// List every secret this user's processes and files can reach, by name and
+    /// path only (never a value), and exit 1 when anything but the owner's
+    /// harness login or this machine's own identity is reachable (exit 2: the
+    /// audit could not see everything). A Cloud chat's VM runs it after a move.
+    Audit,
 }
 
 #[derive(Subcommand)]
@@ -435,23 +494,32 @@ pub enum TunnelCmd {
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
-    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
+    /// Grant screen, control or signed-in-machines consent (exactly one). Under sudo it is set
+    /// here as this Mac's admin; otherwise the daemon takes it only from the cmux app.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Grant {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
-    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
+    /// Revoke screen, control or signed-in-machines consent (exactly one), the same ways.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Revoke {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
 }
 
@@ -469,8 +537,12 @@ pub enum ApprovalsCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Stop a Mac's Allows here, at once.
+    /// Stop a Mac's Allows here, at once (`rm standing-grant` ends the standing grant).
     Rm { id: String },
+    /// Record a standing pre-grant on this machine: a key of this user's own, enrolled here, with
+    /// which `acpmux allow SESSION --standing-grant` signs a one-time allow of a plain tool ask
+    /// (never a lasting allow, a plan, a mode, a policy or a rule). Keeps the key already there.
+    Grant,
     /// From this Mac: let its cmux app allow the prompts of MACHINE (a machine name
     /// or ssh host), over ssh. The approvals step of `machine enroll`, alone.
     Enroll {

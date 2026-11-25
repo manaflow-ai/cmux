@@ -17,6 +17,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 type Box = { x: number; y: number; w: number; h: number };
 type Frame = {
@@ -67,7 +68,7 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
     const box = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + 40);
     for (let turn = 0; turn < 4; turn++) await page.mouse.wheel(0, -240);
-    await page.waitForSelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
+    await page.waitForSelector(JUMP_LATEST_SHOWN);
     await page.mouse.move(0, 0);
     await settle(page);
     return page;
@@ -92,99 +93,102 @@ await requireBrowserLane("composer-hat-fold-balance.test.ts", async () => {
 
   /** Starts sampling each painted frame (after paint: a task queued from its animation frame). */
   const startSampling = (page: Page) =>
-    page.evaluate(() => {
-      const w = window as unknown as { __frames: unknown[]; __sampling: boolean; __clicked: boolean };
-      w.__frames = [];
-      w.__sampling = true;
-      w.__clicked = false;
-      const tray = () => document.querySelector<HTMLElement>(".acpmux-dock > .acpmux-running-tray")!;
-      tray().addEventListener("click", () => (w.__clicked = true), { capture: true });
-      const box = (node: Element): { x: number; y: number; w: number; h: number } => {
-        const rect = node.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
-      };
-      const drawnOpacity = (node: Element, stop: Element): number => {
-        let value = 1;
-        for (let at: Element | null = node; at && at !== stop.parentElement; at = at.parentElement) {
-          const style = getComputedStyle(at);
-          if (style.visibility === "hidden" || style.display === "none") return 0;
-          value *= Number(style.opacity);
-        }
-        return value;
-      };
-      // A stable key per element: its class (or tag) and its index among same-keyed siblings' path.
-      const keyOf = (node: Element, stop: Element): string => {
-        const parts: string[] = [];
-        for (let at: Element | null = node; at && at !== stop; at = at.parentElement) {
-          const name = (at.getAttribute("class") ?? "").trim().split(/\s+/).join(".") || at.tagName;
-          parts.unshift(name);
-        }
-        return parts.join(">");
-      };
-      // The middle row of the view, to tell whether the transcript moved.
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const view = scroller.getBoundingClientRect();
-      const anchor = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => {
-        const rect = row.getBoundingClientRect();
-        return rect.top > view.top + 20 && rect.bottom < view.top + view.height / 2;
-      });
-      const ids = new WeakMap<object, number>();
-      let nextId = 0;
-      const nodeId = (node: object) => {
-        if (!ids.has(node)) ids.set(node, ++nextId);
-        return ids.get(node)!;
-      };
-      const sample = () => {
-        const hat = tray();
-        const fold = hat.querySelector(":scope > .acpmux-running-tray__fold");
-        const parts: Record<string, { x: number; y: number; w: number; h: number; opacity: number }> = {};
-        for (const node of hat.querySelectorAll("*")) {
-          if (fold?.contains(node)) continue;
-          // A ticking cell is one element: its leaving and entering words are its own motion.
-          if (node.parentElement?.closest(".acpmux-tick")) continue;
-          if (!(node instanceof HTMLElement) && node.tagName.toLowerCase() !== "svg") continue;
-          const b = box(node);
-          const opacity = drawnOpacity(node, hat);
-          if (b.w < 0.5 || b.h < 0.5 || opacity < 0.01) continue;
-          let key = keyOf(node, hat);
-          while (parts[key]) key += "+";
-          parts[key] = { ...b, opacity };
-        }
-        const tuck = hat.querySelector(".acpmux-running-tray__tuck");
-        const jump = document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
-        w.__frames.push({
-          at: performance.now(),
-          clicked: w.__clicked,
-          dock: box(document.querySelector(".acpmux-dock")!),
-          fold: fold ? fold.getBoundingClientRect().height : 0,
-          foldAt: fold
-            ? `#${nodeId(fold)} ${fold
-                .getAnimations()
-                .map(
-                  (animation) =>
-                    `${animation.playState}@${Math.round(Number(animation.currentTime ?? -1))}/a${nodeId(animation)}`,
-                )
-                .join(",")} list ${fold.firstElementChild?.getBoundingClientRect().height.toFixed(1)}`
-            : "-",
-          jump: jump ? box(jump) : null,
-          row: anchor ? anchor.getBoundingClientRect().top : Number.NaN,
-          parts,
-          tuck: tuck ? drawnOpacity(tuck, hat) : 0,
+    page.evaluate(
+      ({ JUMP_LATEST_SHOWN }) => {
+        const w = window as unknown as { __frames: unknown[]; __sampling: boolean; __clicked: boolean };
+        w.__frames = [];
+        w.__sampling = true;
+        w.__clicked = false;
+        const tray = () => document.querySelector<HTMLElement>(".acpmux-dock > .acpmux-running-tray")!;
+        tray().addEventListener("click", () => (w.__clicked = true), { capture: true });
+        const box = (node: Element): { x: number; y: number; w: number; h: number } => {
+          const rect = node.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        };
+        const drawnOpacity = (node: Element, stop: Element): number => {
+          let value = 1;
+          for (let at: Element | null = node; at && at !== stop.parentElement; at = at.parentElement) {
+            const style = getComputedStyle(at);
+            if (style.visibility === "hidden" || style.display === "none") return 0;
+            value *= Number(style.opacity);
+          }
+          return value;
+        };
+        // A stable key per element: its class (or tag) and its index among same-keyed siblings' path.
+        const keyOf = (node: Element, stop: Element): string => {
+          const parts: string[] = [];
+          for (let at: Element | null = node; at && at !== stop; at = at.parentElement) {
+            const name = (at.getAttribute("class") ?? "").trim().split(/\s+/).join(".") || at.tagName;
+            parts.unshift(name);
+          }
+          return parts.join(">");
+        };
+        // The middle row of the view, to tell whether the transcript moved.
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const view = scroller.getBoundingClientRect();
+        const anchor = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.top > view.top + 20 && rect.bottom < view.top + view.height / 2;
         });
-      };
-      const tick = () =>
-        requestAnimationFrame(() => {
-          const channel = new MessageChannel();
-          channel.port1.onmessage = () => {
-            if (!w.__sampling) return;
-            sample();
-            tick();
-          };
-          channel.port2.postMessage(0);
-        });
-      sample();
-      tick();
-    });
+        const ids = new WeakMap<object, number>();
+        let nextId = 0;
+        const nodeId = (node: object) => {
+          if (!ids.has(node)) ids.set(node, ++nextId);
+          return ids.get(node)!;
+        };
+        const sample = () => {
+          const hat = tray();
+          const fold = hat.querySelector(":scope > .acpmux-running-tray__fold");
+          const parts: Record<string, { x: number; y: number; w: number; h: number; opacity: number }> = {};
+          for (const node of hat.querySelectorAll("*")) {
+            if (fold?.contains(node)) continue;
+            // A ticking cell is one element: its leaving and entering words are its own motion.
+            if (node.parentElement?.closest(".acpmux-tick")) continue;
+            if (!(node instanceof HTMLElement) && node.tagName.toLowerCase() !== "svg") continue;
+            const b = box(node);
+            const opacity = drawnOpacity(node, hat);
+            if (b.w < 0.5 || b.h < 0.5 || opacity < 0.01) continue;
+            let key = keyOf(node, hat);
+            while (parts[key]) key += "+";
+            parts[key] = { ...b, opacity };
+          }
+          const tuck = hat.querySelector(".acpmux-running-tray__tuck");
+          const jump = document.querySelector(JUMP_LATEST_SHOWN);
+          w.__frames.push({
+            at: performance.now(),
+            clicked: w.__clicked,
+            dock: box(document.querySelector(".acpmux-dock")!),
+            fold: fold ? fold.getBoundingClientRect().height : 0,
+            foldAt: fold
+              ? `#${nodeId(fold)} ${fold
+                  .getAnimations()
+                  .map(
+                    (animation) =>
+                      `${animation.playState}@${Math.round(Number(animation.currentTime ?? -1))}/a${nodeId(animation)}`,
+                  )
+                  .join(",")} list ${fold.firstElementChild?.getBoundingClientRect().height.toFixed(1)}`
+              : "-",
+            jump: jump ? box(jump) : null,
+            row: anchor ? anchor.getBoundingClientRect().top : Number.NaN,
+            parts,
+            tuck: tuck ? drawnOpacity(tuck, hat) : 0,
+          });
+        };
+        const tick = () =>
+          requestAnimationFrame(() => {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = () => {
+              if (!w.__sampling) return;
+              sample();
+              tick();
+            };
+            channel.port2.postMessage(0);
+          });
+        sample();
+        tick();
+      },
+      { JUMP_LATEST_SHOWN },
+    );
 
   const stopSampling = (page: Page) =>
     page.evaluate(() => {

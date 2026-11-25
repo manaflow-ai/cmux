@@ -42,17 +42,17 @@ enum AgentChatMuteHandlers {
 /// Handlers.xcstrings.
 enum AgentChatMuteStrings {
     static var mute: String {
-        String(localized: "agentChat.muteNotifications", defaultValue: "Mute Chat Notifications", table: "Handlers", bundle: .module)
+        String(localized: "agentChat.muteNotifications", defaultValue: "Mute Chat Notifications", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var unmute: String {
-        String(localized: "agentChat.unmuteNotifications", defaultValue: "Unmute Chat Notifications", table: "Handlers", bundle: .module)
+        String(localized: "agentChat.unmuteNotifications", defaultValue: "Unmute Chat Notifications", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var notAChat: String {
         String(localized: "agentChat.mute.notAChat", defaultValue: "Only an agent chat on this Mac can be muted.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var failed: String {
         String(localized: "agentChat.mute.failed", defaultValue: "The chat's notifications could not be changed.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

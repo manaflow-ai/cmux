@@ -8,13 +8,13 @@ import Testing
 
 /// Lucas 2026-11-12 ("Plus button: same height and roundness as tabs. It looks like a pill now."; "it shouldnt have any
 /// colour/bakground on the group thing, only on hover"; "Sidebar row roundness must be exactly the same as tab
-/// roundness"): the tab bar's split `+ ⌄` is a tab's height with a tab's corner and curve, draws no fill at rest, and
+/// roundness"): the tab bar's split `+ ⌄` takes a tab's corner and curve (and the ⋮'s height, Lawrence 2026-11-20), draws no fill at rest, and
 /// the sidebar's rows round exactly as the tabs do.
 @MainActor struct TabSplitButtonLookTests {
-    @Test func theSplitControlIsATabsHeightAndCorner() {
-        #expect(NewTabButtonView.splitCornerRadius == Metrics.tabCornerRadius)
-        #expect(NewTabButtonView.frameHeight(split: true, side: 22, tabHeight: 30) == 30, "the split + is a tab's height")
-        #expect(NewTabButtonView.frameHeight(split: false, side: 22, tabHeight: 30) == 22, "other looks keep the square")
+    @Test func theSplitControlIsTheMoreButtonsSizeWithATabsCorner() {
+        // Lawrence 2026-11-20: the + rounds as a tab and is the pane ⋮'s size, in every look.
+        #expect(NewTabButtonView.splitCornerRadius == min(Metrics.tabCornerRadius, Metrics.tabBarControlSide / 2))
+        #expect(NewTabButtonView.frameHeight == Metrics.tabHeight, "the + is a tab tall, as the ⋮")
     }
 
     @Test func sidebarRowsRoundExactlyAsTabsDo() {

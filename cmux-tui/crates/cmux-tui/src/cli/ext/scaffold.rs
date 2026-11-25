@@ -1,4 +1,4 @@
-//! `cmux ext new NAME [--kind sidebar|session-info|pane|newtab|command]`: a working extension
+//! `cmux ext new NAME [--kind sidebar|session-info|pane|newtab|widget|command]`: a working extension
 //! folder from templates embedded in the binary (manifest v2, `src/main.ts`
 //! on the public SDK, its built `dist/main.js`, a README with the loop, and
 //! the API types). Each kind loads as written, and a save to its source is
@@ -17,9 +17,11 @@
 
 use std::path::{Path, PathBuf};
 
+use super::publish::{self, Repo};
+
 /// The kinds `--kind` takes (`section` is `sidebar`'s first name).
 pub(super) const KINDS: &[&str] =
-    &["sidebar", "section", "session-info", "pane", "newtab", "command"];
+    &["sidebar", "section", "session-info", "pane", "newtab", "widget", "command"];
 
 /// The first lines of every kind's `dist/main.js`; the packer's build follows.
 #[cfg(test)]
@@ -42,28 +44,45 @@ pub(super) fn pending(kind: &str) -> Option<String> {
     })
 }
 
+/// A view kind's design defaults: how the scene should look, so what a model builds from the
+/// template keeps the app's look (templates/common/DESIGN.md).
+const DESIGN: (&str, &str) = ("DESIGN.md", include_str!("templates/common/DESIGN.md"));
+
+/// What the README says of DESIGN.md, in a view kind's file list.
+const DESIGN_LINE: &str = "\n- `DESIGN.md`: how the view should look (the shape of a view, tones, fonts, symbols). Read it\n  before you change `src/main.ts`; the template already follows it.";
+
 const SECTION: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/section/cmux-app.json")),
     ("src/main.ts", include_str!("templates/section/src/main.ts")),
     ("dist/main.js", include_str!("templates/section/dist/main.js")),
+    DESIGN,
 ];
 
 const PANE: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/pane/cmux-app.json")),
     ("src/main.ts", include_str!("templates/pane/src/main.ts")),
     ("dist/main.js", include_str!("templates/pane/dist/main.js")),
+    DESIGN,
 ];
 
 const SESSION_INFO: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/session-info/cmux-app.json")),
     ("src/main.ts", include_str!("templates/session-info/src/main.ts")),
     ("dist/main.js", include_str!("templates/session-info/dist/main.js")),
+    DESIGN,
 ];
 
 const NEWTAB: &[(&str, &str)] = &[
     ("cmux-app.json", include_str!("templates/newtab/cmux-app.json")),
     ("src/main.ts", include_str!("templates/newtab/src/main.ts")),
     ("dist/main.js", include_str!("templates/newtab/dist/main.js")),
+    DESIGN,
+];
+
+const WIDGET: &[(&str, &str)] = &[
+    ("cmux-app.json", include_str!("templates/widget/cmux-app.json")),
+    ("src/main.ts", include_str!("templates/widget/src/main.ts")),
+    ("dist/main.js", include_str!("templates/widget/dist/main.js")),
 ];
 
 const COMMAND: &[(&str, &str)] = &[
@@ -76,6 +95,8 @@ const COMMAND: &[(&str, &str)] = &[
 /// Every kind's project files around the code.
 const COMMON: &[(&str, &str)] = &[
     ("README.md", include_str!("templates/common/README.md")),
+    // Stored without its dot, so it does not apply to the templates folder.
+    (".gitignore", include_str!("templates/common/gitignore")),
     ("package.json", include_str!("templates/common/package.json")),
     ("tsconfig.json", include_str!("templates/common/tsconfig.json")),
 ];
@@ -83,16 +104,21 @@ const COMMON: &[(&str, &str)] = &[
 /// The types `src/main.ts` and the SDK reference: the generated app global
 /// from the capability manifest, the same file `cmux script types` starts
 /// with. `cmux ext dev` refreshes it from the running cmux when that one differs.
-const TYPES: &str = cmux_app_manifest::capabilities::APP_TYPES;
+fn types() -> &'static str {
+    cmux_app_manifest::capabilities::APP_TYPES.get()
+}
 
 /// The public SDK as this binary was built with it.
-pub(super) const SDK_INDEX: &str =
-    include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts");
+/// The widget place and its layout helpers (`index.ts` re-exports them).
+const SDK_WIDGET: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts");
+/// Design systems: cmux's as data, `defineDesign` and the viewer (`index.ts` re-exports them).
+const SDK_DESIGN: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts");
+const SDK_INDEX: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts");
 const SDK_PACKAGE: &str = include_str!("../../../../cmux-extension-sdk/typescript/package.json");
 const SDK_README: &str = include_str!("../../../../cmux-extension-sdk/README.md");
 const SDK_EVENTS: &str = include_str!("../../../../cmux-app-host/schema/v2/events.json");
 /// The scope table, whose `apiVersion` is the SDK's `API_VERSION`.
-pub(super) const SDK_SCOPES: &str = cmux_app_manifest::capabilities::SCOPES_JSON;
+const SDK_SCOPES: &str = cmux_app_manifest::capabilities::SCOPES_JSON;
 
 /// The SDK source's paths into the cmux repository, and where the vendored
 /// copy finds the same files (`sdk/src/index.ts` -> `sdk/tables/…`, the
@@ -104,13 +130,17 @@ const SDK_PATHS: &[(&str, &str)] = &[
 ];
 
 /// `sdk/`: the SDK's files with its imports pointed at the copied tables.
-pub(super) fn sdk_files() -> Vec<(&'static str, String)> {
+pub(super) fn runtime_sdk_files() -> Vec<(&'static str, String)> {
     let index =
         SDK_PATHS.iter().fold(SDK_INDEX.to_string(), |text, (from, to)| text.replace(from, to));
     vec![
-        ("sdk/package.json", SDK_PACKAGE.to_string()),
-        ("sdk/README.md", SDK_README.to_string()),
         ("sdk/src/index.ts", index),
+        ("sdk/src/widget.ts", SDK_WIDGET.to_string()),
+        ("sdk/src/design.ts", SDK_DESIGN.to_string()),
+        (
+            "sdk/src/tokens.ts",
+            include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts").to_owned(),
+        ),
         ("sdk/tables/events.json", SDK_EVENTS.to_string()),
         ("sdk/tables/scopes.json", SDK_SCOPES.to_string()),
     ]
@@ -142,7 +172,10 @@ pub(super) fn cli_name_problem(name: &str) -> Option<String> {
             "--kind command makes `cmux {name} …`, which needs a name of 2 to 24 lowercase letters, digits and single dashes that starts with a letter"
         ));
     }
-    cmux_app_manifest::is_reserved_cli_name(name).then(|| {
+    // Reserved words, and the first word of a built-in command the CLI routes
+    // after its grammar (`tab`, `share`), always win over an app's short form
+    // (`app_commands::short_form_word`), so `cmux NAME hello` would never reach it.
+    (!crate::cli::app_commands::short_form_word(name)).then(|| {
         format!(
             "--kind command makes `cmux {name} …`, but {name} is a cmux command; pick another name"
         )
@@ -165,16 +198,21 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
         "pane" => (
             "a pane that lists your workspaces.",
             "Open the pane from the command palette by its title.",
-            "",
+            DESIGN_LINE,
         ),
         "session-info" => (
             "a section in an agent chat's Session Info panel.",
             "It shows in the Session Info panel of every agent chat; its context is that chat's session\n(`cwd`, `branch`, `harness`).",
-            "",
+            DESIGN_LINE,
         ),
         "newtab" => (
-            "a whole New Tab page.",
+            "a view over the New Tab composer.",
             "Pick it as your New Tab page: `cmux settings set tabs.newTabApp local/{{NAME}}` (Settings >\nTabs > New Tab App); unset it to get cmux's own page back.",
+            DESIGN_LINE,
+        ),
+        "widget" => (
+            "a widget for the New Tab page and the sidebar.",
+            "Add it from Edit Widgets > Add Widget (right-click the New Tab page's widgets, or the\nsidebar's), pick a size, and drag it where you want it. cmux ticks `ctx.now()` on the minute\nwhile it is shown; read data with `cmux.watch` in a view that reads it.",
             "",
         ),
         "command" => (
@@ -182,42 +220,91 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
             "Run it from the command palette, from a terminal as `cmux {{NAME}} hello [NAME]`, or as\n`cmux apps run local/{{NAME}} hello`. `catalog.json` says where it is offered: its `cli.path`,\n`palette` title and `mcp.expose` (agents see it as a tool).",
             "\n- `catalog.json`: the command (`{{NS}}.hello`): its arguments, result, risk and where it shows.",
         ),
-        _ => ("one sidebar section.", "Place the section from the sidebar's edit mode.", ""),
+        _ => {
+            ("one sidebar section.", "Place the section from the sidebar's edit mode.", DESIGN_LINE)
+        }
     }
 }
 
-/// The files of a new `kind` extension called `name`, by relative path.
-pub(super) fn files(name: &str, kind: &str) -> Option<Vec<(&'static str, String)>> {
+/// The id of extension `name`: `PUBLISHER/NAME` when it has a GitHub
+/// repository (the owner, lowercased, as the store requires), else
+/// `local/NAME`.
+pub(super) fn app_id(name: &str, repo: Option<&Repo>) -> String {
+    match repo {
+        Some(repo) => format!("{}/{name}", repo.publisher()),
+        None => format!("local/{name}"),
+    }
+}
+
+/// The files of a new `kind` extension called `name`, by relative path, published from `repo`: its id is the owner's,
+/// the manifest names the repository, and the README's badge and install
+/// line point at it (marked placeholders with none).
+pub(super) fn files_for(
+    name: &str,
+    kind: &str,
+    repo: Option<&Repo>,
+) -> Option<Vec<(&'static str, String)>> {
     let templates = match kind {
         "sidebar" | "section" => SECTION,
         "pane" => PANE,
         "session-info" => SESSION_INFO,
         "newtab" => NEWTAB,
+        "widget" => WIDGET,
         "command" => COMMAND,
         _ => return None,
     };
     let (what, usage, extra) = readme_parts(kind);
     let title = title(name);
-    let namespace = cmux_app_manifest::app_namespace(&format!("local/{name}"));
+    let id = app_id(name, repo);
+    let namespace = cmux_app_manifest::app_namespace(&id);
+    let badge = publish::readme_badge(repo);
+    let install = publish::readme_install(repo);
+    // The manifest's id line, and the repository under it.
+    let local_id_line = format!("\"id\": \"local/{name}\",");
+    let id_line = match repo {
+        Some(repo) => format!("\"id\": \"{id}\",\n  \"repository\": \"{}\",", repo.url()),
+        None => local_id_line.clone(),
+    };
     let fill = |text: &str| {
         text.replace("{{WHAT}}", what)
             .replace("{{USE}}", usage)
             .replace("{{FILES}}", extra)
+            .replace("{{BADGE}}", &badge)
+            .replace("{{INSTALL}}", &install)
+            .replace("{{ID}}", &id)
             .replace("{{NAME}}", name)
             .replace("{{TITLE}}", &title)
             .replace("{{NS}}", &namespace)
+            .replace(&local_id_line, &id_line)
     };
     let mut out: Vec<(&'static str, String)> =
         templates.iter().chain(COMMON).map(|(path, text)| (*path, fill(text))).collect();
-    out.push(("cmux-app.d.ts", TYPES.to_string()));
-    out.extend(sdk_files());
+    out.push(("cmux-app.d.ts", types().to_owned()));
+    out.push(("sdk/package.json", SDK_PACKAGE.to_owned()));
+    out.push(("sdk/README.md", SDK_README.to_owned()));
+    out.extend(runtime_sdk_files());
     Some(out)
 }
 
 /// Writes a new extension into `dir`, which must not exist yet (or be
 /// empty); returns the files written.
+#[cfg(test)]
 pub(super) fn scaffold(dir: &Path, name: &str, kind: &str) -> Result<Vec<PathBuf>, String> {
-    let files = files(name, kind).ok_or_else(|| {
+    scaffold_for(dir, name, kind, None)
+}
+
+/// `scaffold` for an extension published from `repo`. A folder that holds
+/// only `.git` (a clone of a new, empty repository) counts as empty.
+pub(super) fn scaffold_for(
+    dir: &Path,
+    name: &str,
+    kind: &str,
+    repo: Option<&Repo>,
+) -> Result<Vec<PathBuf>, String> {
+    if let Some(problem) = repo.and_then(Repo::publisher_problem) {
+        return Err(problem);
+    }
+    let files = files_for(name, kind, repo).ok_or_else(|| {
         format!("--kind {kind} is not one cmux ext new makes; it makes {}", KINDS.join(", "))
     })?;
     if kind == "command"
@@ -225,7 +312,10 @@ pub(super) fn scaffold(dir: &Path, name: &str, kind: &str) -> Result<Vec<PathBuf
     {
         return Err(problem);
     }
-    if std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some()) {
+    let occupied = std::fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.any(|entry| !entry.is_ok_and(|entry| entry.file_name() == ".git"))
+    });
+    if occupied {
         return Err(format!("{} already exists and is not empty", dir.display()));
     }
     let mut written = Vec::new();

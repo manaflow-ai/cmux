@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type ReactNode,
 } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
@@ -61,6 +62,11 @@ type EditDiffProps = {
   reveal?: number;
   /** Never held in a scroll box: every line drawn in the card (an edit a permission ask is about). */
   whole?: boolean;
+  /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
+  actions?: ReactNode;
+  /** Drawn inside a card of its own (the edited-files card): no ring, corner, fill or margin, so
+   *  the header and diff sit directly on that card instead of in a second box (conversation.css). */
+  flat?: boolean;
 };
 
 export function EditDiff(props: EditDiffProps) {
@@ -71,6 +77,8 @@ export function EditDiff(props: EditDiffProps) {
 export function EditDiffFrame({
   file,
   whole = false,
+  actions,
+  flat = false,
   hunks: Hunks,
 }: EditDiffProps & {
   hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
@@ -94,7 +102,7 @@ export function EditDiffFrame({
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap}>
+    <div className="cv-edit-diff" data-wrap={wrap} data-flat={flat || undefined}>
       <div className="cv-edit-diff__header">
         <span className="cv-edit-diff__name" data-path={file.path}>
           {name}
@@ -115,6 +123,7 @@ export function EditDiffFrame({
         >
           <Copy />
         </button>
+        {actions}
       </div>
       <div
         ref={edges}

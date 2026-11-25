@@ -4,6 +4,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
+import { COMPOSER_MD_FIELD } from "./composerSelectors";
 
 const DRAFT = [
   "Find the smallest safe change for the composer height and explain the tradeoffs.",
@@ -22,13 +23,14 @@ const DRAFT = [
 ].join("\n");
 
 const ALT_ID = "composer-height-candidate";
-const FIELD = ".acpmux-composer-box .acpmux-md-field";
+const FIELD = COMPOSER_MD_FIELD;
 const LINE_HEIGHT = "var(--text-content--line-height)";
 const CONTROL_HEIGHT = "var(--cmux-control-height, 23px)";
 const rules: Record<string, string> = {
   "old-eight-lines": `${FIELD} { max-height: calc(${LINE_HEIGHT} * 8 + ${CONTROL_HEIGHT}); }`,
   "current-forty-percent": `${FIELD} { max-height: max(calc(${LINE_HEIGHT} * 8 + ${CONTROL_HEIGHT}), 40vh); }`,
   "thirty-percent": `${FIELD} { max-height: 30vh; }`,
+  "pr-51620-thirty-lines": `${FIELD} { max-height: min(calc(${LINE_HEIGHT} * 30 + ${CONTROL_HEIGHT}), 60vh); }`,
 };
 
 const play = (candidate: string) => async (ctx: PlayContext) => {
@@ -89,15 +91,20 @@ export default agentPaneEntry({
     ),
     "thirty-percent-normal": variant("thirty-percent", 760, "Candidate: cap at 30% of a normal pane."),
     "thirty-percent-short": variant("thirty-percent", 300, "Candidate: cap at 30% of a short pane."),
-    "chosen-twelve-lines-normal": variant(
+    "pr-51620-thirty-lines-normal": variant(
+      "pr-51620-thirty-lines",
+      760,
+      "Before: #51620's thirty lines or 60% of the pane, the growth Leo flagged on 2026-11-24.",
+    ),
+    "chosen-claude-384-normal": variant(
       "chosen",
       760,
-      "Chosen Goldilocks policy: twelve lines, bounded by 40%, in a normal pane.",
+      "Shipping: Claude desktop's 384 px cap (bounded by 50% of the pane), in a normal pane.",
     ),
-    "chosen-twelve-lines-short": variant(
+    "chosen-claude-384-short": variant(
       "chosen",
       300,
-      "Chosen Goldilocks policy: twelve lines, bounded by 40%, in a short pane.",
+      "Shipping: Claude desktop's 384 px cap, in a short pane, which still gives up height.",
     ),
   },
 });

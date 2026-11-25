@@ -12,7 +12,33 @@ use super::*;
 
 use crate::agent_link::AgentLink;
 
+const OWNER_QUERY_BYTES: usize = 1024;
+const OWNER_REPLY_BYTES: usize = 32 * 1024;
+
 impl Hub {
+    /// Validates the selector on the owner-query `_acpmux/resolve` ingress.
+    pub(crate) fn validate_owner_selector(query: &str) -> Result<&str, RpcError> {
+        validate_owner_query(query)
+    }
+
+    /// Answers a selector from this daemon's own sessions only. A peer link uses this
+    /// owner-only form so a request cannot transit through a third machine.
+    pub fn locate_owner(
+        &self,
+        query: &str,
+        bead_only: bool,
+        exact: bool,
+        names_hosts: bool,
+    ) -> Result<Value, RpcError> {
+        let query = validate_owner_query(query)?;
+        if exact {
+            return self.locate_exact_owner(query, names_hosts);
+        }
+        let reply = self.locate_impl(query, bead_only, names_hosts, true)?;
+        enforce_owner_reply(&reply)?;
+        Ok(reply)
+    }
+
     /// The session `query` names, newest first when several do (`matches`), else a not-found
     /// error that says where it looked. With `bead_only`, `query` is a bead id and only the
     /// sessions carrying it match (a session named like it does not hide them). Without
@@ -25,6 +51,18 @@ impl Hub {
         bead_only: bool,
         names_hosts: bool,
     ) -> Result<Value, RpcError> {
+        self.locate_impl(query, bead_only, names_hosts, false)
+    }
+
+    /// The v1 resolver with its input restricted to this daemon's own rows. Peer-origin
+    /// requests use this path until fan-out moves to the later watchless cut.
+    fn locate_impl(
+        &self,
+        query: &str,
+        bead_only: bool,
+        names_hosts: bool,
+        own_only: bool,
+    ) -> Result<Value, RpcError> {
         let query = query.trim();
         if query.is_empty() {
             return Err(RpcError::invalid_params(
@@ -34,13 +72,17 @@ impl Hub {
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
         if !bead_only && let Some(id) = crate::opaque_agent_id::find(query) {
-            return self.locate_opaque(query, &id, &own, shown);
+            let reply = self.locate_opaque(query, &id, &own, shown, own_only)?;
+            if own_only {
+                enforce_owner_reply(&reply)?;
+            }
+            return Ok(reply);
         }
         let parsed = if bead_only { None } else { crate::agent_link::find(query) };
         let named = parsed.as_ref().and_then(|link| link.as_ref().ok());
         let names = Names::new(query, named, bead_only);
         let keep = |r: &RemoteSession| names.may_name(r);
-        let mut summaries = self.located_summaries(&keep, false);
+        let mut summaries = self.located_summaries_for(&keep, false, own_only);
         // Whether `summaries` holds closed chats too (moved chats' targets are read as it was).
         let mut all = false;
         if bead_only {
@@ -51,21 +93,25 @@ impl Hub {
             if found.is_empty() {
                 // Closed records are retained for explicit history lookups, but are not part of
                 // the repeated live index walk.
-                summaries = self.located_summaries(&keep, true);
+                summaries = self.located_summaries_for(&keep, true, own_only);
                 found = by_bead(&summaries, query);
             }
             if found.is_empty() {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
-            return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
+            let reply = json!({"session": matches.first(), "matches": matches, "link": null});
+            if own_only {
+                enforce_owner_reply(&reply)?;
+            }
+            return Ok(reply);
         }
         let (mut link, mut found) = match parsed.clone() {
             Some(Err(e)) => {
                 return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
             }
             Some(Ok(link)) => {
-                let found = by_link(&summaries, &link, &own);
+                let found = by_link(&summaries, &link, &own)?;
                 (Some(link), found)
             }
             None => {
@@ -73,7 +119,7 @@ impl Hub {
                 if !exact_live.is_empty() {
                     (None, exact_live)
                 } else {
-                    (summaries, all) = (self.located_summaries(&keep, true), true);
+                    (summaries, all) = (self.located_summaries_for(&keep, true, own_only), true);
                     let exact_all = by_key_exact(&summaries, query, &own);
                     if !exact_all.is_empty() {
                         (None, exact_all)
@@ -86,7 +132,7 @@ impl Hub {
                         // reads those first): the one session every other command finds for it
                         // (`hub/key_route.rs`: another case before a prefix, a prefix here before
                         // a name without separators); several are refused, never picked.
-                        return self.locate(&route, false, names_hosts);
+                        return self.locate_impl(&route, false, names_hosts, own_only);
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -96,20 +142,20 @@ impl Hub {
         if found.is_empty() && link.is_some() {
             // A name or id that explicitly asks for a closed chat is resolved on demand. The
             // common live lookup above never walks those records.
-            (summaries, all) = (self.located_summaries(&keep, true), true);
+            (summaries, all) = (self.located_summaries_for(&keep, true, own_only), true);
             (link, found) = match parsed.clone() {
                 Some(Err(e)) => {
                     return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
                 }
                 Some(Ok(link)) => {
-                    let found = by_link(&summaries, &link, &own);
+                    let found = by_link(&summaries, &link, &own)?;
                     (Some(link), found)
                 }
                 None => (None, by_key(&summaries, query, &own)),
             };
         }
         if found.is_empty() && link.is_none() && !all {
-            (summaries, all) = (self.located_summaries(&keep, true), true);
+            (summaries, all) = (self.located_summaries_for(&keep, true, own_only), true);
             found = by_key(&summaries, query, &own);
         }
         if found.is_empty() {
@@ -132,15 +178,15 @@ impl Hub {
             return Err(RpcError::not_found(format!("{}; close matches: {list}", e.message))
                 .with_data(json!({"candidates": shown_close})));
         }
-        self.answer(found, all, &own, shown, link)
+        let answer_link = if own_only && !names_hosts { None } else { link };
+        self.answer_filtered(found, all, own_only, &own, shown, answer_link)
     }
 
-    /// `locate`'s answer for the sessions it found (newest first; `all`: read with closed chats
-    /// too): each chat that moved after where it went (`follow_moves`), as cards, and the link.
-    fn answer(
+    fn answer_filtered(
         &self,
         found: Vec<&Value>,
         all: bool,
+        own_only: bool,
         own: &str,
         shown: Option<&str>,
         link: Option<AgentLink>,
@@ -152,7 +198,7 @@ impl Hub {
             Vec::new()
         } else {
             let to = |r: &RemoteSession| targets.contains(&r.receipt.mux_session_id.as_str());
-            self.located_summaries(&to, all)
+            self.located_summaries_for(&to, all, own_only)
         };
         let found = follow_moves(found, &moved, own);
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
@@ -182,6 +228,7 @@ impl Hub {
         id: &str,
         own: &str,
         shown: Option<&str>,
+        own_only: bool,
     ) -> Result<Value, RpcError> {
         let unfound = || RpcError::not_found(self.unfound(query, None, shown));
         let Some(key) = crate::opaque_agent_id::Key::load(&crate::config::home()) else {
@@ -211,7 +258,7 @@ impl Hub {
         };
         let here: Vec<&str> = here.iter().map(String::as_str).collect();
         for all in [false, true] {
-            let summaries = self.located_summaries(&keep, all);
+            let summaries = self.located_summaries_for(&keep, all, own_only);
             let found: Vec<&Value> = summaries
                 .iter()
                 .filter(|s| match s["peer"].as_str() {
@@ -220,23 +267,27 @@ impl Hub {
                 })
                 .collect();
             if !found.is_empty() {
-                return self.answer(found, all, own, shown, None);
+                return self.answer_filtered(found, all, own_only, own, shown, None);
             }
         }
         Err(unfound())
     }
 
-    /// The sessions `locate` reads, newest first: this daemon's (with `closed`, its closed ones
-    /// too) and the peers' rows `keep` takes, copying no other. The order is the full list's
-    /// (`all_session_summaries`), restricted to them.
-    fn located_summaries(&self, keep: &dyn Fn(&RemoteSession) -> bool, closed: bool) -> Vec<Value> {
+    fn located_summaries_for(
+        &self,
+        keep: &dyn Fn(&RemoteSession) -> bool,
+        closed: bool,
+        own_only: bool,
+    ) -> Vec<Value> {
         let mut v: Vec<Value> = if closed {
             self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect()
         } else {
             self.indexed_live_sessions().iter().map(|s| self.session_summary(s)).collect()
         };
-        let open = |r: &RemoteSession| !r.summary.closed();
-        self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
+        if !own_only {
+            let open = |r: &RemoteSession| !r.summary.closed();
+            self.visit_remote_sessions(|r| (closed || open(r)) && keep(r), |row| v.push(row));
+        }
         super::session_pages::sort_session_summaries(&mut v);
         v
     }
@@ -277,6 +328,33 @@ impl Hub {
         Ok(json!({"session": session}))
     }
 
+    fn locate_exact_owner(&self, query: &str, names_hosts: bool) -> Result<Value, RpcError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(RpcError::invalid_params("sessionId is required"));
+        }
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
+        let session = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(query)
+            .cloned()
+            .ok_or_else(|| {
+            RpcError::not_found(self.unfound(query, None, shown))
+                .with_data(json!({"owner": true, "state": "missing"}))
+        })?;
+        let summary = if session.status() == SessionStatus::Closed {
+            self.cached_closed_summary(&session, true)
+        } else {
+            self.session_summary(&session)
+        };
+        let reply = json!({"session": card(&summary, shown)});
+        enforce_owner_reply(&reply)?;
+        Ok(reply)
+    }
+
     /// Where `locate` looked, for its not-found error: this machine and its peers by name, which
     /// are down, and a link's host that is neither, when `own` (the hosts) may be shown.
     fn unfound(&self, query: &str, link: Option<&AgentLink>, own: Option<&str>) -> String {
@@ -309,6 +387,33 @@ impl Hub {
         }
         text
     }
+}
+
+fn validate_owner_query(query: &str) -> Result<&str, RpcError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(RpcError::invalid_params("query is required"));
+    }
+    if query.len() > OWNER_QUERY_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "query is too large: {} bytes, the limit is {OWNER_QUERY_BYTES}",
+            query.len()
+        ))
+        .with_data(json!({"owner": true, "limit": OWNER_QUERY_BYTES, "bytes": query.len()})));
+    }
+    Ok(query)
+}
+
+fn enforce_owner_reply(reply: &Value) -> Result<(), RpcError> {
+    let bytes = serde_json::to_vec(reply).map_err(|error| RpcError::internal(error.to_string()))?;
+    if bytes.len() > OWNER_REPLY_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "owner resolve reply is too large: {} bytes, the limit is {OWNER_REPLY_BYTES}",
+            bytes.len()
+        ))
+        .with_data(json!({"owner": true, "state": "ambiguous", "bytes": bytes.len(), "limit": OWNER_REPLY_BYTES})));
+    }
+    Ok(())
 }
 
 /// That nothing `query` names was found `looked` ("on … or its peers").
@@ -353,8 +458,13 @@ fn minted_harnesses(family: &str) -> impl Iterator<Item = &str> {
 }
 
 /// The sessions whose harness session id and family are the link's, those on the host the link
-/// names first, then this daemon's, newest first within.
-fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a Value> {
+/// names first, then this daemon's, newest first within. An explicit `handle:` selector is
+/// mutable. The legacy id form never falls back to a handle after its chat disappears.
+fn by_link<'a>(
+    summaries: &'a [Value],
+    link: &AgentLink,
+    own: &str,
+) -> Result<Vec<&'a Value>, RpcError> {
     let mut found: Vec<&Value> = summaries
         .iter()
         .filter(|s| s["agentSessionId"].as_str() == Some(link.session.as_str()))
@@ -362,9 +472,29 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
         .collect();
     let on_hint =
         |s: &Value| link.host.as_deref().is_some_and(|h| host_of(s, own).eq_ignore_ascii_case(h));
+    if found.is_empty()
+        && let Some(handle) = link.session.strip_prefix("handle:")
+        && crate::session_handle::valid(handle)
+    {
+        found.extend(summaries.iter().filter(|s| {
+            family_of(s) == link.harness
+                && (link.host.is_none() || on_hint(s))
+                && handle_matches(s, handle)
+        }));
+        if found.iter().any(|s| s["status"] != "closed") {
+            found.retain(|s| s["status"] != "closed");
+        }
+        if found.len() > 1 {
+            return Err(RpcError::invalid_params(format!(
+                "handle {:?} names multiple sessions; add the host or use the session's ID link",
+                handle,
+            ))
+            .with_data(json!({"reason": super::key_route::AMBIGUOUS})));
+        }
+    }
     // Stable: the newest-first order of `all_session_summaries` stays within each rank.
     found.sort_by_key(|s| (!on_hint(s), s["peer"].is_string()));
-    found
+    Ok(found)
 }
 
 /// `found`, with each chat that moved away (`movedTo`) after where it went: the copy it moved to
@@ -485,7 +615,9 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
         return summaries
             .iter()
             .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
-            .filter(|s| bare_name(s) == rest || s["name"].as_str() == Some(key))
+            .filter(|s| {
+                bare_name(s) == rest || s["name"].as_str() == Some(key) || handle_matches(s, rest)
+            })
             .collect();
     }
     summaries
@@ -496,6 +628,7 @@ fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Val
                 .any(|field| s[*field].as_str() == Some(key))
                 || s["name"].as_str() == Some(key)
                 || bare_name(s) == key
+                || handle_matches(s, key)
         })
         .collect()
 }
@@ -533,7 +666,10 @@ impl<'q> Names<'q> {
             return bead();
         }
         if let Some(link) = self.link {
-            return s.agent_session_id() == Some(link.session.as_str());
+            return s.agent_session_id() == Some(link.session.as_str())
+                || link.session.strip_prefix("handle:").is_some_and(|handle| {
+                    crate::session_handle::matches(s.handle(), &r.receipt.mux_session_id, handle)
+                });
         }
         let q = self.query;
         let mux = r.receipt.mux_session_id.as_str();
@@ -541,6 +677,7 @@ impl<'q> Names<'q> {
         let bare =
             name.strip_prefix(r.peer.as_str()).and_then(|n| n.strip_prefix('/')).unwrap_or(name);
         mux.starts_with(q)
+            || crate::session_handle::matches(s.handle(), mux, q)
             || bare.starts_with(q)
             || name == q
             || crate::session_name::ends_with_segments(bare, q)
@@ -549,6 +686,12 @@ impl<'q> Names<'q> {
             || s.agent_session_id() == Some(q)
             || bead()
     }
+}
+
+fn handle_matches(summary: &Value, key: &str) -> bool {
+    summary["sessionId"]
+        .as_str()
+        .is_some_and(|id| crate::session_handle::matches(summary["handle"].as_str(), id, key))
 }
 
 /// The sessions whose last name segment is `key` (`session_name::ends_with_segments`).
@@ -584,6 +727,9 @@ fn card(s: &Value, own: Option<&str>) -> Value {
         "qualifiedSessionId": s["qualifiedSessionId"],
         "agentSessionId": s["agentSessionId"],
         "name": s["name"],
+        "handle": s["sessionId"].as_str().map(|id| {
+            crate::session_handle::display(s["handle"].as_str(), id)
+        }),
         "harness": s["harness"],
         "family": s["family"],
         "model": s["model"],
@@ -624,192 +770,5 @@ fn link_of(s: &Value, host: Option<&str>) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn link(text: &str) -> AgentLink {
-        crate::agent_link::find(text).unwrap().unwrap()
-    }
-
-    fn rows() -> Vec<Value> {
-        vec![
-            json!({"sessionId": "m1", "qualifiedSessionId": "local/m1", "agentSessionId": "a1",
-                   "name": "review", "family": "claude", "harness": "claude"}),
-            json!({"sessionId": "m2", "qualifiedSessionId": "hb/m2", "agentSessionId": "a2",
-                   "name": "hb/builder", "family": "codex", "harness": "codex", "peer": "hb"}),
-            json!({"sessionId": "m3", "qualifiedSessionId": "hb/m3", "agentSessionId": "a1",
-                   "name": "hb/review", "family": "claude", "harness": "claude", "peer": "hb",
-                   "tags": {"bead:cx-ab1.2": "1"}}),
-        ]
-    }
-
-    fn ids(found: &[&Value]) -> Vec<String> {
-        found.iter().map(|s| s["sessionId"].as_str().unwrap().to_owned()).collect()
-    }
-
-    #[test]
-    fn a_link_finds_its_harness_session_on_the_host_it_names_first() {
-        let rows = rows();
-        let here = link("https://cmux.com/deeplink/agent?harness=claude&session=a1");
-        assert_eq!(ids(&by_link(&rows, &here, "big-red")), ["m1", "m3"]);
-        let on_hb = link("https://cmux.com/deeplink/agent?harness=claude&session=a1&host=hb");
-        assert_eq!(ids(&by_link(&rows, &on_hb, "big-red")), ["m3", "m1"]);
-        // The link's harness must be the session's family, or an older peer's harness.
-        let wrong = link("https://cmux.com/deeplink/agent?harness=codex&session=a1");
-        assert!(by_link(&rows, &wrong, "big-red").is_empty());
-        let old = [
-            json!({"sessionId": "o1", "agentSessionId": "a7", "name": "x", "harness": "codex"}),
-            json!({"sessionId": "o2", "agentSessionId": "a7", "name": "y", "harness": "claude"}),
-        ];
-        let claude = link("https://cmux.com/deeplink/agent?harness=claude&session=a7");
-        assert_eq!(ids(&by_link(&old, &claude, "big-red")), ["o2"]);
-    }
-
-    /// A peer's connection reads a card's session text masked, as it reads a summary's.
-    #[test]
-    fn a_card_reads_masked_on_a_peers_connection() {
-        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
-        let summary = json!({
-            "sessionId": "m1", "harness": "claude", "lastSeq": 3, "name": "deploy",
-            "title": format!("rotate {token}"), "lastPrompt": format!("push {token}"),
-            "lastMessage": {"role": "agent", "text": format!("used {token}")},
-            "lastTurn": {"status": "failed", "errorText": format!("bad {token}")},
-        });
-        let reply = json!({"session": card(&summary, Some("big-red")), "matches": [card(&summary, Some("big-red"))]});
-        let msg = crate::rpc::Message::ok(json!(1), reply);
-        let Some(crate::rpc::Message::Response { result: Some(masked), .. }) =
-            crate::server::peer_text::masked(&msg)
-        else {
-            panic!("a card with a secret is not masked for a peer");
-        };
-        assert!(!masked.to_string().contains("ghp_"), "{masked}");
-        assert_eq!(masked["session"]["lastMessage"]["text"], "used [GitHub Personal Access Token]");
-        assert_eq!(masked["session"]["name"], "deploy");
-    }
-
-    #[test]
-    fn a_link_to_a_moved_chat_leads_to_where_it_runs_now() {
-        // m1 ran on desk-mac and moved to gcp-1, keeping its ids (`transfer_in.rs`).
-        let rows = vec![
-            json!({"sessionId": "m1", "agentSessionId": "a1", "name": "fix", "family": "codex",
-                   "harness": "codex", "status": "closed",
-                   "movedTo": {"host": "gcp-1", "sessionId": "m1", "cwd": "/home/cmux/w"}}),
-            json!({"sessionId": "m1", "agentSessionId": "a1", "name": "gcp-1/fix",
-                   "family": "codex", "harness": "codex", "peer": "gcp-1", "status": "idle"}),
-        ];
-        let footer = link("https://cmux.com/deeplink/agent?harness=codex&session=a1&host=desk-mac");
-        let found = follow_moves(by_link(&rows, &footer, "desk-mac"), &rows, "desk-mac");
-        assert_eq!(found[0]["peer"], "gcp-1", "the live copy first: {found:?}");
-        assert!(found[1]["movedTo"].is_object());
-        // By id or name too, and the target joins even when only the moved copy matched.
-        let found = follow_moves(by_key(&rows, "desk-mac/fix", "desk-mac"), &rows, "desk-mac");
-        assert_eq!(found.len(), 2, "{found:?}");
-        assert_eq!(found[0]["peer"], "gcp-1");
-        // A target not listed (its peer is gone): the moved copy answers, saying where it went.
-        let alone = &rows[..1];
-        let found = follow_moves(by_key(alone, "m1", "desk-mac"), alone, "desk-mac");
-        assert_eq!(found.len(), 1);
-        assert_eq!(card(found[0], Some("desk-mac"))["movedTo"]["host"], "gcp-1");
-    }
-
-    #[test]
-    fn a_key_finds_by_id_then_host_and_name_then_bare_name() {
-        let rows = rows();
-        assert_eq!(ids(&by_key(&rows, "hb/m2", "big-red")), ["m2"]);
-        assert_eq!(ids(&by_key(&rows, "a2", "big-red")), ["m2"]);
-        assert_eq!(ids(&by_key(&rows, "review", "big-red")), ["m1", "m3"]);
-        assert_eq!(ids(&by_key(&rows, "big-red/review", "big-red")), ["m1"]);
-        assert_eq!(ids(&by_key(&rows, "builder", "big-red")), ["m2"]);
-        assert!(by_key(&rows, "nobody", "big-red").is_empty());
-    }
-
-    #[test]
-    fn locate_prefers_a_closed_exact_name_over_a_live_prefix() {
-        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        for (id, name, status) in [("closed", "review", "closed"), ("live", "review-2", "idle")] {
-            let meta = serde_json::from_value(json!({
-                "schema": crate::store::META_SCHEMA,
-                "id": id,
-                "name": name,
-                "harness": "claude",
-                "family": "claude",
-                "cwd": "/tmp",
-                "status": status,
-                "createdAt": 1,
-                "updatedAt": 1
-            }))
-            .unwrap();
-            hub.insert_test_session(meta);
-        }
-        let found = hub.locate("review", false, false).unwrap();
-        assert_eq!(found["session"]["sessionId"], "closed");
-    }
-
-    #[test]
-    fn a_bead_id_finds_the_sessions_that_carry_it() {
-        let rows = rows();
-        assert_eq!(ids(&by_key(&rows, "cx-ab1.2", "big-red")), ["m3"]);
-        assert!(by_key(&rows, "cx-ab1", "big-red").is_empty());
-        // A session named like the bead wins a plain lookup, never a bead-only one.
-        let mut named = rows.clone();
-        named.push(json!({"sessionId": "m4", "name": "cx-ab1.2", "harness": "claude"}));
-        assert_eq!(ids(&by_key(&named, "cx-ab1.2", "big-red")), ["m4"]);
-        assert_eq!(ids(&by_bead(&named, "cx-ab1.2")), ["m3"]);
-        assert_eq!(card(&rows[2], Some("big-red"))["beads"], json!(["cx-ab1.2"]));
-        assert_eq!(card(&rows[0], Some("big-red"))["beads"], json!([]));
-    }
-
-    /// A sub-session (`PARENT/SHORT`) is found by its short name, here or on a peer, on a `/`
-    /// boundary only, and only when no whole name matches.
-    #[test]
-    fn a_sub_session_is_found_by_its_short_name() {
-        let mut rows = rows();
-        rows.push(json!({"sessionId": "m5", "name": "claude-sr2/mac-ci-3", "harness": "claude"}));
-        rows.push(json!({"sessionId": "m6", "name": "hb/claude-sr2/mac-ci-4", "peer": "hb",
-                         "harness": "claude"}));
-        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "mac-a")), ["m5"]);
-        assert_eq!(ids(&by_key(&rows, "mac-ci-4", "mac-a")), ["m6"]);
-        assert_eq!(ids(&by_key(&rows, "hb/mac-ci-4", "mac-a")), ["m6"]);
-        assert_eq!(ids(&by_key(&rows, "mac-a/mac-ci-3", "mac-a")), ["m5"]);
-        assert!(by_key(&rows, "ci-3", "mac-a").is_empty());
-        rows.push(json!({"sessionId": "m7", "name": "mac-ci-3", "harness": "claude"}));
-        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "mac-a")), ["m7"], "a whole name wins");
-    }
-
-    /// Review of #27791: a host-qualified key keeps that host's exact name first, and a short
-    /// name never crosses to another host.
-    #[test]
-    fn a_host_qualified_short_name_stays_on_its_host_after_its_exact_names() {
-        let rows = vec![
-            json!({"sessionId": "m1", "name": "lane", "harness": "claude"}),
-            json!({"sessionId": "m2", "name": "parent/hb/lane", "harness": "claude"}),
-            json!({"sessionId": "m3", "name": "cg/parent/hb/x", "peer": "cg", "harness": "claude"}),
-            json!({"sessionId": "m4", "name": "a/x", "harness": "claude"}),
-        ];
-        assert_eq!(ids(&by_key(&rows, "hb/lane", "hb")), ["m1"]);
-        assert!(by_key(&rows, "nohost/x", "hb").is_empty());
-        assert_eq!(ids(&by_key(&rows, "hb/x", "hb")), ["m4"], "on host hb only, not cg's m3");
-        assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m3", "m4"], "a bare one: both, a tie");
-        // A prefix still wins, as before short names.
-        let mut rows = rows;
-        rows.push(json!({"sessionId": "m5", "name": "xy", "harness": "claude"}));
-        assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m5"]);
-    }
-
-    #[test]
-    fn a_card_carries_the_sessions_own_link() {
-        let rows = rows();
-        let card = card(&rows[2], Some("big-red"));
-        assert_eq!(card["host"], "hb");
-        assert_eq!(
-            card["link"],
-            "https://cmux.com/deeplink/agent?harness=claude&session=a1&host=hb&name=review"
-        );
-        let none = card_without_agent_id();
-        assert_eq!(none["link"], Value::Null);
-    }
-
-    fn card_without_agent_id() -> Value {
-        card(&json!({"sessionId": "m9", "name": "new one", "harness": "claude"}), Some("big-red"))
-    }
-}
+#[path = "locate_tests.rs"]
+mod tests;

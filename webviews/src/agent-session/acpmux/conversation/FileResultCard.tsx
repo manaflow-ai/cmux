@@ -4,7 +4,7 @@
 // files it found, then each file with its matching lines, line number first. Either draws whole up
 // to `OUTPUT_BOX_LINES` rows and scrolls inside a box that tall past them (outputScrollBox.css),
 // never behind a Show all button; a file name or a line opens the file in cmux as a path chip in
-// a reply does (`link.openPath`; the host only takes the path, so it opens at its top). The closed row
+// a reply does (`link.openPath`; a numbered result carries its line). The closed row
 // stays one line (ToolRow.tsx). Leo, 2026-11-05: "could we potentially do even better?"; the same web
 // draws it on the Mac and the phone.
 import { cornerAction } from "./cornerActions";
@@ -43,7 +43,8 @@ const useScrollBox = () =>
 
 /// Opens `path` in cmux on a click, where this page may: never for another machine's chat, a shared
 /// read-only one, or a path on the deny list (as PathChip). Otherwise it draws as plain text.
-function FileButton(props: { path: string; className: string; label: string; children: ReactNode }) {
+type FileButtonProps = { path: string; line?: number; className: string; label: string; children: ReactNode };
+function FileButton(props: FileButtonProps) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (scope?.host !== undefined || readOnly || isDeniedPath(props.path))
@@ -55,17 +56,7 @@ function FileButton(props: { path: string; className: string; label: string; chi
 /// is in the session's folders, or outside them where `agentPane.links.outsideRoots` lets it open.
 /// A chat on another machine gets no place for its paths, so its files stay text, as do missing and
 /// denied ones; until the host answers, the line is text too, so a click never goes nowhere.
-function HostFileButton({
-  path,
-  className,
-  label,
-  children,
-}: {
-  path: string;
-  className: string;
-  label: string;
-  children: ReactNode;
-}) {
+function HostFileButton({ path, line, className, label, children }: FileButtonProps) {
   const { info, answered, policy } = usePathInfo(path);
   const opens = answered && (info?.place === "root" || (info?.place === "outside" && policy.outsideRoots !== "text"));
   if (!opens) return <span className={className}>{children}</span>;
@@ -76,7 +67,7 @@ function HostFileButton({
       data-path={path}
       /* tooltip-allow: the row shows a short name; the tooltip names the whole path and line */
       title={label}
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={() => void callChipHost("link.openPath", policy.supportsFileLine && line ? { path, line } : { path })}
     >
       {children}
     </button>
@@ -94,7 +85,7 @@ function ReadCard({ id, read }: { id: string; read: ReadPeek }) {
   return (
     <div id={id} className="cv-edit-diff cv-filepeek">
       <div className="cv-edit-diff__header">
-        <FileButton path={read.path} className="cv-filepeek__name" label={read.path}>
+        <FileButton path={read.path} line={read.start} className="cv-filepeek__name" label={read.path}>
           <FileKindIcon path={read.path} className="cv-filepeek__icon" />
           <span className="cv-edit-diff__name">{pathName(read.path)}</span>
         </FileButton>
@@ -175,6 +166,7 @@ function SearchCard({ id, result, lines }: { id: string; result: SearchResult; l
               <FileButton
                 key={index}
                 path={file.open}
+                line={match.line}
                 className="cv-filematches__line"
                 label={match.line === undefined ? file.open : `${file.open}:${match.line}`}
               >

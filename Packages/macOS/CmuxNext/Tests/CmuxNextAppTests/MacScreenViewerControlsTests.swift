@@ -14,7 +14,8 @@ struct MacScreenViewerControlsTests {
     private func pane(scope: SessionScope = .view) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
         viewer.phase = .streaming(sessionID: "layout-session", scope: scope)
-        return MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences())
+        // These pin the top toolbar bar (look `current`), not the default look.
+        return MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: .current)
     }
 
     private func button(_ id: String, in pane: MacScreenPane) throws -> NSButton {
@@ -95,6 +96,24 @@ struct MacScreenViewerControlsTests {
                 #expect(toolbar.height(for: width) == height)
             }
         }
+    }
+
+    /// The stats label drops the codec and the frame size when the bar is short of room, and it shows no tooltip (a1315's
+    /// cuts: a control that shows text has none). So the Quality menu, the stats' own control, says the whole line first
+    /// (Chief, 2026-11-21: "the truncated Screen Sharing codec/size ... must still show somewhere visible").
+    @Test func theQualityMenuSaysTheWholeStatsLine() throws {
+        let pane = pane()
+        defer { pane.close() }
+        let session = try #require(pane.model.session)
+        session.showPreviewState(phase: .connected, frameSize: CGSize(width: 1920, height: 1080))
+        let full = MacScreenToolbarView.statsLines(session).full
+        #expect(full.hasSuffix("1920×1080"))
+        let menu = pane.view.chrome.toolbar.qualityMenu()
+        let first = try #require(menu.items.first)
+        #expect(first.title == full)
+        #expect(!first.isEnabled)
+        #expect(menu.items.dropFirst().first?.isSeparatorItem == true)
+        #expect(menu.items.dropFirst(2).first?.title == MacScreenToolbarView.qualityTitle(.auto))
     }
 
     /// The same production renderer in three arrangements, each in light and dark.

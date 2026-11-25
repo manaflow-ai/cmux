@@ -12,7 +12,7 @@ extension AddMachineServices {
     static func app(_ services: AppServices) -> AddMachineServices {
         let ssh = services.ssh, health = services.machineHealth, registry = services.registry, machines = services.machines
         // The app's own cmux-tui, the one SSH machines and the agent daemon run.
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
+        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
         // Connected in the app under the Name field's name (the sidebar's label, saved in its transport).
         let connect = { (host: String, name: String) throws -> SSHMachineSession in
             let session = try ssh.connect(destination: host, session: nil, offerInstall: false)
@@ -40,7 +40,7 @@ extension AddMachineServices {
                 }
                 #endif
                 guard let cli else { return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } }
-                return command.needsAccount ? accountRun(cli, command, auth: services.cloud.auth) : cli.lines(command.arguments)
+                return command.needsAccount ? accountRun(cli, command, auth: services.cloud.auth, identity: services.cloud.installIdentity) : cli.lines(command.arguments)
             },
             install: { host, name in
                 await .attempt { let session = try connect(host, name); try await ssh.install(session); return session.machineID }
@@ -54,13 +54,14 @@ extension AddMachineServices {
     /// A run that reads the signed-in account's cmux access token on stdin (a joined machine's
     /// Check): its stdout lines once it ends. A failure says the app's words, never the CLI's
     /// stderr.
-    private static func accountRun(_ cli: HostCLI, _ command: HostCommand, auth: CloudAuth) -> AsyncThrowingStream<String, any Error> {
+    private static func accountRun(_ cli: HostCLI, _ command: HostCommand, auth: CloudAuth,
+                                   identity: MacInstallIdentity) -> AsyncThrowingStream<String, any Error> {
         // concurrency-allow: bounded by one finished run: it holds the lines of a single doctor run's stdout
         // (its checklist, about a dozen), yielded once after the process ended; dropping one would drop a step.
         AsyncThrowingStream { continuation in
             // task-owner: one CLI run; the stream's end cancels it (SSHProcessRunner stops the process).
             let run = Task { @MainActor in
-                guard auth.isSignedIn, let access = try? await auth.tokens().access else {
+                guard let access = await auth.machineRoutesToken(identity: identity) else {
                     return continuation.finish(throwing: HostCLIStop(status: nil, message: RemoteStrings.signInToCheck))
                 }
                 guard let result = await cli.run(command.arguments, secret: access, deadline: .seconds(30), label: "machine doctor") else {

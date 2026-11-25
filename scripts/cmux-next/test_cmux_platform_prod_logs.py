@@ -23,6 +23,8 @@ VM = "vm_0000aaaa1111bbbb2222"
 TEAM = "team_0000aaaa1111bbbb2222"
 PROD = "cmux-platform-production"
 STAGING = "cmux-platform-staging"
+VM_PROD = "cmux-vm-production"
+VM_STAGING = "cmux-vm-staging"
 LISTED = "cloud platform edge"
 
 
@@ -85,13 +87,13 @@ class WorkflowTests(unittest.TestCase):
                                     r"github\.ref == 'refs/heads/feat-cmux-next'$")
         self.assertEqual(len(re.findall(r"(?m)^  [a-z][a-z0-9_-]*:$", self.block("jobs"))), 1)
 
-    def test_the_service_is_a_choice_of_the_two_platform_workers(self):
+    def test_the_service_is_a_choice_of_the_platform_and_cmux_vm_workers(self):
         on = self.block("on")
         self.assertRegex(on, r"(?m)^      service:\n(?:        .*\n)*?        type: choice\n")
         options = re.search(r"(?m)^        options: \[([^\]]*)\]$", on)
         self.assertIsNotNone(options)
-        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING})
-        self.assertEqual(set(logs.SERVICES), {PROD, STAGING})
+        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING, VM_PROD, VM_STAGING})
+        self.assertEqual(set(logs.SERVICES), {PROD, STAGING, VM_PROD, VM_STAGING})
 
     def test_id_and_needles_are_required_and_never_in_step_env(self):
         on = self.block("on")
@@ -144,8 +146,8 @@ class GuardTests(unittest.TestCase):
         self.assertRegex(str(code), "needles: each")
         query.assert_not_called()
 
-    def test_only_the_two_platform_workers_are_read(self):
-        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-staging", PROD + " ", "cmux-platform-*"):
+    def test_only_the_listed_workers_are_read(self):
+        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
             with self.subTest(service=service):
                 code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", service, "--id", TEAM,
                                               "--needles", LISTED])
@@ -160,6 +162,70 @@ class GuardTests(unittest.TestCase):
                                               "--needles", LISTED])
                 self.assertRegex(str(code), "exact vm_ or team_ id")
                 query.assert_not_called()
+
+    def test_window_counts_every_event_by_shape_with_no_id(self):
+        failed = event({"msg": "cloud machine guest rpc failed", "op": "exec", "failure": "unreachable", "team": TEAM,
+                        "machine": VM, "ms": 12, "why": "free text hunter2"}, status=503)
+        failed["$workers"]["scriptVersion"] = {"id": "0f0e0d0c-1111-2222-3333-444455556666"}
+        reset = event("not json", status=200)
+        reset["$workers"]["outcome"] = "canceled"
+        path = event_file({"service": PROD, "id": "window", "needles": "12:"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-11T13:20:00Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [failed, failed, reset]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, header, rows = upload.call_args.args
+        self.assertEqual((header["id_kind"], header["id"], header["events_scanned"]), ("window", "window", 3))
+        self.assertEqual(sorted(r["n"] for r in rows), [1, 2])
+        rpc = next(r for r in rows if r["n"] == 2)
+        self.assertEqual(rpc["log"], {"msg": "cloud machine guest rpc failed", "op": "exec", "failure": "unreachable",
+                                      "ms": 12})
+        self.assertEqual((rpc["status"], rpc["version"]), (503, logs.base.tag("0f0e0d0c-1111-2222-3333-444455556666")))
+        self.assertEqual(next(r for r in rows if r["n"] == 1)["outcome"], "canceled")
+        text = json.dumps(rows) + out
+        for leak in (TEAM, VM, logs.base.tag(TEAM), logs.base.tag(VM), "hunter2", "token=abc"):
+            self.assertNotIn(leak, text)
+
+    def test_cmux_vm_window_counts_provider_failures_by_operation_and_status(self):
+        # cmux-platform#1442: Effect text lines of cmux-vm (src/upstream/live.ts logUpstreamFailure).
+        def vm_line(operation, status, extra=""):
+            return event(f'timestamp=2026-11-16T13:55:01.000Z level=WARN fiber=#12 message="cmux-vm upstream call failed" '
+                         f'operation={operation} status={status}{extra}',
+                         url="https://vm.example/v1/vms/" + VM + "/pause", status=503)
+        pause = vm_line("pauseVm", "503", ' cause="hunter2 ' + VM + '"')
+        timeout = vm_line("startVm", "none")
+        other = event('timestamp=x level=INFO fiber=#1 message="free text hunter2"', status=200)
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "12:"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-16T13:30:00Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [pause, pause, timeout, other]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        self.assertEqual(query.call_args.args[1], VM_PROD)
+        _, header, rows = upload.call_args.args
+        self.assertEqual((header["service"], header["id"], header["logs_dropped_unlisted"]), (VM_PROD, "window", 1))
+        by_op = {r["log"]["operation"]: r for r in rows if "log" in r}
+        self.assertEqual(by_op["pauseVm"]["log"], {"msg": "cmux-vm upstream call failed", "level": "warn",
+                                                   "operation": "pauseVm", "status": 503})
+        self.assertEqual(by_op["pauseVm"]["n"], 2)
+        self.assertEqual(by_op["pauseVm"]["path"], "/v1/vms/*/pause")
+        self.assertEqual(by_op["startVm"]["log"]["status"], "none")
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2"):
+            self.assertNotIn(leak, text)
+
+    def test_cmux_vm_refuses_an_id_scoped_read(self):
+        path = event_file({"service": VM_STAGING, "id": VM, "needles": "pause"})
+        try:
+            code, _, query, upload = run_main(["--from", "2026-11-16T13:30:00Z", "--from-event", path])
+        finally:
+            os.unlink(path)
+        self.assertNotEqual(code, 0)
+        query.assert_not_called()
+        upload.assert_not_called()
 
     def test_inputs_come_from_the_event_file_and_stdout_is_count_and_pointer(self):
         own = event({"msg": LISTED, "machine": VM, "outcome": "refused"})
@@ -240,11 +306,27 @@ class IdFilterTests(unittest.TestCase):
                 self.assertEqual(rows_for([candidate], VM), [])
         self.assertEqual(rows_for([event({"msg": LISTED, "team": TEAM, "teamId": "team_foreign"})], TEAM), [])
 
+    def test_a_production_event_with_plain_message_text_keeps_its_source_id(self):
+        # Workers Logs' shape: $metadata.message is the line's msg text, source the parsed line. Every production
+        # team and vm read until 2026-11-22 kept 0 events (hq#18697, hq#18725) because the plain text failed closed.
+        own = event(LISTED)
+        own["source"] = {"msg": LISTED, "team": TEAM}
+        foreign = event(LISTED)
+        foreign["source"] = {"msg": LISTED, "team": "team_foreign"}
+        bare = event(LISTED)
+        self.assertEqual(len(rows_for([own, foreign, bare], TEAM)), 1)
+        dup = event(LISTED)
+        dup["source"] = '{"msg":"' + LISTED + '","team":"team_foreign","team":"' + TEAM + '"}'
+        self.assertEqual(rows_for([dup], TEAM), [])
+
     def test_scope_comes_before_counts(self):
         good = event({"msg": LISTED, "team": TEAM})
         bad = event({"msg": "private text from another team", "team": "team_foreign"})
         head, rows = logs.publish([good, bad], [LISTED], TEAM)
         self.assertEqual(head["events_in_window"], 1)
+        # The window's own count, before the id filter: zero here says the query read nothing, not that no row was
+        # this id's (the 12:50Z read, hq#11503, could not tell the two apart).
+        self.assertEqual(head["events_scanned"], 2)
         self.assertNotIn("logs_dropped_unlisted", head)
         self.assertEqual(len(rows), 1)
 
@@ -271,10 +353,91 @@ class ProjectionTests(unittest.TestCase):
         for leak in (TEAM, VM, "hunter2", "token=abc", "free text"):
             self.assertNotIn(leak, text)
 
+    def test_the_spare_gateway_read_keeps_its_booleans_and_mode(self):
+        # cmux-platform#1629: the 2026-11-22 09:13Z gateway claim's line was dropped unlisted (hq#18324).
+        for mode, kept in (("gateway", "gateway"), (None, "null"), ("unread", "unread")):
+            with self.subTest(mode=mode):
+                row = logs.line(event({"msg": "cloud.spare.gateway_read", "team": TEAM, "lacks": True,
+                                       "shared": False, "host": "yes", "mode": mode}))
+                self.assertEqual(row["log"], {"msg": "cloud.spare.gateway_read", "team": logs.base.tag(TEAM),
+                                              "mode": kept, "lacks": True, "shared": False})
+                self.assertNotIn(TEAM, json.dumps(row))
+
+    def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
+        # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
+        # line counts how often an op outlives its request.
+        row = logs.line(event({"msg": "cloud.submit.cut_off", "machine": "vm_cutoff", "op": "start", "ms": 25001}))
+        self.assertEqual(row["log"], {"msg": "cloud.submit.cut_off", "machine": logs.base.tag("vm_cutoff"),
+                                      "op": "start", "ms": 25001})
+        self.assertNotIn("vm_cutoff", json.dumps(row))
+
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)
         self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)
         self.assertTrue(all(isinstance(m, str) and "${" not in m and m == m.strip() for m in logs.PLATFORM_MSGS))
+
+
+class IdleKeptTests(unittest.TestCase):
+    """cmux#54889: how many overdue machines stayed up only for the disabled cmux-chief-update.timer, from a window
+    read, with no machine, team or guest-written name in a row."""
+
+    def kept(self, **fields):
+        return {"msg": "cloud.idle.kept", "team": TEAM, "machine": VM, "running_s": 7300, "daemon": "0.42.1", **fields}
+
+    def test_a_timer_only_workload_line_says_so_and_nothing_else_of_the_guest(self):
+        timer = self.kept(why="workload", workload={"busy": 0, "listening": 0, "timers": 1, "process_names": [],
+                                                     "ports": [], "timer_names": ["systemd:cmux-chief-update.timer"]})
+        row = logs.line(event(timer))
+        self.assertEqual(row["log"], {"msg": "cloud.idle.kept", "why": "workload", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "timer_only": True, "daemon": "0.42.1",
+                                      "running": "1h-6h"})
+
+    def test_any_other_workload_is_not_timer_only_and_its_names_never_print(self):
+        for workload in ({"busy": 1, "timer_names": ["systemd:cmux-chief-update.timer"], "process_names": ["hunter2"]},
+                         {"busy": 0, "listening": 1, "ports": [8443], "timer_names": ["systemd:cmux-chief-update.timer"]},
+                         {"timer_names": ["systemd:cmux-chief-update.timer", "systemd:hunter2-backup.timer"]},
+                         {"timer_names": []}, {"timer_names": "systemd:cmux-chief-update.timer"}):
+            with self.subTest(workload=workload):
+                row = logs.line(event(self.kept(why="workload", workload=workload)))
+                self.assertIs(row["log"]["timer_only"], False)
+                self.assertNotIn("hunter2", json.dumps(row))
+                self.assertNotIn("8443", json.dumps(row))
+
+    def test_reasons_are_a_fixed_set_and_bands_and_versions_are_coarse(self):
+        cases = ((dict(why="recent", running_s=59), {"why": "recent", "running": "lt1h"}),
+                 (dict(why="no report today", running_s=90000), {"why": "other", "running": "ge24h"}),
+                 (dict(why="sessions", daemon=None), {"why": "sessions", "daemon": "null"}),
+                 (dict(why="held", daemon="has spaces 1"), {"why": "held"}))
+        for fields, want in cases:
+            with self.subTest(fields=fields):
+                log = logs.line(event(self.kept(**fields)))["log"]
+                for k, v in want.items():
+                    self.assertEqual(log.get(k), v)
+                self.assertNotIn("timer_only", log)
+                self.assertNotIn("spaces", json.dumps(log))
+                self.assertNotIn("running_s", log)
+
+    def test_a_window_counts_timer_only_lines_with_no_id(self):
+        timer = event(self.kept(why="workload", workload={"timer_names": ["systemd:cmux-chief-update.timer"]}))
+        path = event_file({"service": PROD, "id": "window", "needles": "cloud.idle.kept"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-23T06:00:00Z", "--minutes", "60",
+                                                 "--from-event", path],
+                                                response={"result": {"events": {"events": [timer, timer]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        self.assertEqual(query.call_args.kwargs.get("needle"), "cloud.idle.kept")
+        _, _, rows = upload.call_args.args
+        self.assertEqual([(r["log"]["timer_only"], r["n"]) for r in rows], [(True, 2)])
+        text = json.dumps(rows) + out
+        for leak in (TEAM, VM, logs.base.tag(TEAM), logs.base.tag(VM)):
+            self.assertNotIn(leak, text)
+
+    def test_only_a_lone_allowlisted_msg_reaches_the_query(self):
+        self.assertEqual(logs.window_needle(["cloud.idle.kept"]), "cloud.idle.kept")
+        self.assertIsNone(logs.window_needle(["cloud.idle.kept", "workload"]))
+        self.assertIsNone(logs.window_needle(["hunter2 secret"]))
 
 
 class QueryTests(unittest.TestCase):
@@ -305,6 +468,63 @@ class QueryTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 logs.query("fixture-token", PROD, 1, 2)
         self.assertEqual(str(raised.exception), "telemetry query refused: HTTP 403")
+
+
+class IdNeedleTests(unittest.TestCase):
+    """An id-scoped read asks the telemetry query for the id's own events (its `needle`). Production logs more events in
+    an hour than the reader's PAGES pages hold: the service filter alone returned 20000 events, none of them the id's
+    (hq#13055 and hq#13057: events_scanned 20000, truncated, 0 in window), for a team whose creates logged in it."""
+
+    def test_an_id_scoped_read_sends_the_id_as_the_query_needle(self):
+        for ident in (VM, TEAM):
+            with self.subTest(ident=ident):
+                code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", ident,
+                                              "--needles", LISTED])
+                self.assertEqual(code, 0)
+                self.assertEqual(query.call_args.kwargs.get("needle"), ident)
+
+    def test_every_page_of_an_id_read_carries_the_needle(self):
+        full = [{"$metadata": {"id": f"e{i}"}} for i in range(1000)]
+        replies = [{"result": {"events": {"events": full}}}, {"result": {"events": {"events": []}}}]
+        output = io.StringIO()
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", ["logs", "--from", "2026-11-11T13:20:00Z", "--service", PROD,
+                                                "--id", TEAM, "--needles", LISTED]), \
+                patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), patch.object(logs.sys, "stdout", output), \
+                patch.object(logs, "query", side_effect=replies) as query, \
+                patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs.base, "private_upload", return_value="https://example/issues/9"):
+            self.assertEqual(logs.main(), 0)
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual([c.kwargs.get("needle") for c in query.call_args_list], [TEAM, TEAM])
+        self.assertEqual(query.call_args_list[1].args[4], "e999")
+
+    def test_a_window_read_sends_no_needle(self):
+        code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", VM_PROD, "--id", "window",
+                                      "--needles", "cmux-vm"])
+        self.assertEqual(code, 0)
+        self.assertIsNone(query.call_args.kwargs.get("needle"))
+
+    def test_the_query_body_carries_the_needle_exactly(self):
+        sent = []
+
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            sent.append(request)
+            return Reply(b'{"result": {"events": {"events": []}}}')
+
+        with patch.object(logs.urllib.request, "urlopen", side_effect=urlopen):
+            logs.query("fixture-token", PROD, 1, 2, needle=VM)
+            logs.query("fixture-token", PROD, 1, 2)
+        with_id, without = (json.loads(r.data) for r in sent)
+        self.assertEqual(with_id["parameters"]["needle"], {"value": VM, "isRegex": False, "matchCase": True})
+        self.assertNotIn("needle", without["parameters"])
 
 
 if __name__ == "__main__":

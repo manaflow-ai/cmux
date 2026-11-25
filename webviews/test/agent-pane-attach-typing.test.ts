@@ -19,6 +19,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -52,7 +53,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
   /// A new chat; `view` "strip" turns on Settings' attachment strip (the default is inline).
   async function newChat(
     colorScheme: "light" | "dark" = "light",
-    view?: "strip",
+    view?: "strip" | "inline",
     look?: "codex" | "claude",
   ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, colorScheme });
@@ -75,8 +76,8 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     if (look) {
       await page.evaluate(async (value) => {
         const source = "/composerLook.ts";
-        const { setComposerLook } = await import(/* @vite-ignore */ source);
-        setComposerLook(value, { remember: false });
+        const { setPreviewComposerLook } = await import(/* @vite-ignore */ source);
+        setPreviewComposerLook(value);
       }, look);
       await page
         .locator(
@@ -91,29 +92,32 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
 
   /// Pastes `count` PNG screenshots into the prompt, as ⌘V of copied images does.
   const pasteImages = (page: Page, count: number) =>
-    page.evaluate(async (count) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1200;
-      canvas.height = 800;
-      const context = canvas.getContext("2d")!;
-      const data = new DataTransfer();
-      for (let index = 0; index < count; index += 1) {
-        // Each screenshot its own: the same bytes twice are one attachment (attachments.ts filesOnce).
-        context.fillStyle = "#101114";
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.fillStyle = "#202124";
-        context.fillRect(0, 0, index + 1, 1);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        data.items.add(new File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" }));
-      }
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      // Where the next key goes, at once: the prompt, not a stand-in that takes keys for a moment.
-      return target.contains(document.activeElement);
-    }, count);
+    page.evaluate(
+      async ({ count, COMPOSER_EDITOR }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1200;
+        canvas.height = 800;
+        const context = canvas.getContext("2d")!;
+        const data = new DataTransfer();
+        for (let index = 0; index < count; index += 1) {
+          // Each screenshot its own: the same bytes twice are one attachment (attachments.ts filesOnce).
+          context.fillStyle = "#101114";
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.fillStyle = "#202124";
+          context.fillRect(0, 0, index + 1, 1);
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+          data.items.add(new File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" }));
+        }
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        // Where the next key goes, at once: the prompt, not a stand-in that takes keys for a moment.
+        return target.contains(document.activeElement);
+      },
+      { count, COMPOSER_EDITOR },
+    );
 
   const promptText = (page: Page) =>
-    page.locator(".acpmux-composer-prompt [contenteditable='true']").evaluate((node) => {
+    page.locator(COMPOSER_EDITOR).evaluate((node) => {
       // The prompt's text, without the attachments placed in it (each an atom in the line).
       const copy = node.cloneNode(true) as Element;
       for (const atom of copy.querySelectorAll("[data-inline-attachment]")) atom.remove();
@@ -121,8 +125,8 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     });
 
   test("keys typed while pasted images attach all land, spaces included", async () => {
-    const page = await newChat();
-    const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+    const page = await newChat("light", "inline");
+    const prompt = page.locator(COMPOSER_EDITOR);
     await prompt.click();
     await page.keyboard.type("i cant");
     expect(await pasteImages(page, 3)).toBe(true);
@@ -138,7 +142,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     "%s attachment strip keeps 64px tiles in one row above the text",
     async (look) => {
       const page = await newChat("light", "strip", look);
-      const prompt = page.locator(".acpmux-composer-prompt [contenteditable='true']");
+      const prompt = page.locator(COMPOSER_EDITOR);
       await prompt.click();
       const field = page.locator(".acpmux-composer-prompt").first();
       const before = (await page.locator(".acpmux-composer-box").boundingBox())!;
@@ -186,7 +190,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
   // in a line of text (markdownField.css).
   test("a dark screenshot's thumbnail is big enough to see and keeps a clear edge", async () => {
     const page = await newChat("dark", "strip");
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await pasteImages(page, 3);
     const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
     await chips.nth(2).waitFor();

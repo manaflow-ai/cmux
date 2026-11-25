@@ -1,0 +1,12 @@
+{
+  "family": "read_cursor",
+  "ops": {
+    "read_cursor.set": {
+      "source": "cloud",
+      "owner": "cloud:ConversationDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "6f24e62b5164286a"
+    }
+  }
+}

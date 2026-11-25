@@ -133,6 +133,7 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
     super::bounded(&msg.old_message_id)?;
     if let Some(params) = msg.params {
         super::bounded(&params.meta.acpmux.segment)?;
+        super::bounded(&params.meta.acpmux.recipient)?;
         if let Some(raw) = params.update {
             let update: Update<'_> = input::value(raw)?;
             super::bounded(&update.session_update)?;
@@ -171,6 +172,8 @@ fn mux(
     let Line { place, span, .. } = line;
     match kind {
         "retracted" | "removed" | "steer_withdrawn" => {
+            // A prompt sent now that an older writer withdraws takes its turn's `continued` back.
+            state.withdrawn(&msg.prompt_id, out);
             state.queue_remove(&msg.prompt_id, out);
             state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }
@@ -258,6 +261,12 @@ fn mux(
             state.end_turn(end, &msg.status, out);
         }
         "message_superseded" => state.supersede(&msg.old_message_id, out),
+        _ if super::cards::record(
+            state,
+            kind,
+            super::cards::At { raw: line.raw, line: super::RawLine { place, span } },
+            out,
+        )? => {}
         _ => match kinds::find(kinds::MUX, kind).map(|known| known.draw) {
             Some(kinds::Draw::Row(spec)) => {
                 let mut row = state.drawn(&spec, line.raw, out)?;
@@ -403,6 +412,7 @@ fn agent(
                 ("kind", u.kind.as_ref()),
                 ("status", u.status.as_ref()),
                 ("tool", u.meta.claude.tool.as_ref()),
+                ("recipient", params.acpmux.recipient.as_ref()),
             ] {
                 if !v.is_empty() {
                     metadata.push((k, v));

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import struct CmuxNextControl.LaunchFirstPage
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -9,9 +10,9 @@ import Foundation
 /// decides their engine as it does for browser tabs. Made once at the composition root
 /// (`AppDelegate`) and handed to ``PageWebView/chromiumHosting``.
 ///
-/// Every page shares one off-the-record profile: like the WebKit pages' non-persistent store, a
-/// page keeps nothing on disk, and no profile of the person's (their extensions, cookies) touches a
-/// cmux page.
+/// Every page shares one off-the-record profile (`CEFEngine.cmuxPageProfile`): like the WebKit
+/// pages' non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
+/// extensions, cookies) touches a cmux page. Its store keeps a spare Chromium window for the next page.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -25,7 +26,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
     private let paneFocus: @MainActor (PageWebView) -> Bool
-    private var pageProfile: BrowserProfileID?
+    private let firstPage = CEFFirstPageProbe() // the first page's own load times this launch (startup-tti)
     let healthFeed: (any PageHealthFeed)?
 
     /// - Parameters:
@@ -62,27 +63,22 @@ final class ChromiumPageHost: PageChromiumHosting {
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
-        let profile = pageProfile ?? cef.stores.offTheRecord.begin()
-        pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
-        let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        let configuration = BrowserTabConfiguration(profile: cef.cmuxPageProfile(), pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
+        DebugTimings.markLaunch("chromium_page.make_start")
         let made = try await cef.makeTab(configuration)
-        guard let tab = made as? CEFTab else {
-            made.close()
-            throw Failure.notChromium
-        }
-        tab.pageThemeSurface = .internalPage
-        tab.keyRouter = keyRouter
+        for mark in cef.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
+        guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
+        (tab.pageThemeSurface, tab.keyRouter) = (.internalPage, keyRouter)
+        tab.onReadyForKeys = { [weak keyRouter, weak tab, firstPage] in keyRouter?.creationInputCoordinator.pageArrived(nil); if let tab { firstPage.ask(tab, script: LaunchFirstPage.script) { for mark in LaunchFirstPage.marks($0) { DebugTimings.markLaunch(mark.name, at: mark.at) } } } } // its grant ends a key hold that waited for it; the first page's load times (startup-tti)
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
-        guard await tab.agentRelay.browserCreated() else {
-            tab.close()
-            throw Failure.browserNotCreated
-        }
+        guard await tab.agentRelay.browserCreated() else { tab.close(); throw Failure.browserNotCreated }
+        DebugTimings.markLaunch("chromium_page.browser_created")
         return chromiumPage
     }
 }

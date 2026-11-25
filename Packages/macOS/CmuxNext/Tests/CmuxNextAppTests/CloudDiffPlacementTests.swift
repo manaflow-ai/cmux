@@ -41,7 +41,7 @@ struct CloudDiffPlacementTests {
         var finish: CheckedContinuation<Void, Never>?
         var creates = 0
         var route: String?
-        services.pages.createStoreTab = { _, daemon, _, givenRoute, _ in
+        services.pages.createStoreTab = { _, daemon, _, givenRoute, _, _ in
             #expect(daemon === machine.daemon)
             creates += 1
             route = givenRoute
@@ -169,7 +169,7 @@ struct CloudDiffPlacementTests {
         let identity = DaemonIdentity(capabilities: ["page-tabs-v1", "page-tab-route-v1"], generation: "cloud-diff-placement")
         daemon.store.noteHandshake(identity)
         daemon.store.connectionState = .connected(identity)
-        services.pages.createStoreTab = { _, _, _, _, _ in throw DaemonError.notConnected }
+        services.pages.createStoreTab = { _, _, _, _, _, _ in throw DaemonError.notConnected }
         var notices: [String] = []
         services.registry.remoteFailureObserver = { _, message in notices.append(message) }
         var invocation = ActionInvocation(origin: .user)
@@ -206,10 +206,10 @@ struct CloudDiffPlacementTests {
             let create = services.pages.createStoreTab
             var release: CheckedContinuation<Void, Never>?
             var creates = 0
-            services.pages.createStoreTab = { pane, daemon, page, route, transaction in
+            services.pages.createStoreTab = { pane, daemon, page, route, transaction, split in
                 creates += 1
                 await withCheckedContinuation { release = $0 }
-                return try await create(pane, daemon, page, route, transaction)
+                return try await create(pane, daemon, page, route, transaction, split)
             }
             defer { services.pages.createStoreTab = create; release?.resume() }
             var invocation = ActionInvocation(origin: .user)

@@ -149,6 +149,7 @@ async fn pause_waits_for_owned_runner_exit_before_resume_can_take_the_journal() 
     let service = std::sync::Arc::new(Service::with_root(dir.path().into()));
     let run = service.store().start(spec()).unwrap();
     let proof = service.issue_runner(&run).unwrap().unwrap();
+    let cancellation = service.runner_cancellation(&run.id, run.generation);
     let (stop, finished) = service.track_runner(&run.id, run.generation);
     let (observed, wait_observed) = tokio::sync::oneshot::channel();
     let (allow_exit, exit_allowed) = tokio::sync::oneshot::channel();
@@ -165,6 +166,7 @@ async fn pause_waits_for_owned_runner_exit_before_resume_can_take_the_journal() 
     };
     wait_observed.await.unwrap();
     assert!(!stopping.is_finished(), "pause acknowledged before owned runner exited");
+    assert!(cancellation.is_cancelled(), "pause did not release an in-flight activity wait");
     assert!(service.authorize_runner(&run.id, run.generation, &proof).is_err());
     allow_exit.send(()).unwrap();
     child.await.unwrap();

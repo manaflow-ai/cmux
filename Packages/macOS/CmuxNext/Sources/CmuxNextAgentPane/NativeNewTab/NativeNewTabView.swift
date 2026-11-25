@@ -22,6 +22,9 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
     private var shownRows: [NativeNewTabRow] = []
     // task-owner: the page's `following`, started when it joins a window and cancelled when it leaves.
     private var following: Task<Void, Never>?
+    private var followingFavicons: Task<Void, Never>?
+    /// Decoded favicon images by data URL, owned by this page (not a global).
+    private let faviconImages = NSCache<NSString, NSImage>()
 
     /// The field's height.
     static let fieldHeight: CGFloat = 44
@@ -105,7 +108,9 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         following?.cancel()
+        followingFavicons?.cancel()
         following = nil
+        followingFavicons = nil
         guard window != nil else { return }
         updateColors()
         // The page may have been adopted while out of a window: catch up, then follow the model.
@@ -115,6 +120,13 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
             // The inputs of the rows, not the rows: reading them here would rank every row once more per key.
             for await _ in ObservationStream({ _ = model.page; _ = model.text; _ = model.kind; _ = model.highlighted }) {
                 guard let self, !Task.isCancelled else { return }
+                self.render()
+            }
+        }
+        followingFavicons = Task { [weak self] in
+            for await _ in ObservationStream({ _ = model.faviconRevisionTick() }) {
+                guard let self, !Task.isCancelled else { return }
+                model.refreshFaviconPage()
                 self.render()
             }
         }
@@ -141,14 +153,14 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
             guard index < rows.count else {
                 // A row out of the list holds no action and no place under the field.
                 view.isHidden = true
-                view.activate = {}
+                view.activate = { _ in }
                 view.frame = .zero
                 continue
             }
             let row = rows[index]
             view.isHidden = false
-            view.show(NativeNewTabRowContent(row, strings: strings), selected: index == selected)
-            view.activate = { [weak model] in model?.activate(row) }
+            view.show(NativeNewTabRowContent(row, strings: strings, home: model.page.home), selected: index == selected, images: faviconImages)
+            view.activate = { [weak model] event in model?.activate(row, event: event) }
         }
         divider.isHidden = rows.isEmpty
         if rows != shownRows {
@@ -173,7 +185,8 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
         switch selector {
         case #selector(NSResponder.moveDown(_:)): model.move(1)
         case #selector(NSResponder.moveUp(_:)): model.move(-1)
-        case #selector(NSResponder.insertNewline(_:)): model.commit()
+        // The Return key in dispatch, never another event (an accessibility confirm has none of its own).
+        case #selector(NSResponder.insertNewline(_:)): model.commit(event: NSApp.currentEvent.flatMap { $0.type == .keyDown ? $0 : nil })
         default: return false
         }
         render()

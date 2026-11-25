@@ -2,6 +2,7 @@
 
 use crate::config::{Config, StoreMode};
 use crate::rpc::{Message, method};
+use acpmux_book::gate_rounds::{self, best_p95};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -168,17 +169,12 @@ async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
     hub.append(&session, "mux", "tool_call", json!({"tool": "Bash"}));
     let event = first.notification_method(method::MUX_EVENT).await;
     assert_eq!(event["params"]["kind"], "named_kind");
-    assert!(tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await.is_err());
+    let extra = tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await;
+    assert!(extra.is_err(), "the first attach got more than named_kind: {extra:?}");
 
     let detached = second.call(method::MUX_DETACH, json!({"sessionId": ID})).await;
     assert!(detached.get("error").is_none(), "{detached}");
     assert_eq!(hub.presence.snapshot(ID)["participants"][0]["devices"], 1);
-}
-
-fn p95(values: &[u128]) -> u128 {
-    let mut values = values.to_vec();
-    values.sort_unstable();
-    values[((values.len() * 95).div_ceil(100)).saturating_sub(1)]
 }
 
 fn emit_gate(name: &str, small: u128, god: u128) {
@@ -247,8 +243,9 @@ async fn hold_attach_gate() {
         small_rounds.push(small);
         god_rounds.push(god);
     }
-    let small_p95 = small_rounds.iter().map(|round| p95(round)).min().unwrap();
-    let god_p95 = god_rounds.iter().map(|round| p95(round)).min().unwrap();
+    gate_rounds::report("v2.pr06.hold_attach", &[("small", &small_rounds), ("god", &god_rounds)]);
+    let small_p95 = best_p95(&small_rounds);
+    let god_p95 = best_p95(&god_rounds);
     let plain_god = plain_attach_elapsed(&mut god_client).await;
     let hold_god = attach_elapsed(&mut god_client).await;
     eprintln!("hold attach comparison (god): without_hold_ns={plain_god}, with_hold_ns={hold_god}");

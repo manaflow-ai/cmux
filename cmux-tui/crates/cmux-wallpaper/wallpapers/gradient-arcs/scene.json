@@ -1,0 +1,31 @@
+{
+  "loop": 16,
+  "field": {
+    "points": [
+      { "at": [0.08, 0.1], "color": "#F8DCC8", "radius": 0.9 },
+      { "at": [0.92, 0.12], "color": "#CBBCF1", "radius": 0.85 },
+      { "at": { "keys": [[0, [0.88, 0.9]], [8, [0.76, 0.84], "sine"], [16, [0.88, 0.9], "sine"]] }, "color": "#B3C8F3", "radius": 0.8 },
+      { "at": [0.14, 0.9], "color": "accent 55% #F4A877", "radius": 0.95 }
+    ],
+    "warp": 0.4
+  },
+  "grain": { "amount": 0.17, "size": 1.3 },
+  "light": { "at": { "keys": [[0, [0.15, 0.3]], [8, [0.85, 0.3], "inOut"], [16, [0.15, 0.3], "inOut"]] }, "color": "#FFF3E6", "intensity": 0.5, "radius": 0.6 },
+  "shapes": [
+    { "kind": "arcs", "at": [0.3, 0.86], "size": [0.62, 0.62], "shape": 5,
+      "fill": { "type": "linear", "from": "accent", "to": "#F8DCC8", "angle": 90 }, "opacity": 0.95,
+      "rotate": { "keys": [[0, 0], [8, 4, "sine"], [16, 0, "sine"]] } },
+    { "kind": "arcs", "at": [0.76, 0.28], "size": [0.38, 0.38], "shape": 4, "rotate": 180,
+      "fill": { "type": "linear", "from": "#CBBCF1", "to": "#7E9FE6", "angle": 270 }, "opacity": 0.9 },
+    { "kind": "circle", "at": { "keys": [[0, [0.15, 0.3]], [8, [0.85, 0.3], "inOut"], [16, [0.15, 0.3], "inOut"]] },
+      "size": [0.15, 0.15], "fill": { "type": "radial", "from": "#FFFFFF", "to": "#F8DCC8" }, "lit": 0.5 },
+    { "kind": "lens", "at": [0.6, 0.62], "size": [0.24, 0.1], "shape": 0.55,
+      "rotate": { "keys": [[0, 30], [16, 390]] },
+      "fill": { "type": "linear", "from": "#FFFFFF", "to": "accent 35% #CBBCF1", "angle": 0 }, "opacity": 0.85, "lit": 0.6 }
+  ],
+  "guides": [
+    { "from": [0.3, 0.12], "to": [0.3, 0.94], "dash": 0.007, "handles": true, "opacity": 0.4, "color": "#2B2640" },
+    { "from": [0.76, 0.06], "to": [0.76, 0.6], "dash": 0.007, "handles": true, "opacity": 0.4, "color": "#2B2640" },
+    { "from": [0.04, 0.86], "to": [0.96, 0.86], "handles": true, "opacity": 0.45, "color": "#2B2640" }
+  ]
+}

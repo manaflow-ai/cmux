@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5";
+    public static final String IR_SHA256 = "e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -18,9 +18,12 @@ public final class Protocol {
         return switch (event) {
             case "activity-changed" -> ActivityChangedEvent.fromWire(value);
             case "agent-changed" -> AgentChangedEvent.fromWire(value);
+            case "agent-cli-frame" -> AgentCliFrameEvent.fromWire(value);
+            case "agent-cli-lean" -> AgentCliLeanEvent.fromWire(value);
             case "agent-inventory-changed" -> AgentInventoryChangedEvent.fromWire(value);
             case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
+            case "agent-session-share-changed" -> AgentSessionShareChangedEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
@@ -49,9 +52,11 @@ public final class Protocol {
             case "conversation-inbox-changed" -> ConversationInboxChangedEvent.fromWire(value);
             case "conversation-live" -> ConversationLiveEvent.fromWire(value);
             case "conversation-run-changed" -> ConversationRunChangedEvent.fromWire(value);
+            case "conversation-scheduled-changed" -> ConversationScheduledChangedEvent.fromWire(value);
             case "conversation-typing" -> ConversationTypingEvent.fromWire(value);
             case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
+            case "device-setup-step" -> DeviceSetupStepEvent.fromWire(value);
             case "empty" -> EmptyEvent.fromWire(value);
             case "feed-reports-changed" -> FeedReportsChangedEvent.fromWire(value);
             case "feed-view-changed" -> FeedViewChangedEvent.fromWire(value);

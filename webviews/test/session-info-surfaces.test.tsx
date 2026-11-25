@@ -28,6 +28,7 @@ import {
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
 import {
   sessionInfoState,
   resetSessionInfoState,
@@ -40,6 +41,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/artifactPanelModel";
 import { chat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -135,9 +137,8 @@ function Pane({ initiallyCovered }: { initiallyCovered: boolean }) {
   );
 }
 
-const panel = (container: HTMLElement) => container.querySelector("aside.acpmux-session-info");
-const toggle = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>("button.acpmux-session-info-toggle")!;
+const panel = (container: HTMLElement) => container.querySelector(SESSION_INFO);
+const toggle = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(SESSION_INFO_TOGGLE)!;
 
 async function mount(covered: boolean) {
   uncovered = 0;
@@ -251,7 +252,7 @@ test("floating beside a side panel, the card's right edge is the chat's", async 
       </SessionInfoPanel>,
     );
   });
-  const aside = container.querySelector<HTMLElement>("aside.acpmux-session-info")!;
+  const aside = container.querySelector<HTMLElement>(SESSION_INFO)!;
   expect(aside.style.getPropertyValue("--acpmux-session-info-side")).toBe("736px");
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/session-info/sessionInfo.css", import.meta.url),
@@ -513,6 +514,8 @@ for (const width of [370, 528, 740, 1100, 1200, 1420]) {
       return {};
     });
     setNativeSessionInfoHost(true);
+    // The App-drawn panel is its own chunk (LazyNativeSessionInfo.tsx): in before the pane mounts, as the host event makes it.
+    await loadNativeSessionInfo();
     try {
       const opened: string[] = [];
       const container = await mountFolderPane(width, opened, 960);

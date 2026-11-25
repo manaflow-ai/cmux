@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
-// An opened read or file search draws what it found (FileResultCard.tsx), never its input fields and
-// raw output: a read as its file, line range and numbered lines cut to eight; a search as its counts
-// and each file's matching lines, each opening the file in cmux. Find reads what the card draws.
+// An opened file search draws what it found (FileResultCard.tsx), never its input fields and raw
+// output: its counts and each file's matching lines, each opening the file in cmux. A read no longer
+// opens (2026-11-14 change). Find reads what the card draws.
 import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -95,25 +95,19 @@ const READ = Array.from({ length: 12 }, (_, index) => `${String(120 + index).pad
 const GREP =
   "/work/app/src/a.ts:12:  const x = useTool();\n/work/app/src/a.ts:40:useTool(b)\n/work/app/src/lib/b.ts:3:import { useTool }";
 
-test("an opened Read is its file, line range and every numbered line in its scroll box; closed, one row", async () => {
+// Since the 2026-11-14 change a read is a static row named by its file name: it does not open, so it
+// never draws its file card.
+test("a Read is one static row named by its file, its full path on hover, with no file card", async () => {
   const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.read, READ)} />);
+  expect(container.querySelector("button.cv-tool")).toBeNull();
+  const row = container.querySelector("div.cv-tool");
+  expect(row).not.toBeNull();
+  expect(row!.getAttribute("aria-expanded")).toBeNull();
+  expect(container.querySelector(".cv-tool__text")?.textContent).toBe("Read foo.ts");
+  expect(container.querySelector(".cv-tool__file")?.getAttribute("title")).toBe("/work/app/src/foo.ts");
+  await act(async () => (row as HTMLElement).click());
   expect(container.querySelector(".cv-filepeek")).toBeNull();
-  await open(container);
   expect(container.querySelector(".cv-tool-detail")).toBeNull();
-  expect(container.querySelector(".cv-edit-diff__name")?.textContent).toBe("foo.ts");
-  expect(container.querySelector(".cv-filepeek__range")?.textContent).toBe("Lines 120–131");
-  expect(container.querySelector(".cv-filepeek__gutter")?.textContent?.split("\n")).toEqual(
-    Array.from({ length: 12 }, (_, index) => String(120 + index)),
-  );
-  // The lines without Claude's numbers and arrows.
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).toContain("line 1");
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).not.toContain("→");
-  // Every line, in the shared box that scrolls past 24 rows; nothing to open (Leo, 2026-11-12).
-  const body = container.querySelector(".cv-filepeek__body")!;
-  expect(body.classList.contains("cv-scroll-box")).toBe(true);
-  expect(body.getAttribute("tabindex")).toBe("0");
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).toContain("line 12");
-  expect(container.querySelector(".cv-filepeek button.cv-expand-row")).toBeNull();
 });
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {
@@ -122,6 +116,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   setChipHost(async (method, params) => {
     if (method === "link.inspect")
       return {
+        policy: { supportsFileLine: true },
         paths: Object.fromEntries((params.paths as string[]).map((path) => [path, { place: "root", folder: false }])),
       };
     calls.push([method, params]);
@@ -140,7 +135,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   expect(lines[0]!.title).toBe("/work/app/src/a.ts:12");
   await act(async () => lines[2]!.click());
   await act(async () => {});
-  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts" }]]);
+  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts", line: 3 }]]);
 });
 
 test("a chat on another machine, whose paths the host does not place, draws its files as text", async () => {
@@ -153,7 +148,7 @@ test("a chat on another machine, whose paths the host does not place, draws its 
   expect(container.querySelector("button.cv-filematches__line, button.cv-filematches__path")).toBeNull();
 });
 
-test("a long search draws every match in its scroll box and says when the harness cut it", async () => {
+test("a long search mounts only its preview rows, cuts inside a big file, and says when the harness cut it", async () => {
   const many = Array.from({ length: 500 }, (_, index) => `/w/src/big.ts:${index + 1}:match ${index + 1}`).join("\n");
   const container = await render(
     <ToolRow
@@ -164,12 +159,12 @@ test("a long search draws every match in its scroll box and says when the harnes
     />,
   );
   await open(container);
-  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(15);
   expect(container.querySelector(".cv-filematches__summary")?.textContent).toBe(
     "501 matches · 2 files · more were left out",
   );
-  expect(container.querySelector(".cv-filematches__list")?.classList.contains("cv-scroll-box")).toBe(true);
-  expect(container.querySelector(".cv-filematches button.cv-expand-row")).toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-filematches .cv-output-more")!.click());
+  expect(container.querySelectorAll(".cv-filematches__line").length).toBe(501);
 });
 
 test("in a read-only chat a search's files draw as text, never opening the owner's files", async () => {

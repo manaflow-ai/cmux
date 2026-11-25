@@ -62,10 +62,22 @@ public struct ScreenFeatures: OptionSet, Sendable {
 /// Present it full screen (`.fullScreenCover`); `close` is called when the
 /// user closes it, after the session is closed. With `.orientationLock`, the
 /// app delegate must return `ScreenOrientation.shared.allowed`.
+/// Where `ScreenSessionView` says the Mac is locked or its display asleep
+/// (its picture is black then, with stats that look healthy).
+public enum ScreenSourceNoticePlacement: String, CaseIterable, Sendable {
+    /// A capsule under the toolbar, as the connection banner (the default).
+    case banner
+    /// A card in the middle of the black screen, as the connecting card.
+    case card
+    /// In the toolbar, under the Mac's name, in place of the stats line.
+    case toolbar
+}
+
 public struct ScreenSessionView: View {
     @Bindable var session: ScreenSession
     let features: ScreenFeatures
     let shortcuts: [MacShortcutsBar.Shortcut]
+    let sourceNotice: ScreenSourceNoticePlacement
     let close: () -> Void
     @State private var keyboardVisible = false
     @State private var chromeVisible = true
@@ -99,10 +111,12 @@ public struct ScreenSessionView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     public init(session: ScreenSession, features: ScreenFeatures = .all,
-                shortcuts: [MacShortcutsBar.Shortcut] = MacShortcutsBar.standard, close: @escaping () -> Void) {
+                shortcuts: [MacShortcutsBar.Shortcut] = MacShortcutsBar.standard,
+                sourceNotice: ScreenSourceNoticePlacement = .banner, close: @escaping () -> Void) {
         self.session = session
         self.features = features
         self.shortcuts = shortcuts
+        self.sourceNotice = sourceNotice
         self.close = close
     }
 
@@ -132,10 +146,13 @@ public struct ScreenSessionView: View {
                 .ignoresSafeArea(.keyboard)
             } else {
                 screenView.ignoresSafeArea()
-                if chromeVisible { chrome }
+                if chromeVisible {
+                    chrome.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chromeHeight = $0 }
+                }
             }
             stateCard
-            if hasTrackpadOverlay, case .connected = session.phase { trackpadDrawer }
+            sourceNoticeOverlay
+            if hasTrackpadOverlay, session.keepsLiveLayout { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
         .background(.black)
@@ -174,7 +191,7 @@ public struct ScreenSessionView: View {
     private var chrome: some View {
         VStack(spacing: 6) {
             topBar
-            if features.contains(.shortcutsBar), case .connected = session.phase {
+            if features.contains(.shortcutsBar), session.keepsLiveLayout {
                 MacShortcutsBar(session: session, shortcuts: shortcuts)
             }
         }
@@ -196,9 +213,15 @@ public struct ScreenSessionView: View {
             .accessibilityIdentifier("screen.close")
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
+                if sourceNotice == .toolbar, let state = shownSourceState {
+                    Label(state.notice, systemImage: state.symbol)
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .accessibilityIdentifier("screen.sourceNotice")
+                } else if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
             }
             Spacer(minLength: 8)
+            if let camera = session.camera, camera.isAvailable, case .connected = session.phase { ScreenFollowButton(camera: camera) }
             if hasMenu { optionsMenu }
             if features.contains(.pasteImage), session.supportsImagePaste, case .connected = session.phase {
                 PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .current) {
@@ -250,7 +273,7 @@ public struct ScreenSessionView: View {
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
-        guard hasTrackpadOverlay, trackpadOpen, case .connected = session.phase else { return false }
+        guard hasTrackpadOverlay, trackpadOpen, session.keepsLiveLayout else { return false }
         return true
     }
 
@@ -266,7 +289,7 @@ public struct ScreenSessionView: View {
     /// finger while the notch drags), none before the screen connects or while
     /// the software keyboard covers it.
     private var trackpadReserved: CGFloat {
-        guard hasTrackpadOverlay, case .connected = session.phase else { return 0 }
+        guard hasTrackpadOverlay, session.keepsLiveLayout else { return 0 }
         if keyboardHidesTrackpad { return keyboardOverlap }
         return max(0, trackpadDrawerHeight - trackpadOffset) + keyboardOverlap
     }
@@ -474,9 +497,19 @@ public struct ScreenSessionView: View {
     @ViewBuilder private var stateCard: some View {
         switch session.phase {
         case .connecting:
-            card {
-                CmuxSpinner()
-                Text(session.isReconnecting ? "Reconnecting to \(session.title)…" : "Connecting to \(session.title)…").font(.headline)
+            // A reconnect keeps the last frame and says nothing until it has run
+            // `ScreenSession.reconnectNoticeDelay`: a blip recovers silently.
+            // Past it, a reconnect is a small chip at the top over the kept frame, never a
+            // sentence card across it (Leo, 2026-11-21: "a symbol or short thing, not a
+            // sentence"). A first connect has no frame to keep, so it keeps the card, after
+            // `ScreenSession.connectNoticeDelay`: a quick one never flashes.
+            if session.isReconnecting {
+                if session.reconnectNoticeDue { reconnectChip }
+            } else if session.connectNoticeDue {
+                card {
+                    CmuxSpinner()
+                    Text("Connecting to \(session.title)…").font(.headline)
+                }
             }
         case let .failed(message, needsSignIn):
             card {
@@ -525,6 +558,55 @@ public struct ScreenSessionView: View {
         }
     }
 
+    // MARK: Locked or display asleep
+
+    /// The Mac's locked or display-asleep state while a stream shows; nil when live (or not connected).
+    private var shownSourceState: ScreenSourceState? {
+        guard case .connected = session.phase, session.sourceState != .live else { return nil }
+        return session.sourceState
+    }
+
+    /// Why the picture is black: the Mac is locked or its display asleep. It
+    /// comes in as the connection banner does and goes the moment the Mac
+    /// says it is live again (no fade to wait out).
+    @ViewBuilder private var sourceNoticeOverlay: some View {
+        Group {
+            if let state = shownSourceState {
+                switch sourceNotice {
+                case .banner:
+                    VStack(spacing: 0) {
+                        if chromeVisible { Color.clear.frame(height: chromeHeight) }
+                        Label(state.notice, systemImage: state.symbol)
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(.top, 8)
+                            .accessibilityIdentifier("screen.sourceNotice")
+                    }
+                    .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .identity))
+                case .card:
+                    card {
+                        Image(systemName: state.symbol).font(.largeTitle)
+                        Text(state.notice).font(.headline)
+                        Text(state.hint).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("screen.sourceNotice")
+                    // Centred on the picture, not the whole view: the trackpad
+                    // drawer would otherwise cover its lower half.
+                    .padding(.top, chromeVisible ? chromeHeight : 0)
+                    .padding(.bottom, trackpadReserved)
+                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
+                case .toolbar:
+                    EmptyView() // in the top bar (`topBar`)
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .snappy(duration: 0.35), value: shownSourceState)
+        .allowsHitTesting(false)
+    }
+
     /// Reads the picked photo, prepares it off the main thread and sends it to the Mac.
     private func paste(_ item: PhotosPickerItem?) {
         guard let item else { return }
@@ -544,7 +626,7 @@ public struct ScreenSessionView: View {
     }
 
     private var pasteBannerInset: CGFloat {
-        guard hasTrackpadOverlay, case .connected = session.phase else { return 24 }
+        guard hasTrackpadOverlay, session.keepsLiveLayout else { return 24 }
         return trackpadReserved + 12
     }
 
@@ -591,6 +673,24 @@ public struct ScreenSessionView: View {
         session.connect()
     }
 
+    /// The reconnect chip: a spinner and one word in a capsule, top center over the kept
+    /// frame; VoiceOver reads the whole sentence.
+    private var reconnectChip: some View {
+        HStack(spacing: 6) {
+            CmuxSpinner().frame(width: 14, height: 14)
+            Text("Reconnecting").font(.footnote.weight(.medium))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(.regularMaterial, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reconnecting to \(session.title)…")
+        .accessibilityIdentifier("screen.reconnecting")
+        .padding(.top, chromeVisible ? chromeHeight + 8 : 8) // under the toolbar, never over it
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+    }
+
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 12, content: content)
             .padding(22)
@@ -599,6 +699,13 @@ public struct ScreenSessionView: View {
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+/// The words and symbol for a black picture's reason (the iOS spec's banner: `moon.zzz` for asleep).
+private extension ScreenSourceState {
+    var notice: String { self == .locked ? "Mac is locked" : "Mac's display is asleep" }
+    var symbol: String { self == .locked ? "lock.fill" : "moon.zzz" }
+    var hint: String { self == .locked ? "Unlock it to see its screen." : "Wake it to see its screen." }
 }
 
 /// The remote screen alone, for apps that bring their own chrome: fitted

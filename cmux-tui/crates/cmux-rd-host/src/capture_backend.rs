@@ -48,10 +48,20 @@ impl CaptureBackend {
     }
 
     /// Whether a viewer's input reaches this desktop with the backend: XTest on X11; the
-    /// portal backend drops every input event (`portal.rs`), so its sessions are view only.
+    /// portal through its RemoteDesktop session, once that grant is saved (`portal.rs`) in a
+    /// build with portal capture. Without it a portal session is view only.
     #[cfg(feature = "link")]
     pub fn applies_input(self) -> bool {
-        matches!(self, CaptureBackend::X11)
+        self.applies_input_with(portal_control_granted())
+    }
+
+    /// [`CaptureBackend::applies_input`] with the RemoteDesktop grant given.
+    #[cfg(feature = "link")]
+    pub fn applies_input_with(self, remote_desktop_granted: bool) -> bool {
+        match self {
+            CaptureBackend::X11 => true,
+            CaptureBackend::Portal => remote_desktop_granted,
+        }
     }
 
     /// The `--capture` word for the backend.
@@ -75,6 +85,17 @@ impl CaptureBackend {
             CaptureBackend::Portal => Err(PORTAL_NOT_BUILT_IN.to_owned()),
         }
     }
+}
+
+/// Whether this desktop's portal sessions can apply input: a build with portal capture and a
+/// saved RemoteDesktop grant (`linux-host enable --allow-control` or `linux-host grant
+/// --control` made it).
+#[cfg(feature = "link")]
+pub fn portal_control_granted() -> bool {
+    #[cfg(all(feature = "portal", target_os = "linux"))]
+    return crate::portal::remote_desktop_granted();
+    #[cfg(not(all(feature = "portal", target_os = "linux")))]
+    false
 }
 
 /// The reason a Wayland session cannot be shared by this build (shown to the viewer; the
@@ -103,69 +124,5 @@ pub fn x_display(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn capture_option_names_x11_or_portal() {
-        assert_eq!(CaptureBackend::parse("x11"), Ok(CaptureBackend::X11));
-        assert_eq!(CaptureBackend::parse(" portal "), Ok(CaptureBackend::Portal));
-        assert!(CaptureBackend::parse("vnc").is_err());
-    }
-
-    #[test]
-    #[cfg(feature = "link")]
-    fn wayland_session_picks_portal_and_x11_otherwise() {
-        assert_eq!(CaptureBackend::choose(None, Some("wayland")), Ok(CaptureBackend::Portal));
-        assert_eq!(CaptureBackend::choose(None, Some("Wayland")), Ok(CaptureBackend::Portal));
-        assert_eq!(CaptureBackend::choose(None, Some("x11")), Ok(CaptureBackend::X11));
-        assert_eq!(CaptureBackend::choose(None, Some("tty")), Ok(CaptureBackend::X11));
-        assert_eq!(CaptureBackend::choose(None, None), Ok(CaptureBackend::X11));
-    }
-
-    #[test]
-    #[cfg(feature = "link")]
-    fn only_x11_applies_input() {
-        // XTest injects input; the portal backend drops it (portal.rs).
-        assert!(CaptureBackend::X11.applies_input());
-        assert!(!CaptureBackend::Portal.applies_input());
-        for backend in [CaptureBackend::X11, CaptureBackend::Portal] {
-            assert_eq!(CaptureBackend::parse(backend.name()), Ok(backend));
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "link")]
-    fn explicit_override_wins() {
-        assert_eq!(CaptureBackend::choose(Some("x11"), Some("wayland")), Ok(CaptureBackend::X11));
-        assert_eq!(CaptureBackend::choose(Some("portal"), Some("x11")), Ok(CaptureBackend::Portal));
-        assert_eq!(CaptureBackend::choose(Some(""), Some("wayland")), Ok(CaptureBackend::Portal));
-        assert!(CaptureBackend::choose(Some("vnc"), None).is_err());
-    }
-
-    #[test]
-    #[cfg(not(all(feature = "portal", target_os = "linux")))]
-    fn portal_is_refused_with_a_clear_reason_until_built_in() {
-        assert_eq!(CaptureBackend::X11.available(), Ok(()));
-        let reason = CaptureBackend::Portal.available().unwrap_err();
-        assert!(reason.starts_with("portal capture not built in"), "{reason}");
-    }
-
-    #[test]
-    #[cfg(all(feature = "portal", target_os = "linux", feature = "link"))]
-    fn portal_is_available_when_built_in() {
-        assert_eq!(CaptureBackend::X11.available(), Ok(()));
-        assert_eq!(CaptureBackend::Portal.available(), Ok(()));
-    }
-
-    #[test]
-    #[cfg(feature = "link")]
-    fn display_defaults_to_the_session_then_display_then_zero() {
-        assert_eq!(x_display(Some(":5"), Some(":99"), Some(":1")), ":5");
-        assert_eq!(x_display(Some("main"), Some(":99"), Some(":1")), ":99");
-        assert_eq!(x_display(Some("0"), None, Some(":1")), ":1");
-        assert_eq!(x_display(None, None, Some("localhost:10.0")), "localhost:10.0");
-        assert_eq!(x_display(None, None, Some("")), ":0");
-        assert_eq!(x_display(None, None, None), ":0");
-    }
-}
+#[path = "capture_backend_tests.rs"]
+mod tests;

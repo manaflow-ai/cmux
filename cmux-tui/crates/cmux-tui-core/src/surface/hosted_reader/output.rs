@@ -13,6 +13,8 @@ impl HostedReader {
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
         let mux = self.mux.clone();
+        // A terminal's output allocates too: its pages go back once it stops (malloc_quiet_trim.rs).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         if let Some(delay) = self.output_apply_delay {
             std::thread::sleep(delay);
         }
@@ -39,9 +41,15 @@ impl HostedReader {
             }
             let journal_enabled = journal_update.is_some();
             let before = terminal_scroll_position(&term);
-            let normalized =
-                crate::prompt_mode_reset::write_output(&mut term, &output, &mut self.shell_marks);
-            terminal_notifications = pty.observe_terminal_output(&output);
+            // One walk of the chunk reads its metadata and rewrites its titles.
+            let (rewritten, notifications) = pty
+                .observe_terminal_output_rewriting_titles(self.shell_marks.titles_mut(), &output);
+            terminal_notifications = notifications;
+            let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                &mut term,
+                rewritten,
+                &mut self.shell_marks,
+            );
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())

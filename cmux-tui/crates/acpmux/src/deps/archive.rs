@@ -212,7 +212,8 @@ impl Write for Sink {
 
 impl Sink {
     fn new(codec: Codec, out: &Path) -> io::Result<Sink> {
-        let file = File::create(out)?;
+        let file =
+            crate::home_fs::OpenOptions::new().write(true).create(true).truncate(true).open(out)?;
         Ok(match codec {
             Codec::Zstd => Sink::Zstd(
                 Command::new("zstd")
@@ -428,7 +429,7 @@ pub fn unpack(
             Source::Gzip(Box::new(flate2::read::GzDecoder::new(io::BufReader::new(file))))
         }
     };
-    std::fs::create_dir_all(dest)?;
+    crate::home_fs::create_dir_all(dest, 0o777)?;
     let mut out = Unpacked::default();
     let result = (|| {
         let mut tar = tar::Archive::new(&mut source);
