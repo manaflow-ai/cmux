@@ -252,6 +252,7 @@ mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
 mod hybrid_hold;
+mod launch_backoff;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -2496,6 +2497,7 @@ impl Hub {
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
+            launch_backoff: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
