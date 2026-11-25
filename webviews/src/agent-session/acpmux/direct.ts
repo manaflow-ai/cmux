@@ -585,6 +585,9 @@ const holdsSeq = (events: readonly EventRecord[], seq: number) => {
 const sentByChief = (msg: { promptId?: unknown }) =>
   typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
 
+/// No rows: what a rebuild after a window-replacing rail jump keeps frames for (`rebuildHeld`).
+const NO_ROWS: ReadonlyMap<string, AcpmuxRow> = new Map();
+
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 /// An older page was 400 records and 256 KiB: a page of a tool-heavy chat was a few turns, so a
 /// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
@@ -8269,6 +8272,7 @@ export class AcpmuxDirectClient {
     this.olderCarry = undefined;
     this.cancelOlderPaging();
     this.clearIndexedHistory();
+    this.windowReplaced = true;
     this.rebuildKeepingLiveState();
     this.emit("history");
     if (whole && left.live > this.lastSeq) this.readMissedAfterLag(sessionId, generation, this.lastSeq, 0);
@@ -8311,6 +8315,7 @@ export class AcpmuxDirectClient {
     this.olderCarry = undefined;
     this.cancelOlderPaging();
     this.clearIndexedHistory();
+    this.windowReplaced = true;
     this.rebuildKeepingLiveState();
     this.emit("history");
     return true;
@@ -8650,6 +8655,8 @@ export class AcpmuxDirectClient {
     Object.assign(this, live);
   }
 
+  /// The next rebuild follows a rail jump that replaced the held window: it keeps no message's frame (`rebuildHeld`).
+  private windowReplaced = false;
   private rebuildHeld(changedFrom?: number): void {
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     // A subagent still running started in a turn the refold must read too: its fold starts over.
@@ -8867,7 +8874,12 @@ export class AcpmuxDirectClient {
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
-    this.rows.adoptFrames(previous);
+    // A rail jump that replaced the held window (`jumpNewer`, `jumpWindow`) shows none of the messages drawn
+    // before it, so no frame is kept for them: matching every gone message against every new one cost a slow
+    // rail click ~100 ms of its paint (bench/chat-fast-scroll.bench.ts, rail_click_paint p95).
+    const replaced = this.windowReplaced;
+    this.windowReplaced = false;
+    this.rows.adoptFrames(replaced ? NO_ROWS : previous);
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and
