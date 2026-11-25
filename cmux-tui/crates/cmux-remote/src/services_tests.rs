@@ -25,6 +25,13 @@ pub(super) struct TestEndpoint {
     generation: watch::Sender<u64>,
 }
 
+impl TestEndpoint {
+    /// Moves this side's session to `generation`, as a resume does.
+    pub(super) fn set_generation(&self, generation: u64) {
+        let _ = self.generation.send(generation);
+    }
+}
+
 #[async_trait]
 impl SessionEndpoint for TestEndpoint {
     async fn send_frame(
@@ -1590,6 +1597,7 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
         None,
         incoming.stream,
         MuxUploadBudget::new(),
+        false,
     ));
 
     let read = async {
@@ -1619,4 +1627,136 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
     fake.abort();
     client_mux.shutdown().await;
     daemon_mux.shutdown().await;
+}
+
+/// Serve one mux-control stream whose session daemon writes `line` once, opened
+/// with `metadata`; returns the client's stream and the serving tasks.
+#[cfg(unix)]
+async fn mux_control_writing(
+    directory: &Path,
+    line: Vec<u8>,
+    metadata: BTreeMap<String, String>,
+) -> (Arc<ServiceMultiplexer>, ServiceStream, Vec<tokio::task::JoinHandle<()>>) {
+    let path = directory.join("mux.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let fake = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        socket.write_all(&line).await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let stream = client_mux.open(Service::MuxControl, metadata).await.unwrap();
+    let incoming = daemon_mux.accept().await.unwrap().unwrap();
+    let line_zlib = mux_line_zlib_requested(&incoming.metadata);
+    let serve = tokio::spawn(async move {
+        let _ = DaemonServices::serve_mux_control_with_budget(
+            Some(path),
+            None,
+            incoming.stream,
+            MuxUploadBudget::new(),
+            line_zlib,
+        )
+        .await;
+        drop(daemon_mux);
+    });
+    (client_mux, stream, vec![fake, serve])
+}
+
+/// The `opened` features and the magic of every line packet the client reads
+/// until the line is whole.
+#[cfg(unix)]
+async fn opened_features_and_packets(stream: &ServiceStream) -> (Vec<String>, Vec<Bytes>) {
+    let mut features = Vec::new();
+    let mut packets = Vec::new();
+    let mut assembler = crate::mux_codec::MuxLineAssembler::<()>::default().accepting_zlib(true);
+    loop {
+        let chunk = stream.receive().await.unwrap().expect("stream ended early");
+        if chunk.payload.is_empty() {
+            continue;
+        }
+        if let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&chunk.payload)
+            && answer["type"] == "opened"
+        {
+            features = serde_json::from_value(answer["features"].clone()).unwrap();
+            continue;
+        }
+        packets.push(chunk.payload.clone());
+        if assembler.push_retaining(chunk.lane, chunk.payload, ()).unwrap().is_some() {
+            return (features, packets);
+        }
+    }
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn mux_control_compresses_large_lines_only_for_a_client_that_asks() {
+    let line = crate::mux_codec::tests::chat_attach_line();
+    for (metadata, compressed) in
+        [(BTreeMap::new(), false), (crate::bridge::mux_control_open_metadata(), true)]
+    {
+        let directory = tempdir().unwrap();
+        let (client_mux, stream, tasks) =
+            mux_control_writing(directory.path(), line.clone(), metadata).await;
+        let (features, packets) =
+            acpmux_bridge::tests::within(opened_features_and_packets(&stream)).await;
+        assert_eq!(
+            features.iter().any(|feature| feature == MUX_LINE_ZLIB_V1_FEATURE),
+            compressed,
+            "{features:?}"
+        );
+        let magic: &[u8] = if compressed { b"CMXZ" } else { b"CMXL" };
+        assert!(packets.iter().all(|packet| packet.starts_with(magic)));
+        let wire: usize = packets.iter().map(Bytes::len).sum();
+        assert_eq!(wire * 3 < line.len(), compressed, "{} bytes went to {wire}", line.len());
+        tasks.iter().for_each(tokio::task::JoinHandle::abort);
+        client_mux.shutdown().await;
+    }
+}
+
+/// The whole client path: a bridge that asks for zlib hands the app's socket
+/// the daemon's exact line.
+#[tokio::test]
+#[cfg(unix)]
+async fn the_mux_bridge_inflates_a_compressed_line_to_the_daemons_bytes() {
+    let line = crate::mux_codec::tests::chat_attach_line();
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("mux.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let written = line.clone();
+    let fake = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        socket.write_all(&written).await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let serve = tokio::spawn(async move {
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let line_zlib = mux_line_zlib_requested(&incoming.metadata);
+        assert!(line_zlib);
+        let _ = DaemonServices::serve_mux_control_with_budget(
+            Some(path),
+            None,
+            incoming.stream,
+            MuxUploadBudget::new(),
+            line_zlib,
+        )
+        .await;
+    });
+    let opened = crate::bridge::OpenedMuxControl::open(&client_mux).await.unwrap();
+    let (app, bridge_side) = tokio::io::duplex(1 << 20);
+    let (bridge_reader, bridge_writer) = tokio::io::split(bridge_side);
+    let bridge = tokio::spawn(opened.bridge(bridge_reader, bridge_writer));
+    let mut app = BufReader::new(app);
+    let mut received = Vec::new();
+    acpmux_bridge::tests::within(app.read_until(b'\n', &mut received)).await.unwrap();
+    assert_eq!(received, line);
+    for task in [fake, serve] {
+        task.abort();
+    }
+    bridge.abort();
+    client_mux.shutdown().await;
 }

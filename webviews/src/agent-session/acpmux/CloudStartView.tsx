@@ -1,7 +1,7 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
-import { cloudStartLook } from "./cloudStart.experiment";
+import { cloudStartLook, cloudStartQuietLook } from "./cloudStart.experiment";
 import { CloudStartAsk } from "./CloudStartAsk";
 import {
   CLOUD_START_STALL_MS,
@@ -13,8 +13,11 @@ import {
 } from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 
+import { ShimmerText } from "./conversation/ShimmerText";
 import { Thinking } from "./conversation/Thinking";
+import { formatDuration } from "./conversation/turns";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
+import { CloudSetupSteps, cloudSetupStep, type CloudSetupStepsLook } from "./conversation/CloudSetupSteps";
 import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
@@ -22,16 +25,60 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
-  cloudSizeWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
   type CloudSizeLocked,
+  cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
-import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
+import { gitHubPickerStore, githubFullName, useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
-import { type ChecklistStep, startupChecklist } from "./cloudStartViewModel";
+import { type ChecklistStep, startupChecklist, type QuietStage, quietStage } from "./cloudStartViewModel";
+import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
+import { WithFacts } from "./chips/FactsHoverCard";
+
+type QuietLook = "inline" | "stacked" | "hint" | "thinking";
+
+/// The quiet view's one line while a start is on its way: the stage's words in the live line's look
+/// (the local Thinking line's shimmer, so the start still reads as a local first turn), its clock,
+/// then why the chat waits and for about how long (Leo, 2026-11-09: "the ergonomic part is super big
+/// for us."). Never the step list: that stays behind a failure (cloudStartQuietLook's arms).
+function StageLine({ stage, look, now }: { stage: QuietStage; look: Exclude<QuietLook, "thinking">; now: number }) {
+  const clock = stage.since === undefined ? undefined : formatDuration(Math.max(0, now - stage.since));
+  const eta = (
+    <span className="cv-worked__count acpmux-cloud-start__eta">
+      <span className="cv-worked__sep" aria-hidden="true">
+        ·
+      </span>
+      <span>{stage.eta}</span>
+    </span>
+  );
+  return (
+    <div className="acpmux-cloud-start__stage" data-look={look} data-stage={stage.id}>
+      <div className="cv-worked cv-worked--live" data-find-skip>
+        <span className="cv-shimmer__row">
+          <output className="cv-thinking is-shimmer">
+            <ShimmerText text={stage.label} />
+          </output>
+          {clock && <span className="cv-worked__time">{clock}</span>}
+        </span>
+        {look !== "stacked" && eta}
+      </div>
+      {look === "stacked" && <div className="acpmux-cloud-start__eta-line">{stage.eta}</div>}
+      {look === "hint" && (
+        <div className="acpmux-cloud-start__hint" aria-hidden="true">
+          {Array.from({ length: stage.steps }, (_, index) => (
+            <span
+              key={index}
+              data-step={index + 1 < stage.step ? "done" : index + 1 === stage.step ? "current" : "next"}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "done")
     return (
@@ -140,7 +187,7 @@ function PlanOffer({
       </span>
       <span className="acpmux-cloud-plans__price">{t("cloudStart.plans.perMonth", { price: offer.price })}</span>
       <span className="acpmux-cloud-ask__line">
-        {t("cloudStart.plans.includes", { size: cloudSizeWords(offer.maxSize, t) })}
+        {t("cloudStart.plans.includes", { size: cloudPlanMachineWords(plan, t) })}
       </span>
       <button
         type="button"
@@ -160,7 +207,7 @@ function PlanOffer({
 }
 
 /// The pricing card: a Cloud send the account has no plan for (the platform's `cloud_plan_required`, or the page's
-/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Pro and
+/// own hold when `cloudMachine.list` says `plan.state` `none`). A final state, no retry and no wait: cmux NEXT Plus, Pro and
 /// Max side by side (or the plans the refusal named, `plans`), each with Subscribe (`cloud.plan.subscribe`, the start
 /// goes again by itself once the plan is on, cloudPlanSubscribe.ts), then Run on This Mac and Not now. A refusal in a team (`refusal`) names the team the send
 /// was in (the one picked in the team menu, which is easy to miss) and offers the person's own team first, which
@@ -174,7 +221,10 @@ function PlanCard({
   onRunHere,
   onDismiss,
   runHereLabel,
+  steps,
 }: {
+  /// A first send's plan step (no team refusal): the setup strip in place of the alert mark.
+  steps?: CloudSetupStepsLook;
   refusal?: CloudPlanTeamRefusal;
   plans?: readonly CloudPlanId[];
   look: CloudPlanTeamLook;
@@ -240,6 +290,17 @@ function PlanCard({
       {subscriber.state.error}
     </output>
   );
+  if (steps && !refusal) {
+    return (
+      <div className="acpmux-cloud-plan-team" data-look={look} data-plans="true" data-setup-step="plan">
+        <CloudSetupSteps current="plan" look={steps} />
+        {title}
+        {plans}
+        {actions}
+        {error}
+      </div>
+    );
+  }
   return (
     <div className="acpmux-cloud-plan-team" data-look={look} data-plans="true" role="alert">
       {look === "banner" ? (
@@ -369,16 +430,19 @@ function TooBigActions({
             aria-label={t("cloudStart.pickRepo")}
           >
             {repos.map((repo) => (
-              <button
-                key={repo.path}
-                type="button"
-                className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
-                data-repo={repo.path}
-                title={repo.path}
-                onClick={() => onPickRepo(repo.path)}
-              >
-                {repo.name}
-              </button>
+              <WithFacts key={repo.path} facts={[{ value: repo.path, code: true }]}>
+                {(facts) => (
+                  <button
+                    {...facts}
+                    type="button"
+                    className="acpmux-cloud-ask__button acpmux-cloud-too-big__repo"
+                    data-repo={repo.path}
+                    onClick={() => onPickRepo(repo.path)}
+                  >
+                    {repo.name}
+                  </button>
+                )}
+              </WithFacts>
             ))}
           </fieldset>
         </>
@@ -415,9 +479,48 @@ function TooBigActions({
 /// A start that connecting GitHub would let go on (`seed.needs_github`: a folder too big to copy whose way is a GitHub
 /// clone, or a picked repository the cmux GitHub App does not reach): Connect GitHub opens the install or its settings
 /// (`github.connect`, the folder menu's own call), then Retry runs the same start. A refused call says why under it.
-function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
+///
+/// The click names the start's repository (#55104), so the API reuses a connection that already covers it or sends the
+/// person through GitHub's authorize page, which comes back to the app. Then the start goes again by itself: at once
+/// when a connection covered it, else once the app says it finished the connection.
+function ConnectGitHubAction({
+  store,
+  repository,
+  onConnected,
+}: {
+  store?: GitHubPickerStore;
+  repository?: string;
+  onConnected?: () => void;
+}) {
   const t = useT();
-  const github = useGitHubPicker(store);
+  const picker = store ?? gitHubPickerStore();
+  const github = useGitHubPicker(picker);
+  const waiting = useRef<(() => void) | undefined>(undefined);
+  const retry = useRef(onConnected);
+  useEffect(() => {
+    retry.current = onConnected;
+  }, [onConnected]);
+  // Unmounted (the start went on, or the chat closed): a connect still out retries nothing.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      waiting.current?.();
+      waiting.current = undefined;
+    };
+  }, []);
+  const connect = () => {
+    void picker.connectRepo(githubFullName(repository)).then((outcome) => {
+      if (!mounted.current) return;
+      if (outcome === "connected") retry.current?.();
+      else if (outcome === "opened" && !waiting.current)
+        waiting.current = picker.afterChange(() => {
+          waiting.current = undefined;
+          retry.current?.();
+        });
+    });
+  };
   return (
     <>
       <button
@@ -425,7 +528,7 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
         className="acpmux-cloud-ask__button"
         data-role="default"
         data-action="connect-github"
-        onClick={() => github.onConnect()}
+        onClick={connect}
       >
         {t("cloudRepository.connect")}
       </button>
@@ -500,6 +603,7 @@ export function CloudStartView({
   start,
   bubble = true,
   showSteps = false,
+  quietLook,
   onOpenEnvironment,
   onAnswer,
   onRetry,
@@ -516,12 +620,15 @@ export function CloudStartView({
   githubStore,
   planStore,
   planTeamLook = "notice",
+  setupStepsLook = "rail",
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
   /// The startup steps while the start is on its way (galleries and tests); off, the start reads as a
   /// local first turn and only a failure shows them.
   showSteps?: boolean;
+  /// The quiet line's look (galleries and tests); otherwise the `cloud-start-quiet-look` arm.
+  quietLook?: QuietLook;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
   /// The person's click on the start's question: its id and the button's (`cloud.answerStart`).
   onAnswer?: (id: string, button: string) => Promise<boolean> | void;
@@ -552,6 +659,8 @@ export function CloudStartView({
   planStore?: CloudPlanSubscribeStore;
   /// The plan-in-a-team look (galleries compare them); the pane draws `notice`.
   planTeamLook?: CloudPlanTeamLook;
+  /// The first-send setup strip's look (galleries compare them); the pane draws `rail`.
+  setupStepsLook?: CloudSetupStepsLook;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -569,6 +678,7 @@ export function CloudStartView({
   const [expanded, setExpanded] = useState(autoOpen);
   const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
   const [signingIn, setSigningIn] = useState(false);
+  const signInTitleId = useId();
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     if (autoOpen) setExpanded(true);
@@ -578,6 +688,8 @@ export function CloudStartView({
   const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
+  const look = quietLook ?? experimentArm(cloudStartQuietLook);
+  const stage = look === "thinking" ? undefined : quietStage(start, rows, t);
   const openEnvironment = () => {
     const options = {
       ...(start.environmentId ? { environmentId: start.environmentId } : {}),
@@ -596,6 +708,8 @@ export function CloudStartView({
   // Thinking line, with no Cloud machine, clone or setup rows (Leo, 2026-11-04: "You actually see
   // nothing. Like the ideal is, of course, you literally have parity with local, and you don't even
   // realize that you entered the cloud"). Only a failure shows the steps, with what to do.
+  // The line names the stage the start is on, why it waits and about how long (cloudStartViewModel
+  // `quietStage`), in the Thinking line's look; once the agent has started it is Thinking again.
   // A start that waits on the person's browser sign-in says that instead: nothing runs until they finish.
   const waitingForSignIn = !failed && start.signingIn === true;
   const signInStatus = (
@@ -609,6 +723,7 @@ export function CloudStartView({
   const planTeamRefusal = failed && start.code === "cloud_plan_required" && (
     <PlanCard
       look={planTeamLook}
+      steps={setupStepsLook}
       runHereLabel={planLabels.runHere}
       {...(start.planTeam ? { refusal: start.planTeam } : {})}
       {...(start.plans ? { plans: start.plans } : {})}
@@ -631,10 +746,75 @@ export function CloudStartView({
         )}
         <CloudSetupCard
           need={setup}
+          steps={setupStepsLook}
           waiting={!failed}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
         />
+      </section>
+    );
+  }
+  // Not signed in (checked before anything starts): the first setup step, not a failure. The card says what Cloud
+  // needs and keeps the prompt; Sign in opens the browser and the start goes again by itself, This Mac runs it here,
+  // Not now leaves the draft. While the browser is out the same card waits, so the person keeps their place.
+  if (cloudSetupStep(start) === "account") {
+    const timedOut = failed && start.message === CLOUD_SIGN_IN_ANSWERS.expired.message;
+    return (
+      <section className="acpmux-cloud-start" data-state="setup" data-setup-step="account">
+        {bubble && (
+          <div className="cv-user">
+            <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
+          </div>
+        )}
+        <section
+          className="acpmux-cloud-setup"
+          aria-labelledby={signInTitleId}
+          data-waiting={waitingForSignIn || undefined}
+        >
+          <CloudSetupSteps current="account" look={setupStepsLook} />
+          <strong className="acpmux-cloud-setup__title" id={signInTitleId}>
+            {t("cloudSetup.title")}
+          </strong>
+          <p className="acpmux-cloud-setup__body">
+            {timedOut ? start.message : t("cloudSetup.signIn.body")} {t("cloudSetup.keepsPrompt")}
+          </p>
+          {waitingForSignIn && signInStatus}
+          <span className="acpmux-cloud-ask__actions acpmux-cloud-setup__actions">
+            <button
+              type="button"
+              className="acpmux-cloud-ask__button acpmux-cloud-start__sign-in"
+              data-role="default"
+              data-action="sign-in"
+              onClick={signIn}
+              disabled={signingIn || waitingForSignIn || !onSignIn}
+              aria-busy={signingIn || waitingForSignIn}
+            >
+              {t("cloudStart.signInToContinue")}
+            </button>
+            {/* Only once the start has failed: while the browser is out the prompt is held for the sign-in, so
+                Run on This Mac there would switch modes and send an empty composer. */}
+            {onRunHere && failed && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-action="run-here"
+                onClick={() => onRunHere()}
+              >
+                {planLabels.runHere}
+              </button>
+            )}
+            {onDismiss && failed && (
+              <button
+                type="button"
+                className="acpmux-cloud-ask__button"
+                data-action="dismiss"
+                onClick={() => onDismiss()}
+              >
+                {t("harness.notNow")}
+              </button>
+            )}
+          </span>
+        </section>
       </section>
     );
   }
@@ -664,7 +844,13 @@ export function CloudStartView({
             <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
           </div>
         )}
-        {waitingForSignIn ? signInStatus : <Thinking />}
+        {waitingForSignIn ? (
+          signInStatus
+        ) : stage && look !== "thinking" ? (
+          <StageLine stage={stage} look={look} now={now} />
+        ) : (
+          <Thinking />
+        )}
         <AskRow {...(start.ask ? { ask: start.ask } : {})} {...(onAnswer ? { onAnswer } : {})} />
       </section>
     );
@@ -859,7 +1045,13 @@ export function CloudStartView({
       )}
       {failed && !planTeamRefusal && !sizeLocked && ((start.retryable && onRetry) || needsGitHub) && (
         <span className="acpmux-cloud-ask__actions">
-          {needsGitHub && <ConnectGitHubAction {...(githubStore ? { store: githubStore } : {})} />}
+          {needsGitHub && (
+            <ConnectGitHubAction
+              {...(githubStore ? { store: githubStore } : {})}
+              {...(start.repository ? { repository: start.repository } : {})}
+              {...(start.retryable && onRetry ? { onConnected: onRetry } : {})}
+            />
+          )}
           {start.retryable && onRetry && (
             <button
               type="button"

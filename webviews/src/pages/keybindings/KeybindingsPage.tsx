@@ -23,7 +23,9 @@ import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/rea
 import { focusRoute } from "../../ui/focusRoute";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
+import { keycapLegend } from "../../ui/keycapLegend";
 import {
   canEditWhen,
   displayStrokes,
@@ -37,6 +39,7 @@ import {
 } from "./model";
 import type { KeybindingsStore, Recording } from "./store";
 import type { Binding } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** A row's height before the first of its kind is measured (styles.css: two lines and padding). */
 const ROW_ESTIMATE = 41;
@@ -106,7 +109,7 @@ function Keycaps({ display }: { display: string }) {
       {displayStrokes(display).map((stroke, index) => (
         // oxlint-disable-next-line react/no-array-index-key
         <kbd key={index} className="keys-cap">
-          {stroke}
+          {keycapLegend(stroke)}
         </kbd>
       ))}
     </span>
@@ -119,7 +122,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const disconnected = snap.connection === "disconnected";
   // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
   // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
-  const downLasting = useLasting(disconnected);
+  const downLasting = useConnectionQuiet(disconnected);
   const searchRecording = snap.recording?.target === "search";
   const list = useMemo(() => rowList(snap.rows), [snap.rows]);
   const selectedIndex = rowIndex(list, snap.selection);
@@ -162,6 +165,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   // The first mounted row of each kind sizes every one not yet mounted, so the rows a scroll brings
   // in measure as estimated: TanStack places all N rows again whenever a measure differs.
   const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the keybindings page stays uncompiled on purpose; it windows table rows between spacer <tr> rows under a measured header and keeps the selected, focused, editing and recording rows mounted, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: list.ids.length,
     getScrollElement: () => scroller.current,
@@ -291,7 +295,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
               placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
               aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
               value={snap.text}
-              disabled={disconnected}
+              // Search and Conflicts Only filter the list on screen: live while the link comes back (Leo, 2026-11-24 11:57Z).
               // While it records the app takes every key, and the field takes no text of its own; it
               // stays editable so its clear button (the native one) clears the recorded keys.
               onBeforeInput={searchRecording ? (event) => event.preventDefault() : undefined}
@@ -302,9 +306,13 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             />
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
-              <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">
-                {t("keybindings.page.recordingKeys")}
-              </span>
+              <WithFacts facts={[{ value: t("keybindings.page.recordingExit") }]}>
+                {(facts) => (
+                  <span {...facts} className="keys-search-badge" aria-hidden="true">
+                    {t("keybindings.page.recordingKeys")}
+                  </span>
+                )}
+              </WithFacts>
             )}
           </div>
           <button
@@ -324,7 +332,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             type="button"
             className={`keys-toggle keys-conflicts-only${snap.conflictsOnly ? " on" : ""}`}
             aria-pressed={snap.conflictsOnly}
-            disabled={disconnected}
             onClick={() => store.setConflictsOnly(!snap.conflictsOnly)}
           >
             {t("keybindings.page.conflictsOnly")}
@@ -377,9 +384,9 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           store={store}
         />
       )}
-      {downLasting ? (
-        <div className="keys-empty">{t("keybindings.page.disconnected")}</div>
-      ) : snap.rows.length === 0 ? (
+      {/* The list stays while the link is down; a corner mark says so once it lasts (ui/ConnectionChip.tsx). */}
+      {downLasting ? <ConnectionChip text={t("keybindings.page.disconnected")} /> : null}
+      {snap.rows.length === 0 ? (
         <div className="keys-empty">
           {snap.loading || disconnected
             ? ""
@@ -677,7 +684,7 @@ function Recorder({
             <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
               {group.caps.map((cap) => (
                 <kbd key={cap} className="keys-recorder-cap">
-                  {cap}
+                  {keycapLegend(cap)}
                 </kbd>
               ))}
             </span>
@@ -707,9 +714,7 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
-        <span className="keys-recorder-command" title={binding.title}>
-          {binding.title}
-        </span>
+        <span className="keys-recorder-command">{binding.title}</span>
         {prompt ? (
           // The app's recorder answers Escape (Close) and Return (Overwrite); a new shortcut
           // drops the question.
@@ -721,7 +726,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("close")}
             >
-              {withKeys(t("keybindings.page.recorder.closeOnly"), ["Esc"])}
+              {withKeys(t("keybindings.page.recorder.closeOnly"), [keycapLegend("Esc")])}
             </button>
             <button
               type="button"
@@ -730,7 +735,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("overwrite")}
             >
-              {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
+              {withKeys(t("keybindings.page.recorder.overwrite"), [keycapLegend("↩")])}
             </button>
           </span>
         ) : (
@@ -741,7 +746,7 @@ function Recorder({
             onMouseDown={keepFocus}
             onClick={() => store.closeRecording()}
           >
-            {withKeys(t("keybindings.page.recorder.close"), ["Esc", "↩"])}
+            {withKeys(t("keybindings.page.recorder.close"), [keycapLegend("Esc"), keycapLegend("↩")])}
           </button>
         )}
       </div>
@@ -805,7 +810,6 @@ const BindingRow = memo(function BindingRow({
             aria-label={
               binding.display ? `${t("keybindings.page.change")}: ${binding.display}` : t("keybindings.page.change")
             }
-            title={t("keybindings.page.change")}
             aria-pressed={recording}
             onClick={(event) => {
               event.stopPropagation();

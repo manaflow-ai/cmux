@@ -10,11 +10,12 @@ import { Icon } from "../icons";
 import { SETTINGS_SENTENCES, type ThemeOverride } from "../ops";
 import { userMessage } from "../../shared/userMessage";
 import { locale, t } from "../strings";
+import { intl } from "../../../ui/intl";
 
 /** "background and foreground" in the page's language. */
 function keyList(overrides: ThemeOverride[]): string {
   const keys = [...new Set(overrides.map((override) => override.key))];
-  return new Intl.ListFormat(locale(), { type: "conjunction" }).format(keys);
+  return intl.ListFormat(locale(), { type: "conjunction" }).format(keys);
 }
 
 /** One "~/.config/ghostty/config, lines 2, 3" per file, in load order. */

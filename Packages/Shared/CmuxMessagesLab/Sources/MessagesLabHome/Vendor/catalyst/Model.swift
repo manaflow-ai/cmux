@@ -20,6 +20,9 @@ struct Participant: Codable, Equatable {
     var displayName: String
     var isMe: Bool
     var avatar: Avatar?
+    /// cmux: no name over this sender's runs in a transcript that names others' (a person's own Chief in
+    /// its own chat, where only the agents that sent through the CLI need one: HomeMapping.participants).
+    var cmuxUnnamed: Bool? = nil
 
     enum Avatar: Codable, Equatable {
         case monogram(String)

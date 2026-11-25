@@ -67,6 +67,76 @@
   right: var(--acpmux-session-info-under-right, 12px);
 }
 
+/* Placed (the person dragged it, or it is larger than small): anywhere inside the pane, under the
+   header, 12px from the sides and bottom. --cu-x and --cu-y are fractions of the room the pane leaves
+   around the card (computerUsePreview.ts): `left` moves by the pane's share and `translate` back by
+   the card's own share, so the card's edge stays inside at any pane or card size, with no measuring. */
+.acpmux-shell .acpmux-cu-preview[data-placed] {
+  --cu-top: calc(var(--acpmux-header-height, 44px) + 8px);
+  top: calc(var(--cu-top) + var(--cu-y, 0) * (100% - var(--cu-top) - var(--ds-space-3, 12px)));
+  left: calc(var(--ds-space-3, 12px) + var(--cu-x, 1) * (100% - 2 * var(--ds-space-3, 12px)));
+  right: auto;
+  translate: calc(var(--cu-x, 1) * -100%) calc(var(--cu-y, 0) * -100%);
+  transform-origin: center;
+}
+/* A drag: the grab cursor, no easing (the card follows the pointer), and no text selection. */
+.acpmux-cu-preview[data-dragging] {
+  user-select: none;
+}
+.acpmux-cu-preview[data-dragging] .acpmux-cu-preview__open {
+  cursor: grabbing;
+}
+/* Full size: the card fills the pane under the header (Leo: "why can't I full screen this picture?"),
+   the frame scaled to fit. Its button, or a click on it, brings it back small. */
+.acpmux-shell .acpmux-cu-preview[data-full] {
+  --cu-top: calc(var(--acpmux-header-height, 44px) + 8px);
+  top: var(--cu-top);
+  right: var(--ds-space-3, 12px);
+  bottom: var(--ds-space-3, 12px);
+  left: var(--ds-space-3, 12px);
+  width: auto;
+  max-width: none;
+  translate: none;
+  z-index: var(--layer-overlay, var(--layer-sticky));
+}
+.acpmux-cu-preview[data-full] .acpmux-cu-preview__open,
+.acpmux-cu-preview[data-full] .acpmux-cu-preview__frame {
+  height: 100%;
+  cursor: zoom-out;
+}
+.acpmux-cu-preview[data-full] .acpmux-cu-preview__frame > img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+/* Hidden: a small chip at the card's place brings it back ("Show Preview"). */
+.acpmux-cu-preview__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--cu-preview-close-fill);
+  color: white;
+  font: inherit;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  cursor: default;
+  filter: var(--cu-preview-shadow);
+}
+.acpmux-cu-preview__chip:hover {
+  background: var(--cu-preview-close-hover);
+}
+.acpmux-cu-preview__chip:active {
+  background: var(--cu-preview-close-press);
+}
+.acpmux-cu-preview__chip:focus-visible {
+  outline: 1.5px solid white;
+  box-shadow: 0 0 0 3px var(--cu-preview-close-press);
+}
+
 .acpmux-cu-preview__open {
   display: flex;
   flex-direction: column;
@@ -77,7 +147,9 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
+  cursor: zoom-in;
+  /* A press can be a drag: no browser pan or text drag takes it. */
+  touch-action: none;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -99,6 +171,18 @@
 }
 .acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
   opacity: 0.4;
+}
+/* Enlarged (a click on the card, as the Codex app enlarges its preview): up to 560px wide or 60% of
+   the pane, over the chat's top right (a choice the person made; the column keeps only the small
+   card's room). A second click shrinks it back. */
+.acpmux-cu-preview[data-expanded] {
+  max-width: min(560px, 60vw);
+}
+.acpmux-cu-preview[data-expanded] .acpmux-cu-preview__frame > img {
+  max-height: min(420px, 60vh);
+}
+.acpmux-cu-preview[data-expanded] .acpmux-cu-preview__open {
+  cursor: zoom-out;
 }
 
 /* The agent's cursor where the helper draws it (the frame's fractions: the frame box is the image's
@@ -250,7 +334,35 @@
 }
 /* A light ring on a dark one: it shows over a light or a dark window. */
 .acpmux-cu-preview__close:focus-visible {
-  outline: 1.5px solid white;
+  outline: var(--cmux-focus-ring-width, 1.5px) solid white;
+  outline-offset: 0;
+  box-shadow: 0 0 0 3px var(--cu-preview-close-press);
+}
+
+/* Full size: the close button's twin on the window's top right corner. */
+.acpmux-cu-preview__full {
+  position: absolute;
+  top: var(--ds-space-2, 8px);
+  right: var(--ds-space-2, 8px);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cu-preview-close-fill);
+  color: white;
+  cursor: default;
+}
+.acpmux-cu-preview__full:hover {
+  background: var(--cu-preview-close-hover);
+}
+.acpmux-cu-preview__full:active {
+  background: var(--cu-preview-close-press);
+}
+.acpmux-cu-preview__full:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid white;
   outline-offset: 0;
   box-shadow: 0 0 0 3px var(--cu-preview-close-press);
 }

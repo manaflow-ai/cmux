@@ -190,7 +190,10 @@ pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+#[cfg(unix)]
+mod agent_failure_code;
 pub(crate) mod agent_message_pump;
+mod agent_notice_stats;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 pub(crate) mod chat_index;
@@ -230,6 +233,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod shell_state_save;
 mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
@@ -240,6 +244,7 @@ pub use agent_presence::{AgentActivity, AgentPresence};
 pub(crate) use agent_prompts::{
     with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
 };
+mod agent_notification_delivery;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -329,6 +334,8 @@ mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+#[cfg(any(unix, windows))]
+pub mod process_census;
 mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
@@ -408,7 +415,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };
@@ -517,7 +524,6 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
-const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 /// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
@@ -906,6 +912,9 @@ pub struct Mux {
     pub(crate) control_clients: crate::server::ClientRegistry,
     /// One whole-tree `list-workspaces` build for concurrent readers.
     pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
+    /// The ring of changed workspace ids for `list-workspaces {since}`
+    /// (server/list_workspaces_delta.rs).
+    pub(crate) workspace_delta: crate::server::list_workspaces_delta::WorkspaceDelta,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
@@ -1153,6 +1162,17 @@ impl Mux {
     /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
+            // A never-started lazy tab is parked, not reaped
+            // (mux/terminal_respawn/lazy.rs). Its park waits for the end of
+            // its creating request: a park inside the creation is overwritten
+            // when the creation commits the tab and its terminal.
+            #[cfg(unix)]
+            if surface
+                .terminal_host_identity()
+                .is_some_and(|host| self.lazy_never_started(&host.terminal_id))
+            {
+                return;
+            }
             if self.resource_creation_active.load(Ordering::Acquire) {
                 // The reader's exit callback is fenced by the creation
                 // execution lock. It will reap this surface after the public
@@ -1179,14 +1199,25 @@ impl Mux {
             self.remove_surface_after_registry(surface.id);
             return;
         }
+        // The surface's workspace comes from the placement indexes: no walk of the workspace list.
+        // The scan stays for the transient state where the indexes lack the placement.
         let workspace_key = {
             let state = self.state.lock().unwrap();
-            state.workspaces.iter().find_map(|workspace| {
-                workspace
-                    .screens
-                    .iter()
-                    .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
-                    .then(|| workspace.key.clone())
+            let indexed = state
+                .pane_of(surface.id)
+                .and_then(|pane| state.screen_of(pane))
+                .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                .map(|workspace| workspace.key.clone());
+            indexed.or_else(|| {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(state.workspaces.len());
+                state.workspaces.iter().find_map(|workspace| {
+                    workspace
+                        .screens
+                        .iter()
+                        .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
+                        .then(|| workspace.key.clone())
+                })
             })
         };
         if let Some(workspace_key) = workspace_key {

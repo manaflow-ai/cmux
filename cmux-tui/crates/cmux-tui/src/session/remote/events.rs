@@ -408,6 +408,7 @@ impl RemoteSession {
                 };
                 let event = MuxEvent::AgentChanged {
                     surface,
+                    terminal_id: value.get("terminal_id").and_then(Value::as_str).map(Arc::from),
                     state: Arc::from(agent.state.as_str()),
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),

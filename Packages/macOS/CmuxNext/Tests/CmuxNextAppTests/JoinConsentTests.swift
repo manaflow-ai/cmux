@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextDevices
 import CmuxNextPages
@@ -196,6 +197,26 @@ import Testing
         #expect(model.consent?.control != true)
     }
 
+    /// SECURITY (cmux#37286): macOS 15.4+ may capture a window with `sharingType` none, so every capture cmux
+    /// makes leaves the sheet out by its window id: screen sharing, `cmux rd serve` and the recorders read
+    /// `CaptureExcludedWindows`, which lists it while it shows. Computer Use refuses it for the same property.
+    @Test func cmuxsOwnCapturesLeaveTheSheetOut() async throws {
+        _ = NSApplication.shared
+        let model = JoinConsentModel(services: Fake().services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+        let panel = JoinConsentAskPanel(model: model)
+        #expect(panel.sharingType == .none, "the sharing state CaptureExcludedWindows reads")
+        panel.setShown(true)
+        defer { panel.hide() }
+        // With no window server connection (a test step over SSH) the panel has no number and no capture runs.
+        guard panel.windowNumber > 0 else { return }
+        let id = CGWindowID(panel.windowNumber)
+        // The window server takes the new window in its own time.
+        for _ in 0..<40 where !CaptureExcludedWindows().windowIDs.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(CaptureExcludedWindows().windowIDs.contains(id), "left out of cmux's captures")
+    }
+
     /// The sheet's Allow refuses a click that is not the person's own (a remote driver's posted click) and a
     /// press through its action (Accessibility): nothing is granted, and the sheet says why instead of
     /// doing nothing. The gate is unchanged: the person's own click still grants.
@@ -207,11 +228,15 @@ import Testing
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
         let panel = JoinConsentAskPanel(model: model)
         model.present = { [weak panel] _ in panel?.content.rebuild() }
-        panel.content.rebuild()
-        panel.setContentSize(panel.content.fittingSize)
-        panel.contentView?.layoutSubtreeIfNeeded()
+        // Shown as the app shows it (``JoinConsentAskPanel/setShown(_:)``): the content joins the panel only then, and
+        // Allow's action finds its panel through its window (before 27ee68fa the panel's init held the content).
+        panel.setShown(true)
+        defer { panel.hide() }
         let allow = { try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton) }
-        func texts(_ view: NSView) -> [String] { ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap(texts) }
+        // The card's words are ChromeLabels (the dialog card draws no NSTextField labels).
+        func texts(_ view: NSView) -> [String] {
+            (((view as? NSTextField)?.stringValue ?? (view as? ChromeLabel)?.stringValue).map { [$0] } ?? []) + view.subviews.flatMap(texts)
+        }
         let shown = { (text: String) in texts(panel.content).contains(text) }
         var number = 0
         let mouse = { (type: NSEvent.EventType) throws -> NSEvent in
