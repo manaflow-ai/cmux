@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxUpdater
+import CmuxUpdaterCore
 
 @Suite struct UpdateFeedResolverTests {
     @Test func missingInfoFeedURLUsesFallback() {
@@ -133,5 +133,24 @@ import Testing
         #expect(resolver.resolve(infoFeedURL: "https://example.com/stable/appcast.xml").url
             == "https://example.com/stable/appcast.xml")
         #expect(resolver.resolve(infoFeedURL: nil).url == resolver.fallbackFeedURL)
+    }
+
+    @Test func classifiesDebugAndStagingBundlesAsDevLike() {
+        #expect(UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.debug"))
+        #expect(UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.debug.my-tag"))
+        #expect(UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.staging"))
+        #expect(UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.staging.my-tag"))
+    }
+
+    @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app"))
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.nightly"))
+        // RC is on the public release train: it must keep auto-update on.
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.rc"))
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.rc.candidate1"))
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier(nil))
+        // A look-alike that is neither the exact base id nor a dotted suffix must not match.
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
+        #expect(!UpdateFeedResolver.isDevLikeBundleIdentifier("com.cmuxterm.app.stagingx"))
     }
 }

@@ -140,4 +140,22 @@ public struct UpdateFeedResolver: Sendable {
         }
         return feedURL
     }
+
+    /// Whether `bundleIdentifier` is a cmux DEV (`com.cmuxterm.app.debug[.<tag>]`) or staging
+    /// (`com.cmuxterm.app.staging[.<tag>]`) build.
+    ///
+    /// Such builds are produced from local source and are not on the public release train, so
+    /// they must never be compared against the public Sparkle appcast (#6292).
+    ///
+    /// Mirrors `SocketControlSettings.isDebugLikeBundleIdentifier` +
+    /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
+    /// duplicated here deliberately to avoid introducing a `CmuxUpdater → CmuxSettings` package
+    /// dependency edge for a small string check.
+    package static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier == "com.cmuxterm.app.debug"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
+            || bundleIdentifier == "com.cmuxterm.app.staging"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
+    }
 }

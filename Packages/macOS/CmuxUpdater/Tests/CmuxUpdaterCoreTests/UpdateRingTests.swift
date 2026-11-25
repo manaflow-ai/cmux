@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxUpdater
+import CmuxUpdaterCore
 
 /// Release rings (`updates.channel`) are a ladder of `sparkle:channel` tags in the one
 /// cmux-next appcast: a faster ring accepts every slower ring's items as well.

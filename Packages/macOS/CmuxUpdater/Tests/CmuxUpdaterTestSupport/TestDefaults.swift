@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#endif
 
 /// A test's own `UserDefaults` suite that leaves no plist behind in `~/Library/Preferences`.
 ///
@@ -17,14 +19,20 @@ extension UserDefaults {
 }
 
 enum TestDefaults {
+#if canImport(Darwin)
+    // lint:allow lock - test suites register and clean their preference domains concurrently.
     private static let lock = NSLock()
+    // Safe because every access is serialized by `lock` and this state only tracks process-local cleanup.
     nonisolated(unsafe) private static var names: Set<String> = []
+    // Safe because every access is serialized by `lock` and registration happens once per process.
     nonisolated(unsafe) private static var registeredExitHandler = false
+#endif
 
     /// Records `suiteName` so its domain and plist are removed when the test process exits,
     /// and returns it, for code that takes a suite name rather than a `UserDefaults`.
     @discardableResult
     static func removeAtExit(_ suiteName: String) -> String {
+#if canImport(Darwin)
         lock.lock()
         defer { lock.unlock() }
         names.insert(suiteName)
@@ -32,16 +40,20 @@ enum TestDefaults {
             registeredExitHandler = true
             atexit { TestDefaults.removeAll() }
         }
+#endif
         return suiteName
     }
 
     /// Removes the suite's domain and deletes its plist now.
     static func remove(_ suiteName: String) {
         UserDefaults.standard.removePersistentDomain(forName: suiteName)
+#if canImport(Darwin)
         CFPreferencesAppSynchronize(suiteName as CFString)
         unlink(preferencesDirectory + "/" + suiteName + ".plist")
+#endif
     }
 
+#if canImport(Darwin)
     private static func removeAll() {
         lock.lock()
         let pending = names
@@ -59,4 +71,5 @@ enum TestDefaults {
         }
         return NSHomeDirectory() + "/Library/Preferences"
     }()
+#endif
 }

@@ -1,5 +1,3 @@
-import Foundation
-
 /// Sequences the "re-resolve to the latest, then install" flow so the update that actually gets
 /// installed is the newest one currently published — not the version that was captured when the
 /// update prompt was first surfaced.
@@ -11,14 +9,16 @@ import Foundation
 /// install time and install whatever that fresh check resolves.
 ///
 /// The coordinator is intentionally pure — it has no Sparkle dependency and performs no work
-/// itself. ``UpdateController`` feeds it the user's request plus each subsequent ``UpdateState``
+/// itself. The update controller feeds it the user's request plus each subsequent ``UpdateLifecyclePhase``
 /// change and performs the returned ``Action``. Keeping the policy here (rather than inline in the
 /// controller, which owns a live `SPUUpdater`) makes the install-resolution behavior deterministic
 /// and unit-testable without a live updater.
 @MainActor
-struct AttemptUpdateCoordinator {
+package struct AttemptUpdateCoordinator {
+    package init() {}
+
     /// What the controller should do in response to a request or a state change.
-    enum Action: Equatable {
+    package enum Action: Equatable {
         /// Do nothing; keep waiting for the next state change.
         case none
         /// Start a fresh Sparkle check so the feed is re-resolved to the latest available version.
@@ -45,7 +45,7 @@ struct AttemptUpdateCoordinator {
     private var phase: Phase = .inactive
 
     /// Whether the coordinator is mid-flow and should be fed state changes.
-    var isMonitoring: Bool { phase != .inactive }
+    package var isMonitoring: Bool { phase != .inactive }
 
     /// The user asked to install the available update. Always re-resolve via a fresh check rather
     /// than installing whatever was captured when the prompt was surfaced (issue #6366), unless an
@@ -54,7 +54,7 @@ struct AttemptUpdateCoordinator {
     ///
     /// - Parameter currentState: The phase showing when the user requested the install. Its
     ///   captured update is deliberately *not* installed; it only gates the mid-install no-op.
-    mutating func requestInstallLatest(currentState: UpdateState) -> Action {
+    package mutating func requestInstallLatest(currentState: UpdateLifecyclePhase) -> Action {
         guard phase == .inactive else { return .none }
         switch currentState {
         case .startingDownload, .downloading, .extracting, .installing:
@@ -68,14 +68,14 @@ struct AttemptUpdateCoordinator {
     }
 
     /// Records the authoritative moment the controller invokes Sparkle's fresh check.
-    mutating func didStartFreshCheck() {
+    package mutating func didStartFreshCheck() {
         guard phase == .awaitingFreshCheck else { return }
         phase = .awaitingResult
     }
 
-    /// Feed each ``UpdateState`` change observed after a request. Returns the action the controller
+    /// Feed each ``UpdateLifecyclePhase`` change observed after a request. Returns the action the controller
     /// should perform.
-    mutating func handleStateChange(_ state: UpdateState) -> Action {
+    package mutating func handleStateChange(_ state: UpdateLifecyclePhase) -> Action {
         switch phase {
         case .inactive:
             return .none
@@ -137,7 +137,7 @@ struct AttemptUpdateCoordinator {
     }
 
     /// Abandon any in-flight coordination (e.g. when a different flow takes over).
-    mutating func cancel() {
+    package mutating func cancel() {
         phase = .inactive
     }
 }
