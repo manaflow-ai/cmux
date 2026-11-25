@@ -67,6 +67,11 @@ pub(crate) struct Warm {
     started: AtomicBool,
     kick: Arc<Notify>,
     state: StdMutex<State>,
+    /// Orders a page kept against the daemon's stop ([`Warm::stop`]): a capture is kept under it
+    /// only while not stopped. Its own lock, never `state`: a capture waits on the rows fence and
+    /// the store, and every peer notice takes `state` (`due_by`). Held across that wait, `state`
+    /// parked every tokio worker of Leo's daemon behind one read ahead (2026-11-25).
+    capture: StdMutex<()>,
 }
 
 #[derive(Default)]
@@ -112,6 +117,7 @@ impl Warm {
 
     /// The daemon stops: every round ends at its next wait, and none keeps a page after this.
     pub(crate) fn stop(&self) {
+        let _capture = self.capture.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = self.state();
         s.stopped = true;
         for round in s.rounds.drain(..) {
@@ -269,8 +275,7 @@ impl Hub {
         if self.peer_snapshots.warm.wanted.swap(true, Ordering::SeqCst) {
             return;
         }
-        let peers: Vec<String> =
-            self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        let peers: Vec<String> = self.peers.load().keys().cloned().collect();
         for peer in peers {
             self.warm_peer_copies(&peer);
         }
@@ -340,13 +345,18 @@ impl Hub {
             return Some(after(Instant::now(), WARM_EVERY));
         };
         let rows = self.peer_rows(name);
-        let (asks, later) = {
-            let mut s = warm.state();
-            let (asks, planned, later) =
-                plan(name, &rows, &covers, &s.read_at, (now_ms(), Instant::now()));
-            s.read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
-            (asks, later)
-        };
+        // Planned off the lock (it walks every row): only this peer's reads are copied out, at
+        // most [`WARM_PER_PEER`] once pruned.
+        let read_at: HashMap<Key, (u64, Instant)> = warm
+            .state()
+            .read_at
+            .iter()
+            .filter(|(k, _)| k.0 == name)
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        let (asks, planned, later) =
+            plan(name, &rows, &covers, &read_at, (now_ms(), Instant::now()));
+        warm.state().read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
         let mut later = later;
         // Read again after the interval: a chat refused or not read to its end.
         let again = |later: &mut Option<Instant>| {
@@ -381,8 +391,8 @@ impl Hub {
             {
                 // Kept under the lock the stop takes, so no page is kept once the daemon stops
                 // (its last flush comes after `Warm::stop`). The capture only queues the page.
-                let s = warm.state();
-                if s.stopped {
+                let _capture = warm.capture.lock().unwrap_or_else(|e| e.into_inner());
+                if warm.state().stopped {
                     return None;
                 }
                 let on = (name, peer.generation, link, Some(ask.generation));

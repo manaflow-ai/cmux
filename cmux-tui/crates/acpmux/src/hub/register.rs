@@ -327,19 +327,17 @@ impl Hub {
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _one_at_a_time = REGISTERING.lock().await;
         let stores = super::adoption::store_families(&*self.config.read().await);
-        let shown = {
+        let (shown, holder) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             let shown = super::adoption::adopted_in(&sessions, &stores, family, &agent_session_id);
-            let taken = sessions.values().any(|s| {
-                s.read_meta(|m| m.name == name) && shown.as_ref().is_none_or(|own| own.id != s.id)
-            });
-            if taken {
-                return Err(RpcError::invalid_params(format!(
-                    "session name {name:?} is taken: pick another, or rename that session first"
-                ))
-                .with_data(json!({"reason": "register.name_taken"})));
-            }
-            shown
+            let holder = sessions
+                .values()
+                .find(|s| {
+                    s.read_meta(|m| m.name == name)
+                        && shown.as_ref().is_none_or(|own| own.id != s.id)
+                })
+                .cloned();
+            (shown, holder)
         };
         // A registered chat is taken over only by a process the kernel says was started for its
         // conversation (`--resume ID` in its launch arguments, which no file rewrites; a desktop
@@ -373,6 +371,9 @@ impl Hub {
                     )));
                 }
             }
+        }
+        if let Some(holder) = holder {
+            self.release_registered_name(&holder, &name, &crate::config::home()).await?;
         }
         let session = match shown {
             Some(s) => {
@@ -462,6 +463,27 @@ impl Hub {
             obj.insert("renewed".into(), json!(true));
         }
         Ok(out)
+    }
+
+    /// Release an address only after the incoming registration has passed every ownership check.
+    async fn release_registered_name(
+        &self,
+        holder: &Arc<Session>,
+        name: &str,
+        home: &std::path::Path,
+    ) -> Result<(), RpcError> {
+        if !registered_chat_gone(holder, home) {
+            return Err(RpcError::invalid_params(format!(
+                "session name {name:?} is taken: pick another, or rename that session first"
+            ))
+            .with_data(json!({"reason": "register.name_taken"})));
+        }
+        let short: String = holder.id.chars().take(8).collect();
+        // Leave room in the 80-byte address for the suffix, including a numeric collision
+        // suffix (sessions created close together can share a UUIDv7 prefix).
+        let prefix = &name[..name.floor_char_boundary(55)];
+        let freed = self.unique_name(&format!("{prefix}-gone-{short}"));
+        self.rename_as(holder, freed, super::task_names::Naming::Address).await
     }
 
     /// The name of the registered chat that shows `claimed`'s conversation, when `claimed` was
@@ -641,6 +663,16 @@ fn take_code(
     }
 }
 
+/// The daemon's saved registration identifies the holder. A missing token or an unreadable
+/// Claude registry entry cannot prove the process is gone.
+fn registered_chat_gone(session: &Session, home: &std::path::Path) -> bool {
+    is_registered(session)
+        && crate::qos::off_worker(|| {
+            crate::claude_peers::kept_token(home, &session.id)
+                .is_some_and(|kept| !crate::adopt_live::registered_runs(kept.pid, kept.started))
+        })
+}
+
 /// The session the caller's process tree holds could not be proven to run the conversation its
 /// registry entry names.
 fn unproven(why: String) -> RpcError {
@@ -673,6 +705,43 @@ mod tests {
             version: None,
             socket: Some(PathBuf::from(socket)),
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wedge_registered_name_is_released_only_after_its_process_exits() {
+        use crate::hub::former_names::tests::{chat, hub};
+        let hub = hub();
+        let home = tempfile::tempdir().unwrap();
+        let name = "desktop-zoe";
+        let holder = chat(&hub, "deadbeef-registered-holder", name);
+        let incoming = chat(&hub, "another-chat", "another-name");
+        mark_registered_for_test(&holder.id);
+
+        // A registered chat keeps its address even if the registry file is unavailable.
+        let mut kept = crate::claude_peers::ChildToken {
+            pid: std::process::id(),
+            started: Some(crate::store::now_ms()),
+            token: "test-token".into(),
+            socket: home.path().join("inbox.sock"),
+        };
+        crate::claude_peers::save_token(home.path(), &holder.id, &kept).unwrap();
+        let taken = hub.release_registered_name(&holder, name, home.path()).await.unwrap_err();
+        assert_eq!(taken.data.unwrap()["reason"], "register.name_taken");
+        assert_eq!(hub.resolve(name).unwrap().id, holder.id);
+
+        // Once the recorded process has exited, the new chat can take the address and
+        // both chats are still independently addressable.
+        let mut ended = std::process::Command::new("true").spawn().unwrap();
+        kept.pid = ended.id();
+        ended.wait().unwrap();
+        crate::claude_peers::save_token(home.path(), &holder.id, &kept).unwrap();
+        hub.release_registered_name(&holder, name, home.path()).await.unwrap();
+        hub.rename_as(&incoming, name.into(), crate::hub::task_names::Naming::Address)
+            .await
+            .unwrap();
+        assert_eq!(hub.resolve(name).unwrap().id, incoming.id);
+        assert_eq!(hub.resolve("desktop-zoe-gone-deadbeef").unwrap().id, holder.id);
     }
 
     #[test]
