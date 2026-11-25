@@ -39,7 +39,8 @@ export function promptResendNotice(params: unknown): PromptResendNotice | undefi
   const state = p.state;
   if (state !== "sent" && state !== "accepted" && state !== "retrying" && state !== "refused") return undefined;
   const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
-  const retryInMs = typeof p.retryInMs === "number" && Number.isFinite(p.retryInMs) ? Math.max(0, p.retryInMs) : undefined;
+  const retryInMs =
+    typeof p.retryInMs === "number" && Number.isFinite(p.retryInMs) ? Math.max(0, p.retryInMs) : undefined;
   const code = text(p.code);
   const reason = text(p.reason);
   const message = text(p.message);
