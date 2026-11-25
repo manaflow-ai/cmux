@@ -26,7 +26,7 @@ use crate::schema::{self, Kind, NumberRange, Row, Schema};
 use crate::value::value_at;
 
 /// The settings `custom.read` answers.
-pub const NAMES: [&str; 37] = [
+pub const NAMES: [&str; 34] = [
     "agent_mouse",
     "browser_passwords",
     "verification_autofill",
@@ -60,10 +60,7 @@ pub const NAMES: [&str; 37] = [
     "appearance_tuning",
     "auto_archive",
     "chat_diagnostics",
-    "notify_legacy",
     "reduced_backgrounds_notes",
-    "new_tab_template_choices",
-    "quit_behavior_legacy",
 ];
 
 /// The ops this area answers; `None` for an op of another area.
@@ -451,7 +448,10 @@ fn home_server(read: &mut Read) {
                 .get("selfHosted")
                 .and_then(Value::as_str)
                 .filter(|text| schema::is_http_origin(text))
-                .map(|text| json!({"mode": "selfHosted", "url": text})),
+                .map(|text| {
+                    let origin = text.to_ascii_lowercase();
+                    json!({"mode": "selfHosted", "url": origin.trim_end_matches('/')})
+                }),
             _ => None,
         };
         match parsed {
@@ -1142,6 +1142,196 @@ mod tests {
         let answer = read("interface_scale", json!({"appearance": {"interfaceScale": 3}}));
         assert_eq!(answer["values"]["scale"], 1.25);
         assert_eq!(messages(&answer)[0].1, "expected a scale from 0.9 to 1.25; clamped");
+    }
+
+    #[test]
+    fn home_server_origins_are_normalised() {
+        for (input, origin) in [
+            ("http://mini.tail1234.ts.net:7320/", "http://mini.tail1234.ts.net:7320"),
+            ("HTTPS://Mini.Tail1234.ts.net", "https://mini.tail1234.ts.net"),
+            ("http://100.101.102.103:7320", "http://100.101.102.103:7320"),
+        ] {
+            let answer = read("home_server", json!({"home": {"server": {"selfHosted": input}}}));
+            assert_eq!(answer["values"]["server"]["url"], origin, "{input}");
+            assert!(messages(&answer).is_empty());
+        }
+        assert_eq!(read("home_server", json!({"home": {"server": "hosted"}}))["values"]["server"]["mode"], "hosted");
+    }
+
+    #[test]
+    fn home_server_refusals_keep_hosted_and_say_why() {
+        for bad in [
+            json!(1),
+            json!("selfHosted"),
+            json!(true),
+            json!({"selfHosted": "ftp://mini.tail1234.ts.net"}),
+            json!({"selfHosted": "http://mini.tail1234.ts.net/path"}),
+            json!({"selfHosted": "http://mini.tail1234.ts.net?x=1"}),
+            json!({"selfHosted": "http://user@mini.tail1234.ts.net"}),
+            json!({"selfHosted": "not a url"}),
+            json!({"selfHosted": 7320}),
+            json!({"other": "http://mini.tail1234.ts.net"}),
+            json!({"selfHosted": "http://mini.tail1234.ts.net", "extra": "x"}),
+        ] {
+            let answer = read("home_server", json!({"home": {"server": bad.clone()}}));
+            assert_eq!(answer["values"]["server"]["mode"], "hosted", "{bad}");
+            assert_eq!(messages(&answer)[0].0, "home.server", "{bad}");
+        }
+    }
+
+    #[test]
+    fn agent_mouse_defaults_and_choices() {
+        let absent = read("agent_mouse", json!({}));
+        assert_eq!(absent["values"], json!({"motion": "human", "maxMoveMs": 350.0}));
+        let chosen = read("agent_mouse", json!({"browser": {"agentMouse": {"motion": "instant", "maxMoveMs": 200}}}));
+        assert_eq!(chosen["values"]["motion"], "instant");
+        assert_eq!(chosen["values"]["maxMoveMs"], 200.0);
+    }
+
+    #[test]
+    fn verification_autofill_accounts_are_trimmed_lowercased_and_deduped() {
+        let root = json!({"browser": {"verificationAutofill": {"accounts": [" Lawrence@cmux.com ", "lawrence@cmux.com", "not an address"]}}});
+        assert_eq!(read("verification_autofill", root)["values"]["accounts"], json!(["lawrence@cmux.com"]));
+        let bad = read("verification_autofill", json!({"browser": {"verificationAutofill": {"enabled": "yes"}}}));
+        assert_eq!(bad["values"]["enabled"], false);
+        assert_eq!(messages(&bad).len(), 1);
+        assert_eq!(messages(&bad)[0].0, "browser.verificationAutofill.enabled");
+    }
+
+    #[test]
+    fn font_smoothing_choices_and_refusals() {
+        for mode in ["auto", "antialiased", "subpixel"] {
+            let answer = read("font_smoothing", json!({"appearance": {"fontSmoothing": mode}}));
+            assert_eq!(answer["values"]["mode"], mode);
+            assert!(messages(&answer).is_empty());
+        }
+        for bad in [json!("subpixel-antialiased-ish"), json!(true), json!(0)] {
+            let answer = read("font_smoothing", json!({"appearance": {"fontSmoothing": bad}}));
+            assert_eq!(answer["values"]["mode"], "auto");
+            assert_eq!(messages(&answer)[0].0, "appearance.fontSmoothing");
+        }
+    }
+
+    #[test]
+    fn device_hub_reads_the_url() {
+        let answer = read("device_hub", json!({"deviceHub": {"url": "http://mini.tail.ts.net:8787"}}));
+        assert_eq!(answer["values"]["url"], "http://mini.tail.ts.net:8787");
+        assert_eq!(read("device_hub", json!({}))["values"]["url"], "");
+        let bad = read("device_hub", json!({"deviceHub": {"url": 3}}));
+        assert_eq!(messages(&bad), vec![("deviceHub.url".to_owned(), "expected a string".to_owned())]);
+    }
+
+    #[test]
+    fn menu_look_reads_and_reports() {
+        let good = read(
+            "menu_look",
+            json!({"appearance": {"menu": {"cornerRadius": 12, "fill": "#2b2b2b", "rowHeight": 30, "shortcuts": "muted", "submenu": "flush"},
+                                   "popover": {"padding": 12, "header": "strong", "progressHeight": 6}}}),
+        );
+        assert!(messages(&good).is_empty(), "{good}");
+        assert_eq!(good["values"]["cornerRadius"], 12.0);
+        assert_eq!(good["values"]["fill"], "#2b2b2b");
+        assert_eq!(good["values"]["submenu"], "flush");
+        assert_eq!(good["values"]["popoverHeader"], "strong");
+        let bad = read("menu_look", json!({"appearance": {"menu": {"shadow": "huge", "fill": "red", "rowHeight": 99}}}));
+        let paths: Vec<_> = messages(&bad).into_iter().map(|m| m.0).collect();
+        for path in ["appearance.menu.shadow", "appearance.menu.fill", "appearance.menu.rowHeight"] {
+            assert!(paths.iter().any(|p| p == path), "{path}: {paths:?}");
+        }
+    }
+
+    #[test]
+    fn motion_categories_list_the_switched_off() {
+        let answer = read("motion_categories", json!({"ui": {"animations": {"enabled": false, "tabs": false, "web": "no"}}}));
+        assert_eq!(answer["values"]["enabled"], false);
+        assert_eq!(answer["values"]["disabled"], json!(["tabs"]));
+        assert_eq!(messages(&answer)[0].0, "ui.animations.web");
+    }
+
+    #[test]
+    fn retired_new_tab_templates_read_as_minimal() {
+        for retired in RETIRED_TEMPLATES {
+            let answer = read("new_tab_template", json!({"tabs": {"newTabTemplate": retired}}));
+            assert_eq!(answer["values"]["template"], "minimal");
+            assert!(messages(&answer).is_empty());
+        }
+        let bad = read("new_tab_template", json!({"tabs": {"newTabTemplate": "nope"}}));
+        assert_eq!(messages(&bad)[0].1, "expected one of \"minimal\", \"classic\", \"terminal\"");
+    }
+
+    #[test]
+    fn now_playing_reads_each_path() {
+        let answer = read(
+            "now_playing",
+            json!({"sidebar": {"nowPlaying": {"enabled": false, "otherApps": 1}}, "tabs": {"newTabNowPlaying": false}}),
+        );
+        assert_eq!(answer["values"]["enabled"], false);
+        assert_eq!(answer["values"]["newTab"], false);
+        assert_eq!(messages(&answer)[0].0, "sidebar.nowPlaying.otherApps");
+    }
+
+    #[test]
+    fn palette_ranking_sorts_aliases_and_dedupes_pins() {
+        let answer = read(
+            "palette_ranking",
+            json!({"palette": {"aliases": {"zz": "a", "bb": "a", " ": "a", "cc": ""}, "pins": ["x", "y", "x", ""]}}),
+        );
+        assert_eq!(answer["values"]["aliases"], json!({"a": ["bb", "zz"]}));
+        assert_eq!(answer["values"]["pins"], json!(["x", "y"]));
+    }
+
+    #[test]
+    fn reduced_backgrounds_notes_only_while_on() {
+        let on = call("custom.read", &json!({"name": "reduced_backgrounds_notes", "root": {}, "reduced": true})).unwrap().unwrap();
+        assert_eq!(on["diagnostics"][0]["kind"], "plainBackgrounds");
+        let off = call("custom.read", &json!({"name": "reduced_backgrounds_notes", "root": {}})).unwrap().unwrap();
+        assert!(messages(&off).is_empty());
+    }
+
+    #[test]
+    fn remote_localhost_overrides() {
+        let answer = read(
+            "remote_localhost",
+            json!({"browser": {"remoteLocalhost": false, "remoteLocalhostWorkspaces": {"a": true, "b": "x"}}}),
+        );
+        assert_eq!(answer["values"]["enabled"], false);
+        assert_eq!(answer["values"]["workspaceOverrides"], json!({"a": true}));
+        assert_eq!(messages(&answer)[0].0, "browser.remoteLocalhostWorkspaces.b");
+    }
+
+    #[test]
+    fn screenshots_expand_home_and_trust_keeps_it() {
+        let root = json!({"screenshots": {"folders": ["~/Shots", "/tmp/x", "rel"]}});
+        let answer = call("custom.read", &json!({"name": "screenshots", "root": root, "home": "/Users/me"})).unwrap().unwrap();
+        assert_eq!(answer["values"]["folders"], json!(["/Users/me/Shots", "/tmp/x"]));
+        assert_eq!(messages(&answer)[0].1, "expected an absolute or ~/ path");
+        let trust = read("trust", json!({"agents": {"trust": {"projectRoots": ["~/code", "no"], "ownOrgs": ["acme", ""]}}}));
+        assert_eq!(trust["values"]["projectRoots"], json!(["~/code"]));
+        assert_eq!(trust["values"]["ownOrgs"], json!(["acme"]));
+        assert_eq!(messages(&trust).len(), 2);
+    }
+
+    #[test]
+    fn surface_backgrounds_report_each_mistake() {
+        let answer = read(
+            "surface_backgrounds",
+            json!({"appearance": {"surfaces": {"sidebar": {"color": "#112233", "opacity": 0.5, "x": 1}, "nope": {}, "tabBar": {"opacity": 2}}}}),
+        );
+        assert_eq!(answer["values"]["overrides"], json!({"sidebar": {"color": "#112233", "opacity": 0.5}}));
+        assert_eq!(messages(&answer).len(), 3);
+    }
+
+    #[test]
+    fn updates_notify_alias_and_clamps() {
+        let answer = read("updates", json!({"updates": {"checkIntervalSeconds": 1}}));
+        assert_eq!(messages(&answer)[0].0, "updates.checkIntervalSeconds");
+        assert!(messages(&answer)[0].1.starts_with("clamped to "));
+    }
+
+    #[test]
+    fn appearance_tuning_wording() {
+        let answer = read("appearance_tuning", json!({"appearance": {"hue": 9}}));
+        assert!(messages(&answer)[0].1.ends_with("such as 0.5"), "{answer}");
     }
 
     #[test]
