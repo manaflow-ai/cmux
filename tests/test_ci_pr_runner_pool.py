@@ -3753,8 +3753,15 @@ class IOSRouting(unittest.TestCase):
                                (ios_pool.ephemeral(SMALL), {"requested": SMALL}),
                                (ios_pool.ephemeral(LARGE), {"variable": LARGE}),
                                (ios_pool.ephemeral("macos-26"), {}),
-                               (ios_pool.ephemeral(SMALL), {"overflow": SMALL})):
+                               (ios_pool.ephemeral(SMALL), {"overflow": SMALL}),
+                               (ios_pool.ephemeral(SMALL), {"event": "push"}),
+                               (ios_pool.ephemeral(SMALL), {"event": "workflow_dispatch"}),
+                               (ios_pool.ephemeral(SMALL), {"event": "schedule"})):
             self.assertIs(ios_pool.granted_default(route, **{**base, **changes}), route, changes)
+        # A pull request run takes the grant: the controller's bound re-runs it off a starved label.
+        for event in ("pull_request", "pull_request_target"):
+            self.assertEqual(ios_pool.granted_default(ios_pool.ephemeral(SMALL), **{**base, "event": event}).label,
+                             "cmux-mac", event)
 
     def test_main_grants_the_same_repository_default_and_keeps_a_forks(self):
         def run(args, env):
@@ -3771,6 +3778,7 @@ class IOSRouting(unittest.TestCase):
         # A fork, an outage's overflow label and another repository keep the simple picker's Blacksmith pool.
         for extra, env in ((["--fork", "true"], {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}),
                            ([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "CI_OVERFLOW_MAC": SMALL}),
+                           ([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_NAME": "push"}),
                            ([], {})):
             runs_on = json.loads(run(args + extra, env)["runs_on"])
             self.assertIsInstance(runs_on, str, (extra, env))
