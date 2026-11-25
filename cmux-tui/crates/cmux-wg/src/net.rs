@@ -33,7 +33,7 @@ use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack, user_timeout};
-use crate::timers::{QuietKeepalive, TimerSchedule};
+use crate::timers::{AirGap, QuietKeepalive, TimerSchedule};
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
 use crate::ultra_auto::{self, AutoUltra, UltraChoice};
 use crate::ultra_hello::{self, Negotiation};
@@ -162,6 +162,7 @@ impl WgNet {
         let ultra = Arc::new(UltraCounters::default());
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
+        underlay.set_floor(auto.is_some());
         let driver =
             Driver::new(config, underlay, negotiation, auto, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
@@ -285,6 +286,39 @@ impl WgNet {
         reply_rx.await.map_err(|_| WgError::Shutdown)
     }
 
+    /// The shortest gap between two of the tunnel's own unsolicited sends
+    /// (routine path probes and their off-path notes) while no data flows,
+    /// or `None` (the default) to probe on schedule. Probes due inside the
+    /// gap wait for its end, or go at once with the session's next send.
+    /// A path that went quiet, a new or suspect path, and a ping
+    /// `probe_now` asked for never wait. The link sets it from its idle
+    /// air budget (a phone's radio stays asleep between wakes).
+    pub async fn set_idle_air_gap(&self, gap: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::IdleAirGap { gap, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// The longest the tunnel stays silent while it has a session: with
+    /// `Some(floor)`, an empty keepalive goes once `floor` passed with
+    /// nothing sent, sooner than the persistent keepalive would. A phone's
+    /// radio that hears nothing for its inactivity timer (5 to 12 s on LTE
+    /// carriers) sleeps, and the next key then waits for its promotion and
+    /// paging slot; the link sets a floor below that timer while the person
+    /// looks at the app. `None` (the default): only the persistent
+    /// keepalive. Not while held.
+    pub async fn set_air_floor(&self, floor: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::AirFloor { floor, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -370,6 +404,8 @@ enum Command {
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
     Hold { hold: Option<Duration>, reply: oneshot::Sender<()> },
+    IdleAirGap { gap: Option<Duration>, reply: oneshot::Sender<()> },
+    AirFloor { floor: Option<Duration>, reply: oneshot::Sender<()> },
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
@@ -400,6 +436,8 @@ struct Driver {
     /// a probe sent or judged.
     probe_route: Option<(IpAddr, IpAddr)>,
     probe_deadline: Option<Instant>,
+    /// The link's idle air gap for routine probes (`WgNet::set_idle_air_gap`).
+    air_gap: AirGap,
     /// Per-connection pacing of the stack's output, and when it next lets
     /// a queued packet leave.
     pacer: Pacer,
@@ -584,6 +622,7 @@ impl Driver {
             quiet_keepalive,
             probe_route,
             probe_deadline: None,
+            air_gap: AirGap::default(),
             pacer: Pacer::default(),
             pace_deadline: None,
             negotiation,
@@ -718,7 +757,7 @@ impl Driver {
             .flatten();
         let wire_bytes = datagram.len();
         let tap = |received: crate::testing::Received<'_>| {
-            crate::testing::tap_received(local, received, wire_bytes)
+            crate::testing::tap_received(local, received, wire_bytes);
         };
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
@@ -921,6 +960,7 @@ impl Driver {
         let roamed = self.underlay.take_path_change();
         if std::mem::take(&mut self.resumed) | roamed {
             self.stack.path_changed();
+            self.pacer.path_changed();
         }
         let path_rtt = self.path_rtt();
         self.stack.set_path_rtt(path_rtt);
@@ -928,6 +968,8 @@ impl Driver {
         loop {
             let progressed = self.stack.step();
             self.flush_tx();
+            // Only the first step resends what the path change forced.
+            self.pacer.path_settled();
             if !progressed && !self.stack.has_rx() {
                 break;
             }
@@ -971,11 +1013,19 @@ impl Driver {
             }
             Command::Hold { hold, reply } => {
                 self.stack.set_hold(hold);
-                let keepalive = self.config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
-                self.schedule.set_persistent_keepalive(keepalive && hold.is_none());
+                self.schedule
+                    .set_persistent_keepalive(self.quiet_keepalive.is_some() && hold.is_none());
                 if hold.is_none() && std::mem::take(&mut self.reassert_at_release) {
                     self.reassert();
                 }
+                let _ = reply.send(());
+            }
+            Command::IdleAirGap { gap, reply } => {
+                self.air_gap.set(gap);
+                let _ = reply.send(());
+            }
+            Command::AirFloor { floor, reply } => {
+                self.set_air_floor(floor);
                 let _ = reply.send(());
             }
             Command::BindDatagram { port, reply } => {
