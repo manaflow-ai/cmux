@@ -198,13 +198,13 @@ pub(crate) struct Ctx {
 }
 
 /// Where the shared state lives: `ACPMUX_PR_WAIT_DIR`, else the user cache folder's
-/// `cmux/pr-wait`. Regenerable: deleting it costs one poll.
+/// `cmux/pr-wait` (`cmux-next/pr-wait` on macOS, `cmux_config::NEXT_DIR`). Regenerable: deleting it costs one poll.
 fn state_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("ACPMUX_PR_WAIT_DIR") {
         return Ok(PathBuf::from(dir));
     }
     let cache = dirs::cache_dir().ok_or_else(|| anyhow!("no cache folder for pr-wait's state"))?;
-    Ok(cache.join("cmux").join("pr-wait"))
+    Ok(cache.join(cmux_config::NEXT_DIR).join("pr-wait"))
 }
 
 fn read_shared(path: &Path) -> Shared {
