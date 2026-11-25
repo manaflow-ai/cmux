@@ -32,9 +32,10 @@
 //! coming, its lanes or sub-sessions at work, else its kind's measured share) and the model's own
 //! prices. With a certain wake it pays from about 24K tokens; for an idle lane (P 0.65) from
 //! about 32K; at 60K once P is over 0.32. Replayed over the fleet's 24 h of idle stretches
-//! (leo-workspace `tools/compact_rule_replay.py`): no compaction $2,496 a day of wake rewrites
-//! and compactions, the 60K bar $1,083, compacting every chat of 20K or more $1,197, this rule
-//! $1,085, with 33% fewer wake rewrites than the 60K bar. A skipped deadline logs
+//! (leo-workspace `tools/compact_rule_replay.py`), wake rewrites plus compactions priced alike:
+//! the 60K bar costs 43% of no compaction, compacting every chat of 20K or more 48%, this rule
+//! 43%, and it rewrites 43M tokens a day on a wake against the 60K bar's 65M (no compaction:
+//! 263M). A skipped deadline logs
 //! `cache compaction skipped: the expected saving does not pay for it`.
 //!
 //! It fires only when the chat is idle as the idle reaper judges it (no turn running or
