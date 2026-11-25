@@ -26,7 +26,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
-import { Api, directExec, Journey, listAllMachines, passwordSignIn, resolveBackend, STACK, type Exec } from "./cloud-journey";
+import { Api, directExec, Journey, listAllMachines, passwordSignIn, resolveBackend, scrub, STACK, type Exec } from "./cloud-journey";
 
 const NAME_PREFIX = "cmux-test-";
 const CHECK_MARK = "-chief-start";
@@ -96,8 +96,8 @@ const REPLY_DEADLINE_MS = 240_000;
 const rowText = (m: any): string =>
   (Array.isArray(m?.parts) ? m.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text ?? "")).join("\n") || String(m?.text ?? "");
 
-/** The Chief's first message in its conversation not seen before (the snapshot's newest 50), or null by the deadline. */
-export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number): Promise<{ text: string } | null> {
+/** Wait for a fresh, exact echo or the Chief's turn failure (which can follow a partial reply). */
+export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number, secrets: string[] = []): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
   for (;;) {
     const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
@@ -107,8 +107,10 @@ export async function chiefReply(api: Pick<Api, "read">, conversation: string, c
       const id = String(m?.id ?? m?.message_id ?? m?.seq ?? "");
       if (who !== chief || !id || seen.has(id)) continue;
       const text = rowText(m);
-      if (!text.trim()) continue;
-      if (!text.includes(expected) && !/not signed in|not logged in/i.test(text)) continue;
+      const failure = /^\(turn failed(?: on [^:\n]+)?:/m.exec(text);
+      if (failure) throw new Error(scrub(text.slice(failure.index), secrets).slice(0, 600));
+      if (/not signed in|not logged in/i.test(text)) throw new Error("the Chief answered without a model: not signed in");
+      if (text.trim() !== expected) continue;
       seen.add(id);
       return { text };
     }
@@ -259,10 +261,8 @@ async function main(): Promise<number> {
       await seedChiefRows(api, conversation, chief, seen);
       const sentAt = Date.now();
       await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
-      const reply = await chiefReply(api, conversation, chief, seen, word, REPLY_DEADLINE_MS);
+      const reply = await chiefReply(api, conversation, chief, seen, word, REPLY_DEADLINE_MS, J.secrets);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await journal(exec)}`);
-      if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
-      if (!reply.text.includes(word)) throw new Error(`the Chief reply did not echo ${word}: ${reply.text.slice(0, 300)}`);
       return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     await J.step("a message from the phone's web page gets the reply (POST /v1/chief/messages with chiefId)", async () => {
@@ -273,14 +273,13 @@ async function main(): Promise<number> {
       // serve it to a bearer, the step says so and the reply check above stands.
       if (r.status === 404) return { value: null, detail: `POST /v1/chief/messages is not deployed on ${backend.api} (404)` };
       if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
-      const reply = await chiefReply(api, conversation, chief, seen, "again", REPLY_DEADLINE_MS);
+      const reply = await chiefReply(api, conversation, chief, seen, "again", REPLY_DEADLINE_MS, J.secrets);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
-      if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
       return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {
-    console.error(`cloud-chief-start-check: ${String((e as Error)?.message ?? e).slice(0, 2000)}`);
+    console.error(`cloud-chief-start-check: ${scrub(String((e as Error)?.message ?? e), J.secrets).slice(0, 2000)}`);
     return 1;
   } finally {
     if (chief) {
