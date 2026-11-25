@@ -2601,6 +2601,43 @@ class ReadTokenSplitTests(unittest.TestCase):
         self.assertEqual(sent, ["Bearer reader", "Bearer reader", "Bearer bot"])
         self.assertIn("READ_TOKEN_FLOOR", github.rate_limited)
 
+    def test_at_the_floor_a_capped_cancel_still_reads_its_run_and_cancels(self):
+        """2026-11-24 19:05Z, sweep 45464022363: the listing left glaeda-route at READ_TOKEN_FLOOR, then each planned
+        cancel's guard read (the run, read again before its POST) was refused at that floor, so 22 merged or closed
+        pull requests' runs and 6 h 51 min lost-assignment runs stayed queued sweep after sweep. The guard reads now
+        go on cmux-bot's token, as the cancel does, and the listing still stops at the floor."""
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.read_token_floor = 3000
+        github.rate_limits["core (read token)"] = {"remaining": 2900}
+        run = make_run(status="queued")
+        ghost = make_run(status="queued", age=60 * 48)
+        state = {run["id"]: dict(run), ghost["id"]: dict(ghost)}
+        sent = []
+
+        def urlopen(request, timeout=30):
+            token, method, url = request.get_header("Authorization"), request.get_method(), request.full_url
+            sent.append((method, token, url.rsplit("/actions/", 1)[-1]))
+            run_id = int(url.split("/runs/")[1].split("/")[0])
+            if method == "POST":
+                state[run_id]["status"] = "completed"
+                return self.Response(b"{}", self.budget("7000"))
+            return self.Response(json.dumps(state[run_id]).encode(), self.budget("7000"))
+
+        candidate = janitor.Candidate(run, "stale-pr", "PR is merged", janitor.macos_usage(mac_jobs(queued=1)))
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            results, failures = janitor.cancel_plan(github, [candidate])
+            orphan_results, orphan_failures = janitor.cancel_orphans(
+                github, orphan_plan(find([ghost], {})), sleep=lambda _: None)
+            # Past the cancels the floor holds again: the listing's reads are not sent.
+            with self.assertRaises(janitor.RateLimited):
+                github.jobs(1)
+        self.assertEqual((results[run["id"]], failures), ("cancelled", 0))
+        self.assertEqual((orphan_results[ghost["id"]], orphan_failures), ("cancelled", 0))
+        self.assertEqual({token for _, token, _ in sent}, {"Bearer bot"})
+        self.assertEqual(len(sent), 5)
+        self.assertFalse(github.cancel_phase)
+
     def test_no_floor_or_a_reset_window_reads_as_before(self):
         github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
         github.use_read_token("reader")

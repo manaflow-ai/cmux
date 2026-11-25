@@ -48,7 +48,11 @@ It never fails the job and never prints an empty `cloud`:
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import gzip
+import io
+import json
 import os
 import re
 import sys
@@ -73,6 +77,13 @@ TRUSTED_RUNNER = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9-]*")
 DEAD_KEY = picker.DEAD_MARKS_KEY
 POOL = "macos_26"
 MARK_TTL = dt.timedelta(minutes=picker.DEAD_MARK_TTL_MINUTES)
+# vars.CI_RUNNER_STATE (cmuxterm-hq build-fleet/mini-ops/RUNNER-STATE.md): the registration census, read when the
+# live runner list is refused. On 2026-11-25 the routing token got 403 listing runners, the unread list kept the
+# pinned pair, no online runner carried both labels, and run 45540008136's build-nightly-app sat queued over an hour.
+CENSUS_SCHEMA = "runner-state/v1"
+CENSUS_MAX_ENCODED = 48 * 1024
+CENSUS_MAX_DECODED = 2 * 1024 * 1024
+CENSUS_MAX_AGE = dt.timedelta(minutes=30)
 
 
 def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -80,11 +91,34 @@ def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | 
     if runners is None:
         return "unread"
     online = [item for item in runners if item.get("status") == "online"
-              and {pool, runner} <= {str(label.get("name")) for label in item.get("labels") or ()
-                                     if isinstance(label, Mapping)}]
+              and {pool, runner} <= {str(label.get("name") if isinstance(label, Mapping) else label)
+                                     for label in item.get("labels") or ()}]
     if not online:
         return "offline"
     return "idle" if any(not item.get("busy") for item in online) else "busy"
+
+
+def census_runners(raw: str | None, now: dt.datetime) -> list[Mapping[str, Any]] | None:
+    """The runner rows of vars.CI_RUNNER_STATE (gzip, base64, runner-state/v1), or None when it is missing, out of
+    shape, incomplete or more than CENSUS_MAX_AGE old: then the list stays unread, as before."""
+    if not raw or len(raw) > CENSUS_MAX_ENCODED:
+        return None
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(base64.b64decode(raw, validate=True))) as source:
+            body = source.read(CENSUS_MAX_DECODED + 1)
+        state = json.loads(body) if len(body) <= CENSUS_MAX_DECODED else None
+        if not isinstance(state, Mapping) or state.get("schema") != CENSUS_SCHEMA or state.get("complete") is not True:
+            return None
+        stamp = dt.datetime.fromisoformat(str(state.get("generated_at")).replace("Z", "+00:00"))
+        if stamp.tzinfo is None or not -dt.timedelta(seconds=5) <= now - stamp <= CENSUS_MAX_AGE:
+            return None
+        rows = list(state.get("repository_runners") or [])
+        groups = state.get("runner_groups")
+        for group in (groups.values() if isinstance(groups, Mapping) else ()):
+            rows += list(group or [])
+    except Exception:  # noqa: BLE001 - an unreadable census keeps the old behaviour
+        return None
+    return [row for row in rows if isinstance(row, Mapping) and isinstance(row.get("labels") or [], list)]
 
 
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],
@@ -231,7 +265,7 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
 
     def read() -> Sequence[Mapping[str, Any]] | None:
         if not (route_token and repo):
-            return None
+            return census_runners(env.get("RUNNER_STATE"), now or wall())
         try:
             if read_runners is not None:
                 return read_runners(route_token, repo)
@@ -240,7 +274,10 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
             return pr_runner_pool.GitHub(route_token, repo).runners()
         except Exception as error:  # noqa: BLE001 - never fail the job
             print(f"::warning title=classic nightly build runner::could not list runners ({str(error)[:200]})")
-            return None
+            rows = census_runners(env.get("RUNNER_STATE"), now or wall())
+            if rows is not None:
+                print("classic nightly build runner: judged the pinned runner from vars.CI_RUNNER_STATE")
+            return rows
 
     # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
     now = now or wall()

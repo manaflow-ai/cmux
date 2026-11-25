@@ -7628,5 +7628,13 @@
     "dbUpdated": "データベース: {time}",
     "noOwner": "cmux の所有者なし",
     "none": "なし。"
+  },
+  "analyticsConsent": {
+    "label": "アナリティクス",
+    "message": "サイトの利用状況を把握するため、アナリティクスを使ってもよいですか？許可しない限り、何も収集せず、分析用の Cookie も保存しません。",
+    "privacy": "プライバシーポリシー",
+    "accept": "許可する",
+    "decline": "許可しない",
+    "settings": "アナリティクス設定"
   }
 }
