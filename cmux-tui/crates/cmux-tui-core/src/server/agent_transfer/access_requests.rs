@@ -7,15 +7,20 @@
 //! requests: it never reaches the Mac and nothing here grants anything.
 //!
 //! - `access-request {kind:"file", path, session?, reason?}` or
-//!   `{kind:"secret", name, session?, reason?}`: answers `{request_id}`.
+//!   `{kind:"secret", name, session?, reason?}`: answers `{request_id,
+//!   read_token}`. `read_token` goes to the asking connection only (never
+//!   listed): a secret's value is answered only to a status read that brings
+//!   it, so another chat's agent that lists the requests cannot take it.
 //!   `path` is the absolute path on the Mac the agent asks for, `name` the
 //!   secret's name (plain, at most 128 bytes), `session` the asking chat's
 //!   agent session (`CMUX_AGENT_SESSION`), `reason` a line for the person.
-//! - `access-request-status {request_id}`: `{state, path?, value?, reason?}`,
+//! - `access-request-status {request_id, read_token?}`: `{state, path?, value?, reason?}`,
 //!   where `state` is `pending`, `delivered` (with the `path` on this machine
 //!   the Mac put the file at, or a secret's `value`) or `denied` (with the
 //!   Mac's `reason`, if any). A secret's value is answered to the first
-//!   status read only, then wiped here (`{state:"delivered", taken:true}`).
+//!   status read with the request's `read_token` only, then wiped here
+//!   (`{state:"delivered", taken:true}`). A read without the token (or with
+//!   another) learns the state, never the value, and takes nothing.
 //! - `access-request-list {}`: the pending requests, oldest first, as
 //!   `{requests:[{request_id, kind, path, name, session, reason, age_ms}]}`.
 //! - `access-request-answer {request_id, outcome:"delivered", path}` (a
@@ -35,8 +40,10 @@
 //! remote relay (`cmux link`'s gate) does not list these verbs. Unknown and
 //! command-bearing params are refused.
 //!
-//! Bounds: 64 requests kept, pending or answered; a request is forgotten 15
-//! minutes after it was made or answered. Paths up to 4096 bytes, reasons
+//! Bounds: a request is forgotten 15 minutes after it was made or answered;
+//! their count is not capped (each is one map entry of at most about 5.5 KiB
+//! of text, plus a secret answer of at most 64 KiB until its first status
+//! read). Paths up to 4096 bytes, reasons
 //! up to 1000, sessions up to 200 plain characters, secret names up to 128,
 //! secret values up to 64 KiB.
 
@@ -55,7 +62,6 @@ use crate::server::{MessageWriter, Response};
 
 pub const ACCESS_REQUEST_CAPABILITY: &str = "access-request-v1";
 
-const MAX_REQUESTS: usize = 64;
 const KEPT: Duration = Duration::from_secs(15 * 60);
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_REASON_BYTES: usize = 1000;
@@ -78,6 +84,9 @@ struct Request {
     name: Option<String>,
     session: Option<String>,
     reason: Option<String>,
+    /// The asker's capability to read a secret's value: answered to the
+    /// `access-request` call only, never listed.
+    read_token: Zeroizing<String>,
     made: Instant,
     /// When it was answered, and how.
     answer: Option<(Instant, Answer)>,
@@ -120,7 +129,7 @@ impl Refusal {
             Self::BadRequest => "bad access request",
             Self::UnknownRequest => "no such access request",
             Self::Answered => "the access request was already answered",
-            Self::Limit => "too many access requests; wait for some to be answered",
+            Self::Limit => "could not make an access request id",
         }
     }
 }
@@ -211,10 +220,9 @@ fn handle(
             if reason.is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
                 return Err(Refusal::BadRequest);
             }
-            if kept.len() >= MAX_REQUESTS {
-                return Err(Refusal::Limit);
-            }
             let request_id = new_id().ok_or(Refusal::Limit)?;
+            let read_token = new_id().ok_or(Refusal::Limit)?;
+            let reply = json!({ "request_id": request_id, "read_token": read_token });
             kept.insert(
                 request_id.clone(),
                 Request {
@@ -223,22 +231,35 @@ fn handle(
                     name,
                     session: session.map(str::to_string),
                     reason: reason.map(str::to_string),
+                    read_token: Zeroizing::new(read_token),
                     made: now,
                     answer: None,
                 },
             );
-            Ok(json!({ "request_id": request_id }))
+            Ok(reply)
         }
         "access-request-status" => {
-            let params = Params::take(params, &["request_id"])?;
+            let params = Params::take(params, &["request_id", "read_token"])?;
             let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?;
             let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
+            let asker = params
+                .text("read_token")?
+                .is_some_and(|token| same_bytes(token.as_bytes(), request.read_token.as_bytes()));
             Ok(match &mut request.answer {
                 None => json!({"state": "pending"}),
                 Some((_, Answer::Delivered(path))) => json!({"state": "delivered", "path": path}),
                 // Only the first read gets the value; it is gone from here after.
                 // Moved, not copied, into the reply; the reply line itself is
                 // the one plain copy left, until it is written.
+                // Another chat's agent can list the requests and name this
+                // one, but not bring its token: it learns the state only.
+                Some((_, Answer::Secret(value))) if !asker => {
+                    if value.is_some() {
+                        json!({"state": "delivered"})
+                    } else {
+                        json!({"state": "delivered", "taken": true})
+                    }
+                }
                 Some((_, Answer::Secret(value))) => match value.take() {
                     Some(mut value) => {
                         let mut reply = json!({"state": "delivered"});
@@ -361,6 +382,12 @@ fn plain_session(session: &str) -> bool {
         && session.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
 }
 
+/// Whether `a` and `b` are equal, in time that does not depend on where they
+/// first differ.
+fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
 /// A new request id: 16 random bytes in hex.
 fn new_id() -> Option<String> {
     let mut bytes = [0u8; 16];
@@ -387,4 +414,76 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Refusa
         None,
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requests_past_the_old_cap_of_64_are_kept_and_listed() {
+        let requests = AccessRequests::default();
+        let now = Instant::now();
+        for index in 0..200 {
+            let mut params = Map::new();
+            params.insert("kind".into(), json!("secret"));
+            params.insert("name".into(), json!(format!("SECRET_{index}")));
+            let Ok(answer) = handle(&requests, "access-request", params, now) else {
+                panic!("request {index} refused");
+            };
+            assert!(answer["request_id"].is_string(), "{answer}");
+        }
+        let Ok(listed) = handle(&requests, "access-request-list", Map::new(), now) else {
+            panic!("list refused");
+        };
+        assert_eq!(listed["requests"].as_array().map(Vec::len), Some(200));
+    }
+
+    fn call(requests: &AccessRequests, cmd: &str, params: Value) -> Value {
+        let Value::Object(params) = params else { panic!("params") };
+        match handle(requests, cmd, params, Instant::now()) {
+            Ok(value) => value,
+            Err(refusal) => panic!("{cmd} refused: {}", refusal.code()),
+        }
+    }
+
+    #[test]
+    fn a_shared_secret_is_answered_only_to_the_read_that_brings_the_askers_token() {
+        let requests = AccessRequests::default();
+        let made = call(
+            &requests,
+            "access-request",
+            json!({"kind": "secret", "name": "NPM_TOKEN", "session": "chat-a"}),
+        );
+        let (id, token) = (made["request_id"].clone(), made["read_token"].clone());
+        assert!(token.as_str().is_some_and(|token| token.len() == 32), "{made}");
+        let listed = call(&requests, "access-request-list", json!({}));
+        assert!(!listed.to_string().contains(token.as_str().unwrap()), "{listed}");
+        call(
+            &requests,
+            "access-request-answer",
+            json!({"request_id": id, "outcome": "delivered", "value": "fake-value"}),
+        );
+        // Another chat names the request, with no token or a guessed one.
+        for params in [
+            json!({"request_id": id}),
+            json!({"request_id": id, "read_token": "0".repeat(32)}),
+            json!({"request_id": id, "read_token": ""}),
+        ] {
+            let status = call(&requests, "access-request-status", params);
+            assert_eq!(status, json!({"state": "delivered"}));
+        }
+        let status = call(
+            &requests,
+            "access-request-status",
+            json!({"request_id": id, "read_token": token}),
+        );
+        assert_eq!(status["value"], "fake-value", "{status}");
+        let again = call(
+            &requests,
+            "access-request-status",
+            json!({"request_id": id, "read_token": token}),
+        );
+        assert_eq!(again, json!({"state": "delivered", "taken": true}));
+    }
 }

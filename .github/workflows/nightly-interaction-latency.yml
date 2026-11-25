@@ -1,0 +1,111 @@
+name: nightly interaction latency
+
+# The interaction latency benches each cmux NEXT nightly touched, run at its commit (scripts/ci/
+# nightly_interaction_latency.py). Leo, 2026-11-19, paraphrased: the app is still slow everywhere. On each push to
+# nightly-next it reads the last state (the newest
+# nightly-interaction-latency artifact), picks the interactions whose files changed since the nightly it last
+# measured (and any still stale), runs their webviews/bench/web-ui-suite.ts benches one at a time on Linux, and
+# uploads the new state: each interaction's rows, the commit that measured them, and `stale` for one touched but not
+# measured. The step summary is the table. NOW in cmuxterm-hq reads the artifact and marks a stale interaction's goal
+# unmet. Nothing depends on this workflow and it never gates a nightly. A push to nightly-next runs nightly-next's own
+# copy of the file, so no default-branch dispatcher is needed.
+on:
+  push:
+    branches:
+      - nightly-next
+  workflow_dispatch:
+
+permissions: {}
+
+# One at a time; a newer push replaces a pending run (the next run diffs from the last measured nightly, so nothing
+# is missed), and a started run is never cancelled, so the state is never half written.
+concurrency:
+  group: nightly-interaction-latency
+  cancel-in-progress: false
+
+jobs:
+  benches:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # The script's 90-minute bench budget plus setup.
+    timeout-minutes: 115
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      # Trees of feat-cmux-next's recent first-parent line, no blobs: enough to diff this nightly against the last
+      # one measured. A base outside it makes every interaction touched, never none.
+      - name: Fetch recent history
+        continue-on-error: true
+        timeout-minutes: 5
+        run: git fetch -q --no-tags --filter=blob:none --shallow-since="14 days ago" origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+
+      - name: Test the planner
+        run: python3 -I tests/test_ci_nightly_interaction_latency.py
+
+      # An unread state stops the job (after retries): the plan and the state are never written from nothing.
+      - name: Read the last state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/ci/nightly_interaction_latency.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/prev"
+
+      - name: Plan the touched interactions
+        id: plan
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          python3 -I scripts/ci/nightly_interaction_latency.py plan --state "$RUNNER_TEMP/prev/state.json" \
+            --head "$GITHUB_SHA" --before "$BEFORE" --out "$RUNNER_TEMP/plan.json"
+          echo "count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["run"]))' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.plan.outputs.count != '0'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        if: steps.plan.outputs.count != '0'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Install webview dependencies
+        if: steps.plan.outputs.count != '0'
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        if: steps.plan.outputs.count != '0'
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      - name: Run the touched benches
+        if: steps.plan.outputs.count != '0'
+        continue-on-error: true
+        timeout-minutes: 95
+        run: python3 -I scripts/ci/nightly_interaction_latency.py run --plan "$RUNNER_TEMP/plan.json" --webviews webviews --out "$RUNNER_TEMP/results"
+
+      # Also after a failed or timed-out bench step: the interactions it did not measure are written stale.
+      - name: Write the state
+        if: ${{ always() && !cancelled() && steps.plan.outcome == 'success' }}
+        env:
+          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+        run: |
+          python3 -I scripts/ci/nightly_interaction_latency.py report --state "$RUNNER_TEMP/prev/state.json" \
+            --plan "$RUNNER_TEMP/plan.json" --results "$RUNNER_TEMP/results" --out "$RUNNER_TEMP/state" --runner "$RUNNER_LABEL"
+
+      - name: Publish the state
+        if: ${{ always() && !cancelled() && steps.plan.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-interaction-latency
+          path: ${{ runner.temp }}/state
+          retention-days: 90
+          if-no-files-found: ignore

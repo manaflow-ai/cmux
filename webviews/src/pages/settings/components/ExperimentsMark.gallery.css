@@ -1,0 +1,73 @@
+/* Gallery only: the experiments mark's placements over the sidebar mock of AppHealthFooterRow.gallery.css
+   (ExperimentsMark.gallery.tsx). The shipped chip is app health's chip (the sidebar cards' veil, caption
+   text, the chip radius) with a flask and a quiet Turn Off, as SidebarExperimentsMarkView draws it. */
+.xm-sidebar {
+  /* The native sidebar's comfortable default width (MetricTunables.sidebarWidth). */
+  width: 240px;
+  --xm-chip: 22px;
+  --xm-glyph: 10px;
+  --xm-lights: 8px;
+}
+.xm-chip svg,
+.xm-pill svg,
+.xm-avatar svg {
+  flex: none;
+  width: var(--xm-glyph);
+  height: var(--xm-glyph);
+}
+/* Above app health's chip when both float there: one chip height and the gap higher. */
+.xm-chip[data-stacked] {
+  bottom: calc(var(--ahf-row) + 2 * var(--ds-space-2) + var(--xm-chip));
+}
+.xm-chip {
+  height: var(--xm-chip);
+  box-sizing: border-box;
+  gap: var(--ds-space-1);
+}
+.xm-turn-off {
+  flex: none;
+  margin-inline-start: var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  color: var(--ds-color-muted);
+  font-weight: var(--weight-regular);
+}
+.xm-in-row {
+  flex: none;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-color-hover);
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.xm-avatar {
+  color: var(--ds-color-muted);
+}
+.xm-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 var(--ds-space-3);
+  border-bottom: 1px solid var(--ds-color-separator);
+}
+.xm-lights {
+  width: 40px;
+  height: var(--xm-lights);
+  border-radius: 999px;
+  background: var(--ds-color-faint);
+}
+.xm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--ds-color-hover);
+  color: var(--ds-color-muted);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  white-space: nowrap;
+}

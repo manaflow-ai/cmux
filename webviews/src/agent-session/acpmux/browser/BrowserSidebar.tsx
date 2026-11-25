@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
-import { AgentMark } from "../../shared/AgentMark";
+import { useScrollEdges } from "../../../ui/scrollEdges";
+import { SessionMark } from "../../shared/AgentMark";
 import { WithFacts } from "../chips/FactsHoverCard";
 import { useT } from "../i18n";
 import { activityTime, listed, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
@@ -19,6 +20,8 @@ export const BrowserSidebar = memo(function BrowserSidebar({
   onRefresh?(): void;
 }) {
   const t = useT();
+  // Its rows ease out at an edge with more beyond it, as the app sidebar's do (Leo, 2026-11-22).
+  const edges = useScrollEdges();
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(60);
   const needle = query.trim().toLocaleLowerCase();
@@ -45,7 +48,7 @@ export const BrowserSidebar = memo(function BrowserSidebar({
   };
   const visibleWorkspaces = matchingWorkspaces(workspaces, needle, chatTitle);
   return (
-    <nav className="acpmux-browser-sidebar" aria-label={t("ledger.group.workspace")}>
+    <nav ref={edges} className="acpmux-browser-sidebar ui-scroll-edge-fade" aria-label={t("ledger.group.workspace")}>
       <div className="acpmux-browser-sidebar-heading">
         <h2>{t("ledger.group.workspace")}</h2>
         {onRefresh && (
@@ -98,7 +101,7 @@ export const BrowserSidebar = memo(function BrowserSidebar({
                         if (chat.local && chat.sessionId) onSelect(chat.sessionId);
                       }}
                     >
-                      <AgentMark agent={session?.harness ?? chat.harness} size={16} tint />
+                      <SessionMark icon={session?.icon} agent={session?.harness ?? chat.harness} size={16} tint />
                       <span>{title}</span>
                     </button>
                   )}
@@ -123,7 +126,7 @@ export const BrowserSidebar = memo(function BrowserSidebar({
               aria-current={row.sessionId === selected ? "page" : undefined}
               onClick={() => onSelect(row.sessionId)}
             >
-              <AgentMark agent={row.harness} size={16} tint />
+              <SessionMark icon={row.icon} agent={row.harness} size={16} tint />
               <span>{sessionTitle(row, t)}</span>
             </button>
           )}

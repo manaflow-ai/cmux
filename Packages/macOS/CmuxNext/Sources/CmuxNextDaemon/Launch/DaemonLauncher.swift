@@ -239,7 +239,7 @@ public struct DaemonLauncher: Sendable {
     /// (``ChiefHome``) makes the owner this build's alone, so no other build or space shares it.
     public static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey]
+                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey, egressModeKey]
         var environment = base.filter { kept.contains($0.key) }
         // The same absolute path the app's terminals and daemon get (``SettingsFileOverride``).
         let home = base["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -258,6 +258,8 @@ public struct DaemonLauncher: Sendable {
 
     /// The variable that carries a build's cloud data space to its Rust children (cmux-tui `cmux-build-space`).
     public static let buildSpaceKey = "CMUX_BUILD_SPACE"
+    /// The build's egress mode (`LaunchIdentity.egressModeKey`), kept for every Rust child so it enforces as the app does.
+    public static let egressModeKey = "CMUX_EGRESS"
 
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
@@ -400,6 +402,7 @@ public struct DaemonLauncher: Sendable {
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
            let running = await runningOwner() {
             health?.note(.ready(pid: running.pid))
+            DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
             return running
         }
         async let reapGrace = supportsReapGrace()
@@ -432,6 +435,7 @@ public struct DaemonLauncher: Sendable {
             )
             let ensured = try Self.parseEnsure(result)
             note?.end(.ready(pid: ensured.pid))
+            DaemonLaunchTimings.shared.mark(ensured.status == "started" ? DaemonLaunchTimings.spawned : DaemonLaunchTimings.reused)
             return ensured
         } catch {
             note?.end(.exited)
@@ -522,6 +526,7 @@ public struct DaemonLauncher: Sendable {
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
+                    DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
                     return DaemonEndpoint(socketPath: path)
                 }
             }

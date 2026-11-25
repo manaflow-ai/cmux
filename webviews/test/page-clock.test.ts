@@ -83,3 +83,97 @@ test("timestamp deadlines share the nearest timer and stop when no label will ch
   stopStatic();
   expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
 });
+
+test("timestamp labels mounting and unmounting arm no timer of their own", () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
+  const doc = installDocument("visible");
+  const set = globalThis.setTimeout;
+  const clear = globalThis.clearTimeout;
+  let armed = 0;
+  let cleared = 0;
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+    armed += 1;
+    return set(...args);
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id?: Parameters<typeof clearTimeout>[0]) => {
+    cleared += 1;
+    return clear(id);
+  }) as typeof clearTimeout;
+  let notified = 0;
+  const stops: (() => void)[] = [];
+  try {
+    // The newest label first (its words change soonest), then a fling's worth of older ones coming and going.
+    stops.push(
+      subscribePageDeadline(
+        () => notified++,
+        () => 60_000,
+      ),
+    );
+    for (let frame = 0; frame < 100; frame += 1) {
+      for (let row = 0; row < 40; row += 1)
+        stops.push(
+          subscribePageDeadline(
+            () => notified++,
+            () => 3_600_000 + row,
+          ),
+        );
+      for (const stop of stops.splice(1)) stop();
+    }
+  } finally {
+    globalThis.setTimeout = set;
+    globalThis.clearTimeout = clear;
+  }
+  // 4,000 labels came and went: the first label's one timer is all that was armed.
+  expect(armed).toBe(1);
+  expect(cleared).toBe(0);
+  expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 1 });
+  jest.advanceTimersByTime(60_005);
+  expect(notified).toBe(1);
+  stops[0]!();
+  expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
+});
+
+// A chat switch unmounts one chat's timestamp labels and mounts the next one's: each join or leave
+// rebuilt the timer and scanned every label for the nearest deadline, quadratic in the rows
+// (bench/settled-page.bench.ts chat_switch). A join rebuilds only for a label due before the timer.
+test("timestamp labels join and leave without rebuilding the shared timer, and still wake on time", () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
+  const doc = installDocument("visible");
+  let built = 0;
+  const realAdd = doc.addEventListener.bind(doc);
+  doc.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject) => {
+    if (type === "visibilitychange") built += 1;
+    realAdd(type, listener);
+  }) as typeof doc.addEventListener;
+  const woke: number[] = [];
+  const stops: (() => void)[] = [];
+  for (let row = 0; row < 400; row += 1)
+    stops.push(
+      subscribePageDeadline(
+        () => woke.push(row),
+        () => (Date.now() < 120_000 ? 120_000 + (row % 3) * 60_000 : Infinity),
+      ),
+    );
+  expect(built).toBe(1);
+  expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 400 });
+  // An earlier label moves the timer up.
+  let early = 0;
+  const stopEarly = subscribePageDeadline(
+    () => early++,
+    () => (Date.now() < 60_000 ? 60_000 : Infinity),
+  );
+  expect(built).toBe(2);
+  // Leaving rebuilds nothing until the last label goes.
+  for (const stop of stops.splice(200)) stop();
+  expect(built).toBe(2);
+  jest.advanceTimersByTime(60_005);
+  expect(early).toBe(1);
+  expect(woke).toEqual([]);
+  stopEarly();
+  jest.advanceTimersByTime(60_000);
+  expect(woke.length).toBe(Math.ceil(200 / 3));
+  for (const stop of stops) stop();
+  expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
+});

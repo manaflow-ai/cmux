@@ -235,7 +235,9 @@ final class GroupLineView: NSView {
     override func updateLayer() {
         let look = observedLook()
         // Sections (`sidebar.groupHeader.background`): a plain heading over its members, no line and no block.
-        if !background.drawsBackground { return paintNothing() }
+        if !background.drawsMembersMark { return paintNothing() }
+        if background.drawsCard, isBlock { return paintCard(look) }
+        if background == .tree { return paintGuide(look) }
         if isBlock { return paintBlock(look.noColor) }
         light.isHidden = true
         rim.isHidden = true
@@ -271,6 +273,48 @@ final class GroupLineView: NSView {
                 : glassy ? tint.glassRGB(palette: look.palette).nsColor : tint.lineFill(palette: look.palette)
         }
         return line.withAlphaComponent(line.alphaComponent * strength).cgColor
+    }
+
+    /// Cards (`sidebar.groupHeader.background` Cards): one rounded block around the group's header and members, a faint
+    /// wash of the group's color (a neutral step of the text color for a group with no color; `GroupBackground`'s wash,
+    /// the quieter headers' fill), edged by a hairline of the group's color held to 3:1 on the sidebar (the quiet ink for a group with no color). The rows' own
+    /// hover, selection and drop fills draw over it. A collapsed group is the card's header alone.
+    private func paintCard(_ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette, noColor: SidebarNoColorGroupLook, glass: SidebarGroupGlass)) {
+        performWithTheme {
+            let tokens = themeTokens
+            let wash = GroupBackground(tint: color, strength: .wash, glass: false, palette: look.palette,
+                                       wallpaper: DesignSettings.shared.groupWallpaperTint, tokens: tokens)
+            let edge = color.isNone ? tokens.textSecondary.withAlpha(1)
+                : ThemeTokens.readable(color.lineRGB(palette: look.palette).withAlpha(1), over: tokens.sidebarBackground.withAlpha(1),
+                                       minimum: ThemeTokens.minimumMarkContrast)
+            railShape.fillColor = nil
+            layer?.backgroundColor = wash.shown.nsColor.withAlphaComponent(strength).cgColor
+            layer?.borderWidth = Metrics.lineWidth(1)
+            layer?.borderColor = edge.nsColor.withAlphaComponent(strength).cgColor
+            rim.isHidden = true
+            light.isHidden = true
+            blockRail.isHidden = true
+        }
+        updateShape()
+    }
+
+    /// Trees (`sidebar.groupHeader.background` Trees): a thin guide line under the folder glyph, from the header down
+    /// to the last member, in the group's color held readable on the sidebar (the folder glyph's rule, 3:1), the
+    /// theme's quiet ink for a group with no color. A hairline, so the layer's own fill draws it (no katana, no cap).
+    private func paintGuide(_ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette, noColor: SidebarNoColorGroupLook, glass: SidebarGroupGlass)) {
+        performWithTheme {
+            let tokens = themeTokens
+            let ink = color.isNone ? tokens.textSecondary.withAlpha(1)
+                : ThemeTokens.readable(color.lineRGB(palette: look.palette).withAlpha(1), over: tokens.sidebarBackground.withAlpha(1),
+                                       minimum: ThemeTokens.minimumMarkContrast)
+            railShape.fillColor = nil
+            layer?.backgroundColor = ink.nsColor.withAlphaComponent(strength).cgColor
+            layer?.borderWidth = 0
+            rim.isHidden = true
+            light.isHidden = true
+            blockRail.isHidden = true
+        }
+        updateShape()
     }
 
     /// A block's surface: the shared `group` surface role untinted (`SurfaceRole.group`), its veil over the sidebar's own

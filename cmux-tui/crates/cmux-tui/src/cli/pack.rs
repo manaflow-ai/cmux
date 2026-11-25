@@ -43,7 +43,7 @@ cmux pack: a whole look (tokens, colors, backgrounds, motion, tabs, fonts, slots
 /// Runs `bench` makes when `--runs` is not given.
 const DEFAULT_RUNS: usize = 200;
 /// A save is often several events: changes this close together are one reload.
-const DEBOUNCE: Duration = Duration::from_millis(50);
+pub(super) const DEBOUNCE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Request {
@@ -423,7 +423,7 @@ fn history(global: &GlobalArgs, store: &Store) -> i32 {
 /// Whether a watch event can mean a change to the pack's files: not a read
 /// (inotify reports every open, and each reload reads the folder). A
 /// lost-events report counts.
-fn relevant(event: &notify::Result<notify::Event>) -> bool {
+pub(super) fn relevant(event: &notify::Result<notify::Event>) -> bool {
     use notify::event::{AccessKind, AccessMode, EventKind};
     let Ok(event) = event else { return true };
     if event.need_rescan() {

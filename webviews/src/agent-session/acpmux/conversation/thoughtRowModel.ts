@@ -28,32 +28,60 @@ export const thoughtLayout = {
   height: (node: HTMLElement) => node.getBoundingClientRect().height,
   /// The text's whole height, also while the live viewport clips it.
   contentHeight: (node: HTMLElement) => node.scrollHeight,
+  /// Whether the closed row's one line holds more than it shows: its words wrap past the line it is
+  /// cut to (`-webkit-line-clamp`), or run past its end.
+  cut: (node: HTMLElement) => node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1,
 };
 
 export type ThoughtHeader = "duration" | "preview";
 export type ThoughtFoldThreshold = "every" | "viewport" | "codex";
 
-/// The most of a thought its closed row holds: more than the widest row shows, and short enough to
-/// be the button's name a screen reader reads (a thought can be thousands of characters).
+/// The most of a thought's line its button gives as its name: short enough for a screen reader to
+/// read (one unbroken line can be thousands of characters).
 export const THOUGHT_LINE_CHARS = 240;
 
-/// One line of a thought's words for its closed row: every line without Codex's heading marks, its
-/// breaks as spaces, at most THOUGHT_LINE_CHARS; the row cuts it with an ellipsis.
-export function thoughtLine(text: string): string {
-  // Only the start of a long thought is read: the line never needs more.
-  const line = text
-    .slice(0, THOUGHT_LINE_CHARS * 4)
-    .split("\n")
-    .map(thoughtPreview)
-    .filter(Boolean)
-    .join(" ");
-  return line.length > THOUGHT_LINE_CHARS ? `${line.slice(0, THOUGHT_LINE_CHARS).trimEnd()}\u2026` : line;
+/// The row button's name when its line is longer than THOUGHT_LINE_CHARS: the line's start, cut with
+/// an ellipsis. A shorter line names the button itself.
+export function thoughtName(line: string): string | undefined {
+  return line.length > THOUGHT_LINE_CHARS ? `${line.slice(0, THOUGHT_LINE_CHARS).trimEnd()}\u2026` : undefined;
 }
 
-/// The folded line's text: the thought's first line without Codex's heading marks (`#`, `**`).
-export function thoughtPreview(text: string): string {
-  return (text.split("\n", 1)[0] ?? "")
-    .replace(/^#+\s*/, "")
-    .replace(/\*\*/g, "")
-    .trim();
+/// A thought's row line and what opens under it (Leo, 2026-11-22: "what if instead of Thought blah
+/// blah we simply... had the whole line be the line? then you expand and it simply shows you the
+/// rest"). The line is the thought's own first line: a heading's words (`title`), else the text up
+/// to its first break, as it draws in the whole text, so opening swaps no words. `rest` is every
+/// line after it; `gap` says a blank line parted the two.
+export type ThoughtHead = { line: string; title: boolean; rest: string; gap: boolean };
+
+export function thoughtHead(text: string): ThoughtHead {
+  const lines = text.split("\n");
+  let at = 0;
+  while (at < lines.length && !lines[at]!.trim()) at += 1;
+  const first = lines[at] ?? "";
+  const after = lines.slice(at + 1);
+  const gap = after.length > 0 && !after[0]!.trim();
+  const rest = after
+    .join("\n")
+    .replace(/^\s*\n/, "")
+    .trimEnd();
+  const parts = thoughtParts(first);
+  const head = parts[0];
+  if (head && "title" in head) return { line: unmeta(head.title), title: true, rest, gap };
+  return { line: unmeta(first.trim()), title: false, rest, gap: gap && rest !== "" };
+}
+
+/// A summarized thought (Claude Code's `--thinking-display summarized`, written server side) can open
+/// by narrating the thinking instead of saying it: "I'm checking the next thinking, and it reads
+/// 'Already known....'" (Leo, 2026-11-25: "this is extremely strange"). The row line is never such
+/// a meta line: it reads what the narration quotes, else the sentence after the narration's own.
+const META_LEAD =
+  /^(?:(?:now|so|ok(?:ay)?),?\s+)?(?:i['\u2019]?m|i am|i['\u2019]ll|i will|let me|i)\s+(?:now\s+)?(?:check(?:ing|s)?|read(?:ing|s)?|look(?:ing)? (?:at|over)|review(?:ing|s)?|summariz(?:e|ing)|go(?:ing)? (?:through|over)|process(?:ing)?)\s+(?:the\s+|this\s+|my\s+)?(?:next|previous|prior|latest|last|current|new|following|above)?\s*(?:chunk of\s+|block of\s+|piece of\s+|part of\s+)?(?:thinking|thoughts?|reasoning)\b/i;
+const META_QUOTE = /\b(?:reads?|says?|is|goes)\s*:?\s*["'\u2018\u201c](.+?)["'\u2019\u201d]?\s*$/i;
+
+export function unmeta(line: string): string {
+  if (!META_LEAD.test(line)) return line;
+  const quoted = META_QUOTE.exec(line)?.[1]?.trim();
+  if (quoted) return quoted;
+  const next = line.replace(/^[^.!?:]*[.!?:]\s+/, "").trim();
+  return next && next !== line ? next : line;
 }
