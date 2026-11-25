@@ -626,7 +626,12 @@ async fn a_start_from_kept_answers_skips_the_server_start_numbers() {
     let mut kept = Vec::new();
     for round in 0..5u64 {
         let session = format!("chat-n{round}");
-        g.keep(&session, launch(home.path())).unwrap();
+        // Each cold measurement needs a distinct launch shape. Chats with the same shape now
+        // intentionally share initialize and tools/list answers, so reusing the plain launch
+        // would measure the new shared-answer path instead of a server start.
+        let mut cold_launch = launch(home.path());
+        cold_launch.env.push(("COLD_ROUND".into(), round.to_string()));
+        g.keep(&session, cold_launch).unwrap();
         let started = Instant::now();
         rpc(&g, &session, init(1)).await;
         rpc(&g, &session, list(2)).await;
