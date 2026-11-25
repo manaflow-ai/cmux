@@ -98,6 +98,9 @@ public struct TerminalTabPage: View {
     let host: TerminalTabHost
     /// Status bar (top) and toolbar (bottom) over the page.
     let insets: EdgeInsets
+    /// Where the chrome's cover ends this frame (a collapsed top bar's is above `insets.top`):
+    /// the status scrim's height. Nil: `insets.top`.
+    let chromeTop: CGFloat?
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
     /// The page is full screen, not zoomed out to the tab grid; true through
@@ -107,16 +110,17 @@ public struct TerminalTabPage: View {
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool, isOnPage: Bool? = nil) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool, isOnPage: Bool? = nil) {
         self.host = host
         self.insets = insets
+        self.chromeTop = chromeTop
         self.isInteractive = isInteractive
         self.isOnPage = isOnPage ?? isInteractive
     }
 
     public var body: some View {
         @Bindable var model = host.model
-        EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+        EmbeddedTerminalControllerView(host: host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
@@ -216,8 +220,10 @@ public struct TerminalTabCard: View {
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
-                    ?? CmuxMobileGhosttyApp.background)
+                // The page's ground: the Mac's wallpaper under the terminal background's tint, else that background.
+                CmuxMobileBackdrop(background: Color(uiColor: (model.hostTheme
+                        ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
+                    ?? CmuxMobileGhosttyApp.background))
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
@@ -242,9 +248,10 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                        // A frame from an earlier launch stands in, dimmed like a page
-                        // that is not live, until the Mac's screen arrives (T-TABS-01).
-                        .opacity(content.isCurrent ? 1 : 0.55)
+                        // A frame from an earlier launch stands in at full strength until the
+                        // Mac's screen arrives (T-TABS-01): never greyed (Leo, 2026-11-24:
+                        // "the graying out of workspaces, nah let's not do that").
+                        .opacity(content.drawnOpacity)
                     }
                 case .placeholder:
                     VStack(alignment: .leading, spacing: 4) {
@@ -303,6 +310,7 @@ struct TerminalCardScreenText: View {
 struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let host: TerminalTabHost
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
 
     func makeUIViewController(context: Context) -> EmbeddedTerminalContainer {
@@ -314,6 +322,15 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
         let controller = container.terminal
         guard controller.parent === container else { return }
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        // The scrim rides the top bar's collapse inside the same SwiftUI animation, so the
+        // band the bar gave back shows the rows under it instead of a solid strip.
+        let scrimTop = chromeTop ?? insets.top
+        if controller.needsChromeTop(scrimTop) {
+            context.animate {
+                controller.setChromeTop(scrimTop)
+                controller.view.layoutIfNeeded()
+            }
+        }
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
         // so its composer, Return and Scroll to bottom stayed exposed and took

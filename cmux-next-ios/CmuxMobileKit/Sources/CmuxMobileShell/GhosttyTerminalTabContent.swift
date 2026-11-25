@@ -409,8 +409,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
         // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
-        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive,
-                                                isOnPage: context.isOnPage))
+        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, chromeTop: context.chromeTop,
+                                           isInteractive: context.isInteractive, isOnPage: context.isOnPage))
     }
 
     /// Releases a tab that fell out of the warm set: its Mac attach and its
@@ -498,8 +498,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect", "Mac offline") only once its outage has
+    /// A read (no host is created): the tab's pill says "Can't connect" or
+    /// "Mac offline" only once its outage has
     /// lasted `QuietStatusGate.threshold`; before that the tab shows its last
     /// frame and says nothing. The only place a terminal tab shows its
     /// connection: no row by the composer (Leo, 2026-11-17: "The reconnect
@@ -508,7 +508,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let indicator = indicator(tab.id)
         guard indicator.isShown else { return nil }
         if indicator.isOffline { return "Mac offline" }
-        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
+        // Still reattaching (or no host yet): nothing, the pill keeps its usual words (Leo, 2026-11-24).
+        return hosts[tab.id]?.model.connectionState.pillSubtitle
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -895,11 +896,12 @@ final class TerminalTabSlot {
 struct TerminalTabSlotPage: View {
     let slot: TerminalTabSlot
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
     let isOnPage: Bool
 
     var body: some View {
-        TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive, isOnPage: isOnPage)
+        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive, isOnPage: isOnPage)
             .id(ObjectIdentifier(slot.host))
     }
 }

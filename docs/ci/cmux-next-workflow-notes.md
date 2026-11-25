@@ -4375,6 +4375,13 @@ tip on a push) refuses a row the base lacks (a unit fixed in place does not free
 without `--base`, judges every unlisted offender and fails a row whose unit no longer offends, whatever file the
 change touched: whether a unit offends depends on files it does not live in (a strings map, a string table). Its own tests run in the same background check.
 
+The same step then prints `--input-block`: each place a view is disabled, loses hit testing or is grayed out on a
+link condition (connecting, reconnecting, reattaching, resuming, offline, disconnected, not attached, the hub not
+ready), on the web pages, the Mac app and the iOS apps (Leo, 2026-11-24, back in the iOS app after minutes in
+another app: "the entire thing is somehow grayed out and I can't interact with anything at all"). It is a report:
+it exits 0 whatever it finds, and the findings are the work queue for the lanes that make input accepted while the
+link comes back. A blocking rule for it needs Leo's own word.
+
 The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
 kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
 fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
@@ -5005,6 +5012,18 @@ spill off; unset or any other value leaves it on.
 
 ## note-556
 
+Above the `if:` of `swift-canary-fleet`, `swift-canary`, `fast-tier-rerun-placement`, `fast-tier-fleet` and `fast-tier` in `.github/workflows/cmux-next.yml`.
+
+CI v2 step 11 (Leo, 2026-11-24: "how about finishing up our borg/ci v2? did we finish all 27+ things?"): a
+feat-cmux-next pull request runs the fast tier's Swift suites and the Swift canary as the `mac-fast-tier` and
+`mac-swift-canary` steps of ci/steps.toml, in pr-pipeline.yml's `mac` job, which pr-router.yml starts only when
+the change routes a `mac` step and the head is in the full tier (scripts/ci/pr_router.py FULL_TIER_JOBS). Each
+step asks scripts/ci/mac_tiers.py, which reads cmux_next_route.py over the same merge-commit diff, whether its
+tier is routed. So fast-tier, fast-tier-fleet, fast-tier-rerun-placement, swift-canary and swift-canary-fleet
+lost their pull request clause here (fast-tier-handback-placement follows fast-tier-fleet), and
+macos-placement no longer places them for a pull request. A push to feat-cmux-next and a dispatch still run
+them here, unchanged.
+
 Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
 
 Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,
@@ -5018,6 +5037,34 @@ request skips it while the newest base push verdict is red (scripts/ci/base_red_
 full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.
 
 ## note-557
+
+Above `path_route: PR_FAST_ONLY` in `.github/workflows/cmux-next.yml` (the last block of
+scripts/ci/cmux-next-steps/classify-pull-request-paths.sh).
+
+Leo, 2026-11-21: "help 100x ci speed and the decrease of needed minutes aka lower resources and lower wall time and
+lower machine time while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."
+(cmuxterm-hq goals/ci-verdict-wall-100x.md: PR verdict p50 at most 0.64 min.)
+
+A pull request into feat-cmux-next runs only the PR fast tier in this workflow: the push head preflight, path
+routing (its same-tree cmux-tui probe no longer runs, since no daemon or scheme tier is routed), the PR red-checks
+comment and the compile-status job, which on a same-repository head hands cmux-next/compile to the build-fleet
+controller and ends (it compiles nothing here). The route writes `false` for swift_canary, cmuxnext_swift,
+mac_release, macos, generated, swift, daemon, full, fast_tier, fast_tier_cargo and scheme after every other route,
+so each job they feed skips through its existing `if:`: macOS placement, the Mac fast tier and its fleet jobs, the
+Swift canary, the app compile placement and fleet app compile, web bundles, swift test, daemon tests, generated
+files, the Release compile, the scheme compile and crash-ends-app, and the cargo fast tier (10 to 17 min on
+2026-11-24 PR runs). All of them still run on the feat-cmux-next push run and the base tier (the batched tier); a
+red there is fixed forward.
+
+Skipped is a passing verdict to land-judge (PASSING: success, neutral, skipped; a skip with no cancel in its run is
+a routed skip, not "skipped by a cancel") and to next-autoland, whose Swift-package rule still dispatches
+cmux-next.yml on the branch for a missing swift test (swift_dispatch) as before, and whose cmux-next/compile rule is
+answered by the controller status that compile-status still requests. No check goes missing: each skipped job keeps
+its check run.
+
+The full-ci label runs every tier on the PR as before (labeling a PR full-ci re-runs this workflow). The dev-build
+label keeps its scheme compile. `vars.CI_PR_FAST_ONLY` set to `0` turns the whole block off; unset or any other
+value leaves it on.
 
 Above `runs-on` in app-compile-fleet and swift-canary-fleet in `.github/workflows/cmux-next.yml`.
 
@@ -5057,3 +5104,21 @@ so the checks that did run were nearly all inputs of the diff, the PR itself, or
 An ideal input-based routing would save about 7% of minutes and almost no wall; the verdict wall is the slowest
 affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
 PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.
+
+## note-558
+
+Above `fleet_queue_p90()` and its check in `fleet_gateway()` in `scripts/ci/side_lane_placement.py`
+(the `macos-placement` job's "Place the macOS jobs" step).
+
+Placement lists fast-tier for the build fleet (note-555's spill) only when the fleet could start its steps
+within the client's 20-minute queue wait. In the 24 hours to 2026-11-24 22Z, none of fast-tier-fleet's 771
+green runs had a fleet verdict inside 20 minutes: every one waited out `--queue-timeout 1200` (p50 21.2 min,
+16,548 gateway runner-min) and handed the tier back (725 hand-back placements). The light class's p90 queue
+wait was 3,317 s. A step the client stops waiting for keeps its place (note-539) and later runs for nobody,
+ahead of the work queued after it (cmuxterm-hq docs/handbook/process-outlives-its-reader.md): about 1,500
+such steps a day.
+
+So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.light`, 5 s timeout), like
+cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
+`cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
+gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
