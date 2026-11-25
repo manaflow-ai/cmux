@@ -79,7 +79,9 @@ export function SceneAppeared({
 /** Whether the node animates in: it has a transition and came after the first frame. `added` false: this
  * mount did not come from a render adding the node (a windowed LazyVStack scrolled it in), so it does not. */
 export function useSceneEntering(store: SceneStore, node: SceneNode | undefined, added = true): boolean {
-  const [entering] = useState(() => added && store.hasDrawn() && sceneTransitionKind(node?.props.transition) !== undefined);
+  const [entering] = useState(
+    () => added && store.hasDrawn() && sceneTransitionKind(node?.props.transition) !== undefined,
+  );
   return entering;
 }
 
