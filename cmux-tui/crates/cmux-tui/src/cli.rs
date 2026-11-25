@@ -105,8 +105,9 @@ mod cloud_pause_all;
 #[cfg(unix)]
 mod cloud_preflight;
 #[cfg(unix)]
-mod cloud_repo;
+mod cloud_provider;
 #[cfg(unix)]
+mod cloud_repo;
 mod cloud_retention;
 #[cfg(unix)]
 mod cloud_route;
@@ -1102,6 +1103,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
+        .or_else(|| cloud_provider::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| chat_start::hybrid_start::run_if_requested(args))
