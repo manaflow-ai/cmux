@@ -3141,6 +3141,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-sync",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
